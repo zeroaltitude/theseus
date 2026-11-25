@@ -24,8 +24,8 @@ use crate::tests_onto::{bound, rig, rig_with};
 use crate::Core;
 
 /// Words no row and no answer may hold.
-const WORDS: [&str; 2] = ["Quillfeather", "Marrowby"];
-const SAID: &str = "plan the Quillfeather crossing with Marrowby before the tide";
+pub(super) const WORDS: [&str; 2] = ["Quillfeather", "Marrowby"];
+pub(super) const SAID: &str = "plan the Quillfeather crossing with Marrowby before the tide";
 
 fn id(s: &str) -> CategoryId {
     CategoryId::parse(s).unwrap()
@@ -39,7 +39,7 @@ fn operator_writes(core: &Core, records: Vec<Record>) {
 }
 
 /// The one topic the ontology holds.
-fn ledger_topic(core: &Core) {
+pub(super) fn ledger_topic(core: &Core) {
     let c = Category::new(id("topic:ledger"), "Ledger", "ada");
     operator_writes(core, vec![Record::Category(c)]);
 }
@@ -91,15 +91,19 @@ fn said(core: &Core, sid: &str, turn: &str, text: &str, start_ms: u64) {
     old_exchange(core, sid, turn, &n, start_ms);
 }
 
-fn params(dry_run: bool, cap_usd: Option<f64>) -> ExchangeTopicsParams {
-    ExchangeTopicsParams { dry_run, cap_usd }
+pub(super) fn params(dry_run: bool, cap_usd: Option<f64>) -> ExchangeTopicsParams {
+    ExchangeTopicsParams {
+        dry_run,
+        cap_usd,
+        ..Default::default()
+    }
 }
 
 /// The job, as the command runs it once the owner's act is judged. Each
 /// answer's row is written before it returns, so nothing is flushed here:
 /// the sink's flush is a stop's, and closes it, so a later run's rows would
 /// never be written.
-async fn run(core: &Arc<Core>, p: ExchangeTopicsParams) -> ExchangeTopicsResult {
+pub(super) async fn run(core: &Arc<Core>, p: ExchangeTopicsParams) -> ExchangeTopicsResult {
     core.topics_history(&p).await.unwrap()
 }
 
@@ -149,7 +153,7 @@ fn rolled_back(core: &Core) {
 
 /// Take back the touch of exchange `turn`, as a stop between an answer's
 /// row and its touches would leave it.
-fn untouch(core: &Core, turn: &str) {
+pub(super) fn untouch(core: &Core, turn: &str) {
     let key = (core.store.inner())
         .latest_with_prefix(theseus_store::kinds::META, exchange::TOUCH_PREFIX)
         .unwrap()
@@ -161,11 +165,11 @@ fn untouch(core: &Core, turn: &str) {
     core.store.append(&[gone]).unwrap();
 }
 
-fn timeline(core: &Core, category: &str) -> Vec<exchange::Touch> {
+pub(super) fn timeline(core: &Core, category: &str) -> Vec<exchange::Touch> {
     crate::names::topics::timeline(&core.store, &id(category), 10).unwrap()
 }
 
-fn ledger(core: &Core) -> Vec<LedgerRow> {
+pub(super) fn ledger(core: &Core) -> Vec<LedgerRow> {
     core.store
         .ledger_tail::<LedgerRow>(100_000)
         .unwrap()
@@ -174,7 +178,7 @@ fn ledger(core: &Core) -> Vec<LedgerRow> {
         .collect()
 }
 
-fn of_kind(core: &Core, kind: LedgerKind) -> Vec<LedgerRow> {
+pub(super) fn of_kind(core: &Core, kind: LedgerKind) -> Vec<LedgerRow> {
     let kind = kind.as_str();
     ledger(core)
         .into_iter()

@@ -90,6 +90,10 @@ pub enum LedgerCmd {
     ///
     /// A touch this writes means the old exchange fits that topic as judged today, with today's
     /// topics; it is placed at the exchange's own date.
+    ///
+    /// --include-unmarked counts as yours the old messages no mark proves, typed in your own places
+    /// (your terminal, the web UI, your DM, a channel bound private); shared channels stay out; the
+    /// words stay author unknown wherever they are shown.
     Topics {
         /// Count the exchanges it would ask and their worst case, and ask nothing.
         #[arg(long)]
@@ -98,6 +102,11 @@ pub enum LedgerCmd {
         /// that would pass it; a rerun goes on from there.
         #[arg(long, value_parser = cap_usd, allow_negative_numbers = true)]
         cap_usd: Option<f64>,
+        /// Count as yours the old messages no mark proves that arrived in your own places. Some
+        /// at your terminal may have been typed by your agents. A message with no recorded place
+        /// (from before places were recorded) stays out.
+        #[arg(long)]
+        include_unmarked: bool,
     },
 }
 
@@ -153,8 +162,17 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
             };
             return crate::exchanges_cmd::gists(conn, json, p).await;
         }
-        LedgerCmd::Topics { dry_run, cap_usd } => {
-            return crate::exchanges_cmd::topics(conn, json, dry_run, cap_usd).await
+        LedgerCmd::Topics {
+            dry_run,
+            cap_usd,
+            include_unmarked,
+        } => {
+            let p = theseus_protocol::exchange::ExchangeTopicsParams {
+                dry_run,
+                cap_usd,
+                include_unmarked,
+            };
+            return crate::exchanges_cmd::topics(conn, json, p).await;
         }
         LedgerCmd::Head => (
             LedgerVerifyParams {
@@ -388,6 +406,30 @@ mod tests {
             .join(" ");
         let said = "A touch this writes means the old exchange fits that topic as judged today, \
                     with today's topics; it is placed at the exchange's own date.";
+        assert!(flat.contains(said), "{flat}");
+    }
+
+    /// `theseus ledger topics --help` says what his declaration means: his
+    /// own places only, shared channels out, the words author unknown.
+    #[test]
+    fn the_topics_help_says_what_declaring_means() {
+        use clap::{CommandFactory, Parser};
+        #[derive(Parser)]
+        struct T {
+            #[command(subcommand)]
+            cmd: LedgerCmd,
+        }
+        let mut t = T::command();
+        let help = t.find_subcommand_mut("topics").unwrap().render_long_help();
+        let flat = help
+            .to_string()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let said = "--include-unmarked counts as yours the old messages no mark proves, typed in \
+                    your own places (your terminal, the web UI, your DM, a channel bound \
+                    private); shared channels stay out; the words stay author unknown wherever \
+                    they are shown.";
         assert!(flat.contains(said), "{flat}");
     }
 }

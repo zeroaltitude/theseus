@@ -274,6 +274,12 @@ pub struct ExchangeTopicsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cap_usd: Option<f64>,
+    /// His declaration (issue 51): count as his the old exchanges no mark
+    /// proves whose opening message arrived in one of his own places, by
+    /// the place stored on the message (his terminal, the web UI, his DM, a
+    /// channel bound private). Their stored author is not changed.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub include_unmarked: bool,
 }
 
 /// A run's cap of `exchange.topics` (issue 46), as the CLI reads it before
@@ -313,6 +319,15 @@ pub struct ExchangeTopicsResult {
     /// ontology's judge would not act on now.
     pub unproven: u64,
     pub unproven_not_acting: u64,
+    /// Of the unproven, those whose opening message arrived in one of his
+    /// own places (what his declaration counts as his, whether or not this
+    /// run makes it), and those whose message has no recorded place (from
+    /// before places were recorded), which no declaration counts.
+    pub declared: u64,
+    pub unplaced: u64,
+    /// The run counted his declaration (`include_unmarked`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub include_unmarked: bool,
     /// Those opened by no person's message that can be read: a wake, a
     /// task's brief, Theseus's own turn among them.
     pub no_message: u64,

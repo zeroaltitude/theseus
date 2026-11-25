@@ -19,6 +19,21 @@
 //!   message opened it; of those, the ones whose author no record proves (no
 //!   person, no mark) are counted apart, with how many are where `onto` does
 //!   not act now. Counts only: none of them is asked.
+//! - **His declaration** (issue 51; `include_unmarked`): no mark proves
+//!   who typed a message from before marks were recorded, so none of his
+//!   older history is proven his. A run that carries his declaration counts
+//!   as his an exchange whose opening message has no mark at all and
+//!   arrived, by the place code stored on it as it arrived
+//!   (`surface::code_of`), in one of his own places: his terminal (its ask
+//!   and its TUI), the web UI, his DM, a channel bound private. Never a
+//!   shared channel, voice, a Discord place no record names, or a message
+//!   with no recorded place (from before places were), which is counted
+//!   apart; never a message whose mark proves someone else. The exchange's
+//!   stored person is not written (its words stay "author unknown"
+//!   wherever they are shown); it is asked as a private place's, and its
+//!   row's context says `declared: unmarked`, so what the declaration filed
+//!   can be found and undone. Only a run that carries the declaration
+//!   writes a declared answer's touches again from its row.
 //! - **Touches only.** The ask goes in shadow, so the sink writes its row
 //!   and nothing else: no membership, no category minted, no card, no
 //!   `still_*` answer acted on. The job writes the touches itself, with the
@@ -99,6 +114,9 @@ use crate::store::Store;
 
 /// The `purpose` this job's judgments carry in their context.
 pub const PURPOSE: &str = "history";
+/// What a judgment's context says under `declared` when his declaration,
+/// not a mark, counted its exchange as his.
+pub const DECLARED: &str = "unmarked";
 /// The run's cap when the owner names none.
 pub const CAP_USD: f64 = 10.0;
 
@@ -111,6 +129,19 @@ pub(crate) struct Old {
     pub private: bool,
     /// The opening message's node.
     pub node: String,
+    /// Counted as his by his declaration, not by a mark.
+    pub declared: bool,
+}
+
+/// Whether the place code a message stored as it arrived
+/// (`surface::code_of`) is one of his own places: his terminal, its ask and
+/// its TUI, the web UI, his DM, a channel bound private. A shared channel,
+/// voice, MCP and a Discord place no record names are not.
+pub(crate) fn own_place(code: &str) -> bool {
+    matches!(
+        code,
+        "terminal" | "terminal:ask" | "terminal:tui" | "cockpit" | "discord:dm"
+    ) || code.starts_with("discord:channel:private:")
 }
 
 /// The ledger read once: what to ask, this job's earlier answers, and the
@@ -303,6 +334,9 @@ impl JudgeService {
             "place_kind": msg.place_kind, "on_path_ms": 0, "class": inbound::class(false),
             "purpose": PURPOSE, "event_at_ms": n.created_at_ms, "onto": answers,
         });
+        if old.declared {
+            context["declared"] = json!(DECLARED);
+        }
         // The arm is recorded; the ask is shadow whatever it says, so the
         // sink files nothing of it.
         let _ = self.ask_mode(&pack.name(), &mut context);
@@ -454,8 +488,11 @@ impl Core {
             return Err(Busy::Writing.into());
         }
         let core = self.clone();
-        let Plan { todo, again, mut r } = theseus_store::blocking(move || core.topics_plan())?;
+        let declare = p.include_unmarked;
+        let Plan { todo, again, mut r } =
+            theseus_store::blocking(move || core.topics_plan(declare))?;
         (r.dry_run, r.cap_usd, r.to_ask) = (p.dry_run, cap_usd, todo.len() as u64);
+        r.include_unmarked = declare;
         if p.dry_run {
             r.worst_usd = micros_to_usd(self.topics_worst(&todo)?);
             return Ok(r);
@@ -499,7 +536,8 @@ impl Core {
     }
 
     /// The ledger read once, oldest exchange first: see the module's doc.
-    fn topics_plan(&self) -> anyhow::Result<Plan> {
+    /// `declare`: the run carries his declaration.
+    fn topics_plan(&self, declare: bool) -> anyhow::Result<Plan> {
         let touched = onto_touched(&self.store)?;
         let mut before = asked_before(&self.store)?;
         let mut all: Vec<Exchange> = (self.store.inner())
@@ -522,11 +560,36 @@ impl Core {
                     continue;
                 };
                 p.r.not_owner += 1;
-                if ex.person.is_none() && crate::exchange::mark(&self.store, &n.id)?.is_none() {
-                    p.r.unproven += 1;
-                    if !judge.onto_acts(self, &ex.session_id) {
-                        p.r.unproven_not_acting += 1;
-                    }
+                if ex.person.is_some() || crate::exchange::mark(&self.store, &n.id)?.is_some() {
+                    continue;
+                }
+                p.r.unproven += 1;
+                let acts = judge.onto_acts(self, &ex.session_id);
+                if !acts {
+                    p.r.unproven_not_acting += 1;
+                }
+                match n.surface.as_deref() {
+                    None => p.r.unplaced += 1,
+                    Some(code) if own_place(code) => p.r.declared += 1,
+                    Some(_) => {}
+                }
+                if !declare || !n.surface.as_deref().is_some_and(own_place) {
+                    continue;
+                }
+                if let Some(j) = before.remove(&ex.turn_id) {
+                    p.r.asked_before += 1;
+                    p.again.push(j);
+                } else if acts {
+                    p.todo.push(Old {
+                        turn: ex.turn_id,
+                        session: ex.session_id,
+                        place: ex.place,
+                        private: true,
+                        node: n.id,
+                        declared: true,
+                    });
+                } else {
+                    p.r.not_acting += 1;
                 }
             } else if let Some(j) = before.remove(&ex.turn_id) {
                 p.r.asked_before += 1;
@@ -539,6 +602,7 @@ impl Core {
                         place: ex.place,
                         private: ex.private,
                         node: n.id,
+                        declared: false,
                     }),
                     false => p.r.not_acting += 1,
                 }

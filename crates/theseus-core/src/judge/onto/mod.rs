@@ -55,6 +55,8 @@ pub(crate) mod words;
 
 #[cfg(test)]
 mod tests_history;
+#[cfg(test)]
+mod tests_history_declared;
 
 pub use name::NAMES;
 
