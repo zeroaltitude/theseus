@@ -162,7 +162,10 @@ async fn each_half_of_a_fold_shows_only_under_its_word() {
     })
     .await;
     let f = folds(&r, ANA_DM).remove(0);
-    assert!(!f.content.contains("step") && !f.content.contains('·'), "{f:#?}");
+    assert!(
+        !f.content.contains("step") && !f.content.contains('·'),
+        "{f:#?}"
+    );
     assert_eq!(labels(&f), ["Show steps"], "no control without tools");
     r.press(&f.id, "Show steps", (ANA, "ana"));
     r.until("open", || {
@@ -218,7 +221,11 @@ async fn a_live_change_to_hide_a_half_reaches_an_old_fold() {
     .await;
     assert!(!message(&r, ANA_DM, &f.id).content.contains("proc.run"));
 
-    rebind(&r, &bindings("", "show_tools = false\nshow_thinking = false\n")).await;
+    rebind(
+        &r,
+        &bindings("", "show_tools = false\nshow_thinking = false\n"),
+    )
+    .await;
     r.until("the fold shows nothing of either", || {
         let m = message(&r, ANA_DM, &f.id);
         !m.content.contains("💭") && !m.content.contains("proc.run") && labels(&m) == ["Show steps"]
@@ -236,7 +243,10 @@ async fn a_live_change_to_hide_a_half_reaches_an_old_fold() {
     .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let m = message(&r, ANA_DM, &f.id);
-    assert_eq!((m.content.as_str(), m.edits), (closed.content.as_str(), closed.edits));
+    assert_eq!(
+        (m.content.as_str(), m.edits),
+        (closed.content.as_str(), closed.edits)
+    );
 }
 
 /// A fold made while its place was folded, whose place is then bound
@@ -360,7 +370,9 @@ async fn a_vault_value_is_in_no_version_of_a_fold() {
     r.until("open while the turn runs, then its last state", || {
         let m = message(&r, ANA_DM, &f.id);
         m.content.contains("`fs.read`")
-            && r.posted(ANA_DM).iter().any(|m| m.content.contains("Read it."))
+            && r.posted(ANA_DM)
+                .iter()
+                .any(|m| m.content.contains("Read it."))
             && r.core.outbox.status("discord").pending == 0
     })
     .await;
@@ -372,8 +384,10 @@ async fn a_vault_value_is_in_no_version_of_a_fold() {
     }
     assert!(m.content.contains("`fs.read`"), "{m:#?}");
     r.press(&f.id, "Hide steps", (ANA, "ana"));
-    r.until("closed", || labels(&message(&r, ANA_DM, &f.id)).contains(&"Show steps".to_string()))
-        .await;
+    r.until("closed", || {
+        labels(&message(&r, ANA_DM, &f.id)).contains(&"Show steps".to_string())
+    })
+    .await;
     assert!(message(&r, ANA_DM, &f.id)
         .versions
         .iter()
@@ -429,7 +443,9 @@ async fn a_card_and_its_settle_keep_their_order_around_a_fold() {
         c.buttons.is_empty()
             && !f.content.contains("waiting")
             && f.content.contains("1 step: 1 edit")
-            && r.posted(ANA_DM).iter().any(|m| m.content.contains("Written."))
+            && r.posted(ANA_DM)
+                .iter()
+                .any(|m| m.content.contains("Written."))
     })
     .await;
     let answer = r

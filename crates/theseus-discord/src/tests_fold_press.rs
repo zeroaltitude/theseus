@@ -57,9 +57,14 @@ fn reads(dir: &std::path::Path, word: &str, n: usize) -> Scripted {
     std::fs::create_dir_all(&work).unwrap();
     let calls: Vec<(String, Value)> = (0..n)
         .map(|i| {
-            let p = work.join(format!("{word}-a-rather-long-file-name-for-paging-{i:02}.txt"));
+            let p = work.join(format!(
+                "{word}-a-rather-long-file-name-for-paging-{i:02}.txt"
+            ));
             std::fs::write(&p, "x\n").unwrap();
-            (format!("r_{word}_{i}"), json!({"path": p.to_string_lossy()}))
+            (
+                format!("r_{word}_{i}"),
+                json!({"path": p.to_string_lossy()}),
+            )
         })
         .collect();
     let calls: Vec<(&str, &str, Value)> = calls
@@ -130,11 +135,7 @@ async fn forge(r: &Rig, channel: u64, id: &str, custom_id: &str) {
 
 /// The fake's writes held so far.
 fn held(r: &Rig) -> usize {
-    r.fake
-        .seen()
-        .iter()
-        .filter(|s| s.outcome == "held")
-        .count()
+    r.fake.seen().iter().filter(|s| s.outcome == "held").count()
 }
 
 /// The lane is the one writer: while it waits on a write Discord holds, a
@@ -295,9 +296,11 @@ async fn a_press_while_the_lane_backs_off_is_told_and_changes_nothing() {
     };
     r.fake.fail_creates_in(ANA_DM, Some(503));
     r.say((ANA, "ana"), None, "And again?");
-    r.until("the lane refused by Discord", || failed() > 0).await;
+    r.until("the lane refused by Discord", || failed() > 0)
+        .await;
     let pressed = r.press(&f.id, "Show steps", (ANA, "ana"));
-    r.until("the presser told", || told(&r, &pressed, AWAY)).await;
+    r.until("the presser told", || told(&r, &pressed, AWAY))
+        .await;
     let m = message(&r, ANA_DM, &f.id);
     assert_eq!(
         (m.content.as_str(), m.edits),
@@ -402,9 +405,15 @@ async fn a_fold_pressed_for_another_turn_edits_nothing() {
         .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let now = message(&r, ANA_DM, &a.id);
-    assert_eq!((now.content.as_str(), now.edits), (a.content.as_str(), a.edits));
+    assert_eq!(
+        (now.content.as_str(), now.edits),
+        (a.content.as_str(), a.edits)
+    );
     let now = message(&r, ANA_DM, &b.id);
-    assert_eq!((now.content.as_str(), now.edits), (b.content.as_str(), b.edits));
+    assert_eq!(
+        (now.content.as_str(), now.edits),
+        (b.content.as_str(), b.edits)
+    );
 }
 
 /// A fold whose button names a turn of another place: refused, and neither
@@ -425,8 +434,7 @@ async fn a_fold_pressed_for_another_places_turn_edits_nothing() {
     .await;
     r.say((ANA, "ana"), Some(LAB), "Lab?");
     r.until("#lab's fold", || {
-        r.posted(LAB).iter().any(|m| m.content.contains("Lab's."))
-            && folds(&r, LAB).len() == 1
+        r.posted(LAB).iter().any(|m| m.content.contains("Lab's.")) && folds(&r, LAB).len() == 1
     })
     .await;
     r.say((ANA, "ana"), None, "DM?");
@@ -447,9 +455,15 @@ async fn a_fold_pressed_for_another_places_turn_edits_nothing() {
         .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let now = message(&r, ANA_DM, &dm.id);
-    assert_eq!((now.content.as_str(), now.edits), (dm.content.as_str(), dm.edits));
+    assert_eq!(
+        (now.content.as_str(), now.edits),
+        (dm.content.as_str(), dm.edits)
+    );
     let now = message(&r, LAB, &lab.id);
-    assert_eq!((now.content.as_str(), now.edits), (lab.content.as_str(), lab.edits));
+    assert_eq!(
+        (now.content.as_str(), now.edits),
+        (lab.content.as_str(), lab.edits)
+    );
 }
 
 /// In a shared channel, someone it does not list may open and close a fold,
@@ -457,8 +471,7 @@ async fn a_fold_pressed_for_another_places_turn_edits_nothing() {
 /// fold's "Should I have asked?" control, which acts, is refused as before.
 /// A fold's press in a channel not bound here gets no answer at all.
 #[tokio::test]
-async fn a_non_member_may_press_a_fold_but_not_its_control_and_an_unbound_place_answers_nothing()
-{
+async fn a_non_member_may_press_a_fold_but_not_its_control_and_an_unbound_place_answers_nothing() {
     let r = rig(
         |_| {
             vec![
@@ -498,7 +511,11 @@ async fn a_non_member_may_press_a_fold_but_not_its_control_and_an_unbound_place_
     .await;
     let pressed = r.press(&f.id, &control, (CY, "cy"));
     r.until("cy refused the control", || {
-        told(&r, &pressed, "Only the people this place is bound to can do that.")
+        told(
+            &r,
+            &pressed,
+            "Only the people this place is bound to can do that.",
+        )
     })
     .await;
 

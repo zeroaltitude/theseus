@@ -475,15 +475,15 @@ async fn a_task_thread_of_a_folded_channel_folds_its_steps_and_a_press_there_ope
     bound(&r, t.id).await;
     open_gate(&r);
     let fold = |r: &Rig| {
-        r.posted(t.id).into_iter().find(|m| {
-            m.buttons
-                .iter()
-                .any(|b| b.custom_id.starts_with("fold:"))
-        })
+        r.posted(t.id)
+            .into_iter()
+            .find(|m| m.buttons.iter().any(|b| b.custom_id.starts_with("fold:")))
     };
     until(&r, "the task's fold in its thread, its call done", || {
         fold(&r).is_some_and(|f| f.content.starts_with("-# ") && f.content.contains(" command"))
-            && r.posted(LAB).iter().any(|m| m.content.contains("Reef charted"))
+            && r.posted(LAB)
+                .iter()
+                .any(|m| m.content.contains("Reef charted"))
     })
     .await;
     let f = fold(&r).unwrap();

@@ -157,7 +157,11 @@ impl View {
 
     /// Turn `turn`'s closed line, as the place shows it now.
     fn head(&self, turn: &str, r: &Renderer) -> String {
-        fold::line(r.tally(turn).as_ref(), self.process.thought(turn), self.shown())
+        fold::line(
+            r.tally(turn).as_ref(),
+            self.process.thought(turn),
+            self.shown(),
+        )
     }
 
     fn shown(&self) -> Shown {

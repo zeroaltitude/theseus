@@ -46,7 +46,7 @@ pub(crate) struct Press {
     pub at: (u64, u64),
     /// Called once: `Ok` when the lane will write the fold (the place then
     /// makes its new state and sends it on), or why not.
-    pub then: Box<dyn FnOnce(Result<(), Told>) + Send>,
+    pub then: Box<dyn FnOnce(Result<(), Told>) + Send + Sync>,
 }
 
 /// A press on a folded note, checked and written by the lane.
@@ -134,7 +134,13 @@ impl Lane {
     /// A folded note pressed: its words, or its line again, on the message
     /// its post was written to, and on no other.
     async fn note(&mut self, n: &NotePress) -> Told {
-        let a = self.shared.core.kernel.outbox_action(&n.post).ok().flatten();
+        let a = self
+            .shared
+            .core
+            .kernel
+            .outbox_action(&n.post)
+            .ok()
+            .flatten();
         let ours = a
             .as_ref()
             .is_some_and(|a| a.external_op_id.as_deref() == Some(n.at.1.to_string().as_str()));
@@ -163,5 +169,60 @@ impl Lane {
                 Told::NoteGone
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests_bound::{lane, upsert};
+    use super::super::{LaneMsg, SendErr};
+    use super::*;
+    use crate::render::Op;
+
+    /// While the lane waits out Discord, a fold's latest state is kept to be
+    /// written after, as the board's is, where a loop's tool message is
+    /// dropped; and a press is refused at once, and kept nowhere.
+    #[tokio::test]
+    async fn a_fold_waits_out_discord_and_a_press_meanwhile_is_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        let mut lane = lane(d.path(), &fake);
+        lane.take(upsert("turn_a:fold", "-# 1 step: 1 read"));
+        lane.take(upsert("turn_a:L0:tools", "-# ✅ `fs.read` a"));
+        lane.away(&SendErr {
+            away: true,
+            unsure: false,
+            gone: false,
+            message: "away".into(),
+        });
+        let live = |l: &Lane| -> Vec<(String, String)> {
+            l.live
+                .iter()
+                .filter_map(|o| match o {
+                    Op::Upsert { key, content, .. } => Some((key.clone(), content.clone())),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(
+            live(&lane),
+            [("turn_a:fold".to_string(), "-# 1 step: 1 read".to_string())]
+        );
+        lane.take(upsert("turn_a:fold", "-# 2 steps: 2 reads"));
+        lane.take(upsert("turn_a:L1:tools", "-# ✅ `fs.read` b"));
+        assert_eq!(
+            live(&lane),
+            [("turn_a:fold".to_string(), "-# 2 steps: 2 reads".to_string())]
+        );
+        let (tx, rx) = oneshot::channel();
+        lane.take(LaneMsg::Press(Box::new(Press {
+            key: "turn_a:fold".into(),
+            at: (1, 2),
+            then: Box::new(move |r| {
+                let _ = tx.send(r);
+            }),
+        })));
+        assert_eq!(rx.await.unwrap(), Err(Told::Away));
+        assert!(lane.presses.is_empty());
     }
 }

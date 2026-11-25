@@ -644,12 +644,9 @@ fn kind_of(text: &str) -> &'static str {
         "finish"
     } else if text.contains('❌') && text.contains("Task") {
         "failure"
-    } else if text
-        .strip_prefix(SUBTEXT)
-        .is_some_and(|rest| {
-            TOOL_MARKS.iter().any(|m| rest.starts_with(m)) || is_tool_fold(rest) || is_steps_fold(rest)
-        })
-    {
+    } else if text.strip_prefix(SUBTEXT).is_some_and(|rest| {
+        TOOL_MARKS.iter().any(|m| rest.starts_with(m)) || is_tool_fold(rest) || is_steps_fold(rest)
+    }) {
         "tool"
     } else {
         "chat"

@@ -635,7 +635,9 @@ fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back_folded() {
             .find(|m| m.content.starts_with("-# 1 step: 1 command"))
     });
     assert!(
-        fold.versions.iter().all(|v| !v.contains("proc.run") && !v.contains("sleep")),
+        fold.versions
+            .iter()
+            .all(|v| !v.contains("proc.run") && !v.contains("sleep")),
         "{fold:?}"
     );
     assert_eq!(fold.components, 2, "the control's row, and Show steps");
@@ -662,15 +664,29 @@ fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back_folded() {
         (r.outbox()["pending"] == 0).then_some(())
     });
     let got = r.replies();
-    let continued = got.iter().filter(|m| m.content.contains("continued")).count();
+    let continued = got
+        .iter()
+        .filter(|m| m.content.contains("continued"))
+        .count();
     assert_eq!(continued, 1, "posted once: {got:?}");
     let turn = |m: &Msg| -> String {
-        let b = m.buttons.iter().find(|b| b.custom_id.starts_with("fold:")).unwrap();
+        let b = m
+            .buttons
+            .iter()
+            .find(|b| b.custom_id.starts_with("fold:"))
+            .unwrap();
         b.custom_id.rsplit(':').next().unwrap().to_string()
     };
     let first_turn = turn(&fold);
-    let same: Vec<Msg> = folds().into_iter().filter(|m| turn(m) == first_turn).collect();
-    assert_eq!(same.len(), 1, "the first turn's fold is still one message: {same:?}");
+    let same: Vec<Msg> = folds()
+        .into_iter()
+        .filter(|m| turn(m) == first_turn)
+        .collect();
+    assert_eq!(
+        same.len(),
+        1,
+        "the first turn's fold is still one message: {same:?}"
+    );
 }
 
 /// The scratch rule, for every test here: the binding's REST goes to the
