@@ -46,6 +46,8 @@ pub struct StorePeople<'a> {
     pub sessions: &'a Sessions,
     /// The assembly's snapshot of the known values: where a stored name, description or guidance may be cut.
     pub cuts: Cuts,
+    /// What has been said since about the nodes a recent line lays, as the renderer lays it.
+    pub since: Option<&'a crate::copies::since::Since<'a>>,
 }
 
 impl StorePeople<'_> {
@@ -176,6 +178,7 @@ impl People for StorePeople<'_> {
             kernel: None,
             sessions: Some(self.sessions),
             zone: &crate::recall::stamp::system,
+            since: self.since,
         };
         renderer.recent_tokens(piece, pov)
     }

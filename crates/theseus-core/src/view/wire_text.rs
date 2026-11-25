@@ -4,8 +4,9 @@
 //! message; and the ladder's nodes as fold blocks. The window is not the renderer's: the compiler renders
 //! the window's exchanges as real turns (`compiler::view`).
 //!
-//! A piece is read by its range: an exchange of a place from the store, in the piece's form; a named
-//! thing's card, a waiting line and the facts about the person as the turn's sources read them
+//! A piece is read by its range: an exchange of a place from the store, in the piece's form, each node with
+//! what has been said about it since (`copies::since`, as the window lays it); a named thing's card, a
+//! waiting line and the facts about the person as the turn's sources read them
 //! (`super::sources_store::Sessions::texts`). A piece with no text read is left out of the text; it stays in
 //! the view, so the view's record still says it was chosen.
 
@@ -22,6 +23,7 @@ use super::text::labels::{self, Origin};
 use super::text::parts::{self, Seen};
 use super::text::{blocks, page};
 use super::{Anchor, Form, Handle, Label, Piece, PointOfView, Slot, Snapshot, Space};
+use crate::copies::since::Since;
 use crate::exchange;
 use crate::ladder::did;
 use crate::node::Node;
@@ -37,6 +39,9 @@ pub struct TextRenderer<'a> {
     /// The assembly's one read of each session; none reads the store each time.
     pub sessions: Option<&'a super::sources_store::Sessions>,
     pub zone: ZoneAt<'a>,
+    /// What has been said about an exchange's nodes since, laid with its words as the window lays them
+    /// (`copies::since`); none lays them as stored.
+    pub since: Option<&'a Since<'a>>,
 }
 
 /// Where a slot's pieces go on the wire.
@@ -59,9 +64,13 @@ fn part(p: &Piece) -> Part {
 }
 
 impl TextRenderer<'_> {
-    /// The nodes of exchange `turn`, in order, from the session that ran it.
+    /// The nodes of exchange `turn`, in order, from the session that ran it, each with what has been said
+    /// about it since.
     fn exchange_nodes(&self, turn: &str) -> anyhow::Result<Vec<Node>> {
-        let nodes = self.exchange_stubs(turn)?;
+        let mut nodes = self.exchange_stubs(turn)?;
+        if let Some(since) = self.since {
+            nodes = since.lay(nodes)?;
+        }
         Ok(nodes.into_iter().map(|(_, n)| (*n).clone()).collect())
     }
 

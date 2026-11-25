@@ -257,7 +257,10 @@ impl TurnRunner {
         let store_ladder = fork.ladder(store);
         let resolved = ResolvedLadder::new(&store_ladder, store);
         let ladder = OnceLadder::new(&resolved);
-        let moving = self.moving(store, (&permit, &pov), &items, &read)?;
+        // What has been said since about the nodes it lays, read once: beside the message and in the window.
+        let wrong = self.memory.labeled(store)?;
+        let said = crate::copies::since::Since::new(store, &wrong);
+        let moving = self.moving(store, (&permit, &pov), &items, (&read, &said))?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -271,6 +274,7 @@ impl TurnRunner {
             kernel: Some(&self.kernel),
             sessions: Some(&read),
             zone: &crate::recall::stamp::system,
+            since: Some(&said),
         };
         let who = self.who_am_i(spec);
         let (frame, now) = frame_and_now(spec, (renderer.memory_page().1, &who), &message, harness);
@@ -291,8 +295,6 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let wrong = self.memory.labeled(store)?;
-        let said = crate::copies::since::Since::new(store, &wrong);
         let (window, mut sessions) =
             window_of((store, &read, sid), &a, &pov, (turn, &said), renderer.zone)?;
         sessions.extend(resolved.sessions.borrow().iter().cloned());
@@ -328,7 +330,7 @@ impl TurnRunner {
         store: &'a Store,
         (permit, pov): (&'a Permit, &'a PointOfView),
         items: &[String],
-        read: &'a Sessions,
+        (read, said): (&'a Sessions, &'a crate::copies::since::Since<'a>),
     ) -> anyhow::Result<Moving<'a>> {
         let (texts, depends) = (&read.texts, &read.depends);
         let called = match self.threads.core() {
@@ -359,6 +361,7 @@ impl TurnRunner {
                 sessions: read,
                 // The known values as they stand for this assembly: where a stored text it lays may be cut.
                 cuts: self.tools.scrubber.cuts(),
+                since: Some(said),
             },
         })
     }
