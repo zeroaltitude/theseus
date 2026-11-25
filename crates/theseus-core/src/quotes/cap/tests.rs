@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use super::*;
 use crate::history_tool::page::cut_kept;
 use crate::quotes::render_with;
-use crate::quotes::tests_oracle::{inside, knowing, Draw, VALUES};
+use crate::quotes::tests_oracle::{each_found, inside, knowing, Draw, VALUES};
 use crate::scrub::oracle::{encodings, spans_of};
 
 /// Fields by node id, read whole, as a store reads a quote's field at its position.
@@ -294,11 +294,14 @@ fn kept_ranges(fields: &Fields, parts: &[Part]) -> Vec<(String, Range<usize>)> {
 }
 
 /// The span oracle for the cap over parts: over every form, with every encoding, wrapped and folded ones too (which
-/// an open's margin or a page's one line hides from the cut on the text), the bytes a cut keeps of a quote begin and
-/// end outside every span the scrubber's finder sees in the quote's field; and what it shows is the cap of the text,
-/// or that cut shorter at a value's edge.
+/// an open's margin or a page's one line hides from the cut on the text), each found where it was put. What it
+/// checks is each kept run of a field: the quotes of one node that the cap kept side by side, with nothing but line
+/// breaks between them, are joined first (`kept_ranges`), and the run begins and ends outside every span the
+/// scrubber's finder sees in the field. So it states the edges of the runs a cut keeps, not of each stored quote's
+/// own `from..to` (a quote may end at a line break inside a run). And what it shows is the cap of the text, or that
+/// cut shorter at a value's edge.
 #[test]
-fn a_cut_through_parts_never_cuts_an_encoded_known_value() {
+fn the_kept_runs_of_a_cut_through_parts_never_begin_or_end_inside_an_encoded_known_value() {
     let mut draw = Draw::new(0x2545_f491_4f6c_dd1d);
     let (mut checked, mut shorter) = (0, 0);
     for round in 0..150 {
@@ -309,7 +312,8 @@ fn a_cut_through_parts_never_cuts_an_encoded_known_value() {
         for _ in 0..2 + draw.below(4) {
             let n = draw.below(12);
             parts.push(Part::Code(format!(" {} ", draw.filler(n))));
-            let f = draw.text_with(value);
+            let (f, at) = draw.text_at(value);
+            each_found(&f, value, &at);
             let form = [
                 Form::Verbatim,
                 Form::Flat1,

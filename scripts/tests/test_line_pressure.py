@@ -52,7 +52,10 @@ CALIBRATION = [
     # 96 until the history head (issue 46) put `history.read` beside memory's two reads in one arm, which rustfmt
     # lays on three lines: clippy, run with `too-many-lines-threshold = 40` in a scratch clippy.toml on 697b63fc9,
     # prints 98; the script reads 98.
-    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 98),
+    # 98 until the `narrative` key was retired (issue 46): the arm that refused the narrative's two methods while
+    # narration was off went, three lines as rustfmt lays it, and the script reads 95 there and 98 on its parent.
+    # Re-measured by that boundary rather than by a fresh clippy run, so re-measure it if clippy ever disagrees.
+    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 95),
     # 88 until 7fd80132 ("date and git state in the messages' tail"), which added exactly one counted line to
     # this function (`self.env_tail(t, &mut compiled).await;`) and left this row one behind the tree, which is
     # the stale-row case the header describes and not a counting bug: the script reads 88 at 7fd80132^ and 89

@@ -3,6 +3,7 @@
 # label or state of this file changed. The state no longer carries `restricted_models`; the cases that set it still parse.
 # Then one label moved: W14, W11's message with `restricted_models = "not_allowed"`, is W11's state now, so it takes W11's
 # label, deepseek_flash (it was sonnet). Model counts: haiku 16, sonnet 28, opus 12, fable 4, deepseek_flash 2.
+# And W15 loses its `restricted_models` line and its reason says what it still tests; its label, effort and must stay.
 # RE-POINTED (2026-11-21, issue 46): route.v10 is retired (`packs/retired/`), so this file declares `route.v11`, the acting
 # pack, which is route.v10 word for word but for the `fable` option's description; not a case, label or state changed. The
 # file keeps its name, which the bench and the scripts read. "route.v10" below is the history the file was written in.
@@ -369,11 +370,10 @@ why = "the state no longer carries restricted_models, so this is W11's state and
 [[case]]
 id = "W15"
 message = "fix the failing test in the private service's ingest module, cause is the new column"
-restricted_models = "not_allowed"
 model = "sonnet"
 effort = "medium"
 must = true
-why = "a sensitive-name hit makes restricted_models not_allowed: never a China-origin model"
+why = "an ordinary fix with a known cause, warm on Sonnet at 40K, about_the_same: price is no reason to move and Flash's long-context condition is not met, so the usual model stays (was the restricted-models rule, removed by issue 46)"
 
 [[case]]
 id = "W16"

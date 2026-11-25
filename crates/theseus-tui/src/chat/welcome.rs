@@ -60,11 +60,9 @@ impl Chat {
             }
         }
         self.board.position = self.board.position.max(r.to);
-        let mut out: Vec<Effect> = self.look(r.to).into_iter().collect();
-        if let (Some(path), Some(_)) = (&self.cfg.seen_path, old) {
-            out.push(Effect::ForgetOldLook(path.clone()));
-        }
-        out
+        // An older build's time stays in the file until the store has taken
+        // this look (`look_said`).
+        self.look(r.to).into_iter().collect()
     }
 
     /// The welcome line, once.
@@ -116,8 +114,8 @@ impl Chat {
         self.board.position
     }
 
-    /// The time of the look an older build kept in the seen file, carried over
-    /// once (issue 46).
+    /// The time of the look an older build kept in the seen file, kept there
+    /// until the store has taken a look (issue 46).
     fn old_look(&self) -> Option<u64> {
         seen::old_look_time(self.cfg.seen_path.as_deref()?)
     }

@@ -14,7 +14,7 @@ use theseus_protocol::{Event, WorkChanged};
 
 use super::state::{Chat, Effect, Purpose};
 use super::tests::{cfg, script, Rig, SID, T0};
-use crate::tests::Script;
+use crate::tests::{Answer, Script};
 
 const HOUR: u64 = 3_600_000;
 
@@ -171,6 +171,77 @@ fn the_welcome_and_the_reconnect_ask_since_the_stores_look() {
     let back = asks(c.connected(T0 + 15_000 + 120_000));
     assert_eq!(back.len(), 1, "{back:?}");
     assert_eq!(asked_how(&back), [(json!(true), false)]);
+}
+
+/// A store with no look, whose `work.look` answers `look`.
+fn looking(look: Answer) -> Script {
+    let base = with_digest(None);
+    Arc::new(move |m, p| match m {
+        "work.look" => look.clone(),
+        _ => base(m, p),
+    })
+}
+
+/// A chat on `path` against `script`.
+async fn rig_on(path: &Path, script: Script) -> Rig {
+    let at = path.to_path_buf();
+    Rig::with_cfg(100, 30, script, move |c| {
+        c.seen_path = Some(at);
+    })
+    .await
+}
+
+/// The seen file's old time once the loop's writes off its thread are done: none
+/// is awaited, so give them a moment, then read it until `want` or a bound.
+fn old_time_settles(path: &Path, want: Option<u64>) -> Option<u64> {
+    let mut got = theseus_client::seen::old_look_time(path);
+    for _ in 0..100 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        got = theseus_client::seen::old_look_time(path);
+        if got == want {
+            break;
+        }
+    }
+    got
+}
+
+/// The time an older build's seen file kept (issue 46) goes only when the store
+/// has taken a look: a welcome (or a reconnect, which is the same answer's
+/// path) whose look the daemon refuses keeps it, the next start asks from it
+/// again, and the look the daemon takes hands it over.
+#[tokio::test(start_paused = true)]
+async fn the_welcome_keeps_the_old_time_until_the_store_takes_a_look() {
+    let (_dir, path) = seen_file();
+    let old = T0 - 3 * HOUR;
+    let file = json!({"version": 1, "board_read": true, "executions": {},
+        "looked": {"position": 999_999, "at_ms": old}});
+    std::fs::write(&path, file.to_string()).unwrap();
+    let busy = Err((-32000, "the store is busy".to_string()));
+    let mut r = rig_on(&path, looking(busy)).await;
+    r.asked("work.digest", 1).await;
+    assert_eq!(r.daemon.asked("work.digest")[0]["since_ms"], old);
+    r.asked("work.look", 1).await;
+    r.settle().await;
+    assert_eq!(
+        old_time_settles(&path, None),
+        Some(old),
+        "a refused look forgets nothing"
+    );
+    drop(r);
+    let took = Ok(json!({"look": {"position": 900, "at_ms": T0}}));
+    let mut r = rig_on(&path, looking(took)).await;
+    r.asked("work.digest", 1).await;
+    assert_eq!(
+        r.daemon.asked("work.digest")[0]["since_ms"],
+        old,
+        "asked from it again"
+    );
+    r.asked("work.look", 1).await;
+    r.settle().await;
+    assert_eq!(old_time_settles(&path, None), None, "handed over");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let on_disk: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(on_disk["store_look"], json!({"position": 900, "at_ms": T0}));
 }
 
 // ------------------------------------------------------------ what rings

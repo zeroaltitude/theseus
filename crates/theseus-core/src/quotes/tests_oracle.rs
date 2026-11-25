@@ -1,10 +1,14 @@
 //! A range a reference stores is where a cut stopped, and it is read again on every lay: it must never begin or
 //! end inside a known value, verbatim or in any encoding the cut's snapshot reads. Checked against the scrubber's
-//! own span finder over the raw text (the oracle), never against the cutter's own idea of where values are. All
-//! values invented.
+//! own span finder over the raw text (the oracle), never against the cutter's own idea of where values are: so the
+//! check is apart from where a cut chooses its edge, but not from how the scrubber recognises a value. It is seeded
+//! coverage of the six encodings `scrub::oracle::encodings` writes, each asserted found where it was put, not a
+//! proof for an encoding the scrubber does not read. All values invented.
+
+use std::ops::Range;
 
 use crate::history_tool::page::{cut_kept, flat1};
-use crate::scrub::oracle::{encodings, spans_of};
+use crate::scrub::oracle::{encodings, spans_of, ENCODINGS};
 use crate::scrub::Scrubber;
 
 /// Values a cut must keep whole or not at all: one the page's rewrite leaves as it is, and one it would change
@@ -58,16 +62,48 @@ impl Draw {
 
     /// Filler with `value` in each of its encodings, each at a random place.
     pub(super) fn text_with(&mut self, value: &str) -> String {
+        self.text_at(value).0
+    }
+
+    /// [`Draw::text_with`], and where each encoding was put: its index in `encodings` and its bytes.
+    pub(super) fn text_at(&mut self, value: &str) -> (String, Vec<(usize, Range<usize>)>) {
         let n = 1 + self.below(6);
         let mut text = self.filler(n);
-        for e in encodings(value) {
+        let mut at = Vec::new();
+        for (i, e) in encodings(value).into_iter().enumerate() {
             text.push(' ');
+            at.push((i, text.len()..text.len() + e.len()));
             text.push_str(&e);
             text.push(' ');
             let n = self.below(8);
             text.push_str(&self.filler(n));
         }
-        text
+        (text, at)
+    }
+}
+
+/// Each encoding put in `text` at `at` is found: some span the oracle finds overlaps it. A finder that lost one
+/// encoding fails here by the encoding's name, where a count of spans would still pass.
+pub(super) fn each_found(text: &str, value: &str, at: &[(usize, Range<usize>)]) {
+    let spans = spans_of(text, &[value]);
+    for (i, r) in at {
+        assert!(
+            spans.iter().any(|(a, b)| *a < r.end && r.start < *b),
+            "the oracle does not find {value:?} {} at {r:?} in {text:?}: {spans:?}",
+            ENCODINGS[*i]
+        );
+    }
+}
+
+/// The oracle finds each encoding of each value, alone in a line of words: a lost one fails by name before any cut
+/// is checked.
+#[test]
+fn the_oracle_finds_each_encoding_of_each_value() {
+    for value in VALUES {
+        for (i, e) in encodings(value).into_iter().enumerate() {
+            let text = format!("tide weir {e} mill");
+            each_found(&text, value, &[(i, 10..10 + e.len())]);
+        }
     }
 }
 
@@ -85,12 +121,10 @@ fn a_page_cuts_kept_bytes_never_cut_an_encoded_known_value() {
     for round in 0..80 {
         let value = VALUES[round % VALUES.len()];
         let cuts = knowing(&[value]).cuts();
-        let text = draw.text_with(value);
+        let (text, at) = draw.text_at(value);
+        assert_eq!(at.len(), ENCODINGS.len(), "every encoding is in {text:?}");
+        each_found(&text, value, &at);
         let spans = spans_of(&text, &[value]);
-        assert!(
-            spans.len() >= 4,
-            "the oracle finds the encodings in {text:?}"
-        );
         let chars = text.chars().count();
         for max in (1..chars + 3).step_by(1 + round % 3) {
             let (line, kept) = cut_kept(&text, max, &cuts);

@@ -195,6 +195,8 @@ fn the_older_tui_file_is_read_when_the_new_one_is_absent() {
         board_read: true,
         executions: HashMap::from([("a".to_string(), mark(3, 9, 9))]),
         store_look: None,
+        looked: None,
+        handed_off: false,
         forget: Vec::new(),
     })
     .unwrap();
@@ -267,8 +269,8 @@ fn done_count_is_the_finishes_not_yet_displayed() {
 }
 
 /// A file an older build wrote, with the machine's look in it (issue 46): it
-/// still reads and its marks hold, and the time of its look is offered once,
-/// to start the store's look from.
+/// still reads and its marks hold, and the time of its look is offered until a
+/// look the store took hands it over, to start the store's look from.
 #[test]
 fn an_old_file_with_a_look_still_reads_and_its_time_is_offered_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -277,8 +279,8 @@ fn an_old_file_with_a_look_still_reads_and_its_time_is_offered_once() {
     let s = Seen::open(Some(path.clone()));
     assert!(s.done(&view("a", 9, "ready", 1)), "its marks were read");
     assert_eq!(old_look_time(&path), Some(9_000));
-    forget_old_look(&path).unwrap();
-    assert_eq!(old_look_time(&path), None, "offered once");
+    record_store_look(&path, looked(950, 9_500)).unwrap();
+    assert_eq!(old_look_time(&path), None, "handed over once");
     assert_eq!(
         disk(&path).executions["a"].finished,
         9,
@@ -286,19 +288,64 @@ fn an_old_file_with_a_look_still_reads_and_its_time_is_offered_once() {
     );
 }
 
-/// The look is the store's now: no write of the file carries one.
+/// The look is the store's now: no write of the file carries a new one. An
+/// older build's is kept as it was written, for its time alone, until a look
+/// the store took hands it over
+/// (`the_old_time_is_kept_by_every_write_until_the_store_takes_a_look`).
 #[test]
 fn the_file_writes_no_look() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("seen.json");
-    std::fs::write(&path, old_file_with_a_look()).unwrap();
     let s = Seen::open(Some(path.clone()));
     write_merged(&path, &s.text(&|_| true)).unwrap();
-    let text = std::fs::read_to_string(&path).unwrap();
-    assert!(!text.contains("looked"), "{text}");
     record(&path, &[view("b", 4, "ready", 1)]).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(!text.contains("looked"), "{text}");
+    std::fs::write(&path, old_file_with_a_look()).unwrap();
+    let s = Seen::open(Some(path.clone()));
+    write_merged(&path, &s.text(&|_| true)).unwrap();
+    record(&path, &[view("b", 4, "ready", 1)]).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let file: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        file["looked"],
+        json!({"position": 500, "at_ms": 9_000}),
+        "kept as it was written: {text}"
+    );
+}
+
+/// The time an older build kept is the only copy of when the owner last
+/// looked before the store kept its own (issue 46): a TUI's save and another
+/// client's record keep it, and so does a digest that only read the store's
+/// look; a look the store took hands it over, once.
+#[test]
+fn the_old_time_is_kept_by_every_write_until_the_store_takes_a_look() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seen.json");
+    std::fs::write(&path, old_file_with_a_look()).unwrap();
+    let mut s = Seen::open(Some(path.clone()));
+    s.applied(&view("b", 12, "ready", 1), false);
+    write_merged(&path, &s.text(&|_| true)).unwrap();
+    assert_eq!(old_look_time(&path), Some(9_000), "a TUI's save keeps it");
+    record(&path, &[view("c", 4, "ready", 1)]).unwrap();
+    assert_eq!(
+        old_look_time(&path),
+        Some(9_000),
+        "another client's record keeps it"
+    );
+    s.store_looked(Some(looked(41, 1_000)));
+    write_merged(&path, &s.text(&|_| true)).unwrap();
+    assert_eq!(
+        old_look_time(&path),
+        Some(9_000),
+        "a look read is no look taken"
+    );
+    s.wrote_look(looked(60, 9_500));
+    write_merged(&path, &s.text(&|_| true)).unwrap();
+    assert_eq!(old_look_time(&path), None, "handed over");
+    assert_eq!(disk(&path).store_look, Some(looked(60, 9_500)));
+    record(&path, &[view("d", 5, "ready", 1)]).unwrap();
+    assert_eq!(old_look_time(&path), None, "once");
 }
 
 fn old_file_with_a_look() -> String {
@@ -378,8 +425,16 @@ fn the_same_store_keeps_its_marks() {
 fn a_look_written_here_is_the_one_the_next_start_knows() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("seen.json");
-    on_store(&path, looked(50, 5_000), &[view("a", 50, "working", 1)]);
+    let stale = on_store(&path, looked(50, 5_000), &[view("a", 50, "working", 1)]);
+    let before = stale.text(&|_| true);
     record_store_look(&path, looked(70, 6_000)).unwrap();
+    // A TUI saves what it held before that look: the later look is kept, and
+    // the board it read.
+    write_merged(&path, &before).unwrap();
+    assert!(
+        disk(&path).board_read,
+        "the file still says the board was read"
+    );
     let mut s = Seen::open(Some(path.clone()));
     assert!(!s.store_looked(Some(looked(70, 6_000))), "the same history");
     let mut s = Seen::open(Some(path));
