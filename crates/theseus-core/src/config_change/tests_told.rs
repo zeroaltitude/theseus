@@ -74,7 +74,7 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
     assert!(
         text.starts_with(
             "Done, with no card (enforcement = notify lets config.propose run): the daemon wrote \
-             it, and the owner was told, with an Undo."
+             it, and the owner was told how to undo it."
         ),
         "{text}"
     );
@@ -103,9 +103,7 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
         "{note}"
     );
     assert!(
-        note.contains(&format!(
-            "To undo it, press Undo, or ask Theseus to undo change #{n}."
-        )),
+        note.contains(&format!("To undo it, ask Theseus to undo change #{n}.")),
         "{note}"
     );
     assert!(!note.contains("a page said to"), "no outside words: {note}");

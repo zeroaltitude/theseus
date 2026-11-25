@@ -55,7 +55,7 @@ fn each_note_says_what_was_done_where_and_how_to_undo_it() {
          Theseus restarts itself to apply it.\n\
          This conversation had read text from outside since your last message (a page, a search \
          or a server).\n\
-         To undo it, press Undo, or ask Theseus to undo change #4."
+         To undo it, ask Theseus to undo change #4."
     );
     let undo = json!({"undoes": {"number": 4}, "asked_by": {}});
     let n = change_note(&undo, &settings, 5, ("config.undo", "x = open"), false);
