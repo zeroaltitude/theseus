@@ -99,6 +99,13 @@ pub struct Frozen {
     /// The turn's own results laid as their head, by node id and characters shown: the last room before an
     /// overage (`turn::view_step::room`), carried by every reassembly.
     pub cut: HashMap<String, usize>,
+    /// The turn's own results kept by reference, by node id, as the turn first rendered them
+    /// (`quoted::freeze`): every call lays these bytes, and a reassembly carries each unless a node it read was
+    /// erased since.
+    pub quoted: HashMap<String, crate::quoted::Rendering>,
+    /// The nodes the window's results kept by reference read words of when it was frozen: one erased since
+    /// makes the view gone (`turn::view_step`).
+    pub window_read: Vec<String>,
 }
 
 /// A view turn's sizes beyond what its view charges, measured on its requests as they are sent: the room
@@ -365,22 +372,15 @@ fn laid(
     frozen: &Frozen,
     stripped: &HashSet<String>,
 ) -> (Vec<(u64, Stub)>, u64) {
-    let turn = frozen.turn_id.as_str();
     let front = frozen.front.iter().map(|n| Stub::from(n.clone()));
     let window = frozen.window.iter().map(|(_, n)| n.clone());
     let prefix: Vec<Stub> = front.chain(window).collect();
-    // A recall note is the transcript's: in a view, recall is a selector's piece beside the message.
-    let laid: HashSet<&str> = (frozen.window.iter())
-        .filter_map(|(_, n)| n.turn_id.as_deref())
-        .collect();
-    let notes = between::notes(nodes, turn, &laid);
-    let own = nodes
-        .iter()
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) || notes.contains(&n.id))
-        .filter(|(_, n)| n.kind != crate::stub::Kind::Recall)
-        .map(|(_, n)| match stripped.contains(&n.id) {
-            true => unthought(n),
-            false => n.clone(),
+    let own = own(nodes, frozen)
+        .into_iter()
+        .map(|n| crate::quoted::own_laid(n.clone(), frozen))
+        .map(|n| match stripped.contains(&n.id) {
+            true => unthought(&n),
+            false => n,
         })
         .map(|n| match frozen.cut.get(&n.id) {
             Some(shown) => headed(&n, *shown),
@@ -390,6 +390,22 @@ fn laid(
     let as_of = prefix.len() as u64;
     let all = prefix.into_iter().chain(tail).enumerate();
     (all.map(|(i, n)| (i as u64 + 1, n)).collect(), as_of)
+}
+
+/// The turn's own nodes a request lays after the beside block: its own, and the notes written into its session
+/// since its previous turn (`between`); a recall note is the transcript's (in a view, recall is a selector's
+/// piece beside the message).
+pub(crate) fn own<'a>(nodes: &'a [(u64, Stub)], frozen: &Frozen) -> Vec<&'a Stub> {
+    let turn = frozen.turn_id.as_str();
+    let laid: HashSet<&str> = (frozen.window.iter())
+        .filter_map(|(_, n)| n.turn_id.as_deref())
+        .collect();
+    let notes = between::notes(nodes, turn, &laid);
+    (nodes.iter())
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) || notes.contains(&n.id))
+        .filter(|(_, n)| n.kind != crate::stub::Kind::Recall)
+        .map(|(_, n)| n)
+        .collect()
 }
 
 /// The compilation the laid nodes are split under: `c`, its prefix the first `as_of` of them, its thinking

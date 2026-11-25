@@ -198,9 +198,16 @@ impl StoreSources<'_> {
                     }
                 }
                 Body::ToolResult {
-                    content, external, ..
+                    content,
+                    external,
+                    parts,
+                    ..
                 } => {
-                    tools += tokens(content);
+                    // A result kept by reference costs what it shows (issue 49).
+                    tools += match parts.is_empty() {
+                        true => tokens(content),
+                        false => tokens(&crate::quoted::shown_text(self.store, parts)),
+                    };
                     outside |= external.is_some();
                 }
                 _ => {}

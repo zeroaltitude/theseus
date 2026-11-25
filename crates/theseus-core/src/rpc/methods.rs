@@ -1347,7 +1347,8 @@ impl Core {
             nodes: page
                 .nodes
                 .iter()
-                .map(|(pos, n)| self.marked_answer(self.marked_moved(Self::node_info(*pos, n))))
+                .map(|(pos, n)| (*pos, crate::quoted::shown(&self.store, n)))
+                .map(|(pos, n)| self.marked_answer(self.marked_moved(Self::node_info(pos, &n))))
                 .collect(),
             next: page.next,
             older: page.older,
@@ -1535,7 +1536,8 @@ impl Core {
         Ok(theseus_protocol::NodeListResult {
             nodes: nodes
                 .iter()
-                .map(|(pos, node)| self.marked_answer(Self::node_info(*pos, node)))
+                .map(|(pos, node)| (*pos, crate::quoted::shown(&self.store, node)))
+                .map(|(pos, node)| self.marked_answer(Self::node_info(pos, &node)))
                 .collect(),
             total: self.store.node_count()?,
         })

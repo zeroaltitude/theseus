@@ -45,6 +45,14 @@ of them are when a recompile strips the thinking. The census's token count leave
 included. They are kept in memory, 256 sessions at most: a daemon restart in the middle of a turn forgets them, and that
 turn's next request meets the net below once.
 
+A look back's result kept by reference (issue 49) stores no words: the one renderer (`quotes::render`) makes them
+where it is laid, and they could differ between two steps (a quoted message marked wrong since gains a line). So a
+turn renders each once: the window's when its view is frozen, its own at the first call that lays them, kept on the
+turn's view (`quoted::freeze`) and laid as they are by every later call. A quoted message erased during the turn makes
+the view gone: it is laid again on a new chain, the turn's answers so far without their thinking, so the erased words
+are not sent again and no thinking block is bound to the change (`tests_binding.rs`,
+`an_erase_between_steps_starts_a_new_chain_not_a_400`).
+
 ## The net
 
 When the provider refuses a request with that 400 and no other, the call is made once more with the remedy
