@@ -4,10 +4,13 @@
 //! lane's own loop and the fake Discord, by what each side observes, never by
 //! a sleep: the place's mailbox here is the test's.
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{json, Value};
 use theseus_core::secrets::SecretBoard;
+use theseus_core::session::SessionRecord;
+use theseus_core::Core;
 use theseus_sim::fake_discord::{FakeDiscord, Mode};
 use tokio::sync::mpsc;
 
@@ -17,7 +20,41 @@ use crate::courier::{Lane, LaneMsg};
 use crate::render::{Buttons, Op};
 
 const CHANNEL: u64 = 900_000_000_000_000_077;
-const SESSION: &str = "sess_harbor";
+
+/// A question for the owner's answer, parked by a turn of a session of its
+/// own, as a call the policy stopped for approval parks one: the session and
+/// the question's id.
+fn question(core: &Arc<Core>) -> (String, String) {
+    use theseus_kernel::{Authority, Proposal, RetryClass, TurnEnd, Wake};
+    let mut rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    let sid = rec.session_id.clone();
+    let k = &core.kernel;
+    let operator = Authority {
+        principal: theseus_core::turn::OPERATOR.into(),
+        ..Default::default()
+    };
+    let e = k
+        .open_execution(&sid, rec.kind, operator, None, None)
+        .unwrap();
+    rec.execution_id = Some(e.id.clone());
+    core.store.put_session(&sid, &rec).unwrap();
+    k.wake_input(&e.id).unwrap();
+    let guard = k.admit(&e.id).unwrap();
+    let p = Proposal {
+        tool: "fs.write".into(),
+        args: json!({"path": "proof.txt", "content": "x"}),
+        resource: None,
+        policy_context: Value::Null,
+    };
+    let a = k
+        .plan_confirm(&guard, &p, RetryClass::NonRepeatable, Some(600_000))
+        .unwrap();
+    let wake = Wake::Confirm {
+        confirm_id: a.correlation_id.clone(),
+    };
+    k.end_turn(guard, TurnEnd::Wait { wake }).unwrap();
+    (sid, a.correlation_id)
+}
 
 fn upsert(key: &str, content: &str) -> LaneMsg {
     LaneMsg::Live(Op::Upsert {
@@ -60,11 +97,12 @@ async fn a_lane_back_tells_its_place_only_when_no_post_waits_not_while_a_card_is
     });
     let shared = shared_for_tests(&core);
     let target = format!("discord:channel:{CHANNEL}");
+    let (session, q) = question(&core);
     let (place, mut mailbox) = mpsc::unbounded_channel::<PlaceMsg>();
     {
         let mut r = shared.routes.lock().unwrap();
         r.by_channel.insert(CHANNEL, place.clone());
-        r.by_session.insert(SESSION.into(), place);
+        r.by_session.insert(session.clone(), place);
     }
     let lane = Lane::new(
         shared.clone(),
@@ -82,20 +120,17 @@ async fn a_lane_back_tells_its_place_only_when_no_post_waits_not_while_a_card_is
     fake.set_mode(Mode::Fail);
     let notice = |t: &str| json!({"kind": "notice", "text": t});
     outbox
-        .post(SESSION, "", &target, notice("First, refused."))
+        .post(&session, "", &target, notice("First, refused."))
         .unwrap();
     tx.send(LaneMsg::Wake).unwrap();
     until("the lane refused by Discord", failed).await;
-    // The card's question: an action of the place's session.
-    let q = outbox
-        .post(SESSION, "", "discord:channel:1", notice("the question"))
-        .unwrap()
-        .correlation_id;
+    // The question's card, written now, for a session the place renders:
+    // it waits for the place to show its call (`LaneMsg::Asked`).
     outbox
-        .post(SESSION, "", &target, json!({"kind": "card", "question": q}))
+        .post(&session, "", &target, json!({"kind": "card", "question": q}))
         .unwrap();
     outbox
-        .post(SESSION, "", &target, notice("Behind the card."))
+        .post(&session, "", &target, notice("Behind the card."))
         .unwrap();
     fake.set_mode(Mode::Up);
     tx.send(LaneMsg::Wake).unwrap();
@@ -114,6 +149,14 @@ async fn a_lane_back_tells_its_place_only_when_no_post_waits_not_while_a_card_is
         assert!(matches!(m, PlaceMsg::LaneBack));
         assert_eq!(pending(), 0, "the place was told while the card was held");
     }
+    // The card and the post behind it: still waiting (the card is held for
+    // its call, which no `Asked` has shown yet), or gone together if the
+    // hold's own bound ran out on a stalled host; never the card gone alone.
+    let card = fake
+        .messages(CHANNEL)
+        .into_iter()
+        .find(|m| m.content.contains("Approve?") || m.content.contains("fs.write"));
+    assert!(card.is_none() || made(&fake, "Behind the card.").is_some());
 
     // The call's Asked, with live progress, together.
     tx.send(LaneMsg::Asked(q.clone())).unwrap();
@@ -125,6 +168,13 @@ async fn a_lane_back_tells_its_place_only_when_no_post_waits_not_while_a_card_is
     assert!(matches!(told, PlaceMsg::LaneBack));
     assert_eq!(pending(), 0, "every post gone before the place is told");
     let behind = made(&fake, "Behind the card.").expect("the post behind the card");
+    let card = fake
+        .messages(CHANNEL)
+        .into_iter()
+        .find(|m| m.content.contains("Approve?") || m.content.contains("fs.write"))
+        .map(|m| m.id.parse::<u64>().unwrap())
+        .expect("the card");
+    assert!(card < behind, "the card, then the post behind it");
     // The place writes its fold again, now.
     tx.send(upsert("turn_q:fold", "-# 1 step: 1 command")).unwrap();
     until("the fold again", || made(&fake, "1 step: 1 command").is_some()).await;
