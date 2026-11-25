@@ -259,6 +259,10 @@ impl Run<'_> {
         let close = |r: &Self| {
             let _ = tree::close(&r.place, &m.t);
         };
+        if !self.main_build_clear(&m).await {
+            close(self);
+            return Ok(Try::Stopped);
+        }
         let Some((run, reran)) = self.gated(&m.t, &m.base).await else {
             close(self);
             return Ok(Try::Stopped);

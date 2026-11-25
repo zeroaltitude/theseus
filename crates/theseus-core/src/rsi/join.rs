@@ -159,6 +159,8 @@ pub struct Seams {
     pub installer: Arc<dyn install::Installer>,
     /// Scores a build on the sealed sets (theseus-pw1q.21.7).
     pub sealed: Arc<dyn super::sealed::hold::Scorer>,
+    /// The commit of the daemon's own build, which the sealed check scores as main's (`crate::build`).
+    pub installed: Arc<dyn Fn() -> Option<String> + Send + Sync>,
     /// Fixes what a review asked to repair, and has the builder's model approve it (issue 36).
     pub fixer: Arc<dyn fix::Fixer>,
     pub lock_wait: Duration,
@@ -181,6 +183,7 @@ impl Default for Seams {
             tests: Arc::new(planted::Cargo),
             installer: Arc::new(install::Systemd),
             sealed: Arc::new(super::sealed::hold::Scratch),
+            installed: Arc::new(|| crate::build().commit),
             fixer: Arc::new(fix::turns::Turns),
             lock_wait: Duration::from_secs(2 * 3600),
             lock_every: Duration::from_secs(30),

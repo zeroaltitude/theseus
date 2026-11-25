@@ -60,9 +60,12 @@ fn rigged(mode: SelfMode, every_branch: bool, items: u64) -> Sealed {
 }
 
 impl Sealed {
+    /// The scorer, on a daemon whose own build is main's commit.
     fn seams(&self, scorer: &Arc<Canned>) -> Seams {
+        let main = self.main.clone();
         Seams {
             sealed: scorer.clone(),
+            installed: Arc::new(move || Some(main.clone())),
             ..self.r.seams()
         }
     }
@@ -254,5 +257,83 @@ async fn no_sealed_set_skips_the_phase_and_says_so() {
     assert!(
         row["what"].as_str().unwrap().contains("dir is not set"),
         "{row}"
+    );
+}
+
+/// Main's side of the check is the build of the try's main commit and no other: while the daemon's
+/// own build is not that commit (here a build that names no commit), nothing is scored, the join
+/// stops at `sealed` before main's gate runs, and it is tried again (not held), saying which commit
+/// it waits for.
+#[tokio::test]
+async fn main_is_scored_on_its_own_build_only() {
+    let s = rigged(SelfMode::Act, false, 2);
+    let (branch, _) = s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
+    let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
+    let phases = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = phases.clone();
+    let seams = Seams {
+        sealed: scorer.clone(),
+        on_phase: Some(Arc::new(move |p: &str| seen.lock().unwrap().push(p.into()))),
+        ..s.r.seams()
+    };
+    let pass = s.r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(
+        pass.stopped,
+        [(branch.clone(), "sealed".to_string())],
+        "{pass:?}"
+    );
+    assert!(pass.joined.is_empty());
+    assert_eq!(s.upstream_main(), s.main, "main is untouched");
+    assert!(scorer.asked().is_empty(), "no build but main's is scored");
+    assert!(
+        !phases.lock().unwrap().iter().any(|p| p == "gate"),
+        "main's gate does not run for a join that waits: {:?}",
+        phases.lock().unwrap()
+    );
+    let stop = &s.r.rows("self.join.stopped")[0];
+    assert_eq!(stop["phase"], "sealed");
+    assert!(stop["numbers"].get("held").is_none(), "tried again: {stop}");
+    assert_eq!(stop["numbers"]["main"], s.main);
+    assert!(
+        stop["why"].as_str().unwrap().contains(&s.main[..12]),
+        "{stop}"
+    );
+    assert!(s.r.rows("self.sealed.checked").is_empty());
+
+    // A build of another commit (main moved past the install) waits the same way, naming it.
+    let s = rigged(SelfMode::Act, false, 2);
+    let (branch, _) = s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
+    let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
+    let seams = Seams {
+        installed: Arc::new(|| Some("0123456789ab".repeat(3) + "0123")),
+        ..s.seams(&scorer)
+    };
+    let pass = s.r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.stopped, [(branch, "sealed".to_string())], "{pass:?}");
+    assert!(scorer.asked().is_empty());
+    let stop = &s.r.rows("self.join.stopped")[0];
+    assert!(
+        stop["why"]
+            .as_str()
+            .unwrap()
+            .contains("installed build is 0123456789ab"),
+        "{stop}"
+    );
+}
+
+/// The check's row says what was compared: main's commit, and the commit of the build that was
+/// scored as main's.
+#[tokio::test]
+async fn the_checked_row_names_mains_commit_and_build() {
+    let s = rigged(SelfMode::Act, false, 2);
+    s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
+    let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
+    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+    let checked = &s.r.rows("self.sealed.checked")[0];
+    assert_eq!(
+        checked["main"],
+        json!({"commit": s.main, "build": s.main}),
+        "{checked}"
     );
 }
