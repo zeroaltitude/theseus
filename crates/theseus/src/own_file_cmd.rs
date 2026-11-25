@@ -109,6 +109,18 @@ pub fn shown(r: &OwnFileShowResult, hint: bool) -> String {
         OwnFileState::Unreadable => "Its accepted version cannot be read from the store, so none \
                                      of it is carried."
             .into(),
+        OwnFileState::Damaged if r.bytes.is_some() => format!(
+            "Version {seq}, accepted on {on}, cannot be read from the store, so none of it is \
+             carried. An accept keeps the file on disk ({bytes} B) as version {}, and leaves the \
+             old record as it is.",
+            seq.saturating_add(1)
+        ),
+        OwnFileState::Damaged => format!(
+            "Version {seq}, accepted on {on}, cannot be read from the store, so none of it is \
+             carried. An accept keeps the file's absence as version {}, and leaves the old \
+             record as it is.",
+            seq.saturating_add(1)
+        ),
         OwnFileState::Unconfirmed => "An accept of it may already be written that the daemon \
                                       cannot read back until it is restarted, so none of it is \
                                       carried and nothing can be accepted until then."
@@ -132,7 +144,11 @@ pub fn shown(r: &OwnFileShowResult, hint: bool) -> String {
     out.push_str(&state);
     out.push('\n');
     if let Some(change) = &r.change {
-        out.push_str("The change, from what is accepted to what is on disk:\n");
+        out.push_str(if r.state == OwnFileState::Damaged {
+            "What an accept keeps, the file on disk:\n"
+        } else {
+            "The change, from what is accepted to what is on disk:\n"
+        });
         out.push_str(change);
         if !change.ends_with('\n') {
             out.push('\n');
@@ -209,6 +225,26 @@ mod tests {
             same,
             "Your own instruction file: /srv/state/AGENTS.md\n\
              Version 3, accepted on 2026-11-20, is what is carried, and the file on disk is the same.\n"
+        );
+    }
+
+    /// A version that cannot be read is named, with what an accept keeps
+    /// and under which number; the accept is offered.
+    #[test]
+    fn the_show_names_a_version_that_cannot_be_read_and_what_an_accept_keeps() {
+        let damaged = shown(
+            &result(OwnFileState::Damaged, Some("```diff\n+new\n```\n")),
+            true,
+        );
+        assert_eq!(
+            damaged,
+            "Your own instruction file: /srv/state/AGENTS.md\n\
+             Version 3, accepted on 2026-11-20, cannot be read from the store, so none of it is \
+             carried. An accept keeps the file on disk (120 B) as version 4, and leaves the old \
+             record as it is.\n\
+             What an accept keeps, the file on disk:\n\
+             ```diff\n+new\n```\n\
+             Accept what is on disk with `theseus own-file accept` at your terminal.\n"
         );
     }
 }

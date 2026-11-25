@@ -3,4 +3,4 @@
 /**
  * Where the file on disk stands against the accepted version.
  */
-export type OwnFileState = "not_accepted" | "unreadable" | "same" | "differs" | "gone" | "new";
+export type OwnFileState = "not_accepted" | "unreadable" | "damaged" | "unconfirmed" | "same" | "differs" | "gone" | "new";

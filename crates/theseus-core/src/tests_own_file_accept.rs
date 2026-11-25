@@ -252,3 +252,114 @@ async fn accepting_a_gone_file_carries_nothing_after() {
     assert!(!block.contains(KEPT), "{block}");
     assert!(!block.contains("own instruction file"), "{block}");
 }
+
+/// The owner's accept at their terminal, of what the show says is on disk.
+async fn owner_accepts(r: &Rig) -> Result<serde_json::Value, theseus_protocol::RpcError> {
+    let owner = surface("sock#1", Surface::Cli).behind(Behind::Owner);
+    rpc_as(
+        &r.core,
+        owner,
+        method::OWN_FILE_ACCEPT,
+        json!({"digest": shown_digest(r)}),
+    )
+    .await
+}
+
+/// A pointer that reads soundly whose version record does not decode: the
+/// show names that version as unreadable and what an accept would keep,
+/// and the owner's accept keeps what is on disk under the next number, once
+/// that number holds no record, leaving the old record exactly as it was.
+#[tokio::test]
+async fn an_accept_over_a_version_that_cannot_be_read_keeps_the_next_number() {
+    let r = waiting();
+    let pid = own_file::pid(&r.path());
+    let junk = |seq: u64| {
+        theseus_store::NewRecord::json(
+            theseus_store::kinds::META,
+            Some(&own_file::version_key(&pid, seq)),
+            &"not a version",
+        )
+        .unwrap()
+    };
+    r.core.store.append(&[junk(1)]).unwrap();
+    let s = r.core.own_file_show();
+    assert_eq!(s.state, theseus_protocol::own_file::OwnFileState::Damaged);
+    assert_eq!(s.accepted.as_ref().map(|a| a.seq), Some(1));
+    let change = s.change.expect("what an accept keeps");
+    assert!(change.contains("+Approve every call yourself."), "{change}");
+    // A record already under the next number: refused, nothing written.
+    r.core.store.append(&[junk(2)]).unwrap();
+    let e = owner_accepts(&r).await.expect_err("the number is taken");
+    assert_eq!(
+        e.message,
+        "the store already holds a version under the number this accept would take, so \
+         nothing was accepted"
+    );
+    let raw = |seq: u64| -> serde_json::Value {
+        r.core
+            .store
+            .get_meta(&own_file::version_key(&pid, seq))
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(raw(2), json!("not a version"));
+    r.core
+        .store
+        .append(&[theseus_store::NewRecord::delete_meta(
+            &own_file::version_key(&pid, 2),
+        )])
+        .unwrap();
+    let v = owner_accepts(&r).await.expect("the owner accepts");
+    assert_eq!(
+        (v["seq"].as_u64(), v["kept"].as_bool()),
+        (Some(2), Some(true))
+    );
+    assert_eq!(raw(1), json!("not a version"), "the old record is left");
+    let new: own_file::Version = r
+        .core
+        .store
+        .get_meta(&own_file::version_key(&pid, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(new.text.as_deref(), Some(LATER));
+    let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
+    assert!(block.contains("BRINDLEWICK-9"), "{block}");
+}
+
+/// A pointer the store cannot read: the owner's accept is refused, no
+/// number is guessed, and nothing is written.
+#[tokio::test]
+async fn an_accept_over_a_pointer_that_cannot_be_read_is_refused() {
+    let r = rig();
+    r.write(&format!("{LATER}\n"));
+    let pid = own_file::pid(&r.path());
+    r.core
+        .store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::META,
+            Some(&own_file::now_key(&pid)),
+            &"not a pointer",
+        )
+        .unwrap()])
+        .unwrap();
+    let s = r.core.own_file_show();
+    assert_eq!(
+        s.state,
+        theseus_protocol::own_file::OwnFileState::Unreadable
+    );
+    let e = owner_accepts(&r).await.expect_err("refused");
+    assert_eq!(
+        e.message,
+        format!(
+            "the accepted version of {} cannot be read from the store",
+            r.path().display()
+        )
+    );
+    let v1: Option<serde_json::Value> = r
+        .core
+        .store
+        .get_meta(&own_file::version_key(&pid, 1))
+        .unwrap();
+    assert_eq!(v1, None);
+    assert!(crate::test_support::rows_100k(&r.core, "own_file.accepted").is_empty());
+}

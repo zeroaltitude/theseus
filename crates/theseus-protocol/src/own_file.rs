@@ -26,8 +26,12 @@ pub struct OwnFileShowParams {}
 pub enum OwnFileState {
     /// No version is accepted yet: nothing of the file is carried.
     NotAccepted,
-    /// The accepted version cannot be read from the store: nothing is carried.
+    /// The pointer to the accepted version cannot be read from the store: nothing is carried, and nothing
+    /// can be accepted.
     Unreadable,
+    /// The accepted version (`accepted` names it) cannot be read from the store: nothing is carried. An
+    /// accept keeps what is on disk under the next number and leaves the old record as it is.
+    Damaged,
     /// An accept may already be written that the daemon cannot read back until it is restarted:
     /// nothing is carried, and nothing can be accepted until then.
     Unconfirmed,

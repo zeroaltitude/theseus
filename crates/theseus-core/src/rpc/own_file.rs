@@ -43,7 +43,7 @@ impl Core {
     /// a barrier that fails is the same unknown outcome.
     pub fn own_file_first_start(&self) -> Result<Option<Version>> {
         let look = Look::of(&self.cfg, &self.store, &self.runner.context_files);
-        if look.accepted == Accepted::Unreadable {
+        if matches!(look.accepted, Accepted::Unreadable | Accepted::Damaged(_)) {
             // The decode's own words stay out of the log: they could quote
             // the record.
             tracing::warn!(path = %look.path.display(),
@@ -115,8 +115,9 @@ impl Core {
     /// `v` accepted for the file `look` read: its records and its row, in
     /// one frame. The version's number. The pointer is read again under
     /// one lock with the append, and an accept whose pointer moved since
-    /// `look` read it is refused ([`own_file::CHANGED`]), so a version's key
-    /// is never written twice.
+    /// `look` read it is refused ([`own_file::CHANGED`]), and so is a number
+    /// a record already stands under ([`own_file::USED`]), so a version's
+    /// key is never written twice.
     pub(crate) fn own_file_keep(&self, look: &Look, v: &Version) -> Result<u64> {
         self.own_file_kept(look, v, false)
     }
@@ -145,6 +146,9 @@ impl Core {
             }
             if own_file::seq_after(&own_file::read_now(&self.store, &look.pid)) != Some(seq) {
                 bail!(own_file::CHANGED);
+            }
+            if own_file::used(&self.store, &look.pid, seq) {
+                bail!(own_file::USED);
             }
             self.own_file_settle(&records, durable)?;
         }
@@ -212,17 +216,20 @@ impl Core {
         let files = &self.runner.context_files;
         let look = Look::of(&self.cfg, &self.store, files);
         let accepted = match &look.accepted {
-            Accepted::Some(n) => Some(theseus_protocol::own_file::OwnFileAccepted {
-                seq: n.seq,
-                digest: n.digest.clone(),
-                at_ms: n.at_ms,
-                on: crate::owner_note::day(n.at_ms),
-            }),
+            Accepted::Some(n) | Accepted::Damaged(n) => {
+                Some(theseus_protocol::own_file::OwnFileAccepted {
+                    seq: n.seq,
+                    digest: n.digest.clone(),
+                    at_ms: n.at_ms,
+                    on: crate::owner_note::day(n.at_ms),
+                })
+            }
             _ => None,
         };
         let state = match (&look.accepted, look.differs()) {
             (Accepted::None | Accepted::Unread, _) => OwnFileState::NotAccepted,
             (Accepted::Unreadable, _) => OwnFileState::Unreadable,
+            (Accepted::Damaged(_), _) => OwnFileState::Damaged,
             (Accepted::Unknown, _) => OwnFileState::Unconfirmed,
             (Accepted::Some(_), false) => OwnFileState::Same,
             (Accepted::Some(n), true) => match (&n.digest, &look.disk.found) {

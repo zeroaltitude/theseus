@@ -150,10 +150,14 @@ pub enum Accepted {
     /// had happened: a pointer to no version ([`Look::unread_record`]).
     /// Nothing is carried, and only the owner's accept sets a version.
     Unread,
-    /// The pointer, or the version it names, could not be read: missing,
-    /// not decoding, or not holding the body its sum names. Nothing is
-    /// carried, and nothing is accepted by itself on top of it.
+    /// The pointer could not be read. Nothing is carried, and nothing is
+    /// accepted on top of it: no number is guessed.
     Unreadable,
+    /// The pointer reads soundly, and the version it names could not be
+    /// read: missing, not decoding, or not holding the body its sum names.
+    /// Nothing is carried and nothing is accepted by itself; the owner's
+    /// accept keeps the next number, and the record is left as it is.
+    Damaged(Now),
     /// An accept this daemon run wrote may be in the store without the
     /// store saying so ([`Missed::Unknown`]): nothing is carried, and every
     /// accept is refused until a restart reads the store again.
@@ -194,6 +198,7 @@ pub fn seq_after(a: &Accepted) -> Option<u64> {
     match a {
         Accepted::None | Accepted::Unread => Some(1),
         Accepted::Some(n) => Some(n.seq + 1),
+        Accepted::Damaged(n) => n.seq.checked_add(1),
         Accepted::Unreadable | Accepted::Unknown => None,
     }
 }
@@ -208,6 +213,20 @@ pub fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
 
 /// Why an accept is refused when the pointer moved after it was read.
 pub const CHANGED: &str = "the accepted version changed while you looked; run it again";
+
+/// Why an accept is refused when a record stands under the number it would
+/// take ([`used`]).
+pub const USED: &str = "the store already holds a version under the number this accept would \
+                        take, so nothing was accepted";
+
+/// Whether a record stands under version `seq` of `pid`, whatever it holds:
+/// an accept never writes a version's key twice.
+pub fn used(store: &crate::store::Store, pid: &str, seq: u64) -> bool {
+    !matches!(
+        store.get_meta::<serde_json::Value>(&version_key(pid, seq)),
+        Ok(None)
+    )
+}
 
 /// The pointer of `pid`, one keyed read.
 pub fn read_now(store: &crate::store::Store, pid: &str) -> Accepted {
@@ -402,7 +421,7 @@ impl Look {
                 "Your own instruction file could not be read at the first start, so no version \
                  is accepted and none of it is carried until you accept one: `{accept}`"
             )),
-            Accepted::Unreadable => Some(
+            Accepted::Unreadable | Accepted::Damaged(_) => Some(
                 "Your own instruction file: its accepted version cannot be read from the store, \
                  so none of it is carried"
                     .to_string(),
@@ -445,7 +464,7 @@ impl Look {
                     }),
                 };
             }
-            Accepted::Unreadable => return self.unreadable(&shown),
+            Accepted::Unreadable | Accepted::Damaged(_) => return self.unreadable(&shown),
             Accepted::Some(n) => n,
         };
         let section = self.text.as_ref().map(|text| {
@@ -543,7 +562,7 @@ impl Look {
 /// The pointer of `pid` and the version it names, read and checked as one
 /// state: [`Accepted::Some`] only when the version record is there, decodes
 /// and [`Version::holds`] what the pointer names, else
-/// [`Accepted::Unreadable`]; and the version's text, none for an absence.
+/// [`Accepted::Damaged`]; and the version's text, none for an absence.
 /// A checked version is kept for the daemon run under its key and the
 /// digest it was read for, so it is read from the store once. While this
 /// run's mark stands ([`Missed::Unknown`]), nothing is read:
@@ -573,7 +592,7 @@ fn resolve(
             let text = n.digest.is_some().then_some(t);
             (Accepted::Some(n), text)
         }
-        None => (Accepted::Unreadable, None),
+        None => (Accepted::Damaged(n), None),
     }
 }
 

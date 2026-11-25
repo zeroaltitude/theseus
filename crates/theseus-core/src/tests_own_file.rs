@@ -497,7 +497,7 @@ fn says_not_readable(r: &Rig) {
             KEPT.len() + 1
         )
     );
-    assert_eq!(look_of(&r.core).accepted, Accepted::Unreadable);
+    assert!(matches!(look_of(&r.core).accepted, Accepted::Damaged(_)));
     assert_eq!(
         r.core.health().own_file.as_deref(),
         Some(
@@ -508,9 +508,9 @@ fn says_not_readable(r: &Rig) {
     let show = r.core.own_file_show();
     assert_eq!(
         show.state,
-        theseus_protocol::own_file::OwnFileState::Unreadable
+        theseus_protocol::own_file::OwnFileState::Damaged
     );
-    assert_eq!((show.accepted, show.change), (None, None));
+    assert_eq!(show.accepted.map(|a| a.seq), Some(1));
 }
 
 /// A version record whose stored body is not the one its record names (the
