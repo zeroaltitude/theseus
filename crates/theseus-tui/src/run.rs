@@ -337,6 +337,7 @@ impl<B: Backend> Runner<B> {
                     if let Some(Effect::Save(path, text)) = self.app.save() {
                         self.save(&path, &text);
                     }
+                    self.last_look().await;
                 }
                 Effect::Notice { title, line, sound } => {
                     // `--notify` first, else the config's, else `auto`.
@@ -370,6 +371,17 @@ impl<B: Backend> Runner<B> {
         if !bytes.is_empty() {
             let _ = self.out.write_all(bytes).and_then(|()| self.out.flush());
         }
+    }
+
+    /// The look on the way out (issue 46), waited for a moment so it reaches
+    /// the daemon before the connection closes.
+    async fn last_look(&mut self) {
+        let (Some(Effect::Call(c)), Some(conn)) = (self.app.last_look(), self.conn.as_mut())
+        else {
+            return;
+        };
+        let look = conn.call(c.method, c.params, |_, _| {});
+        let _ = tokio::time::timeout(Duration::from_millis(500), look).await;
     }
 
     /// Write the seen file whole: a temporary file beside it, then a rename,

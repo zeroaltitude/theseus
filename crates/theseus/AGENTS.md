@@ -93,12 +93,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `jobout.rs` (a scripted daemon over a duplex: order, the end, a detach that asks nothing that stops the job).
   the real tree on the same wire. Tests inside it.
 - `src/digest.rs` (theseus-qkoi3): `theseus digest [--since 2h | --since-seen] [--session S]`, one `work.digest` read (the
-  default is `--since-seen`: the machine's last look, else the last 24 hours). It prints the protocol's summary, a line
-  each, what the board holds, and the questions waiting (`theseus answer`), and records the look (`seen::record_looked`)
-  unless it was scoped to a session or ran in a job. `theseus status` ends with its summary and ` · theseus digest`
-  when something happened since that look and says nothing on a first start (status is not a look). `seen.rs` holds
-  the look: the board's position and time, one for the machine, merged by the later (`Looked`), which the TUI also writes.
-  Tests: `digest_tests.rs`, `tests/digest.rs`.
+  default is `--since-seen`: the store's look, issue 46, `since_look`; before the store has one, the time of the look an
+  older build kept in the seen file, carried over once (`seen::old_look_time`, never its position), else the last 24
+  hours). It prints the protocol's summary, a line each, what the board holds, and the questions waiting (`theseus
+  answer`), and moves the store's look (`work.look`) unless it was scoped to a session or ran in a job. `theseus status`
+  ends with its summary and ` · theseus digest` when something happened since that look and says nothing on a first
+  start (status is not a look). Tests: `digest_tests.rs`, `tests/digest.rs`.
 - `src/status.rs`: `theseus status` and `wait --any` (theseus-lweh). One read, `executions.watch {limit: 0}`, feeds
   `Board` (the executions that need you or work, by the position rule) and its forms: the long one (a header and a
   row each, a command under what asks), `--short` (`●1 ◐3 ✗1 ◆2`; empty when nothing works or waits), `--watch`
@@ -377,7 +377,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   method name the code uses, and every fake herdr in `tests/herdr*.rs` refuses a request the schema refuses and fails its test when
   dropped with any noted. An invented shape once passed the old fake and failed live (theseus-6ifz1). `sync` is
   unchanged but for pins: `--pin` writes a `pinned` token on the pane, and a later sync keeps it. The Space row also carries
-  `paused ⏸N` (tasks the owner paused) and `since ↺N` (`work.digest` from the machine's seen position, read only, own answers not counted; read on every connect, after
+  `paused ⏸N` (tasks the owner paused) and `since ↺N` (`work.digest` from the store's look, read only, own answers not counted; read on every connect, after
   `events.lost` and when a task ends), `next ⏰HH:MM` (the next reminder) and `routines 🔁N` (due now), the last two from
   `horizon.rs` over the board's wake and routine views (no tabs for them; one timer for the next routine due); each is an
   empty token when there is nothing to say (theseus-peqbl). Tests: `tests/herdr_up.rs`

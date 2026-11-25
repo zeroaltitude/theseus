@@ -194,7 +194,6 @@ fn the_older_tui_file_is_read_when_the_new_one_is_absent() {
         version: VERSION,
         board_read: true,
         executions: HashMap::from([("a".to_string(), mark(3, 9, 9))]),
-        looked: Looked::default(),
         forget: Vec::new(),
     })
     .unwrap();
@@ -266,37 +265,46 @@ fn done_count_is_the_finishes_not_yet_displayed() {
     assert_eq!(done_count(&path), 0);
 }
 
+/// A file an older build wrote, with the machine's look in it (issue 46): it
+/// still reads and its marks hold, and the time of its look is offered once,
+/// to start the store's look from.
 #[test]
-fn the_last_look_is_the_machines_and_only_moves_forward() {
+fn an_old_file_with_a_look_still_reads_and_its_time_is_offered_once() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("seen.json");
-    assert_eq!(looked(&path), Looked::default(), "no file, no look");
-    record_looked(&path, 500, 9_000).unwrap();
+    std::fs::write(&path, old_file_with_a_look()).unwrap();
+    let s = Seen::open(Some(path.clone()));
+    assert!(s.done(&view("a", 9, "ready", 1)), "its marks were read");
+    assert_eq!(old_look_time(&path), Some(9_000));
+    forget_old_look(&path).unwrap();
+    assert_eq!(old_look_time(&path), None, "offered once");
     assert_eq!(
-        looked(&path),
-        Looked {
-            position: 500,
-            at_ms: 9_000
-        }
+        disk(&path).executions["a"].finished,
+        9,
+        "the marks are kept"
     );
-    // An older look from a slower client changes nothing.
-    record_looked(&path, 400, 9_500).unwrap();
-    assert_eq!(looked(&path).position, 500);
-    record_looked(&path, 700, 9_100).unwrap();
-    assert_eq!(looked(&path).position, 700);
 }
 
+/// The look is the store's now: no write of the file carries one.
 #[test]
-fn the_tuis_save_keeps_the_last_look_another_client_wrote() {
+fn the_file_writes_no_look() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("seen.json");
-    record_looked(&path, 800, 1).unwrap();
-    let mut seen = Seen::open(Some(path.clone()));
-    seen.first_board_read();
-    write_merged(&path, &seen.text(&|_| true)).unwrap();
-    assert_eq!(looked(&path).position, 800, "a save is not a look");
-    assert!(
-        read_file(&path).unwrap().board_read,
-        "and the file still says the board was read"
-    );
+    std::fs::write(&path, old_file_with_a_look()).unwrap();
+    let s = Seen::open(Some(path.clone()));
+    write_merged(&path, &s.text(&|_| true)).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("looked"), "{text}");
+    record(&path, &[view("b", 4, "ready", 1)]).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("looked"), "{text}");
+}
+
+fn old_file_with_a_look() -> String {
+    json!({
+        "version": 1, "board_read": true,
+        "executions": {"a": {"displayed": 3, "finished": 9, "position": 9, "level": "ready", "turns": 1}},
+        "looked": {"position": 500, "at_ms": 9_000},
+    })
+    .to_string()
 }

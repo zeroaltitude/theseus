@@ -1,7 +1,7 @@
 //! `theseus digest` and `theseus status`'s last line (theseus-qkoi3), the real
 //! binary against a scripted daemon on a Unix socket: what is asked (a time or
-//! the machine's last look), what is printed, what is recorded as looked at, and
-//! that nothing is recorded inside a job.
+//! the store's look, issue 46), what is printed, the look sent when the board
+//! was shown, and that nothing is sent inside a job.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -37,9 +37,14 @@ fn digest() -> Value {
     })
 }
 
-/// A daemon on `sock` that answers `work.digest` and records its params, and
-/// an empty board for `executions.watch`.
-fn daemon(sock: &Path) -> (std::thread::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) {
+/// What the scripted daemon was asked: (method, params) of each `work.digest`
+/// and `work.look`.
+type Asked = Arc<Mutex<Vec<(String, Value)>>>;
+
+/// A daemon on `sock` that answers `work.digest` (with the store's look, when
+/// it has one) and `work.look`, and records their params, and an empty board
+/// for `executions.watch`.
+fn daemon(sock: &Path, look: Option<Value>) -> (std::thread::JoinHandle<()>, Asked) {
     let listener = UnixListener::bind(sock).unwrap();
     let asked = Arc::new(Mutex::new(Vec::new()));
     let seen = asked.clone();
@@ -52,7 +57,8 @@ fn daemon(sock: &Path) -> (std::thread::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) 
                 Ok((s, _)) => {
                     s.set_nonblocking(false).unwrap();
                     let seen = seen.clone();
-                    std::thread::spawn(move || serve(s, &seen));
+                    let look = look.clone();
+                    std::thread::spawn(move || serve(s, &seen, look.as_ref()));
                 }
                 Err(_) => std::thread::sleep(std::time::Duration::from_millis(5)),
             }
@@ -61,16 +67,32 @@ fn daemon(sock: &Path) -> (std::thread::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) 
     (h, asked)
 }
 
-fn serve(s: UnixStream, asked: &Mutex<Vec<Value>>) {
+fn serve(s: UnixStream, asked: &Mutex<Vec<(String, Value)>>, look: Option<&Value>) {
     let mut reader = BufReader::new(&s);
     let mut line = String::new();
     while reader.read_line(&mut line).unwrap_or(0) > 0 {
         let req: Value = serde_json::from_str(&line).unwrap();
         line.clear();
-        let result = match req["method"].as_str().unwrap() {
-            "work.digest" => {
-                asked.lock().unwrap().push(req["params"].clone());
-                digest()
+        let m = req["method"].as_str().unwrap();
+        let result = match m {
+            "work.digest" | "work.look" => {
+                asked
+                    .lock()
+                    .unwrap()
+                    .push((m.to_string(), req["params"].clone()));
+                if m == "work.look" {
+                    json!({"look": {"position": req["params"]["position"], "at_ms": at(1, 0)}})
+                } else {
+                    let mut d = digest();
+                    // A position past this store's head (900) tells nothing, as the daemon's does.
+                    if req["params"]["since"].as_u64().is_some_and(|p| p > 900) {
+                        d["lines"] = json!([]);
+                    }
+                    if let Some(l) = look {
+                        d["look"] = l.clone();
+                    }
+                    d
+                }
             }
             "executions.watch" => {
                 json!({"position": 10, "executions": [], "confirms": [], "total": 0})
@@ -86,13 +108,27 @@ fn serve(s: UnixStream, asked: &Mutex<Vec<Value>>) {
 
 struct World {
     dir: tempfile::TempDir,
+    /// The store's look, as `work.digest` answers it.
+    look: Option<Value>,
+}
+
+/// What a run printed, the params of each `work.digest`, and of each `work.look`.
+struct Ran {
+    out: String,
+    digests: Vec<Value>,
+    looks: Vec<Value>,
 }
 
 impl World {
     fn new() -> Self {
         Self {
             dir: tempfile::tempdir().unwrap(),
+            look: None,
         }
+    }
+    /// The store's look is at `position`, from `at_ms`.
+    fn store_looked(&mut self, position: u64, at_ms: u64) {
+        self.look = Some(json!({"position": position, "at_ms": at_ms}));
     }
     fn sock(&self) -> PathBuf {
         self.dir.path().join("sock")
@@ -100,8 +136,9 @@ impl World {
     fn seen(&self) -> PathBuf {
         self.dir.path().join("state/theseus/seen.json")
     }
-    /// The machine looked at the board at `position`, at `at_ms`.
-    fn looked(&self, position: u64, at_ms: u64) {
+    /// A seen file as an older build left it, with the machine's look at
+    /// `position`, at `at_ms`.
+    fn old_file_looked(&self, position: u64, at_ms: u64) {
         std::fs::create_dir_all(self.seen().parent().unwrap()).unwrap();
         std::fs::write(
             self.seen(),
@@ -111,13 +148,8 @@ impl World {
         )
         .unwrap();
     }
-    fn position(&self) -> u64 {
-        let v: Value =
-            serde_json::from_str(&std::fs::read_to_string(self.seen()).unwrap()).unwrap();
-        v["looked"]["position"].as_u64().unwrap_or(0)
-    }
-    fn run(&self, args: &[&str], job: bool) -> (String, Vec<Value>) {
-        let (d, asked) = daemon(&self.sock());
+    fn run(&self, args: &[&str], job: bool) -> Ran {
+        let (d, asked) = daemon(&self.sock(), self.look.clone());
         let mut c = Command::new(THESEUS);
         c.arg("--socket")
             .arg(self.sock())
@@ -142,20 +174,36 @@ impl World {
             String::from_utf8_lossy(&out.stderr)
         );
         let asked = asked.lock().unwrap().clone();
-        (String::from_utf8_lossy(&out.stdout).into_owned(), asked)
+        let of = |m: &str| -> Vec<Value> {
+            asked
+                .iter()
+                .filter(|(n, _)| n == m)
+                .map(|(_, p)| p.clone())
+                .collect()
+        };
+        Ran {
+            out: String::from_utf8_lossy(&out.stdout).into_owned(),
+            digests: of("work.digest"),
+            looks: of("work.look"),
+        }
     }
 }
 
 #[test]
 fn the_digest_since_a_time_asks_for_it_prints_the_lines_and_records_the_look() {
     let w = World::new();
-    let (out, asked) = w.run(&["digest", "--since", "2h"], false);
+    let Ran {
+        out,
+        digests: asked,
+        looks,
+    } = w.run(&["digest", "--since", "2h"], false);
     assert_eq!(asked.len(), 1);
     assert!(
         asked[0]["since_ms"].as_u64().unwrap() > 1_700_000_000_000,
         "{asked:?}"
     );
     assert!(asked[0].get("since").is_none() && asked[0].get("roots").is_none());
+    assert!(asked[0].get("since_look").is_none(), "{asked:?}");
     let lines: Vec<&str> = out.lines().collect();
     assert!(
         lines[0].starts_with("◆ 1 reported, 1 answered by you since "),
@@ -172,57 +220,91 @@ fn the_digest_since_a_time_asks_for_it_prints_the_lines_and_records_the_look() {
         "● fs.write create notes.txt (40 B)? · theseus answer a1b2c3"
     );
     assert_eq!(
-        w.position(),
-        900,
-        "the board was shown: the look moved to its position"
+        looks,
+        [json!({"position": 900})],
+        "the board was shown: the store's look moves to its position"
     );
 }
 
 #[test]
-fn since_seen_asks_from_the_last_look_and_a_session_scopes_it_and_records_nothing() {
-    let w = World::new();
-    w.looked(500, at(0, 0));
-    let (_, asked) = w.run(&["digest", "--since-seen"], false);
-    assert_eq!(asked, [json!({"since": 500})]);
-    assert_eq!(w.position(), 900);
-    // One task's timeline is not the board: asked of it, and no look recorded.
-    let w = World::new();
-    w.looked(500, at(0, 0));
-    let (_, asked) = w.run(&["digest", "--session", "ses_task"], false);
-    assert_eq!(asked, [json!({"since": 500, "roots": ["ses_task"]})]);
-    assert_eq!(w.position(), 500);
+fn since_seen_asks_from_the_stores_look_and_a_session_scopes_it_and_records_nothing() {
+    let mut w = World::new();
+    w.store_looked(500, at(0, 0));
+    let ran = w.run(&["digest", "--since-seen"], false);
+    assert_eq!(ran.digests.len(), 1);
+    assert_eq!(ran.digests[0]["since_look"], true, "{:?}", ran.digests);
+    assert!(ran.digests[0].get("since").is_none(), "{:?}", ran.digests);
+    assert!(
+        ran.out
+            .starts_with("◆ 1 reported, 1 answered by you since 18:00"),
+        "the words are the store's look's time: {}",
+        ran.out
+    );
+    assert_eq!(ran.looks, [json!({"position": 900})]);
+    // One task's timeline is not the board: asked of it, and no look sent.
+    let ran = w.run(&["digest", "--session", "ses_task"], false);
+    assert_eq!(ran.digests[0]["since_look"], true);
+    assert_eq!(ran.digests[0]["roots"], json!(["ses_task"]));
+    assert!(ran.looks.is_empty(), "{:?}", ran.looks);
 }
 
 #[test]
 fn nothing_is_recorded_inside_a_job_and_json_is_the_answer_as_it_came() {
-    let w = World::new();
-    w.looked(500, at(0, 0));
-    let (_, _) = w.run(&["digest"], true);
-    assert_eq!(w.position(), 500, "a job's reading is not the operator's");
-    let (out, _) = w.run(&["--json", "digest"], false);
-    let v: Value = serde_json::from_str(&out).unwrap();
+    let mut w = World::new();
+    w.store_looked(500, at(0, 0));
+    let ran = w.run(&["digest"], true);
+    assert!(
+        ran.looks.is_empty(),
+        "a job's reading is not the operator's"
+    );
+    let ran = w.run(&["--json", "digest"], false);
+    let v: Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(v["result"]["to"], 900);
 }
 
 #[test]
 fn status_ends_with_one_line_when_something_happened_since_the_last_look() {
-    let w = World::new();
+    let mut w = World::new();
     // Never looked: status starts nothing and says nothing of it.
-    let (out, asked) = w.run(&["status"], false);
-    assert!(asked.is_empty(), "{asked:?}");
-    assert!(!out.contains("theseus digest"), "{out}");
-    w.looked(500, at(0, 0));
-    let (out, asked) = w.run(&["status"], false);
-    assert_eq!(asked, [json!({"since": 500})]);
-    let last = out.lines().last().unwrap();
+    let ran = w.run(&["status"], false);
+    assert!(!ran.out.contains("theseus digest"), "{}", ran.out);
+    assert!(ran.looks.is_empty(), "{:?}", ran.looks);
+    w.store_looked(500, at(0, 0));
+    let ran = w.run(&["status"], false);
+    assert_eq!(ran.digests.len(), 1);
+    assert_eq!(ran.digests[0]["since_look"], true, "{:?}", ran.digests);
+    let last = ran.out.lines().last().unwrap();
     assert!(
         last.starts_with("◆ 1 reported, 1 answered by you since ")
             && last.ends_with(" · theseus digest"),
-        "{out}"
+        "{}",
+        ran.out
     );
     // Status is not a look: the line is there until the digest is read.
-    assert_eq!(w.position(), 500);
+    assert!(ran.looks.is_empty(), "{:?}", ran.looks);
     // The prompt's and the script's forms say nothing of it.
-    let (out, asked) = w.run(&["status", "--short"], false);
-    assert!(asked.is_empty() && !out.contains("theseus digest"), "{out}");
+    let ran = w.run(&["status", "--short"], false);
+    assert!(
+        ran.digests.is_empty() && !ran.out.contains("theseus digest"),
+        "{}",
+        ran.out
+    );
+}
+
+/// The machine's old look points past this store's head (another store's, or a
+/// newer history's before a restore): it no longer silences the digest. Its
+/// time is carried over once, and the file keeps no look after.
+#[test]
+fn a_machine_file_past_the_stores_head_does_not_silence_the_digest() {
+    let w = World::new();
+    w.old_file_looked(999_999, at(0, 0));
+    let ran = w.run(&["digest"], false);
+    assert_eq!(ran.digests.len(), 1);
+    assert!(ran.digests[0].get("since").is_none(), "{:?}", ran.digests);
+    assert_eq!(ran.digests[0]["since_look"], true, "{:?}", ran.digests);
+    assert_eq!(ran.digests[0]["since_ms"], at(0, 0), "{:?}", ran.digests);
+    assert!(ran.out.contains("📋 Beta summary reported"), "{}", ran.out);
+    assert_eq!(ran.looks, [json!({"position": 900})]);
+    let file = std::fs::read_to_string(w.seen()).unwrap();
+    assert!(!file.contains("looked"), "carried over once: {file}");
 }

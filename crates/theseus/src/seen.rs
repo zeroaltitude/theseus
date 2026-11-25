@@ -44,32 +44,6 @@ pub struct Mark {
     pub turns: u64,
 }
 
-/// The machine's "last looked" (theseus-qkoi3): the work board's position, and
-/// the time, at which a terminal client last showed the operator a board. The
-/// digest ("since you last looked") starts after it. One for the machine, not
-/// one per execution: what finished while the operator was away is a question
-/// of the whole board.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Looked {
-    pub position: u64,
-    pub at_ms: u64,
-}
-
-impl Looked {
-    fn is_none(&self) -> bool {
-        self.position == 0 && self.at_ms == 0
-    }
-
-    /// The later of two: by position, then by time.
-    pub fn later(self, other: Looked) -> Looked {
-        if (other.position, other.at_ms) > (self.position, self.at_ms) {
-            other
-        } else {
-            self
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct File {
     version: u32,
@@ -79,9 +53,6 @@ struct File {
     #[serde(default = "yes")]
     board_read: bool,
     executions: HashMap<String, Mark>,
-    /// When the work board was last shown (a file from before says none).
-    #[serde(default, skip_serializing_if = "Looked::is_none")]
-    looked: Looked,
     /// Executions to drop from the file (the TUI's board no longer holds
     /// them). Never written to disk.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -188,7 +159,6 @@ fn update(
             version: VERSION,
             board_read: false,
             executions: HashMap::new(),
-            looked: Looked::default(),
             forget: Vec::new(),
         });
         change(&mut file);
@@ -205,7 +175,6 @@ pub fn write_merged(path: &Path, text: &str) -> io::Result<HashMap<String, Mark>
     let mine: File = serde_json::from_str(text).map_err(io::Error::other)?;
     let file = update(path, &|a, b| std::fs::rename(a, b), |cur| {
         cur.board_read |= mine.board_read;
-        cur.looked = cur.looked.later(mine.looked);
         for id in &mine.forget {
             cur.executions.remove(id);
         }
@@ -214,21 +183,20 @@ pub fn write_merged(path: &Path, text: &str) -> io::Result<HashMap<String, Mark>
     Ok(file.executions)
 }
 
-/// When the operator last looked at the work board on this machine; none (all
-/// zero) when no client has recorded one. For the digest's `--since-seen`, the
-/// status line, and the terminal UI's welcome back.
-pub fn looked(path: &Path) -> Looked {
-    read_file(path).map_or_else(Looked::default, |f| f.looked)
+/// The time of the last look an older build kept in this file (issue 46), to
+/// start the store's look from before it has one: carried over by its time,
+/// never by its position, which may belong to another store's history. None
+/// when the file holds none; a file this build writes holds none.
+pub fn old_look_time(path: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v.get("looked")?.get("at_ms")?.as_u64().filter(|ms| *ms > 0)
 }
 
-/// Record that the operator was shown the work board at `position`, `at_ms`.
-/// Another client's later look is kept by the merge. Fails quietly into the
-/// caller's hands: a look that cannot be written is not worth a failure.
-pub fn record_looked(path: &Path, position: u64, at_ms: u64) -> io::Result<()> {
-    update(path, &|a, b| std::fs::rename(a, b), |cur| {
-        cur.looked = cur.looked.later(Looked { position, at_ms });
-    })
-    .map(|_| ())
+/// The older build's look has been carried over: the file is written again
+/// without it, so it is offered once.
+pub fn forget_old_look(path: &Path) -> io::Result<()> {
+    update(path, &|a, b| std::fs::rename(a, b), |_| {}).map(|_| ())
 }
 
 /// How many executions finished since the operator last looked at them, as the
@@ -317,8 +285,6 @@ pub struct Seen {
     /// No file was read: the first board the TUI reads counts as seen, so a
     /// first start shows nothing done.
     fresh: bool,
-    /// When the work board was last shown, as this client knows it.
-    looked: Looked,
     /// Changed since the file was last written.
     pub dirty: bool,
 }
@@ -340,14 +306,12 @@ impl Seen {
                 path,
                 marks: f.executions,
                 fresh: !f.board_read,
-                looked: f.looked,
                 dirty: false,
             },
             None => Self {
                 path,
                 marks: HashMap::new(),
                 fresh: true,
-                looked: Looked::default(),
                 dirty: false,
             },
         }
@@ -363,21 +327,6 @@ impl Seen {
                 std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state"))
             })?;
         Some(base.join("theseus").join(FILE_NAME))
-    }
-
-    /// When the work board was last shown on this machine (zero: never).
-    pub fn looked(&self) -> Looked {
-        self.looked
-    }
-
-    /// The operator is looking at the board now, at `position`: the digest
-    /// ("since you last looked") starts here. Only moves forward.
-    pub fn look(&mut self, position: u64, at_ms: u64) {
-        let now = self.looked.later(Looked { position, at_ms });
-        if now != self.looked {
-            self.looked = now;
-            self.dirty = true;
-        }
     }
 
     pub fn path(&self) -> Option<&PathBuf> {
@@ -485,7 +434,6 @@ impl Seen {
             version: VERSION,
             board_read: !self.fresh,
             executions,
-            looked: self.looked,
             forget,
         })
         .unwrap_or_default()

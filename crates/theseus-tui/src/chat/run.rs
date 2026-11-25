@@ -136,8 +136,22 @@ impl Runner {
         while !self.quit {
             self.step().await?;
         }
+        self.last_look().await;
         self.finish();
         Ok(())
+    }
+
+    /// The last board this chat showed is the store's look the next start
+    /// tells from (issue 46): sent on the way out, and waited for a moment so
+    /// it reaches the daemon before the connection closes.
+    async fn last_look(&mut self) {
+        let position = self.chat.board_position();
+        let (Some(Effect::Call(c)), Some(conn)) = (self.chat.look(position), self.conn.as_mut())
+        else {
+            return;
+        };
+        let look = conn.call(c.method, c.params, |_, _| {});
+        let _ = tokio::time::timeout(Duration::from_millis(500), look).await;
     }
 
     /// The first frame, then the first questions to the daemon.
@@ -352,9 +366,9 @@ impl Runner {
                 }
                 Effect::Quit => self.quit = true,
                 Effect::Bell => self.write(b"\x07"),
-                Effect::Look(path, position, at_ms) => {
+                Effect::ForgetOldLook(path) => {
                     drop(tokio::task::spawn_blocking(move || {
-                        let _ = theseus_client::seen::record_looked(&path, position, at_ms);
+                        let _ = theseus_client::seen::forget_old_look(&path);
                     }));
                 }
                 Effect::SaveHistory(messages) => self.save_history(messages),
@@ -444,12 +458,6 @@ impl Runner {
     /// On the way out: the dock comes off, the last lines are written, and
     /// the cursor is left at the start of a fresh line.
     fn finish(&mut self) {
-        // The last board this chat showed is the look the next start tells from.
-        if let Some(Effect::Look(path, position, at_ms)) =
-            self.chat.look(self.chat.board_position()).pop()
-        {
-            let _ = theseus_client::seen::record_looked(&path, position, at_ms);
-        }
         let width = usize::from(self.chat.width);
         let clear = self.screen.clear();
         self.write(&clear);

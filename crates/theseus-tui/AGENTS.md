@@ -172,11 +172,12 @@ new lines, the dock again, in synchronized-output mode 2026).
   Gaps closed (theseus-xock5): a footer row and a tree row end with the task's progress line (`paused · step 3 of 5 · $1.20 of ~$3 (limit $5) · ~6 min left`,
   `theseus_protocol::work::progress_line`, theseus-ypnxt.2), and the task view's header carries it too; `/tasks` lists a routine, a watch and a project as rows (`routine · next Fri 09:00`,
   `watch · …`, `project · …`) that count as no task; and the chat reads the machine's seen file (`Cfg::seen_path`, `chat/welcome.rs`):
-  a chat that opens after an absence of a minute or more, or whose connection comes back after one, asks `work.digest` since the last
-  look and tells one line under the banner (`◆ 2 reported since 14:02 · theseus digest`; nothing on a first start, whose first
-  board is the look); the look is written when the digest lands and on leaving. A notice's `Viewer` takes `seen` from the file's
-  displayed position of the work (a question shown by another client does not ring here) and `away_ms` from the quiet of this
-  terminal and of the machine's last look. The chat never writes a displayed mark itself: its own told line would silence its own
+  a chat that opens, or whose connection comes back after a minute or more, asks `work.digest {since_look}` (the store's look,
+  issue 46; before the store has one, the time an older build kept in the file, carried over once) and tells one line under the
+  banner when that look was a minute or more ago (`◆ 2 reported since 14:02 · theseus digest`; nothing on a first start); the
+  store's look moves (`work.look`) when the digest lands, at most once a minute while the board moves, and on leaving. A notice's
+  `Viewer` takes `seen` from the file's displayed position of the work (a question shown by another client does not ring here)
+  and `away_ms` from the quiet of this terminal and of the store's look as this chat last heard it. The chat never writes a displayed mark itself: its own told line would silence its own
   bell. Tests: `chat/tests_welcome.rs`.
 
 - **Inspect, join, return** (theseus-rrkb7; `chat/task_view.rs`, `chat/task_picker.rs`): ctrl-t opens the task picker in the
@@ -252,11 +253,14 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
   diff (`render::Flight`). The changed words of a diff line are `MARK_ON`/`MARK_OFF` in its text: `ui::put` draws them
   on a background of their own and `ui::wrap` carries a mark over a cut. Tests: `src/tests_diff.rs`.
 
-- Since you last looked (theseus-qkoi3): while the terminal has focus, each view the board takes moves the machine's
-  look (`Seen::look`, written with the seen file); a blur writes it. At each connect, and when focus returns after
-  `AWAY_MS` (60 s), the app asks `work.digest {since}` (never on a first start) and shows the summary as the footer's
-  notice line, then moves the look to the digest's end. A daemon that does not know the method is not complained of.
-  Tests: `src/tests_digest.rs`.
+- Since you last looked (theseus-qkoi3, issue 46): the look is the store's (META `look`, moved by `work.look`), so a
+  restore, another store or a copy each tell from their own history. At each connect, and when focus returns after
+  `AWAY_MS` (60 s), the app asks `work.digest {since_look}` (before the store has a look, from the time an older build
+  kept in the seen file, carried over once, else from now: a first start is told nothing) and shows the summary as the
+  footer's notice line, then sends `work.look` at the digest's end. It sends one again on blur, on quit, and at most once
+  a minute (`LOOK_EVERY_MS`) while the terminal has focus and the board moved; never one per view. A connect forgets the
+  positions it held (a restarted daemon may serve a restored store). A daemon that does not know the methods is not
+  complained of. Tests: `src/tests_digest.rs`.
 
 ## Invariants
 
