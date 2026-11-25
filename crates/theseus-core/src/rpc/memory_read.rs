@@ -1,14 +1,9 @@
-//! `memory.lookup` (theseus-02i1h): what the MCP server's `memory_search` and
-//! `memory_get` ask of the owner's private memory, with no model call. One
-//! read-only method, served by `memory_lookup`'s own functions
-//! (`memory_lookup::mcp`), never a second pipeline. And `history.read`
-//! (issue 46): the MCP server's `context_history`, the history tool's own read
-//! with no turn (`history_tool::mcp`).
+//! `history.read` (issue 46): the MCP server's `context_history`, the history tool's own read with no turn
+//! (`history_tool::mcp`), and with no model call. It is the MCP server's one way to look back: the older
+//! `memory.lookup` (its `memory_search` and `memory_get`) is gone, and is no method now.
 //!
-//! - **Only the MCP connection, only when `[mcp_server] memory` is on.** Any
-//!   other surface is refused (a shared place's client could be one), and a
-//!   call with memory off answers `OFF`: one check ([`Core::mcp_memory_only`])
-//!   for both methods, so their refusals cannot drift.
+//! - **The MCP connection only when `[mcp_server] memory` is on.** A call with memory off answers `OFF`
+//!   ([`Core::mcp_memory_only`]).
 //! - **And `history.read` for the owner's terminal** (issue 44): `theseus
 //!   history` with a search reads the same page an MCP client does, the
 //!   vault's values substituted alike, whatever `[mcp_server] memory` says
@@ -24,9 +19,7 @@
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
-use theseus_protocol::memory::{
-    HistoryReadParams, HistoryReadResult, MemoryLookupParams, MemoryLookupResult,
-};
+use theseus_protocol::memory::{HistoryReadParams, HistoryReadResult};
 use theseus_protocol::{error_code, method};
 
 use super::server::RpcFailure;
@@ -48,7 +41,7 @@ fn reply<R: serde::Serialize>(r: R) -> Result<serde_json::Value, RpcFailure> {
 }
 
 impl Core {
-    /// The memory methods that wait: `memory.search` and `memory.lookup`.
+    /// The memory methods that wait: `memory.search` and `history.read`.
     pub(super) async fn mem(
         self: &Arc<Self>,
         name: &str,
@@ -56,15 +49,6 @@ impl Core {
         conn: super::server::Conn<'_>,
     ) -> Result<serde_json::Value, RpcFailure> {
         match name {
-            theseus_protocol::method::MEMORY_LOOKUP => {
-                // A decode error echoes the value it could not read: the vault's values substituted, as every
-                // memory reply's words (review of round 3). The same code.
-                let p = super::server::parse(params).map_err(|mut e| {
-                    e.message = crate::memory_lookup::mcp::said(self, &e.message);
-                    e
-                })?;
-                reply(self.rpc_memory_lookup(p, conn.surface).await?)
-            }
             method::HISTORY_READ => {
                 // Every error of the endpoint, the fixed refusals and a decode or serialization error included,
                 // carries the vault's values substituted, whatever it says (review of D6b, §2).
@@ -88,49 +72,11 @@ impl Core {
         }
     }
 
-    /// `memory.lookup` from a connection of `surface`.
-    pub(super) async fn rpc_memory_lookup(
-        self: &Arc<Self>,
-        p: MemoryLookupParams,
-        surface: Surface,
-    ) -> Result<MemoryLookupResult, RpcFailure> {
-        self.mcp_memory_only(method::MEMORY_LOOKUP, surface)?;
-        let (tool, asked) = match p.op.as_str() {
-            "search" => ("memory_search", p.words.clone()),
-            "get" => ("memory_get", p.id.clone().or_else(|| p.session.clone())),
-            other => {
-                return Err(RpcFailure::new(
-                    error_code::INVALID_PARAMS,
-                    // It echoes what was asked: the vault's values substituted, as every reply's words.
-                    crate::memory_lookup::mcp::said(
-                        self,
-                        &format!("memory.lookup's op is search or get, not {other:?}"),
-                    ),
-                ));
-            }
-        };
-        let read = match tool {
-            "memory_search" => crate::memory_lookup::mcp::search(self, &p).await,
-            _ => crate::memory_lookup::mcp::get(self, &p).await,
-        };
-        let hits = read.as_ref().map_or(0, |r| r.hits.len() as u64);
-        self.read_row(
-            crate::mcp_server::PRINCIPAL,
-            p.client.clone(),
-            tool,
-            asked.unwrap_or_default().trim(),
-            hits,
-            read.is_ok(),
-        )
-        .await;
-        read.map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))
-    }
-
     /// `history.read` from a connection of `surface`: the history tool's read for an MCP client, or for the
     /// owner's terminal ([`Core::history_reader`]). Its row's
     /// digest is of the arguments asked (the client's name aside), as one JSON line; its count, the lines
     /// answered (an open is one). A call refused before it reads (a non-MCP surface, memory off, or, in `mem`,
-    /// params that do not decode) writes no row, as `memory.lookup`'s do not.
+    /// params that do not decode) writes no row.
     pub(super) async fn rpc_history_read(
         self: &Arc<Self>,
         p: HistoryReadParams,

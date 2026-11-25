@@ -2236,15 +2236,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     line, since the line's call carries words alone (the tool pages a span only by its own `when` or `from`/`to`);
     nor does a session or span command, since the tool opens no session by id and lists none by a span. The CLI
     still runs, since running it may be the work. Tests: `tests_native_hint.rs`, `native::tests`. What is left of
-    `memory_lookup.rs` and `memory_lookup/read.rs` is the MCP server's search below, and goes with it (D6 step 7).
-  - **The MCP server's memory tools** (theseus-02i1h; `memory_lookup/mcp.rs`, `rpc/memory_read.rs`): `memory_search` and
-    `memory_get` are one read-only method, `memory.lookup`, in `mcp_server::ALLOWED`, served by `memory_lookup`'s own
-    `by_words` (no second pipeline), with `private_only` dropping each hit whose session `place_of` does not read as
-    private (a private asker may draw on a shared place's sessions; these tools never show one). Only `Surface::Mcp`,
-    and only while `[mcp_server] memory` is on (default off). A hit is typed (`MemoryHit`: citation = node id, WAL
-    position, session, as-of minute; origin, harness, sensitivity; veiled text is never in it). Each read is a
-    `memory.read` row (`fact::memory::MemoryRead`: principal, tool, client, a digest of the words, hits). Tests:
-    `tests_mcp_memory.rs`; the tools' golden is theseus-mcp's `tests/golden/memory_tools.json`.
+    `memory_lookup.rs` is the history tool's search of imported conversations by words
+    (`memory_lookup/imported.rs`, `history_tool/imports.rs`).
+  - **The MCP server's `memory_search` and `memory_get` are gone** (issue 46), and the method `memory.lookup` that
+    served them is no method now: the MCP connection may not call it, and any other surface is told it is unknown.
+    A client that still calls either tool gets the server's unknown-tool error; `context_history` below is the one
+    way to look back. An older `memory.read` row that names either tool still reads.
     **`context_history` for an MCP client** (issue 46; `history_tool/mcp.rs`, `rpc/memory_read.rs`): the MCP tool
     `context_history` is the method `history.read`, the history tool's own read (`history_tool::read`: a span, an
     exchange or a session opened by id, words, a thing) with no turn (`Allowance::NoTurn`: one page or one open a
@@ -2255,9 +2252,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     outer scrub). No self-loop scope (an MCP client is not the self loop), but an anchoring session whose scope
     cannot be read fails the call. A line or open holding another person's words says `outside`. A session opens
     through `open_any`, bounded, its `next` as data. A retracted statement still appears in history as said; its
-    correction is the note. The same two checks as
-    `memory.lookup` (`Core::mcp_memory_only`) and the same `memory.read` row (tool `context_history`, a digest of the
-    arguments). Tests: `tests_mcp_history.rs`, each mirroring one of `tests_mcp_memory.rs`'s.
+    correction is the note. Only `Surface::Mcp` while `[mcp_server] memory` is on (default off;
+    `Core::mcp_memory_only`), or the owner's terminal, and a `memory.read` row each call (tool `context_history`, a
+    digest of the arguments). Tests: `tests_mcp_history.rs`.
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "live"` (`canary`, retired, reads as `live`).
     The read finishes before the first
     loop's compile, under the same deadline (`recall_first`), and what it admits is a `Recall` node
