@@ -33,6 +33,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::scrub::safe;
+
 pub mod build;
 pub mod did;
 pub mod fold;
@@ -353,7 +355,5 @@ pub fn cut(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
     }
-    let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
-    out
+    safe::head_marked(text, max.saturating_sub(1))
 }
