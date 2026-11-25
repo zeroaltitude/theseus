@@ -193,6 +193,7 @@ fn a_marked_result_with_a_large_payload_is_still_outside_text() {
                 image: None,
                 external: url.map(|u| theseus_tools::External { url: u.into() }),
                 payload: payload.map(Box::new),
+                parts: Vec::new(),
             },
         )
     }

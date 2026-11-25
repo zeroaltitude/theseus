@@ -59,6 +59,7 @@ fn messages(text: &str) -> [Node; 3] {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     );
     [

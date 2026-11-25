@@ -163,6 +163,7 @@ fn the_ledger_note_says_where_the_read_stopped() {
         questions: vec![],
         more: None,
         google: None,
+        look: None,
     };
     assert_eq!(digest_more(&res, &hm), None);
     res.more = Some(DigestMore {

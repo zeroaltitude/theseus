@@ -312,7 +312,64 @@ fn a_format_59_task_was_started_for_no_project() {
     assert_eq!(back, t);
 }
 
+/// A look back's result as format 60 wrote it (issue 37's build), before references (61, issue 44): a history
+/// page that holds the words it showed in `content`. By hand (invented ids and words); it reads with no parts and
+/// writes back byte for byte, and `a_format_60_tool_result_reads_with_no_parts_and_writes_back` holds it apart from
+/// today's encoder.
+pub(crate) const TOOL_RESULT_AT_60: &str = r#"{"id":"trs_00000000000000000000000000000601","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t60","loop_index":1,"origin":"tool","author":null,"created_at_ms":1790000000601,"body":{"kind":"tool_result","tool_use_id":"tu_601","tool":"context.history","status":"ok","is_error":false,"content":"context.history: 1 exchange of cli's history, newest first.\n- 2026-03-03 · cli · the owner: «the heron nests by the old weir» → you did · t0","correlation_id":"act_t601","bytes_total":147,"truncated":false,"full_ref":null,"duration_ms":4,"late":false,"meta":{}}}"#;
+
+#[test]
+fn a_format_60_tool_result_reads_with_no_parts_and_writes_back() {
+    use crate::node::Body;
+    use crate::quotes::{Field, Form, Part, Quote};
+    let mut n: Node = serde_json::from_str(TOOL_RESULT_AT_60).unwrap();
+    let Body::ToolResult { parts, content, .. } = &n.body else {
+        panic!("it decodes as a tool result");
+    };
+    assert!(parts.is_empty(), "a result from before holds no parts");
+    assert!(
+        content.contains("the heron nests by the old weir"),
+        "it holds its words"
+    );
+    assert!(!TOOL_RESULT_AT_60.contains("\"parts\""));
+    assert_eq!(serde_json::to_string(&n).unwrap(), TOOL_RESULT_AT_60);
+    // Format 61's field lands and reads back: the words go, and the parts name them.
+    let Body::ToolResult { parts, content, .. } = &mut n.body else {
+        unreachable!()
+    };
+    content.clear();
+    *parts = vec![
+        Part::Code("- the owner: \u{ab}".into()),
+        Part::Quote(Quote {
+            node: "msg_00000000000000000000000000000600".into(),
+            position: 41,
+            field: Field::Text,
+            from: 0,
+            to: 31,
+            form: Form::Flat1,
+        }),
+        Part::Code("\u{bb}".into()),
+    ];
+    let text = serde_json::to_string(&n).unwrap();
+    assert!(
+        text.ends_with(
+            r#""content":"","correlation_id":"act_t601","bytes_total":147,"truncated":false,"full_ref":null,"duration_ms":4,"late":false,"meta":{},"parts":[{"code":"- the owner: «"},{"quote":{"node":"msg_00000000000000000000000000000600","position":41,"field":"text","from":0,"to":31,"form":"flat1"}},{"code":"»"}]}}"#
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("heron"), "no word of the message is stored");
+    let back: Node = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, n);
+    assert!(!TOOL_RESULT_AT_60.contains("\"parts\""));
+}
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::NODE,
+        layout: "a look back's result at format 60 (issue 37's build), its words in `content`: before references (61, issue 44)",
+        bytes: TOOL_RESULT_AT_60,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::TASK,
         layout: "a task's record at format 59 (issue 37's build before the project it was started for): before `TaskOrigin.project` (60)",
@@ -868,7 +925,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -920,7 +977,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -975,7 +1032,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -1047,7 +1104,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
     // The record as an older build wrote it (nothing writes a thread now, issue 44).
     store.put_meta(&crate::threads::key(&t.slug), &t).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -1133,7 +1190,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -1198,7 +1255,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -1245,7 +1302,7 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
     );
     store.append(&[note.record().unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let nodes = again.transcript(&sid).unwrap();
@@ -1256,6 +1313,97 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
         matches!(&nodes[1].1.node().body, crate::node::Body::Moved { nodes, .. } if nodes.len() == 1),
         "the moved record decodes with its range"
     );
+}
+
+/// A store of format 60 (the build before step 61: references, issue 44, and the store's look, issue 46) opens with
+/// no META `look` and its results with no parts, and opening writes nothing. Its first write, the owner's first look,
+/// moves the manifest to 61, which an older build then refuses; it then holds both, the look and a result kept by
+/// reference, whose quote reads the words its source first said. The result from before still reads with its words.
+#[test]
+fn a_format_60_store_opens_with_no_look_and_no_parts_and_takes_both() {
+    use crate::copies::since::Since;
+    use crate::node::Body;
+    use crate::quotes::{Field, Form, Part, Quote};
+    use theseus_protocol::Looked;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    let sid = rec.session_id.clone();
+    let said = Node::user(
+        &sid,
+        Some("turn_1"),
+        "owner",
+        "the heron nests by the old weir",
+    );
+    let old: Node = serde_json::from_str(TOOL_RESULT_AT_60).unwrap();
+    let at = {
+        let store = crate::store::Store::open(&path).unwrap();
+        store.put_session(&sid, &rec).unwrap();
+        let at = store.append(&[said.record().unwrap()]).unwrap()[0];
+        store.append(&[old.record().unwrap()]).unwrap();
+        at
+    };
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 60, "engine": "redb"}"#).unwrap();
+    let store = crate::store::Store::open(&path).unwrap();
+    assert_eq!(
+        store.get_meta::<Looked>("look").unwrap(),
+        None,
+        "no look yet"
+    );
+    let (_, read) = store.get_node(&old.id).unwrap().unwrap();
+    let Body::ToolResult { parts, content, .. } = &read.body else {
+        panic!("it reads as a tool result");
+    };
+    assert!(parts.is_empty(), "{parts:?}");
+    assert!(
+        content.contains("the heron nests by the old weir"),
+        "{content}"
+    );
+    let opened: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(opened["format"], 60, "opening writes nothing");
+
+    let look = Looked {
+        position: store.last_position(),
+        at_ms: 1_790_000_000_700,
+    };
+    store.put_meta("look", &look).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 61, "the first look moved it");
+    let mut kept = read.clone();
+    kept.id = "trs_00000000000000000000000000000611".into();
+    let Body::ToolResult { parts, content, .. } = &mut kept.body else {
+        unreachable!()
+    };
+    content.clear();
+    *parts = vec![
+        Part::Code("- the owner: \u{ab}".into()),
+        Part::Quote(Quote {
+            node: said.id,
+            position: at,
+            field: Field::Text,
+            from: 0,
+            to: 31,
+            form: Form::Flat1,
+        }),
+        Part::Code("\u{bb}".into()),
+    ];
+    store.append(&[kept.record().unwrap()]).unwrap();
+    drop(store);
+
+    let again = crate::store::Store::open(&path).unwrap();
+    assert_eq!(again.get_meta::<Looked>("look").unwrap(), Some(look));
+    let (_, back) = again.get_node(&kept.id).unwrap().unwrap();
+    assert_eq!(back, kept);
+    let Body::ToolResult { parts, .. } = &back.body else {
+        unreachable!()
+    };
+    let marked = std::collections::BTreeSet::new();
+    assert_eq!(
+        crate::quotes::render(&again, parts, &Since::new(&again, &marked)).unwrap(),
+        "- the owner: \u{ab}the heron nests by the old weir\u{bb}"
+    );
+    assert_eq!(again.get_node(&old.id).unwrap().unwrap().1, old);
 }
 
 /// A message that records its surface (format 34) writes the code beside its
@@ -1326,7 +1474,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -1392,7 +1540,7 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
@@ -1459,7 +1607,7 @@ fn a_format_33_store_opens_with_no_headers_and_still_reads_one() {
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let read: crate::prefix::Header = again.get_meta(&hk).unwrap().unwrap();
@@ -1528,7 +1676,7 @@ fn a_format_33_store_opens_with_no_hands_and_takes_them() {
         .put_meta(&crate::extend::broker::book_key("tidewc"), &book)
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
 }
 
 /// A task from before projects reads as a plain item, with no date and no
@@ -1625,7 +1773,7 @@ fn a_format_51_session_reads_its_open_view_data_as_empty_content_flags() {
     // The first write moves the manifest.
     store.put_session(&read.session_id, &read).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
 }
 
 /// Test of theseus-gyjyo.3: a store of format 52 holds a session whose labels
@@ -1669,7 +1817,7 @@ fn a_format_52_session_reads_its_labels_with_no_judgment() {
     );
     store.put_session(&read.session_id, &read).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
 }
 
 /// Test of theseus-gyjyo.7: a store of format 53 holds a session whose `data`
@@ -1715,7 +1863,7 @@ fn a_format_53_session_with_a_mark_reads_it_ignored_and_drops_it() {
     );
     store.put_session(&read.session_id, &read).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 60);
+    assert_eq!(moved["format"], 61);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let back: SessionRecord = again.get_session(&old.session_id).unwrap().unwrap();

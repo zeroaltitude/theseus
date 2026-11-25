@@ -107,8 +107,10 @@ pub enum Purpose {
     /// `session.mode`: read when the conversation opens, set by Shift+Tab
     /// (theseus-lyxy).
     Mode,
-    /// `work.digest` since the last look (theseus-xock5).
+    /// `work.digest` since the store's look (theseus-xock5, issue 46).
     Welcome,
+    /// `work.look`: the operator was shown the board here (issue 46).
+    Look,
     /// `chat --task ID`: every session, to find the task and its parent.
     ListTask {
         given: String,
@@ -162,8 +164,10 @@ pub enum Effect {
     /// Read these images, `(name, absolute path)`, off the loop's thread; the
     /// answer is `atfile::read_images`' result, given to `Chat::images_read`.
     ReadImages(Vec<(String, String)>),
-    /// The operator looked at the board at this position and time: the seen file.
-    Look(PathBuf, u64, u64),
+    /// A look this chat wrote: the seen file keeps it, for the terminal's next
+    /// start to know the store by, and hands over the time an older build kept
+    /// there, now that the store has taken a look (issue 46).
+    StoreLook(PathBuf, theseus_protocol::Looked),
     Quit,
 }
 
@@ -271,6 +275,11 @@ pub struct Chat {
     offline_at: Option<u64>,
     /// The last key or paste, for how long the operator has been away.
     pub(super) last_input_ms: u64,
+    /// When the owner last looked at this store's board, as this chat last
+    /// heard it (issue 46), for how long they have been away.
+    pub(super) looked_ms: u64,
+    /// The position of the last `work.look` this chat sent, and when.
+    pub(super) look_sent: (u64, u64),
     /// A task inspected or joined (theseus-rrkb7): the session is the task's,
     /// and the conversation's own state waits in the view's stash.
     pub(super) view: Option<super::task_view::TaskView>,
@@ -348,6 +357,8 @@ impl Chat {
             welcome: None,
             offline_at: None,
             last_input_ms: now_ms,
+            looked_ms: 0,
+            look_sent: (0, now_ms),
             view: None,
             task_picker: None,
             back: None,
@@ -395,6 +406,9 @@ impl Chat {
     /// session is known, it only watches it again.
     pub fn connected(&mut self, now_ms: u64) -> Vec<Effect> {
         self.now_ms = now_ms;
+        // This daemon may serve another store, or a restored one: no look sent
+        // before counts, and none goes before its digest has answered.
+        self.look_sent = (0, now_ms);
         let was_offline = std::mem::take(&mut self.offline);
         if let Some(sid) = self.session.clone() {
             if was_offline {

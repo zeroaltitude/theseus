@@ -436,6 +436,7 @@ fn an_opened_exchange_is_spoken_with_tool_traffic_as_stubs_and_outside_text_mark
                 url: "https://example.invalid/tides".into(),
             }),
             payload: None,
+            parts: Vec::new(),
         },
     );
     let mut asked = reply("ses_lobby", &e.turn, "");
@@ -931,6 +932,7 @@ fn tool_result_in(session: &str, turn: &str) -> Node {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     )
 }

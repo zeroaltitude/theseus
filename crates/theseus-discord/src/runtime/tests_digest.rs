@@ -29,6 +29,7 @@ fn result(lines: Vec<theseus_protocol::DigestLine>) -> WorkDigestResult {
         questions: vec![],
         more: None,
         google: None,
+        look: None,
     }
 }
 

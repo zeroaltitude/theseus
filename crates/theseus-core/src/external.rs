@@ -164,6 +164,7 @@ mod tests {
                 image: None,
                 external: url.map(|u| theseus_tools::External { url: u.into() }),
                 payload: None,
+                parts: Vec::new(),
             },
         );
         n.id = id.into();

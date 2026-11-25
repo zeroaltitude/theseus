@@ -124,6 +124,7 @@ pub mod project_context;
 pub mod project_tool;
 pub mod provider;
 pub mod push;
+pub mod quotes;
 pub mod reach;
 pub mod recall;
 pub mod release;
@@ -377,6 +378,8 @@ mod tests_first_request;
 mod tests_fit;
 #[cfg(test)]
 mod tests_floor_config_copies;
+#[cfg(test)]
+mod tests_floor_crash;
 #[cfg(test)]
 mod tests_floor_shapes;
 #[cfg(test)]

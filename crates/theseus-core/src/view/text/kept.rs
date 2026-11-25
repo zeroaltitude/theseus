@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 /// Whether `c` is blank: a control character or whitespace.
-fn blank(c: char) -> bool {
+pub(crate) fn blank(c: char) -> bool {
     c.is_control() || c.is_whitespace()
 }
 

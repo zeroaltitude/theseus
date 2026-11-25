@@ -435,8 +435,9 @@ impl FakeDaemon {
                                 let views = v.lock().unwrap().clone();
                                 json!({"position": 1, "views": views, "total": views.len()})
                             }
+                            // The store's look, which the Space row counts from (issue 46).
                             Some("work.digest") => json!({
-                                "from": req["params"]["since"], "to": 99,
+                                "from": 7, "to": 99, "look": {"position": 7, "at_ms": 1},
                                 "lines": dg.lock().unwrap().clone(), "from_ledger": false,
                                 "now": {"needs_you": 0, "working": 0, "done": 0, "failed": 0,
                                         "total": 0},
@@ -1131,14 +1132,12 @@ fn space_row(herdr: &FakeHerdr) -> serde_json::Map<String, Value> {
 }
 
 /// The Space row says what happened since the owner last looked (the digest from the
-/// seen position, not counting the owner's own answers) and the horizon's two numbers:
+/// store's look, not counting the owner's own answers) and the horizon's two numbers:
 /// the next reminder and the routines due. It says it again after the daemon was away
 /// and things happened meanwhile, and a reminder or a routine gets no tab.
 #[test]
 fn the_space_row_carries_the_digest_and_the_horizon_after_a_disconnect() {
     let dir = tempfile::tempdir().unwrap();
-    let seen_file = dir.path().join("state/theseus/seen.json");
-    theseus_client::seen::record_looked(&seen_file, 7, 1).unwrap();
     let herdr = FakeHerdr::start(dir.path(), Model::default());
     let mut views = three_tasks();
     let mut reminder = view("wake_1", "", "wake", "waiting", "idle", 1);

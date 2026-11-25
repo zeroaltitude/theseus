@@ -1242,6 +1242,7 @@ mod tests {
                 image: None,
                 external: None,
                 payload: None,
+                parts: Vec::new(),
             },
         )
     }

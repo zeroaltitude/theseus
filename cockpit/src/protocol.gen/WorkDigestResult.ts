@@ -2,6 +2,7 @@
 import type { DigestGoogle } from "./DigestGoogle";
 import type { DigestLine } from "./DigestLine";
 import type { DigestMore } from "./DigestMore";
+import type { Looked } from "./Looked";
 import type { Question } from "./Question";
 import type { Rollup } from "./Rollup";
 
@@ -44,4 +45,9 @@ more?: DigestMore,
  * waiting, replies waited on, documents written. None without `[google]`
  * or when every count is 0.
  */
-google?: DigestGoogle, };
+google?: DigestGoogle, 
+/**
+ * The store's look as this read found it, before any look the caller
+ * sends after: what "since 18:14" is worded from. None before the first.
+ */
+look?: Looked, };

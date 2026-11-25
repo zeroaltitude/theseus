@@ -32,7 +32,7 @@ pub const OPEN_TOKENS: u64 = 3_000;
 const PAGE: usize = 64;
 const MOST: usize = 512;
 /// What sets each line of stored text apart from the tool's own lines.
-const MARGIN: &str = "\u{2502} ";
+pub(crate) const MARGIN: &str = "\u{2502} ";
 
 /// The exchange `h` names, as said, or why it cannot be opened (a denied one is not told apart from none): the
 /// text alone, as the tests read it; the tool reads [`open_marked`].
@@ -124,7 +124,7 @@ pub(super) fn margined(text: &str) -> String {
 /// The form Margin1: each line of `text` (as `str::lines` splits it) behind the margin, its control
 /// characters spaces, nothing trimmed. [`margined`] is it, of the text trimmed.
 /// Frozen once a stored reference names it: a change adds a new numbered form, never edits this one.
-pub(super) fn margin1(text: &str) -> String {
+pub(crate) fn margin1(text: &str) -> String {
     text.lines()
         .map(|l| {
             let l: String = l
@@ -135,6 +135,15 @@ pub(super) fn margin1(text: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The form Line1: one line of [`margin1`] without its margin, each control character a space, nothing trimmed;
+/// the text holds no line break. A cut through a `Margin1` quote keeps the line it cut in this form
+/// (`quotes::cap`). Frozen once a stored reference names it: a change adds a new numbered form, never edits this one.
+pub(crate) fn line1(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }
 
 /// Who wrote a person's message, by its own mark: the owner (shown as his; may authorise only when he typed

@@ -587,7 +587,7 @@ pub(super) fn flat(text: &str) -> String {
 /// The form Flat1: `text` with each run of blanks (control characters and whitespace) one space, nothing
 /// trimmed, and the page's quote marks and brackets replaced ([`flat_char`]). [`flat`] is it, trimmed.
 /// Frozen once a stored reference names it: a change adds a new numbered form, never edits this one.
-pub(super) fn flat1(text: &str) -> String {
+pub(crate) fn flat1(text: &str) -> String {
     crate::view::text::kept::one_line(text, flat_char)
 }
 
@@ -610,7 +610,7 @@ pub(super) fn cut(text: &str, max: usize, cuts: &Cuts) -> String {
 
 /// [`cut`], and the bytes of `text` it kept: the line is [`flat1`] of them, then an ellipsis when anything
 /// of `text` but blanks is left out after them. They hold each known value whole or none of it.
-pub(super) fn cut_kept(text: &str, max: usize, cuts: &Cuts) -> (String, Range<usize>) {
+pub(crate) fn cut_kept(text: &str, max: usize, cuts: &Cuts) -> (String, Range<usize>) {
     let kept = cuts.unchanged(text, |c| {
         matches!(c, '\u{ab}' | '\u{bb}' | '[' | ']') || c.is_control() || c.is_whitespace()
     });

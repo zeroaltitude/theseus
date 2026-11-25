@@ -138,6 +138,7 @@ pub(super) fn turn(c: &Core, sid: &str, at_ms: u64, calls: &[(&str, Value, i64, 
                 image: None,
                 external: None,
                 payload: None,
+                parts: Vec::new(),
             },
         );
         res.created_at_ms = at_ms + 2 + i as u64;

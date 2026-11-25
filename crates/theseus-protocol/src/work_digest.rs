@@ -4,8 +4,10 @@
 //! same thing: the CLI, the terminal UI, the cockpit and Discord. The daemon
 //! builds the lines from the board's notice ring when it reaches back far
 //! enough and from the ledger by kind when it does not; the caller says which
-//! it got (`from_ledger`). A surface keeps its own position (its seen file, its
-//! storage, its last read): the daemon keeps none.
+//! it got (`from_ledger`). Where the owner last looked is the store's own (issue
+//! 46): META `look`, which `work.look` moves and `since_look` reads, so it
+//! belongs to the history it points into. Discord's per-place mark and the
+//! cockpit's time stay their own.
 //!
 //! Types and words only: no clock. A time of day is written by the caller's
 //! `hm`, as `notices`' is.
@@ -91,8 +93,34 @@ fn one() -> u32 {
     1
 }
 
+/// Where the owner last looked at this store's work board (issue 46): the
+/// board's position then, and the time the daemon was told. Kept in the store
+/// it points into (META `look`), so a restore, a switch of store or a copy
+/// carries its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Looked {
+    pub position: u64,
+    pub at_ms: u64,
+}
+
+/// `work.look`'s params: the owner was shown the work board at `position`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct WorkLookParams {
+    pub position: u64,
+}
+
+/// `work.look`'s answer: the store's look after it, moved or not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct WorkLookResult {
+    pub look: Looked,
+}
+
 /// `work.digest`'s params. One of `since` and `since_ms`; neither reads from
-/// the start of what the board holds.
+/// the start of what the board holds. `since_look` reads from the store's look
+/// when it has one, and as the others say when it has none.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WorkDigestParams {
@@ -105,6 +133,11 @@ pub struct WorkDigestParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub since_ms: Option<u64>,
+    /// Since the store's look: the lines after the position the owner last
+    /// looked at in this store. With no look yet, `since` or `since_ms` decide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub since_look: Option<bool>,
     /// Only these conversations or tasks (session ids): a task's own timeline.
     /// A connection that reads no private text must name them, and sees those
     /// of a shared place alone, scrubbed.
@@ -141,6 +174,11 @@ pub struct WorkDigestResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub google: Option<crate::digest_google::DigestGoogle>,
+    /// The store's look as this read found it, before any look the caller
+    /// sends after: what "since 18:14" is worded from. None before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub look: Option<Looked>,
 }
 
 /// Where a digest read from the ledger stopped (`WorkDigestResult.more`).

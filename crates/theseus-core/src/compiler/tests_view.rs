@@ -84,6 +84,7 @@ pub(crate) fn result(turn: &str, id: &str, content: &str) -> Node {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     )
 }

@@ -221,11 +221,30 @@ class GuardError(Exception):
     pass
 
 
+def git_env():
+    """The environment of every git the guard runs. `refs/replace` makes git show another object in a commit's place,
+    so an unsigned commit replaced by a signed one read as signed, in every call the guard made about it. Grafts give a
+    commit other parents, so a range read through them names other commits. A caller's pathspec setting would make
+    `:(literal)` a file name of its own, which matches nothing."""
+    env = {k: v for k, v in os.environ.items() if k not in PATHSPEC_ENV}
+    return {**env, "GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull}
+
+
+PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
+# `core.useReplaceRefs=true` in a repository's config outranks GIT_NO_REPLACE_OBJECTS (git 2.34); `-c` outranks it.
+GIT = ("git", "-c", "core.useReplaceRefs=false")
+
+
 def git(repo, *args, check=True, data=None):
-    p = subprocess.run(["git", "-C", repo, *args], input=data, capture_output=True)
+    p = subprocess.run([*GIT, "-C", repo, *args], input=data, capture_output=True, env=git_env())
     if check and p.returncode != 0:
         raise GuardError(f"git {' '.join(args)}: {p.stderr.decode(errors='replace').strip()}")
     return p.stdout.decode(errors="replace") if p.returncode == 0 else None
+
+
+def shown(text):
+    """Text as printed: a control character escaped, so a terminal draws what was written."""
+    return text.encode("unicode_escape").decode() if any(ord(c) < 0x20 or ord(c) == 0x7f for c in text) else text
 
 
 def plain(what, name):
@@ -290,8 +309,8 @@ class Tree:
 
     def __init__(self, repo, base, head):
         self.repo, self.base, self.head = repo, base, head
-        self.proc = subprocess.Popen(["git", "-C", repo, "cat-file", "--batch"], stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE)
+        self.proc = subprocess.Popen([*GIT, "-C", repo, "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, env=git_env())
         self.cache = {}
 
     def changed(self):
@@ -307,16 +326,24 @@ class Tree:
     def blob(self, spec):
         # One request a line: whatever a rule asks for, a name with a line break never reaches the pipe.
         plain("a file the guard reads", spec)
-        self.proc.stdin.write(spec.encode() + b"\n")
-        self.proc.stdin.flush()
-        header = self.proc.stdout.readline().decode(errors="replace").split()
+        try:
+            self.proc.stdin.write(spec.encode() + b"\n")
+            self.proc.stdin.flush()
+        except OSError as e:
+            raise GuardError(f"git cat-file ended while the guard was reading ({e}): nothing is judged") from e
+        line = self.proc.stdout.readline()
+        if not line.endswith(b"\n"):
+            # An answer always ends in a newline: a line without one is the reader gone, which read as "no such file".
+            raise GuardError("git cat-file ended while the guard was reading: nothing is judged")
+        header = line.decode(errors="replace").split()
         # An object answers `<id> <type> <size>`. Anything else is `<the name asked for> missing` (or ambiguous),
         # and the name may itself hold spaces, so the answer is told by its shape, not by its second word.
         if not (len(header) == 3 and header[1] in ("blob", "tree", "commit", "tag") and header[2].isdigit()):
             return None
         size = int(header[2])
         data = self.proc.stdout.read(size)
-        self.proc.stdout.read(1)
+        if len(data) != size or self.proc.stdout.read(1) != b"\n":
+            raise GuardError("git cat-file ended in the middle of an object: nothing is judged")
         if header[1] != "blob":
             return None
         return data.decode(errors="replace")
@@ -336,7 +363,8 @@ class Tree:
                 full = os.path.join(self.repo, path)
                 try:
                     if os.path.isfile(full) and not os.path.islink(full):
-                        with open(full, encoding="utf-8", errors="replace") as f:
+                        # newline="": the bytes as they are. Text mode turns CRLF into LF, a commit's blob keeps it.
+                        with open(full, encoding="utf-8", errors="replace", newline="") as f:
                             self.cache[key] = f.read()
                     else:
                         self.cache[key] = None
@@ -345,7 +373,10 @@ class Tree:
         return self.cache[key]
 
     def close(self):
-        self.proc.stdin.close()
+        try:
+            self.proc.stdin.close()
+        except OSError:
+            pass  # the reader is already gone: blob() said so, and that is the error the caller sees
         self.proc.wait()
 
 
@@ -2070,6 +2101,11 @@ def acks(repo, base, head_commit, keys):
         elif kind == "ssh":
             cls = ssh_class(repo, sha, keys)
         for x in lines:
+            if any(ord(c) < 0x20 or ord(c) == 0x7f for c in x):
+                # A carriage return draws what follows over the line's start: the ack shown is not the ack signed.
+                refused.append((sha, x.encode("unicode_escape").decode(), "it holds a control character, so what a "
+                                "terminal shows is not what was signed: write the ack again without it"))
+                continue
             m = ACK.match(x)
             if not m:
                 refused.append((sha, x, "not of the form `<rule> <path>[, <path>…] — <why>`"))
@@ -2103,8 +2139,9 @@ def acked(f, ack_list, tree):
         if tree.blob(f"{sha}:{f.path}") != tree.new(f.path):
             continue
         refs = [sha, tree.head] if tree.head else [sha]
+        # `:(literal)`: a name that starts with `:` is pathspec magic to git, and a glob in one matches other files.
         if not git(tree.repo, "diff", "--raw", "--no-ext-diff", "--no-textconv",
-                   "--no-renames", *refs, "--", f.path).strip():
+                   "--no-renames", *refs, "--", f":(literal){f.path}").strip():
             return True
     return False
 
@@ -2151,7 +2188,7 @@ def main(argv=None):
     for f in passed:
         print(f"keel: acked: {f}")
     for sha, line, why in refused:
-        print(f"keel: refused the ack `Keel: {line}` on {sha[:10]}: {why}")
+        print(f"keel: refused the ack `Keel: {shown(line)}` on {sha[:10]}: {shown(why)}")
     if not open_:
         if not args.quiet:
             print(f"keel: ok ({how}, {base[:10]}; {len(paths)} files changed, {len(passed)} findings acked, "
