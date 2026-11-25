@@ -161,6 +161,12 @@ pub(crate) fn l1_of(
 /// or names any path on the floor, or any line the floor did not finish reading, is held.
 /// A self session that is no builder (its item's tree is not open) is not moved either.
 /// `docs/design/self-own-tree-asks.md` says why the floor held it and what is and is not moved.
+///
+/// The owner's own sessions are moved the same way (issue 57; the owner, 2026-11-25: the approve
+/// is for what is truly dangerous and cannot be undone): `cargo test -p theseusd` in his own
+/// conversation runs in the sandbox and he is told, where it asked him every time he worked on
+/// Theseus with Theseus. His sessions are those of the operator principal; an agent's MCP session
+/// and a task of any other principal are held as before.
 fn l1_instead_of_floor(
     rt: &ToolRuntime,
     session: Option<&str>,
@@ -168,20 +174,75 @@ fn l1_instead_of_floor(
     plan: &theseus_tools::Plan,
     input: &serde_json::Value,
 ) -> Option<String> {
+    let why = match moved_off_floor(rt, session, tool, plan, input)? {
+        Moved::SelfBuilder => {
+            "a self builder's command that runs Theseus's own binary runs in the sandbox, where it \
+             reaches none of Theseus's own state"
+        }
+        Moved::Owner => {
+            "a command that names Theseus's own program runs in the sandbox, where it reaches none \
+             of Theseus's own state"
+        }
+    };
+    Some(why.to_string())
+}
+
+/// Whose command [`l1_instead_of_floor`] moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Moved {
+    SelfBuilder,
+    Owner,
+}
+
+/// [`l1_instead_of_floor`]'s question: is this a command the floor holds only for `theseusd`, of a
+/// self builder or of the owner's own session, which L1 can take?
+fn moved_off_floor(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    tool: &dyn Tool,
+    plan: &theseus_tools::Plan,
+    input: &serde_json::Value,
+) -> Option<Moved> {
     // The cheap tests first: most calls are neither a program's nor a self session's.
     if tool.name() != "proc.run" || input.get("sandbox").is_some() || rt.sandbox.refusal().is_some()
     {
         return None;
     }
     let session = session?;
-    (rt.policy.floor_is_only_the_daemons_binary(plan)
-        && is_self(rt, session)
-        && builder_path(rt, session).is_some())
-    .then(|| {
-        "a self builder's command that runs Theseus's own binary runs in the sandbox, where it \
-         reaches none of Theseus's own state"
-            .to_string()
-    })
+    if !rt.policy.floor_is_only_the_daemons_binary(plan) {
+        return None;
+    }
+    if is_self(rt, session) {
+        return builder_path(rt, session).map(|_| Moved::SelfBuilder);
+    }
+    is_owners(rt, session).then_some(Moved::Owner)
+}
+
+/// Whether `session`'s call runs in L1 only because it is the owner's command that names
+/// `theseusd` ([`l1_instead_of_floor`]): what the owner is told of once it runs (issue 57). A call
+/// that asked for L1 itself, or that `[sandbox]` sends there, is not this.
+pub(crate) fn moved_for_owner(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    tool: &dyn Tool,
+    plan: &theseus_tools::Plan,
+    input: &serde_json::Value,
+) -> bool {
+    rt.sandbox
+        .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
+        .is_none()
+        && moved_off_floor(rt, session, tool, plan, input) == Some(Moved::Owner)
+}
+
+/// Whether `session` is one of the owner's own: its execution's principal is the operator, as a
+/// conversation the owner opens is (`turn::OPERATOR`).
+fn is_owners(rt: &ToolRuntime, session: &str) -> bool {
+    let Some(core) = rt.self_pr.core.get().and_then(std::sync::Weak::upgrade) else {
+        return false;
+    };
+    let rec: Option<crate::session::SessionRecord> = core.store.get_session(session).ok().flatten();
+    rec.and_then(|r| r.execution_id)
+        .is_some_and(|e| crate::task_graph::principal_of(&core.kernel, &e) == crate::turn::OPERATOR)
 }
 
 /// Why a self session's call may not write where it would, or none: a path with a `.git`

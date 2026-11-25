@@ -9,6 +9,10 @@
 //! class the job was started in (`jobs_of`: a sandboxed job carries its view). A pair makes each claim:
 //! the call of a self builder runs, and the same call from another session, or one that names anything
 //! else the floor holds, is asked.
+//!
+//! Since issue 57 the owner's own session (the operator principal) is moved the same way, and he is
+//! told once instead of asked; everything else the floor holds still asks him, and so does his own
+//! `[policy.tools]` line for `proc.run`.
 
 use super::self_own::{base, builder, drive, drive_says, jobs_of, nothing, tree};
 use super::*;
@@ -49,11 +53,12 @@ async fn a_self_builders_test_run_of_the_daemon_crate_runs_in_the_sandbox_and_as
     );
 }
 
-/// The same call from a person's session, a task's and a job's is asked, for the same reason the
-/// builder's was, and starts nothing.
+/// The same call from a task's session, a job's and an agent's MCP session is asked, for the same
+/// reason the builder's was, and starts nothing. A person's session, the owner's, is not this since
+/// issue 57: [`the_owners_own_call_runs_in_the_sandbox_and_he_is_told_once`].
 #[tokio::test(flavor = "multi_thread")]
 async fn the_same_call_from_any_other_principal_is_asked() {
-    for principal in ["operator", "task", "job"] {
+    for principal in ["task", "job", crate::mcp_server::PRINCIPAL] {
         let (r, sid) = drive_says(REVERSIBLE, principal, "proc_run", line(""), nothing);
         r.turn(&sid).await;
         let asked = r.asked();
@@ -66,6 +71,127 @@ async fn the_same_call_from_any_other_principal_is_asked() {
         );
         assert!(jobs_of(&sid).is_empty(), "{principal}: nothing ran");
     }
+}
+
+/// Issue 57, KEY: the owner's own session's call that names `theseusd` is not asked. It runs in the
+/// sandbox, whose view keeps no write (no read-write place: the workspace is an overlay whose writes
+/// are scratch) and hides Theseus's store, spool and bindings, and the owner is told once, in words
+/// that quote none of the command.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_own_call_runs_in_the_sandbox_and_he_is_told_once() {
+    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", line(""), nothing);
+    r.turn(&sid).await;
+    assert!(r.asked().is_empty(), "{:?}", r.asked());
+    let jobs = jobs_of(&sid);
+    assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
+    let view = jobs[0].sandbox.as_ref().expect("bound for L1");
+    assert!(view.rw.is_empty(), "no write is kept: {:?}", view.rw);
+    let state = base(&r.target).join("state");
+    for kept in ["store", "spool", "bindings.toml"] {
+        let p = theseus_tools::paths::canonical_best_effort(&state.join(kept));
+        assert!(view.hidden.contains(&p), "{kept}: {:?}", view.hidden);
+    }
+    assert_eq!(
+        crate::tests_places::told_notes(&r.core),
+        [format!(
+            "ℹ️ FYI · A command that names theseusd ran in the sandbox\n\
+             conversation `{}` ran it, and you were not asked\n\
+             Theseus's store, settings file and socket are not in the sandbox, and what the command \
+             wrote there is gone, so there is nothing to undo. To be asked first, set \
+             `[policy.tools] \"proc.run\" = \"approve\"`.",
+            crate::task::short(&sid)
+        )]
+    );
+}
+
+/// Issue 57's neighbours: for the owner's own session, everything else the floor holds still asks
+/// and starts nothing (the 1Password tool alone and beside `theseusd`, the store, the spool, the
+/// bindings, his instruction file, the 1Password CLI's folder), and so does the same call with
+/// `sandbox: false` or under his own `[policy.tools] "proc.run" = "approve"`. None is told.
+#[tokio::test(flavor = "multi_thread")]
+async fn what_else_the_floor_holds_still_asks_the_owner() {
+    type Aim = fn(&Path) -> String;
+    let aims: [(&str, Aim); 7] = [
+        ("the 1Password tool beside it", |_| "; op item get x".into()),
+        ("the store", |t| {
+            format!("; cat {}/state/store/x", base(t).display())
+        }),
+        ("the spool", |t| {
+            format!("; cat {}/state/spool/x", base(t).display())
+        }),
+        ("the bindings", |t| {
+            format!("; cat {}/state/bindings.toml", base(t).display())
+        }),
+        ("the owner's instructions", |t| {
+            format!(
+                "; cat {}/state/{}",
+                base(t).display(),
+                crate::project_context::USER_FILE
+            )
+        }),
+        ("the 1Password CLI's folder", |_| {
+            "; cat ~/.config/op/config".into()
+        }),
+        ("the store as an option's value", |t| {
+            format!(" --manifest-path={}/state/store/x", base(t).display())
+        }),
+    ];
+    for (what, aim) in aims {
+        let call = move |t: &Path| {
+            let mut v = line("")(t);
+            let more = aim(t);
+            let cmd = v["command"].as_str().unwrap().to_string();
+            v["command"] = json!(format!("{cmd}{more}"));
+            v
+        };
+        let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", call, nothing);
+        r.turn(&sid).await;
+        let asked = r.asked();
+        assert_eq!(asked.len(), 1, "{what}: {:?}", r.results(&sid));
+        assert_eq!(asked[0]["floor"], true, "{what}");
+        assert!(jobs_of(&sid).is_empty(), "{what}: nothing ran");
+        assert!(
+            crate::tests_places::told_notes(&r.core).is_empty(),
+            "{what}"
+        );
+    }
+    // The 1Password tool on its own, with no `theseusd` at all.
+    let op = |t: &Path| {
+        let own = tree(t, "sails");
+        json!({"command": format!("cd {}; op item get x", own.display()), "cwd": own.to_string_lossy()})
+    };
+    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", op, nothing);
+    r.turn(&sid).await;
+    let asked = r.asked();
+    assert_eq!(asked.len(), 1, "op alone: {:?}", r.results(&sid));
+    assert_eq!(asked[0]["floor"], true, "op alone");
+    assert!(jobs_of(&sid).is_empty(), "op alone: nothing ran");
+
+    let explicit = |t: &Path| {
+        let mut v = line("")(t);
+        v["sandbox"] = json!(false);
+        v
+    };
+    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", explicit, nothing);
+    r.turn(&sid).await;
+    assert_eq!(r.asked().len(), 1, "sandbox: false: {:?}", r.results(&sid));
+    assert_eq!(r.asked()[0]["floor"], true, "sandbox: false");
+    assert!(jobs_of(&sid).is_empty());
+
+    let approve = |c: &mut Config| {
+        c.policy.tools.insert("proc.run".into(), Posture::Approve);
+    };
+    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", line(""), approve);
+    r.turn(&sid).await;
+    let asked = r.asked();
+    assert_eq!(asked.len(), 1, "his own line: {:?}", r.results(&sid));
+    let reason = asked[0]["reason"].as_str().unwrap();
+    assert!(
+        reason.contains("[policy.tools]"),
+        "his own line is why: {reason}"
+    );
+    assert!(jobs_of(&sid).is_empty(), "his own line: nothing ran");
+    assert!(crate::tests_places::told_notes(&r.core).is_empty());
 }
 
 /// A self session that is no builder (its item's tree is not open), and a builder that asks for no

@@ -1,7 +1,10 @@
-//! Acts that ran unasked and are told to the owner instead (issue 57; the owner, 2026-11-25:
+//! Two acts that ran unasked and are told to the owner instead (issue 57; the owner, 2026-11-25:
 //! the approve is for what is truly dangerous and cannot be undone, and most of the rest should go
 //! to notifications):
 //!
+//! - **the owner's command that names `theseusd`**, moved to the sandbox
+//!   (`rsi::own_tree::moved_for_owner`), where Theseus's store, settings file and socket are not
+//!   in the view and every write is scratch;
 //! - **a fetch of a literal loopback or LAN address** (`web::net::told_host`). A link-local
 //!   address, the cloud metadata services among them, and any name, keep their card.
 //!
@@ -13,7 +16,7 @@
 //! A shared place keeps its card for a told address ([`in_shared`]): the page would join a
 //! conversation others can read, which is the shared place's own rule (`places::private_fetch`).
 
-use serde_json::json;
+use serde_json::{json, Value};
 use theseus_protocol::PlaceClass;
 use theseus_tools::{Plan, Tool};
 
@@ -49,7 +52,13 @@ pub(crate) fn in_shared(
 }
 
 /// The note for a call that runs unasked and is told, or None for any other call.
-pub(crate) fn words(rt: &ToolRuntime, session: &str, g: &Gated) -> Option<String> {
+pub(crate) fn words(
+    rt: &ToolRuntime,
+    session: &str,
+    tool: &dyn Tool,
+    input: &Value,
+    g: &Gated,
+) -> Option<String> {
     if g.decision.posture == Posture::Approve {
         return None;
     }
@@ -57,6 +66,18 @@ pub(crate) fn words(rt: &ToolRuntime, session: &str, g: &Gated) -> Option<String
         "conversation `{}` ran it, and you were not asked",
         crate::task::short(session)
     );
+    if g.class.l1()
+        && crate::rsi::own_tree::moved_for_owner(rt, Some(session), tool, &g.plan, input)
+    {
+        return Some(note(
+            Kind::Fyi,
+            "A command that names theseusd ran in the sandbox",
+            &who,
+            "Theseus's store, settings file and socket are not in the sandbox, and what the \
+             command wrote there is gone, so there is nothing to undo. To be asked first, set \
+             `[policy.tools] \"proc.run\" = \"approve\"`.",
+        ));
+    }
     let why = rt.policy.told_address(&g.plan)?;
     Some(note(
         Kind::Fyi,
@@ -73,8 +94,8 @@ pub(crate) fn words(rt: &ToolRuntime, session: &str, g: &Gated) -> Option<String
 impl ToolRuntime {
     /// Tell the owner of a call that runs unasked ([`words`]): one notice to the operator. A
     /// note that cannot be written is logged, and the call runs all the same.
-    pub(super) fn tell_owner(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, g: &Gated) {
-        let Some(text) = words(self, tc.session_id, g) else {
+    pub(super) fn tell_owner(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, input: &Value, g: &Gated) {
+        let Some(text) = words(self, tc.session_id, tool, input, g) else {
             return;
         };
         let body = json!({"kind": "notice", "text": text});
