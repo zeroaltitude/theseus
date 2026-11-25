@@ -48,7 +48,8 @@ pub fn fix_prompt(a: &FixAsk) -> String {
          5. Do not commit, branch, stash or otherwise touch git: Theseus commits your change \
          itself, as one commit.\n\
          6. Your commit is then read alone by the model that built the branch, which must accept \
-         it, and the gate runs again.\n\n\
+         it, and the gate runs again.\n\
+         7. {testimony}\n\n\
          End your reply with one line: `FIX: done` and one sentence of why it repairs the fault, \
          or `FIX: none` and why you will not (a fault that is not small, or not the change's own).\n\n\
          ## What failed\n\n```text\n{failure}\n```\n\n## The item's evidence\n\n{evidence}\n\n\
@@ -64,6 +65,7 @@ pub fn fix_prompt(a: &FixAsk) -> String {
         files = a.files,
         failure = a.failure,
         evidence = a.evidence,
+        testimony = crate::rsi::backlog::brief::TESTIMONY,
     )
 }
 
