@@ -430,6 +430,125 @@ fn the_default_tag_is_the_sources_live_tag_else_todays() {
     );
 }
 
+/// A scripted daemon that answers `import.list` with `listed` and every other
+/// method with an error, keeping the methods it was asked, in order.
+fn daemon(
+    listed: &theseus_protocol::import::ImportListResult,
+) -> (
+    theseus_client::Conn,
+    std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (cr, cw) = tokio::io::split(client);
+    let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = asked.clone();
+    let listed = serde_json::to_value(listed).unwrap();
+    tokio::spawn(async move {
+        let (sr, mut sw) = tokio::io::split(server);
+        let mut lines = tokio::io::BufReader::new(sr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let req: Value = serde_json::from_str(&line).unwrap();
+            let m = req["method"].as_str().unwrap_or_default().to_string();
+            seen.lock().unwrap().push(m.clone());
+            let answer = if m == theseus_protocol::method::IMPORT_LIST {
+                json!({"jsonrpc": "2.0", "id": req["id"], "result": listed})
+            } else {
+                json!({"jsonrpc": "2.0", "id": req["id"],
+                       "error": {"code": -32601, "message": "not scripted"}})
+            };
+            if sw.write_all(format!("{answer}\n").as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
+    (theseus_client::Conn::over(cr, cw), asked)
+}
+
+/// A directory holding one Claude Code session file.
+fn one_session() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("proj")).unwrap();
+    let text: String = claude_fixture().iter().map(|l| format!("{l}\n")).collect();
+    std::fs::write(dir.path().join("proj/sess-1.jsonl"), text).unwrap();
+    dir
+}
+
+fn live_tag() -> theseus_protocol::import::ImportTagInfo {
+    theseus_protocol::import::ImportTagInfo {
+        tag: "claude-code-2026-09-02".into(),
+        sessions: 4,
+        nodes: 1,
+        erased: 0,
+        sources: [("claude-code".to_string(), 4)].into(),
+        first_ms: None,
+        last_ms: None,
+        updated_ms: 20,
+    }
+}
+
+/// With no tag named, a list holding a record it could not read chooses no
+/// tag: the run stops, naming the record's key, before any import request.
+#[tokio::test]
+async fn no_tag_is_chosen_from_a_list_with_a_record_it_could_not_read() {
+    let listed = theseus_protocol::import::ImportListResult {
+        tags: vec![live_tag()],
+        unread: vec!["import.tag.odd".into()],
+    };
+    let (mut conn, asked) = daemon(&listed);
+    let dir = one_session();
+    let e = run::run(
+        &mut conn,
+        true,
+        Source::ClaudeCode,
+        Some(dir.path().to_path_buf()),
+        None,
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("import.tag.odd"), "{e}");
+    assert!(e.contains("no import tag was chosen"), "{e}");
+    assert_eq!(*asked.lock().unwrap(), [theseus_protocol::method::IMPORT_LIST]);
+}
+
+/// A list that read whole still chooses the source's live tag, and a named tag
+/// asks for no list at all.
+#[tokio::test]
+async fn a_whole_list_chooses_the_live_tag_and_a_named_tag_asks_for_none() {
+    let listed = theseus_protocol::import::ImportListResult {
+        tags: vec![live_tag()],
+        unread: vec![],
+    };
+    let (mut conn, asked) = daemon(&listed);
+    let dir = one_session();
+    let (_, tag) = run::resolve(
+        &mut conn,
+        Source::ClaudeCode,
+        Some(dir.path().to_path_buf()),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(tag, "claude-code-2026-09-02");
+    let partial = theseus_protocol::import::ImportListResult {
+        tags: vec![],
+        unread: vec!["import.tag.odd".into()],
+    };
+    let (mut named, asked_named) = daemon(&partial);
+    let (_, tag) = run::resolve(
+        &mut named,
+        Source::ClaudeCode,
+        Some(dir.path().to_path_buf()),
+        Some("t-1".into()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(tag, "t-1");
+    assert_eq!(*asked.lock().unwrap(), [theseus_protocol::method::IMPORT_LIST]);
+    assert!(asked_named.lock().unwrap().is_empty());
+}
+
 /// The import is the owner's act: inside a job it is refused, saying why and
 /// that the operator runs it from their own shell, before any file is read.
 #[test]
