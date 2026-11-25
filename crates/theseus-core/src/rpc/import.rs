@@ -154,7 +154,7 @@ impl Core {
         if super::projects::OWN.contains(&name) {
             return self.rpc_projects(name, params, conn).await;
         }
-        // The two acts that take `places::owner_in_person`, in one arm
+        // The acts that take `places::owner_in_person`, in one arm
         // (`rpc/undo_allow.rs`): `rpc_prefixed` is at clippy's 100 lines.
         if super::undo_allow::owner_in_person_method(name) {
             return self.rpc_owner_in_person(name, params, conn);

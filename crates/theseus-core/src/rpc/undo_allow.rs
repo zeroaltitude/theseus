@@ -61,25 +61,32 @@ use crate::toolrun::holds::Holds;
 /// The override's methods, routed by one dispatch arm.
 pub(super) const OWN: [&str; 2] = [method::UNDO_LIST, method::UNDO_ALLOW];
 
-/// Whether `name` is one of the two acts judged by `places::owner_in_person`:
-/// a repository's trust (theseus-me9fc) and a held call's override
-/// (theseus-p5kln). One predicate and one dispatch arm, because
-/// `rpc_prefixed` sits at clippy's 100-line ceiling.
+/// Whether `name` is one of the acts judged by `places::owner_in_person`:
+/// a repository's trust (theseus-me9fc), a held call's override
+/// (theseus-p5kln), and the accept of the owner's own instruction file
+/// (`rpc/own_file.rs`, which also asks for the owner's terminal). One
+/// predicate and one dispatch arm, because `rpc_prefixed` sits at clippy's
+/// 100-line ceiling.
 pub(super) fn owner_in_person_method(name: &str) -> bool {
-    super::project_trust::OWN.contains(&name) || OWN.contains(&name)
+    super::project_trust::OWN.contains(&name)
+        || OWN.contains(&name)
+        || super::own_file::OWN.contains(&name)
 }
 
 impl Core {
-    /// The two `owner_in_person` acts' methods, by name.
+    /// The `owner_in_person` acts' methods, by name.
     pub(super) fn rpc_owner_in_person(
         self: &Arc<Self>,
         name: &str,
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        match OWN.contains(&name) {
-            true => self.rpc_undo_allow(name, params, conn),
-            false => self.rpc_project_trust(name, params, conn),
+        if OWN.contains(&name) {
+            self.rpc_undo_allow(name, params, conn)
+        } else if super::own_file::OWN.contains(&name) {
+            self.rpc_own_file(name, params, conn)
+        } else {
+            self.rpc_project_trust(name, params, conn)
         }
     }
 

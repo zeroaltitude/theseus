@@ -51,6 +51,7 @@ impl Core {
             build: crate::build(),
             joined_not_running: self.self_joined_not_running(),
             self_held: self.self_held(),
+            own_file: self.own_file_health(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: totals.sessions,
             imported: {
