@@ -248,9 +248,16 @@ impl<'a> Since<'a> {
 }
 
 /// Whether `n` showed words of a node erased since, or cannot be found (a look back's result by its copy
-/// edges, a report by its report edge), or names more than are read: a replay of a request that laid it
-/// would send them again (`own_bench::rebuild`).
+/// edges, a report by its report edge, either kept by reference by a quote that does not read as it was
+/// written), or names more than are read: a replay of a request that laid it would send them again
+/// (`own_bench::rebuild`).
 pub fn shows_erased(store: &Store, n: &Node) -> Result<bool> {
+    if let Body::ToolResult { parts, .. } | Body::UserMessage { parts, .. } = &n.body {
+        let gone = |q| !matches!(crate::quotes::read(store, q), crate::quotes::Read::Field(_));
+        if (parts.iter()).any(|p| matches!(p, crate::quotes::Part::Quote(q) if gone(q))) {
+            return Ok(true);
+        }
+    }
     let none = BTreeSet::new();
     let s = Since::new(store, &none);
     let Some((_, sources)) = s.sources(n)? else {
