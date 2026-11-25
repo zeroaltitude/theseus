@@ -98,11 +98,10 @@ fn lits<'a>(items: impl IntoIterator<Item = &'a String>) -> String {
 fn cut(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("").trim();
     let more = s.trim().lines().nth(1).is_some();
-    let long = first.chars().count() > max;
-    let shown: String = first.chars().take(max).collect();
+    let (shown, long) = crate::scrub::safe::head(first, max);
     match more || long {
-        true => format!("{} (cut)", lit(&shown)),
-        false => lit(&shown),
+        true => format!("{} (cut)", lit(shown)),
+        false => lit(shown),
     }
 }
 

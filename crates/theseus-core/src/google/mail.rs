@@ -288,10 +288,11 @@ impl Parsed {
                 .collect()
         };
         let lines: Vec<&str> = self.body.lines().collect();
+        let cuts = crate::scrub::Cuts::live();
         let head: Vec<String> = lines
             .iter()
             .take(CARD_LINES)
-            .map(|l| l.chars().take(200).collect())
+            .map(|l| crate::scrub::safe::head_with(&cuts, l, 200).0.to_string())
             .collect();
         let names: Vec<&str> = self.files.iter().map(|f| f.name.as_str()).collect();
         json!({

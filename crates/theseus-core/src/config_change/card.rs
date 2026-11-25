@@ -55,10 +55,7 @@ pub fn reason_line(r: &str) -> String {
             false => c.to_string(),
         })
         .collect();
-    match one.chars().count() > REASON_CHARS {
-        true => format!("{}…", one.chars().take(REASON_CHARS).collect::<String>()),
-        false => one,
-    }
+    crate::scrub::safe::head_marked(&one, REASON_CHARS)
 }
 
 /// Why a change cannot be put on one card, or `None` when it can: more

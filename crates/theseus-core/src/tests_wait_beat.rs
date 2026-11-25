@@ -376,3 +376,55 @@ async fn a_secret_split_by_the_cut_leaks_no_prefix() {
         assert!(!line.contains(&SECRET[..n]), "{n} chars leaked: {line}");
     }
 }
+
+/// A job whose argv holds a value the vault knows across the label's sixty
+/// characters: the status line, scrubbed after the label is cut, and the
+/// started result each hold the value whole or not at all.
+#[tokio::test(start_paused = true)]
+async fn a_jobs_status_line_holds_the_argv_value_whole_or_not_at_all() {
+    use crate::tests_cut_sites::{whole_or_absent, V};
+    let mut steps = script(1500);
+    steps[0] = Scripted::tools(
+        "Starting it.",
+        &[(
+            "t1",
+            "proc_run",
+            json!({"argv": ["true", format!("{}{V}", "x".repeat(50))], "background": true}),
+        )],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(dir.path(), false, beat(600));
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let turns = Arc::new(FakeProvider::scripted(steps));
+    let reads = Arc::new(FakeProvider::default());
+    let split = Arc::new(Split {
+        turns: turns.clone(),
+        reads: reads.clone(),
+    });
+    let gate = Arc::new(Gated::default());
+    let mut parts = crate::rpc::Parts::for_tests(cfg, split, store);
+    parts.launcher = gate.clone();
+    parts.scrubber = Arc::new(crate::scrub::Scrubber::with_values(vec![(
+        V.into(),
+        "cut_test".into(),
+    )]));
+    let r = Rig {
+        core: Core::build(parts).unwrap(),
+        turns,
+        reads,
+        gate,
+        _dir: dir,
+    };
+    r.core
+        .secrets
+        .hold("cut_test", crate::secrets::Secret::new(V.into()));
+    let s = r.session();
+    bind(&r, &s);
+    r.submit(&s, "build it").await.unwrap();
+    let lines = statuses(&r);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("j1 (true xxxxx"), "{}", lines[0]);
+    whole_or_absent("the status line", &lines[0], V);
+    let (_, started, _) = r.result(&s.session_id, "t1");
+    whole_or_absent("the started result", &started, V);
+}

@@ -12,7 +12,6 @@
 //! which of two conflicting statements is offered, is the job's (`run.rs`).
 
 use std::collections::BTreeMap;
-use theseus_protocol::term::words::cut_marked;
 
 use serde_json::{json, Value};
 use theseus_protocol::{StandingKind, StandingScope, SURFACES};
@@ -21,6 +20,7 @@ use super::cluster::Cluster;
 use super::evidence::Episode;
 use crate::provider::one_tool::{one_tool, Forcing};
 use crate::provider::ProviderRequest;
+use crate::scrub::{safe, Cuts};
 
 /// The one tool the statements come back through.
 pub const TOOL: &str = "state_cards";
@@ -218,11 +218,12 @@ pub fn parse(content: &[Value], shown: &[Shown], earlier: usize) -> Option<Parse
         .find(|b| b["type"] == "tool_use" && b["name"] == TOOL)?
         .get("input")?;
     let mut out = Parsed::default();
+    let cuts = Cuts::live();
     for c in input["cards"].as_array()? {
         let s = c["cluster"]
             .as_str()
             .and_then(|l| shown.iter().find(|s| s.label == l.trim()));
-        let text = cut(c["text"].as_str().unwrap_or(""), TEXT_CHARS);
+        let text = cut(&cuts, c["text"].as_str().unwrap_or(""), TEXT_CHARS);
         let cites: Vec<&str> = c["episodes"]
             .as_array()
             .into_iter()
@@ -287,9 +288,9 @@ pub fn parse(content: &[Value], shown: &[Shown], earlier: usize) -> Option<Parse
     Some(out)
 }
 
-fn cut(s: &str, max: usize) -> String {
+fn cut(cuts: &Cuts, s: &str, max: usize) -> String {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    cut_marked(&one, max)
+    safe::head_marked_with(cuts, &one, max)
 }
 
 fn norm(s: &str) -> String {

@@ -11,6 +11,7 @@ use theseus_protocol::work::QuestionKind;
 use theseus_protocol::ConfirmRequest;
 
 use crate::narrative::dollars;
+use crate::scrub::{safe, Cuts};
 
 /// The three lines.
 pub struct Words {
@@ -49,11 +50,12 @@ pub fn short(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
-    let head: String = s.chars().take(max.saturating_sub(1)).collect();
+    let cuts = Cuts::live();
+    let (head, _) = safe::head_with(&cuts, s, max.saturating_sub(1));
     if let Some(at) = head.rfind(char::is_whitespace) {
         return format!("{}…", head[..at].trim_end());
     }
-    let tail: String = s.chars().skip(s.chars().count() - (max - 1)).collect();
+    let (tail, _) = safe::tail_with(&cuts, s, max - 1);
     match tail.find('/') {
         Some(at) => format!("…{}", &tail[at..]),
         None => format!("…{tail}"),
@@ -295,5 +297,21 @@ mod tests {
         );
         assert_eq!(said, "run the whole of the long…");
         assert_eq!(short("short", 30), "short");
+    }
+
+    /// The line "Ask again" tells the session (`Core::what_of`, these words'
+    /// `what`) for one long token, which keeps its end: a value the vault
+    /// knows across where that end starts is left out whole, never kept as
+    /// its end piece.
+    #[test]
+    fn an_ask_again_line_keeps_no_end_piece_of_a_value() {
+        use crate::tests_cut_sites::{whole_or_absent, V};
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        let path = format!("/data/{}{V}{}", "a".repeat(40), "b".repeat(80));
+        let r = req("fs.write", json!({ "path": path }), "fs.write — approve");
+        let (_, w) = words(None, &r, "Theseus");
+        whole_or_absent("the line", &w.what, V);
+        assert_eq!(w.what, format!("write `…{}`", "b".repeat(80)));
     }
 }
