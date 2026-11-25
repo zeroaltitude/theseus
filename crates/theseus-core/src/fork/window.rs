@@ -7,7 +7,7 @@
 //!
 //! **Who sees the inherited run.** Every turn of the fork (anything goes, 2026-11-22): the permit admits it
 //! as any piece, and every piece keeps its source's place and ids. A fork of a session the self loop opened
-//! lays its own place only, as that session does (`view_gate::Verified::own_place_only`), and its inherited
+//! to judge lays its own place only, as that session does (`view_gate::Verified::own_place_only`), and its inherited
 //! run besides: the run is handed material, as a brief is, so the scoped permit admits exactly the exchanges
 //! [`inherited`] yields, each laid through the fork's cut, and nothing else of another session
 //! (`view::permit::Permit::scoped`).

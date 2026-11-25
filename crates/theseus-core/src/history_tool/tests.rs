@@ -15,6 +15,7 @@ use crate::exchange::{
 };
 use crate::node::{Body, Node, Origin, ResultStatus};
 use crate::places::PlaceClass;
+use crate::rsi::roles::Role;
 use crate::store::Store;
 use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
@@ -23,6 +24,7 @@ use crate::view::{Anchor, Handle, PointOfView, Present};
 mod edges;
 mod every;
 mod handles;
+mod self_wide;
 mod kept;
 mod keys;
 mod labels;
@@ -1251,32 +1253,39 @@ async fn read_any_sees_a_history_result_of_another_persons_words() {
     assert_eq!(first.url, "history:turn_0002");
 }
 
-/// A session the self loop opened (its execution's principal is `self`), as a self builder's.
-fn self_session(c: &crate::Core) -> String {
-    c.open_session_as(
-        theseus_protocol::SessionOpenParams {
-            label: Some("self build: kelp".into()),
-            ..Default::default()
-        },
-        theseus_kernel::Authority {
-            principal: crate::rsi::SELF_PRINCIPAL.into(),
-            ..Default::default()
-        },
-        None,
-    )
-    .unwrap()
-    .session_id
+/// A session the self loop opened (its execution's principal is `self`) for `role`'s job, recorded as the loop
+/// records it before its first turn; none, a builder's.
+fn self_session(c: &crate::Core, role: Option<Role>) -> String {
+    let id = c
+        .open_session_as(
+            theseus_protocol::SessionOpenParams {
+                label: Some("self build: kelp".into()),
+                ..Default::default()
+            },
+            theseus_kernel::Authority {
+                principal: crate::rsi::SELF_PRINCIPAL.into(),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap()
+        .session_id;
+    if let Some(role) = role {
+        c.tools.self_pr.set_role(&id, role).unwrap();
+    }
+    id
 }
 
 /// The self loop's scope stays in the history reader (D6a round 2, section 2): a session the self loop opened
-/// reads its own place only, as its view does (`view_gate::Verified::own_place_only`). Another place's exchange
+/// to judge (here a reviewer's) reads its own place only, as its view does
+/// (`view_gate::Verified::own_place_only`). Another place's exchange
 /// is neither paged (by `place` or by span) nor opened, another session's id does not open, and its own run is
 /// paged and opened. An ordinary session at the same call reads everything (anything goes, 2026-11-22).
 #[tokio::test]
 async fn a_self_loop_session_reads_its_own_place_only_in_history() {
     use crate::tests_places::{rig, session};
     let r = rig();
-    let me = self_session(&r.core);
+    let me = self_session(&r.core, Some(Role::Reviewer));
     let mine =
         crate::view_gate::place_name(&r.core.runner, &me).unwrap_or_else(|| "unknown".into());
     let other = session(&r.core, None);
@@ -1578,19 +1587,25 @@ fn a_session_open_is_bounded_and_cuts_an_oversized_message_in_words() {
     assert!(text.contains("That is its beginning."), "{text}");
 }
 
-/// XS2's fixture: a builder the self loop opened (principal `self`; offered the history tool, so no role
-/// ceiling hides it), which ran two real turns at its verified anchor ("OWN-HERON", then "LATER-OWN-TERN");
-/// another session's exchange at that same place (`turn_0002`, "SAMEPLACE-KELP"); another place's
-/// (`turn_0003`, "FOREIGN-LAMP"); all of them in the words index.
+/// XS2's fixture: a session the self loop opened (principal `self`) for `role`'s job, none for a builder's,
+/// which ran two real turns at its verified anchor ("OWN-HERON", then "LATER-OWN-TERN"); another session's
+/// exchange at that same place (`turn_0002`, "SAMEPLACE-KELP"); another place's (`turn_0003`,
+/// "FOREIGN-LAMP"); all of them in the words index. A builder and a fixer are offered the history tool; a
+/// reviewer's ceiling offers it none, so its calls here are the tool's own scope, behind that ceiling.
 struct Xs2 {
     r: crate::tests_places::Rig,
-    builder: String,
+    me: String,
     at: String,
     first: String,
     later: String,
 }
 
+/// [`xs2_as`] for a reviewer: a session the self loop opened to judge.
 async fn xs2() -> Xs2 {
+    xs2_as(Some(Role::Reviewer)).await
+}
+
+async fn xs2_as(role: Option<Role>) -> Xs2 {
     use crate::tests_places::{rig_with, session};
     use crate::tests_view_hand_backs::unmarked;
     let r = rig_with(|c| {
@@ -1603,35 +1618,24 @@ async fn xs2() -> Xs2 {
         &crate::approval::Answerer::from("the CLI"),
     )
     .unwrap();
-    let builder = c
-        .open_session_as(
-            theseus_protocol::SessionOpenParams {
-                label: Some("self build: kelp".into()),
-                ..Default::default()
-            },
-            theseus_kernel::Authority {
-                principal: crate::rsi::SELF_PRINCIPAL.into(),
-                ..Default::default()
-            },
-            None,
-        )
-        .unwrap()
-        .session_id;
-    let verified = crate::view_gate::Verified::of_session(&c.runner, &builder);
-    assert!(verified.own_place_only(), "the builder is the self loop's");
+    let me = self_session(&c, role);
+    let verified = crate::view_gate::Verified::of_session(&c.runner, &me);
+    let judging = matches!(role, Some(Role::Reviewer | Role::Approver));
+    assert_eq!(verified.own_place_only(), judging, "{role:?}: its scope");
     let at = verified.pov().anchor.clone();
-    let offered = c.runner.view_of(&builder);
-    assert!(
+    let offered = c.runner.view_of(&me);
+    assert_eq!(
         offered.offered(crate::view::history::HISTORY_TOOL, &[]),
-        "the builder is offered the history tool"
+        !judging,
+        "{role:?}: offered the history tool"
     );
-    unmarked(&c, &builder, "OWN-HERON").await.unwrap();
-    unmarked(&c, &builder, "LATER-OWN-TERN").await.unwrap();
+    unmarked(&c, &me, "OWN-HERON").await.unwrap();
+    unmarked(&c, &me, "LATER-OWN-TERN").await.unwrap();
     let turn_of = |w: &str| {
-        (c.store.session_nodes(&builder).unwrap().into_iter())
+        (c.store.session_nodes(&me).unwrap().into_iter())
             .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(w)))
             .and_then(|(_, n)| n.turn_id)
-            .expect("the builder's turn")
+            .expect("its turn")
     };
     let (first, later) = (turn_of("OWN-HERON"), turn_of("LATER-OWN-TERN"));
     let (other, foreign) = (session(&c, None), session(&c, None));
@@ -1657,11 +1661,11 @@ async fn xs2() -> Xs2 {
     );
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(
         &c,
-        vec![builder.clone(), other, foreign],
+        vec![me.clone(), other, foreign],
     ));
     Xs2 {
         r,
-        builder,
+        me,
         at,
         first,
         later,
@@ -1677,13 +1681,13 @@ async fn xs2_ask(c: &Arc<crate::Core>, session: &str, a: Value) -> Result<String
 }
 
 /// XS2: the self loop's scope holds in the history tool as in the view (`view_gate::Verified::own_place_only`).
-/// The builder reads its own older exchanges, by page and by handle, and nothing of another place or of another
+/// A reviewer reads its own older exchanges, by page and by handle, and nothing of another place or of another
 /// session at its own place, by page, by words or by handle.
 #[tokio::test]
-async fn a_self_loop_builders_history_holds_its_own_place_only() {
+async fn a_self_loop_reviewers_history_holds_its_own_place_only() {
     let x = xs2().await;
     let c = &x.r.core;
-    let ask = |a: Value| xs2_ask(c, &x.builder, a);
+    let ask = |a: Value| xs2_ask(c, &x.me, a);
     let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
     let page = text(ask(json!({})).await);
     assert!(page.contains("OWN-HERON"), "its own older history: {page}");
@@ -1717,13 +1721,13 @@ async fn a_self_loop_builders_history_holds_its_own_place_only() {
     assert!(mine.contains("OWN-HERON"), "its own exchange opens: {mine}");
 }
 
-/// XS2: a fork of the builder, made at its first exchange's reply, reads the run it was handed, by page and by
+/// XS2: a fork of the reviewer, made at its first exchange's reply, reads the run it was handed, by page and by
 /// handle, through the fork's cut and no further, and nothing of another session.
 #[tokio::test]
-async fn a_fork_of_a_self_loop_builder_reads_its_handed_run_through_the_cut_only() {
+async fn a_fork_of_a_self_loop_reviewer_reads_its_handed_run_through_the_cut_only() {
     let x = xs2().await;
     let c = &x.r.core;
-    let reply = (c.store.session_nodes(&x.builder).unwrap().into_iter())
+    let reply = (c.store.session_nodes(&x.me).unwrap().into_iter())
         .find(|(_, n)| {
             n.turn_id.as_deref() == Some(x.first.as_str())
                 && matches!(n.body, Body::AssistantMessage { .. })
@@ -1733,7 +1737,7 @@ async fn a_fork_of_a_self_loop_builder_reads_its_handed_run_through_the_cut_only
     let fork = c
         .session_fork(
             theseus_protocol::SessionForkParams {
-                session: x.builder.clone(),
+                session: x.me.clone(),
                 at: reply,
                 ..Default::default()
             },
@@ -1743,7 +1747,7 @@ async fn a_fork_of_a_self_loop_builder_reads_its_handed_run_through_the_cut_only
         .session_id;
     assert!(
         crate::view_gate::Verified::of_session(&c.runner, &fork).own_place_only(),
-        "the fork keeps the builder's scope"
+        "the fork keeps the reviewer's scope"
     );
     let ask = |a: Value| xs2_ask(c, &fork, a);
     let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
@@ -1966,11 +1970,11 @@ async fn an_imported_agent_message_beside_omitted_outside_text_is_outside() {
     );
 }
 
-/// D6 step 6, round 3, B1: the self loop's scope holds for imported conversations too. Its builder may not
+/// D6 step 6, round 3, B1: the self loop's scope holds for imported conversations too. Its reviewer may not
 /// search them (refused, as an open of another session is), while an ordinary reader's same call finds the
 /// imported words.
 #[tokio::test]
-async fn a_self_loop_builder_may_not_search_imports_and_an_ordinary_reader_may() {
+async fn a_self_loop_reviewer_may_not_search_imports_and_an_ordinary_reader_may() {
     use crate::tests_imports::{episode, import, index_over};
     let x = xs2().await;
     let c = &x.r.core;
@@ -1985,9 +1989,9 @@ async fn a_self_loop_builder_may_not_search_imports_and_an_ordinary_reader_may()
     );
     c.runner.memory.set_ask(index_over(c, ids.clone()));
     let asked = json!({"place": "import", "words": "FOREIGN-OWL"});
-    let refused = xs2_ask(c, &x.builder, asked.clone()).await;
+    let refused = xs2_ask(c, &x.me, asked.clone()).await;
     let said = refused.clone().unwrap_or_else(|e| e);
-    assert!(refused.is_err(), "the builder's search is refused: {said}");
+    assert!(refused.is_err(), "the reviewer's search is refused: {said}");
     assert!(!said.contains("FOREIGN-OWL"), "{said}");
     let reader = crate::tests_places::session(c, None);
     let found = xs2_ask(c, &reader, asked).await.unwrap();

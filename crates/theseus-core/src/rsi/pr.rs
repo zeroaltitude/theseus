@@ -161,6 +161,17 @@ impl Board {
         read
     }
 
+    /// `session`'s role as this process holds it, set or read: none when it holds none, or holds that the
+    /// session has none (a read that may have failed is not trusted here: `TurnRunner::role_read`).
+    pub(crate) fn role_kept(&self, session: &str) -> Option<super::roles::Role> {
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(session)
+            .copied()
+            .flatten()
+    }
+
     pub(crate) fn failed_keel_hold(&self, item: &str) -> bool {
         self.failed_keel_holds
             .lock()

@@ -240,8 +240,8 @@ pub struct Lens<'a> {
     /// The asking session's cut, when it is a fork (`fork::cut`): an exchange the fork point falls in, or one
     /// an ancestor began after it, is not in the fork's history, by position. Empty for any other session.
     pub cut: crate::fork::cut::Cut,
-    /// The self loop's scope, for a session it opened ([`SelfScope`]); none for every other asker, which reads
-    /// every place.
+    /// The self loop's scope, for a session it opened to judge ([`SelfScope`]); none for every other asker
+    /// (a builder and a fixer among them), which reads every place.
     pub scope: Option<SelfScope>,
     /// Where a line's words may be cut.
     pub cuts: Cuts,
@@ -250,7 +250,7 @@ pub struct Lens<'a> {
     pub page: usize,
 }
 
-/// What a session the self loop opened reads of history (`view_gate::Verified::own_place_only`), as its view
+/// What a session the self loop opened to judge reads of history (`view_gate::Verified::own_place_only`), as its view
 /// lays it: the exchanges it ran itself at its verified anchor (`view_gate::own_exchange`), and the run it was
 /// handed as a fork (`fork::window::inherited`, by turn id). Nothing else: no other place, and no other
 /// session at its own place.
@@ -336,8 +336,8 @@ impl Lens<'_> {
         Ok(self.in_scope(ex) && !self.forked(ex)?)
     }
 
-    /// Whether the asker's scope admits `ex`: every exchange for an asker the self loop did not open; for one
-    /// it opened ([`SelfScope`]), its own exchange at its verified anchor, or one of the run it was handed.
+    /// Whether the asker's scope admits `ex`: every exchange for an asker without a [`SelfScope`]; for one with
+    /// it, its own exchange at its verified anchor, or one of the run it was handed.
     pub fn in_scope(&self, ex: &Exchange) -> bool {
         self.scope.as_ref().is_none_or(|s| {
             crate::view_gate::own_exchange(ex, &s.session, &s.anchor)
@@ -346,7 +346,7 @@ impl Lens<'_> {
     }
 
     /// Whether the asker's scope admits opening session `id` whole (`history_tool::session`): any session for
-    /// an asker the self loop did not open; for one it opened ([`SelfScope`]), its own session only. The run it
+    /// an asker without a [`SelfScope`]; for one with it, its own session only. The run it
     /// was handed is read by its exchanges' handles, through [`Lens::in_scope`].
     pub fn in_scope_session(&self, id: &str) -> bool {
         self.scope.as_ref().is_none_or(|s| s.session == id)

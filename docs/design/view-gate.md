@@ -74,6 +74,14 @@ reading of its place, its exact arrival place). The view's own `PointOfView`, wh
 from a caller's `Arrival`, may only narrow it, and a view anchored elsewhere than the verified turn passes nothing.
 `Admitted::code` admits only a piece with no source place and no seal, veil or outside mark.
 
+What stands today beside anything goes is one scope rule of the self loop, not a withholding rule
+(`view_gate::Verified::own_place_only`). A session the self loop opened to JUDGE (a reviewer, the approver of a
+fix, or a fork of one: its role, `rsi::roles`) lays its own place only: its own exchanges there and the run it
+was handed; its history tool pages, opens and searches nothing else, imports included. Its independence from the
+builder's words and everyone else's is its job. The self loop's BUILDING sessions (a builder, whose session has
+no role, and a fixer) read at the widest, as any turn does. A self session whose execution or role cannot be read
+is `Unread`: its view is not assembled, never laid at the widest by default.
+
 ## What stays, and the registry
 
 The core decides by place in many places today (`place_of`, a target's `class_of`, `may_draw_on`, `may_draw_at`,

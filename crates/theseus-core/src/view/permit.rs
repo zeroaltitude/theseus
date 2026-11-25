@@ -4,10 +4,11 @@
 //! ([`super::gate::admit_checked`]: a piece with no source place is not admitted, and only
 //! [`super::gate::Admitted::code`] lays code's own text).
 //!
-//! One scope rule, not a withholding rule: a turn of a session the self loop opened lays its own place only
-//! (`view_gate::Verified::own_place_only`): its own session's exchanges at its anchor, and, for a fork of
-//! such a session, the run the fork was handed (`fork::window::inherited`, laid through the fork's cut);
-//! nothing else a selector reads ([`Permit::scoped`]).
+//! One scope rule, not a withholding rule: a turn of a session the self loop opened to judge (a reviewer, an
+//! approver) lays its own place only (`view_gate::Verified::own_place_only`): its own session's exchanges at
+//! its anchor, and, for a fork of such a session, the run the fork was handed (`fork::window::inherited`, laid
+//! through the fork's cut); nothing else a selector reads ([`Permit::scoped`]). The self loop's building
+//! sessions (a builder, a fixer) are laid the widest, as every other turn is.
 
 use std::collections::HashSet;
 
@@ -15,8 +16,8 @@ use super::gate::{Admitted, Gate};
 use super::{Piece, PointOfView, Space};
 use crate::view_gate::Verified;
 
-/// The gate the view's pieces pass, for one turn: with, for a self-loop session's turn, the exchanges its own
-/// session ran at its anchor (the only pieces it admits).
+/// The gate the view's pieces pass, for one turn: with, for a judging self-loop session's turn, the exchanges
+/// its own session ran at its anchor (the only pieces it admits).
 pub struct Permit(Option<HashSet<String>>);
 
 impl Permit {
@@ -25,9 +26,9 @@ impl Permit {
         Permit(None)
     }
 
-    /// The permit of `session`'s turn `turn` for `verified`: for a self-loop session's turn, its own place
-    /// (`view_gate::own_turns` at the anchor) and the turns of the run it was `handed` as a fork (none for
-    /// a session that is no fork); an unread scope, nothing; every other turn, as [`Self::of`].
+    /// The permit of `session`'s turn `turn` for `verified`: for a judging self-loop session's turn, its own
+    /// place (`view_gate::own_turns` at the anchor) and the turns of the run it was `handed` as a fork (none
+    /// for a session that is no fork); an unread scope, nothing; every other turn, as [`Self::of`].
     pub fn scoped(
         store: &crate::store::Store,
         (session, turn): (&str, &str),
@@ -35,7 +36,7 @@ impl Permit {
         handed: &[&str],
     ) -> Self {
         if verified.scope_unread() {
-            // Whether the self loop opened the session cannot be read: nothing is admitted (a turn's view
+            // The session's scope cannot be read: nothing is admitted (a turn's view
             // fails before this, `view_built`; this holds for every other reader of the scope).
             return Permit(Some(HashSet::new()));
         }

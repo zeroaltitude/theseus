@@ -157,8 +157,9 @@ pub fn assemble_counted(
     let mut denied_units = BTreeSet::new();
     let mut faults = 0u32;
     for s in selectors {
-        // A self-loop session's turn lays its own place only (a scope of the self loop, `Gate::own_place_only`):
-        // nothing waiting (C), nothing from every place (F), no person's exchanges elsewhere (B's recent lines).
+        // A judging self-loop session's turn lays its own place only (a scope of the self loop,
+        // `Gate::own_place_only`): nothing waiting (C), nothing from every place (F), no person's exchanges
+        // elsewhere (B's recent lines).
         let scoped_out = matches!(s.band().row().slot, Slot::Waiting | Slot::Elsewhere)
             || s.band() == Band::PeopleRecent;
         if gate.own_place_only() && scoped_out {
