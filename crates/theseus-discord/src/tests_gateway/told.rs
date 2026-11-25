@@ -163,7 +163,7 @@ async fn the_owners_press_in_private_undoes_once_and_no_other_press_counts() {
     assert_eq!(ends(&r, &id), 1, "revoked once");
     r.until("the note says it was undone", || {
         r.fake.messages(ANA_DM).iter().any(|x| {
-            x.id == m.id && x.content.ends_with("↩️ Undone by ana.") && x.buttons.is_empty()
+            x.id == m.id && x.content.ends_with("↩️ Undone by discord:ana.") && x.buttons.is_empty()
         })
     })
     .await;
@@ -171,6 +171,6 @@ async fn the_owners_press_in_private_undoes_once_and_no_other_press_counts() {
     // A second press (a copy still showing the button) calls nothing.
     let again = forge(&r, ANA_DM, &custom).await;
     let p = r.press(&again, "Undo", (ANA, "ana"));
-    told_to(&r, &p, "↩️ Already undone by ana").await;
+    told_to(&r, &p, "↩️ Already undone by discord:ana").await;
     assert_eq!(ends(&r, &id), 1, "not revoked again");
 }
