@@ -239,7 +239,14 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     // What is still asked: a correction said twice.
     hears(&jev, "correction", 0.4, ("session", 0.9));
     let first = "stop using tables for lists";
-    twice(&r, &one.session_id, first, "again, no tables for lists please", 1).await;
+    twice(
+        &r,
+        &one.session_id,
+        first,
+        "again, no tables for lists please",
+        1,
+    )
+    .await;
     let l = list(&r.core).await;
     assert_eq!(l.asks.len(), 1);
     let a = &l.asks[0];
@@ -270,7 +277,14 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     assert_eq!(rows(&r.core, "standing.answered")[0]["answer"], "keep");
     // Another ask, answered everywhere, and a third not at all.
     let words = "use plain words, not jargon";
-    twice(&r, &one.session_id, words, "plain words again, no jargon", 2).await;
+    twice(
+        &r,
+        &one.session_id,
+        words,
+        "plain words again, no jargon",
+        2,
+    )
+    .await;
     let id = list(&r.core).await.asks[0].id.clone();
     let wide = call_on(
         &r.core,
@@ -297,7 +311,14 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
         "{kept:?}"
     );
     let sid = &one.session_id;
-    twice(&r, sid, "no emoji in my replies", "again: no emoji in replies", 3).await;
+    twice(
+        &r,
+        sid,
+        "no emoji in my replies",
+        "again: no emoji in replies",
+        3,
+    )
+    .await;
     let id = list(&r.core).await.asks[0].id.clone();
     let no = call_on(
         &r.core,
@@ -346,7 +367,11 @@ async fn an_order_is_kept_with_its_notice_and_its_undo_puts_it_back() {
     let rec = live[0].record.clone();
     assert_eq!(
         (rec.kind, rec.text.as_str(), &rec.scope),
-        (StandingKind::Order, "never push to main", &StandingScope::Everywhere)
+        (
+            StandingKind::Order,
+            "never push to main",
+            &StandingScope::Everywhere
+        )
     );
     let cap = rows(&r.core, "standing.captured");
     assert_eq!(cap.len(), 1);
@@ -614,7 +639,14 @@ async fn the_notice_and_the_ask_reach_the_sessions_watchers() {
     until("the record", || captured(&r.core).len() == 1).await;
     hears(&jev, "correction", 0.4, ("everywhere", 0.9));
     let first = "stop using bullets for steps";
-    twice(&r, &rec.session_id, first, "again, no bullets for steps please", 1).await;
+    twice(
+        &r,
+        &rec.session_id,
+        first,
+        "again, no bullets for steps please",
+        1,
+    )
+    .await;
     let mut got: Vec<theseus_protocol::StandingNoticed> = vec![];
     while let Ok(m) = rx.try_recv() {
         if let theseus_protocol::Message::Notification(n) = m {

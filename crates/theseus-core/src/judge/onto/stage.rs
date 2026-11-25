@@ -90,12 +90,7 @@ pub fn attach(core: &Core, session: &str, project: &str) {
 /// The card a step sends, if it sends one: a mint says so with an undo, and
 /// so does a filing below the act band (issue 57: it is told, not asked); a
 /// project's question asks, and writes nothing; a plain filing sends none.
-fn card(
-    plan: &Plan,
-    step: &Step,
-    title: Option<&str>,
-    bands: Bands,
-) -> Option<serde_json::Value> {
+fn card(plan: &Plan, step: &Step, title: Option<&str>, bands: Bands) -> Option<serde_json::Value> {
     match step {
         Step::Filed {
             kind,

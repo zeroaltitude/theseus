@@ -302,7 +302,10 @@ async fn a_new_topic_at_the_confirm_band_is_minted_when_named_and_else_left() {
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["undo"], true);
     let text = sent[0]["text"].as_str().unwrap();
-    assert!(text.contains("started keeping track of something new"), "{text}");
+    assert!(
+        text.contains("started keeping track of something new"),
+        "{text}"
+    );
     // No name: nothing written, no card, no naming call.
     let jev = FakeJev::start().unwrap();
     jev.script_onto("topic", "new", 0.7);
@@ -312,7 +315,10 @@ async fn a_new_topic_at_the_confirm_band_is_minted_when_named_and_else_left() {
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
     assert!(o.member_list(&sid, "topic").is_none(), "nothing written");
     assert!(cards(&r.core).is_empty(), "nothing asked");
-    assert!(kinds(&r.core.store, "onto.named").is_empty(), "no naming call");
+    assert!(
+        kinds(&r.core.store, "onto.named").is_empty(),
+        "no naming call"
+    );
 }
 
 /// Below the confirm band an answer is only a record: no row of its own, no

@@ -145,6 +145,7 @@ async fn a_kept_card_has_undo_and_an_ask_has_keep_and_the_owners_press_counts() 
     })
     .await;
     let live = r.core.runner.standing.all(&r.core.store).unwrap();
-    assert!(live.iter().any(|x| x.text == "again, no tables for lists please"
-        && x.kind == StandingKind::Preference));
+    assert!(live.iter().any(
+        |x| x.text == "again, no tables for lists please" && x.kind == StandingKind::Preference
+    ));
 }
