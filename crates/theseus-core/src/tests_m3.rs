@@ -4477,15 +4477,19 @@ fn submit_params(
     }
 }
 
-/// The user content blocks of the last request the provider saw, less the harness's own (who am I heads a
-/// fresh conversation's message: `task_graph::view::is_view`).
+/// The user content blocks of the last request the provider saw, less who am I (`view::who`, by its head),
+/// which heads a fresh conversation's message. Every other block, the harness's too, stays.
 fn last_user_blocks(r: &Rig) -> Vec<Value> {
     let reqs = r.fake.requests();
     let msgs = &reqs.last().unwrap().messages;
     let user = msgs.iter().rev().find(|m| m["role"] == "user").unwrap();
-    let blocks = user["content"].as_array().unwrap().iter();
-    blocks
-        .filter(|b| !crate::task_graph::view::is_view(b))
+    less_who(user["content"].as_array().unwrap())
+}
+
+/// Blocks less who am I (`view::who`, by its head).
+fn less_who(blocks: &[Value]) -> Vec<Value> {
+    (blocks.iter())
+        .filter(|b| !(b["text"].as_str()).is_some_and(|t| t.starts_with(crate::view::who::HEAD)))
         .cloned()
         .collect()
 }
@@ -4949,14 +4953,10 @@ fn refused_image(m: usize, b: usize) -> Scripted {
     })
 }
 
-/// The first message's blocks in a request, less the harness's own (who am I heads it:
-/// `task_graph::view::is_view`).
+/// The first message's blocks in a request, less who am I (`view::who`, by its head), which heads it. Every
+/// other block, the harness's too, stays.
 fn first_user_blocks(q: &crate::provider::ProviderRequest) -> Vec<Value> {
-    let blocks = q.messages[0]["content"].as_array().unwrap().iter();
-    blocks
-        .filter(|b| !crate::task_graph::view::is_view(b))
-        .cloned()
-        .collect()
+    less_who(q.messages[0]["content"].as_array().unwrap())
 }
 
 fn carries_an_image(q: &crate::provider::ProviderRequest) -> bool {

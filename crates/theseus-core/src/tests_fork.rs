@@ -49,6 +49,8 @@ impl Provider for Model {
     }
 }
 
+/// The person's own words in the last user message: its first text block that is not the harness's
+/// (`task_graph::view::is_view`).
 fn last_user_text(req: &ProviderRequest) -> String {
     req.messages
         .iter()
@@ -1049,12 +1051,12 @@ async fn a_fork_of_a_session_with_no_labels_inside_the_point_carries_no_data() {
     assert!(rec.data.is_none(), "the label's item is after the point");
 }
 
-/// Every text of each message of a request, joined, in order (a message's blocks beside it included).
+/// Every text of each message of a request, joined, in order: every block, the harness's view blocks and a
+/// message's blocks beside it included, so a check that a later word is absent reads all of them.
 fn said_in(req: &ProviderRequest) -> Vec<String> {
     (req.messages.iter())
         .map(|m| {
             (m["content"].as_array().into_iter().flatten())
-                .filter(|b| !crate::task_graph::view::is_view(b))
                 .filter_map(|b| b["text"].as_str())
                 .collect::<Vec<_>>()
                 .join("\n")
