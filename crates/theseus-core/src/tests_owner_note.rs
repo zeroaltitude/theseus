@@ -185,7 +185,12 @@ fn card_families() -> Vec<(&'static str, String)> {
         "the deploy landed",
         "👁 the deploy landed → MERGED",
     );
-    let retraction = crate::retract::card_text("the tide is at 5", "wrong date", &[]);
+    let retraction = crate::retract::card_text(
+        "the tide is at 5",
+        "wrong date",
+        &[],
+        &crate::scrub::Cuts::none(),
+    );
     let kept = crate::capture::kept_card("📌 Kept as a standing order everywhere: x");
     let asked = crate::capture::ask_card("📌 Keep as a standing order everywhere?");
     let new_persona = crate::personas::note::text("pilot", "Pilot", "the CLI", 2000);
