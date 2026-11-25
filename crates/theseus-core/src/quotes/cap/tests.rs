@@ -406,11 +406,12 @@ fn a_capped_quote_that_ends_inside_a_value_is_never_stored_by_reference() {
         }
     }
     assert!(checked > 2_000, "{checked}");
-    // The cap alone does not keep this rule: a quote it keeps may end at a line break inside a value its run holds
-    // whole. The check refuses those, and the runtime stores their words.
-    assert!(
-        refused > 0,
-        "no capped quote ended inside a value: the check refused nothing"
+    // The cap keeps this rule by itself now: the lines a value runs over stay one quote, and a cut beside them falls
+    // at its edge (issue 52). The check still decides, and refuses a quote that ends inside a value
+    // (`tests_oracle::a_range_is_stored_only_when_neither_edge_is_inside_an_encoded_value`).
+    assert_eq!(
+        refused, 0,
+        "a capped quote ended inside a value: the cap split one"
     );
     eprintln!("capped {checked}, refused {refused}");
 }
