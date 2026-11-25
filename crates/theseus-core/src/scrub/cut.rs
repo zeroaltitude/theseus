@@ -11,7 +11,7 @@
 use zeroize::Zeroizing;
 
 use super::{merged, Scrubber, Substitution, MIN_VALUE};
-use crate::secrets::SecretState;
+use crate::secrets::{SecretBoard, SecretState};
 
 /// The values known when it was taken, for placing a cut.
 pub struct Cuts {
@@ -28,26 +28,49 @@ impl Scrubber {
             .iter()
             .map(|(v, n)| (Zeroizing::new(v.clone()), n.clone()))
             .collect();
-        let mut settled = true;
-        if let Some(board) = &self.board {
-            for (name, s) in board.states().iter() {
-                match s {
-                    SecretState::Ready(v) => {
-                        let v = v.expose().trim();
-                        if v.len() >= MIN_VALUE {
-                            values.push((Zeroizing::new(v.to_string()), name.clone()));
-                        }
-                    }
-                    SecretState::Resolving => settled = false,
-                    SecretState::Failed(_) => {}
-                }
-            }
-        }
+        let settled = self
+            .board
+            .as_ref()
+            .is_none_or(|b| ready_values(b, &mut values));
         Cuts { values, settled }
     }
 }
 
+/// Adds `board`'s ready values (trimmed, each at least [`MIN_VALUE`] long)
+/// to `values`; whether none of its values is still loading.
+fn ready_values(board: &SecretBoard, values: &mut Vec<(Zeroizing<String>, String)>) -> bool {
+    let mut settled = true;
+    for (name, s) in board.states().iter() {
+        match s {
+            SecretState::Ready(v) => {
+                let v = v.expose().trim();
+                if v.len() >= MIN_VALUE {
+                    values.push((Zeroizing::new(v.to_string()), name.clone()));
+                }
+            }
+            SecretState::Resolving => settled = false,
+            SecretState::Failed(_) => {}
+        }
+    }
+    settled
+}
+
 impl Cuts {
+    /// Knows the ready values of every [`SecretBoard`] alive in the process,
+    /// for a cut with no scrubber at hand (`scrub::safe`); settled only when
+    /// no board has a value still loading. In the daemon the one board is
+    /// the scrubber's, so it knows what [`Scrubber::cuts`] knows; with no
+    /// board alive it knows nothing and a cut falls where it is asked.
+    /// Knowing more values only moves a cut earlier.
+    pub fn live() -> Self {
+        let mut values = Vec::new();
+        let mut settled = true;
+        for board in SecretBoard::live() {
+            settled &= ready_values(&board, &mut values);
+        }
+        Cuts { values, settled }
+    }
+
     /// Knows no value: a cut falls where it is asked. For text a mask has
     /// already passed.
     pub fn none() -> Self {

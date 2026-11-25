@@ -38,6 +38,7 @@ pub use cut::Cuts;
 mod cut;
 mod escaped;
 mod replay;
+pub mod safe;
 #[cfg(test)]
 mod tests_cut;
 #[cfg(test)]
@@ -50,6 +51,8 @@ mod tests_nested;
 mod tests_order;
 #[cfg(test)]
 mod tests_overlap;
+#[cfg(test)]
+mod tests_safe;
 
 #[derive(Default)]
 pub struct Scrubber {

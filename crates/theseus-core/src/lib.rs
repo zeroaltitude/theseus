@@ -544,6 +544,8 @@ mod tests_personas;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]
+mod tests_plain_cuts;
+#[cfg(test)]
 mod tests_priced_off_peak;
 #[cfg(test)]
 mod tests_private_view;
