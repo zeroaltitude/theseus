@@ -76,6 +76,9 @@ impl Core {
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
             m @ (method::LEDGER_TAIL | method::LEDGER_WINDOW) => self.ledger_reads(m, params),
+            method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
+                Err(narration_off())
+            }
             method::NARRATIVE_WATCH => reply(self.narrative_watch(parse(or_empty(params))?, conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
             m @ (method::EXECUTIONS_WATCH | method::STATUS_SHORT) => {
@@ -85,7 +88,7 @@ impl Core {
             // A wait parks on the board's feed, never holding a worker.
             method::SESSION_WAIT => reply(self.session_wait(parse(params)?, conn).await?),
             m if super::index_rebuild::OWN.contains(&m) => self.rpc_index(m, params, conn).await,
-            m @ (method::MEMORY_SEARCH | method::HISTORY_READ) => {
+            m @ (method::MEMORY_SEARCH | method::MEMORY_LOOKUP | method::HISTORY_READ) => {
                 self.mem(m, params, conn).await
             }
             m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.mem_reads(m, params),

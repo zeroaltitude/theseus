@@ -50,11 +50,11 @@ CALIBRATION = [
     # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
     # exactly 2 short before the rule. Re-measure a moved row; never loosen it.
     ("core_card_run.rs", "card_run", 89),
-    # Frozen at the text where the script reads 95 (the parent of the commit that shortened the function to 93). No
-    # clippy run has been tied to that text: the one on record, `too-many-lines-threshold = 40` on 697b63fc9, printed 98
-    # for the text before the `narrative` key was retired and the script read 98 there too; 95 is the script's own
-    # reading of the text after, taken as clippy's on the strength of the 98 and of every other row.
-    ("rpc_dispatch.rs", "dispatch", 95),
+    # Clippy itself, `too-many-lines-threshold = 40` in a scratch clippy.toml on 697b63fc9, printed 98 for `dispatch`;
+    # the script reads 98. The fixture is that text. The function has since been shortened (the `narrative` key's arm
+    # went, then a rustfmt join) and the script reads 93 on the tree now; those readings are not clippy's, so the row
+    # does not follow them.
+    ("rpc_dispatch.rs", "dispatch", 98),
     # Clippy, `too-many-lines-threshold = 40` in a scratch clippy.toml on 697b63fc9, printed 90; the script read 90.
     # The fixture is that text.
     ("core_compile_step.rs", "compile_step", 90),

@@ -1,7 +1,7 @@
+// frozen text; attributes above the fn are not kept
 
 impl TurnRunner {
     /// `strip` recompiles without the prefix's thinking (theseus-0s4).
-    #[allow(clippy::too_many_arguments)]
     pub(super) async fn compile_step(
         &self,
         t: &mut Turn<'_>,
