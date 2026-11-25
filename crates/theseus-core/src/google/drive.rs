@@ -410,7 +410,8 @@ impl Tool for DriveTool {
             }
             Op::Share => {
                 "Share a Drive file with `email` or `anyone_with_link` as `role`, `remove` that \
-                 access, or `trash` the file. A share asks the owner every time."
+                 access, or `trash` the file. A share or a remove asks the owner every time; a \
+                 trash or restore is told, and he can put it back."
             }
         }
     }
@@ -535,16 +536,16 @@ impl Tool for DriveTool {
             }
             Op::Share => {
                 let s = Sharing::of(input)?;
-                // A grant reaches other people, so it asks; a revoke and a
-                // trash or restore the owner can take back are told (issue 57).
-                let asks = matches!(s.change, Change::Grant { .. });
+                // A trash or restore is put back exactly by the owner's Undo,
+                // so it is told (issue 57); a grant or a revoke asks.
+                let told = matches!(s.change, Change::Trash(_));
                 Ok(Plan {
                     summary: s.summary(),
                     class: Some(ToolClass::Write),
-                    authority: asks.then(|| {
+                    authority: (!told).then(|| {
                         format!(
-                            "{}, which reaches other people, so the owner decides it, every \
-                             time, at every posture",
+                            "{}, which reaches other people or removes a file, so the owner \
+                             decides it, every time, at every posture",
                             s.summary()
                         )
                     }),
@@ -1377,16 +1378,6 @@ enum Change {
     Revoke(Who),
 }
 
-/// The roles a Drive permission can hold.
-const ROLES: [&str; 6] = [
-    "owner",
-    "organizer",
-    "fileOrganizer",
-    "writer",
-    "commenter",
-    "reader",
-];
-
 enum Who {
     User(String),
     Anyone,
@@ -1472,13 +1463,27 @@ impl Sharing {
         }
     }
 
-    /// The change, and what it tells the owner unless he `approved` it.
+    /// The change, and for a trash or restore what it tells the owner unless
+    /// he `approved` it: the file's state read before it, which his Undo puts
+    /// back exactly (issue 57).
     async fn run(self, g: &Google, approved: bool) -> Result<Finished, ToolFailure> {
         let id = self.id.as_str();
         let files = format!("/drive/v3/files/{id}");
         let mut rows = Vec::new();
-        let told = match &self.change {
+        let mut told = None;
+        match &self.change {
             Change::Trash(t) => {
+                let was = match super::take_back::drive_trashed(g, &mut rows, SHARE, id).await {
+                    Ok(Some(w)) => w,
+                    Ok(None) => {
+                        let said = format!("{}: no such file", self.summary());
+                        return Err(refused(said, rows));
+                    }
+                    Err(f) => {
+                        rows.pop();
+                        return Err(failed(f, rows, "reading the file first: "));
+                    }
+                };
                 let req = sent(
                     Service::Drive,
                     "PATCH",
@@ -1494,7 +1499,7 @@ impl Sharing {
                     req,
                 )
                 .await?;
-                Some(super::told::drive_trashed(id, *t))
+                told = Some(super::told::drive_trashed(id, *t, was));
             }
             Change::Grant { who, role, notify } => {
                 let body = match who {
@@ -1520,10 +1525,55 @@ impl Sharing {
                     req,
                 )
                 .await?;
-                None
             }
-            Change::Revoke(who) => Some(self.revoke(g, who, &mut rows).await?),
-        };
+            Change::Revoke(who) => {
+                let list = call(
+                    g,
+                    &mut rows,
+                    meta(SHARE, "drive.permissions.list", Some(id), "read"),
+                    get(
+                        format!("{files}/permissions"),
+                        &[
+                            ("fields", "permissions(id,type,emailAddress,role)"),
+                            ("supportsAllDrives", "true"),
+                        ],
+                    ),
+                )
+                .await?;
+                let found = list.response.json()["permissions"]
+                    .as_array()
+                    .and_then(|p| {
+                        p.iter()
+                            .find(|p| match who {
+                                Who::Anyone => p["type"] == "anyone",
+                                Who::User(e) => p["emailAddress"]
+                                    .as_str()
+                                    .is_some_and(|x| x.eq_ignore_ascii_case(e)),
+                            })
+                            .and_then(|p| p["id"].as_str().map(String::from))
+                    });
+                let Some(pid) = found else {
+                    let said = format!("{}: no such access to remove", self.summary());
+                    return Err(refused(said, rows));
+                };
+                let pid = id_of(&pid).map_err(|e| refused(e, std::mem::take(&mut rows)))?;
+                let req = sent(
+                    Service::Drive,
+                    "DELETE",
+                    format!("{files}/permissions/{pid}"),
+                    &[("supportsAllDrives", "true")],
+                    Body::None,
+                    Repeat::NonRepeatable,
+                );
+                call(
+                    g,
+                    &mut rows,
+                    meta(SHARE, "drive.permissions.delete", Some(id), "authority"),
+                    req,
+                )
+                .await?;
+            }
+        }
         let text = format!("done: {}\n", self.summary());
         let mut m = json!({"id": id});
         if let Some(t) = told.filter(|_| !approved) {
@@ -1531,74 +1581,5 @@ impl Sharing {
         }
         let (m, row) = with_rows(m, rows);
         Ok(finish(g.account(), text, m, row, Source::None))
-    }
-
-    /// A revoke: the permission is found by its address (or as anyone's)
-    /// and deleted. What it tells the owner: the access it gave.
-    async fn revoke(
-        &self,
-        g: &Google,
-        who: &Who,
-        rows: &mut Vec<Value>,
-    ) -> Result<Value, ToolFailure> {
-        let id = self.id.as_str();
-        let files = format!("/drive/v3/files/{id}");
-        let list = call(
-            g,
-            rows,
-            meta(SHARE, "drive.permissions.list", Some(id), "read"),
-            get(
-                format!("{files}/permissions"),
-                &[
-                    ("fields", "permissions(id,type,emailAddress,role)"),
-                    ("supportsAllDrives", "true"),
-                ],
-            ),
-        )
-        .await?;
-        let found = list.response.json()["permissions"]
-            .as_array()
-            .and_then(|p| {
-                p.iter()
-                    .find(|p| match who {
-                        Who::Anyone => p["type"] == "anyone",
-                        Who::User(e) => p["emailAddress"]
-                            .as_str()
-                            .is_some_and(|x| x.eq_ignore_ascii_case(e)),
-                    })
-                    .and_then(|p| {
-                        // Google's own role word, never other text.
-                        let role = p["role"]
-                            .as_str()
-                            .filter(|r| ROLES.contains(r))
-                            .unwrap_or("access");
-                        Some((p["id"].as_str()?.to_string(), role.to_string()))
-                    })
-            });
-        let Some((pid, role)) = found else {
-            let said = format!("{}: no such access to remove", self.summary());
-            return Err(refused(said, std::mem::take(rows)));
-        };
-        let pid = id_of(&pid).map_err(|e| refused(e, std::mem::take(rows)))?;
-        let req = sent(
-            Service::Drive,
-            "DELETE",
-            format!("{files}/permissions/{pid}"),
-            &[("supportsAllDrives", "true")],
-            Body::None,
-            Repeat::NonRepeatable,
-        );
-        call(
-            g,
-            rows,
-            meta(SHARE, "drive.permissions.delete", Some(id), "write"),
-            req,
-        )
-        .await?;
-        let who = match who {
-            Who::User(e) => e.as_str(),
-            Who::Anyone => "anyone with the link",
-        };
-        Ok(super::told::drive_revoked(id, who, &role))
     }
 }

@@ -386,6 +386,7 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
             "calendar.acl.delete",
             json!({"ruleId": "user:x@example.test"}),
         ),
+        ("calendar.calendars.insert", json!({})),
         (
             "calendar.calendars.delete",
             json!({"calendarId": "team@example.test"}),
@@ -398,6 +399,10 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
         ),
         ("DELETE /calendar/v3/calendars/team@example.test", json!({})),
         ("POST /calendar/v3/calendars/primary/acl", json!({})),
+        // Off the allow list, an event made through `google.call` asks too
+        // (issue 57): the typed tool is what makes one unasked.
+        ("calendar.events.insert", json!({})),
+        ("calendar.events.insert", json!({"sendUpdates": "none"})),
     ] {
         assert!(authority(m, p), "{m} is authority");
     }
@@ -405,10 +410,6 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
         ("calendar.acl.list", json!({})),
         ("calendar.calendars.get", json!({})),
         ("calendar.events.list", json!({})),
-        ("calendar.events.insert", json!({})),
-        ("calendar.events.insert", json!({"sendUpdates": "none"})),
-        // A calendar made is told, not asked (issue 57).
-        ("calendar.calendars.insert", json!({})),
     ] {
         assert!(!authority(m, p), "{m} is not authority");
     }

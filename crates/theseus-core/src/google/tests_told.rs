@@ -1,19 +1,25 @@
-//! The tidy Google acts run at their tool's posture and tell the owner once
-//! (issue 57): moving mail or a Drive file to the Trash or back, removing
-//! someone's access to a file, and `google.call`'s trash, untrash and a
-//! calendar made. Each beside the act that still asks: a share, a send, a
-//! message put into the mailbox, a delete, a clear, an ACL change. Against
-//! the loopback fake only.
+//! The told Google acts (issue 57): Gmail messages moved to the Trash or out
+//! of it, a Drive file trashed or restored, and a calendar made. Each runs at
+//! its tool's posture through a whole turn, tells the owner once in fixed
+//! words, and, where it can be put back, carries an Undo that restores what
+//! each thing was before it: nothing more, nothing less. Beside them, what
+//! still asks: a revoke, a share, a send, a message put into the mailbox, a
+//! thread trashed through `google.call`, and a told act that carries anything
+//! more. Against the loopback fake only.
 
 use serde_json::{json, Value};
 use theseus_google::fake::drive::{Drive, File};
 use theseus_google::fake::gmail::MsgSpec;
+use theseus_google::fake::Reply;
 use theseus_tools::{Tool, ToolCtx, ToolOutput};
 
 use super::tests::*;
 use crate::policy::Posture;
 use crate::provider::Scripted;
 use crate::test_support::turn;
+
+/// The owner's Discord handle, for a press of his own from a shared place.
+const OWNER: &str = "4100000000000000042";
 
 fn tool(r: &Rig, name: &str) -> std::sync::Arc<dyn Tool> {
     r.core.tools.registry.get(name).expect("registered").clone()
@@ -31,6 +37,39 @@ fn plan(r: &Rig, name: &str, input: Value) -> theseus_tools::Plan {
     tool(r, name)
         .plan(&input, &ToolCtx::for_tests(r.dir.path()))
         .unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+/// A rig whose owner is named on Discord, so his press from a shared place
+/// is his and is still refused.
+fn rig_of(
+    script: Vec<Scripted>,
+    tweak: impl FnOnce(&mut crate::Config),
+) -> impl std::future::Future<Output = Rig> {
+    rig_with(
+        Some(theseus_google::fake::REFRESH_TOKEN),
+        |_| "file:/tmp/unused-google-refresh-token".into(),
+        script,
+        |c| {
+            c.places.owner = Some(vec![format!("discord:{OWNER}")]);
+            tweak(c)
+        },
+    )
+}
+
+fn share(id: &str, input: Value) -> Scripted {
+    Scripted::tools("", &[(id, "drive_share", input)])
+}
+
+fn label(id: &str, input: Value) -> Scripted {
+    Scripted::tools("", &[(id, "gmail_label", input)])
+}
+
+/// The note's second line: the conversation by its short id.
+fn by(sid: &str) -> String {
+    format!(
+        "In conversation {}, without asking you",
+        theseus_protocol::short_id(sid)
+    )
 }
 
 /// The FYI notes staged to the operator: each one's text, and for a note
@@ -67,43 +106,43 @@ fn notes(r: &Rig) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
-/// The owner on the CLI of this machine: a private place.
+/// The owner on the CLI of this machine: a private place. (The daemon's
+/// general owner rule: a local process on the owner's socket counts, as it
+/// does for every owner command.)
 fn owner() -> crate::approval::Answerer {
-    crate::approval::Answerer {
-        label: "the CLI".into(),
-        surface: crate::approval::Surface::Cli,
-        discord: None,
-        agent: None,
-    }
+    crate::test_support::owner_cli()
 }
 
-/// Someone who is not the owner, in a shared place and in a DM: neither
-/// counts. (An undo is judged as a routine's delete is: the CLI is the
-/// owner's, and a job's shell is refused by the CLI before it sends.)
-fn not_the_owner() -> [crate::approval::Answerer; 2] {
-    let stranger = |guild: Option<&str>| crate::approval::Answerer {
-        label: "discord:777".into(),
+/// Presses that do not count: a stranger in a shared place, a stranger in a
+/// DM, and the owner himself in a shared place.
+fn not_counted() -> [crate::approval::Answerer; 3] {
+    let at = |user: &str, guild: Option<&str>| crate::approval::Answerer {
+        label: format!("discord:{user}"),
         surface: crate::approval::Surface::Discord,
         discord: Some(theseus_protocol::DiscordOrigin {
-            user_id: "777".into(),
+            user_id: user.into(),
             channel_id: "42".into(),
             guild_id: guild.map(String::from),
         }),
         agent: None,
     };
-    [stranger(Some("7")), stranger(None)]
+    [
+        at("777", Some("7")),
+        at("777", None),
+        at(OWNER, Some("7")),
+    ]
 }
 
 /// The one note a turn staged, its words, and its Undo pressed through the
-/// one door, `told.undo`: a press by anyone but the owner in a private place
-/// changes nothing in Google (`same` still holds after each), the owner's
-/// runs the act's opposite and says so, and a second press does nothing.
+/// one door, `told.undo`: a press that does not count changes nothing in
+/// Google (`same` still holds after each), the owner's restores and says
+/// so, and a second press does nothing.
 async fn press(r: &Rig, words: &str, same: impl Fn() -> bool) {
     let n = notes(r);
     assert_eq!(n.len(), 1, "{n:?}");
     assert_eq!(n[0].0, words);
     let post = n[0].1.clone().expect("an Undo");
-    for who in not_the_owner() {
+    for who in not_counted() {
         let e = r.core.told_undo(&post, &who).await.unwrap_err();
         assert_eq!(
             e.code,
@@ -111,7 +150,7 @@ async fn press(r: &Rig, words: &str, same: impl Fn() -> bool) {
             "{}",
             e.message
         );
-        assert!(same(), "{} changed nothing", who.label);
+        assert!(same(), "{}'s press changed nothing", who.label);
     }
     let done = r.core.told_undo(&post, &owner()).await.unwrap();
     assert_eq!(done.text, format!("{words}\n↩️ Undone by the CLI."));
@@ -119,34 +158,25 @@ async fn press(r: &Rig, words: &str, same: impl Fn() -> bool) {
     assert_eq!(again.data["undone_by"], "the CLI", "{}", again.message);
 }
 
-/// Each call a note's undo carries, run as its press would: through
-/// `google.call`, which none of them makes ask.
-async fn undo(r: &Rig, out: &ToolOutput) {
-    let calls = out.meta[super::told::KEY]["undo"]
-        .as_array()
-        .unwrap()
-        .clone();
-    assert!(!calls.is_empty(), "{}", out.meta);
-    for c in calls {
-        assert!(plan(r, "google.call", c.clone()).authority.is_none(), "{c}");
-        ok(r, "google.call", c).await;
-    }
+/// Every request the fake saw for `verb` on a path ending in `tail`.
+fn seen(r: &Rig, verb: &str, tail: &str) -> usize {
+    r.fake
+        .log()
+        .iter()
+        .filter(|l| l.verb == verb && l.path.ends_with(tail))
+        .count()
 }
 
-fn drive_rig_with(
-    script: Vec<Scripted>,
-    tweak: impl FnOnce(&mut crate::Config),
-) -> impl std::future::Future<Output = Rig> {
-    rig_with(
-        Some(theseus_google::fake::REFRESH_TOKEN),
-        |_| "file:/tmp/unused-google-refresh-token".into(),
-        script,
-        tweak,
-    )
+fn sorted(r: &Rig, m: &str) -> Vec<String> {
+    let mut l = r.fake.mail().labels_of(m);
+    l.sort();
+    l
 }
 
-fn share(id: &str, input: Value) -> Scripted {
-    Scripted::tools("", &[(id, "drive_share", input)])
+fn trashed_doc(id: &str) -> File {
+    let mut f = File::doc(id, "Plan", "# Plan\n");
+    f.trashed = true;
+    f
 }
 
 // ------------------------------------------------------------------ Drive
@@ -154,106 +184,105 @@ fn share(id: &str, input: Value) -> Scripted {
 #[tokio::test]
 async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
     let trash = json!({"id": "doc1", "trash": true});
-    let r = drive_rig_with(
-        vec![share("c1", trash.clone()), Scripted::text("Done.")],
-        |_| {},
-    )
-    .await;
+    let r = rig_of(vec![share("c1", trash.clone()), Scripted::text("Done.")], |_| {}).await;
     let drive = Drive::install(&r.fake);
     drive.add(File::doc("doc1", "Plan", "# Plan\n"));
-    assert!(plan(&r, "drive.share", trash.clone()).authority.is_none());
+    assert!(plan(&r, "drive.share", trash).authority.is_none());
     let sid = session(&r.core);
     let res = turn(&r.core, &sid, "trash it").await;
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
     assert!(ledgered(&r.core, "tool.confirm_requested").is_empty());
     assert!(drive.file("doc1").unwrap().trashed);
-    // Its undo puts back exactly what was: the file out of the Trash, all else as it was.
-    press(
-        &r,
-        "ℹ️ FYI · Moved a Drive file to the Trash\nIn \"trash it\", without asking you\n\
-             Moved Drive file doc1 to the Trash.\nUndo restores it.",
-        || drive.file("doc1").unwrap().trashed,
-    )
-    .await;
+    let words = format!(
+        "ℹ️ FYI · Moved a Drive file to the Trash\n{}\nMoved 1 Drive file to the Trash.\n\
+         Undo puts it back exactly as it was.",
+        by(&sid)
+    );
+    press(&r, &words, || drive.file("doc1").unwrap().trashed).await;
     let after = drive.file("doc1").unwrap();
-    assert!(!after.trashed);
     assert_eq!(
         (
+            after.trashed,
             after.name,
             after.parents,
             after.shared,
             after.permissions.len()
         ),
-        ("Plan".to_string(), vec!["root".to_string()], false, 0)
+        (false, "Plan".to_string(), vec!["root".to_string()], false, 0)
     );
-    // A restore is its own opposite's undo.
-    let out = ok(&r, "drive.share", json!({"id": "doc1", "trash": true})).await;
-    undo(&r, &out).await;
-    let out = ok(&r, "drive.share", json!({"id": "doc1", "trash": false})).await;
-    assert!(!drive.file("doc1").unwrap().trashed);
-    assert!(out.meta[super::told::KEY]["did"]
-        .as_str()
-        .unwrap()
-        .contains("Restored Drive file doc1"));
-    undo(&r, &out).await;
-    assert!(drive.file("doc1").unwrap().trashed);
 }
 
 #[tokio::test]
-async fn a_drive_revoke_runs_unasked_and_says_how_to_give_it_back_and_a_grant_still_asks() {
+async fn a_drive_restore_runs_unasked_and_its_undo_puts_it_back_in_the_trash() {
+    let restore = json!({"id": "doc1", "trash": false});
+    let r = rig_of(vec![share("c1", restore), Scripted::text("Done.")], |_| {}).await;
+    let drive = Drive::install(&r.fake);
+    drive.add(trashed_doc("doc1"));
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, "restore it").await;
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    assert!(!drive.file("doc1").unwrap().trashed);
+    let words = format!(
+        "ℹ️ FYI · Restored a Drive file from the Trash\n{}\nRestored 1 Drive file from the \
+         Trash.\nUndo puts it back exactly as it was.",
+        by(&sid)
+    );
+    press(&r, &words, || !drive.file("doc1").unwrap().trashed).await;
+    assert!(drive.file("doc1").unwrap().trashed);
+}
+
+/// A trash of a file already in the Trash changed nothing, so its Undo
+/// changes nothing: the file stays in the Trash, and no write is sent.
+#[tokio::test]
+async fn a_trash_that_changed_nothing_has_an_undo_that_changes_nothing() {
+    let trash = json!({"id": "doc1", "trash": true});
+    let r = rig_of(vec![share("c1", trash), Scripted::text("Done.")], |_| {}).await;
+    let drive = Drive::install(&r.fake);
+    drive.add(trashed_doc("doc1"));
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "trash it").await;
+    let words = format!(
+        "ℹ️ FYI · Moved a Drive file to the Trash\n{}\nMoved 1 Drive file to the Trash. It \
+         was there already, so nothing changed.\nUndo puts it back exactly as it was.",
+        by(&sid)
+    );
+    let writes = seen(&r, "PATCH", "/drive/v3/files/doc1");
+    press(&r, &words, || drive.file("doc1").unwrap().trashed).await;
+    assert!(drive.file("doc1").unwrap().trashed, "it stays in the Trash");
+    assert_eq!(seen(&r, "PATCH", "/drive/v3/files/doc1"), writes);
+}
+
+/// A revoke asks, as on main: the access may be the account's own, and
+/// giving it back is a share.
+#[tokio::test]
+async fn a_drive_revoke_still_asks_and_removes_nothing_unasked() {
     let remove = json!({"id": "doc1", "email": "collaborator@example.test", "remove": true});
     let grant = json!({"id": "doc1", "email": "collaborator@example.test", "role": "writer"});
-    let r = drive_rig_with(
-        vec![share("c1", remove.clone()), Scripted::text("Done.")],
-        |_| {},
-    )
-    .await;
+    let r = rig_of(vec![share("c1", remove.clone())], |_| {}).await;
     let drive = Drive::install(&r.fake);
     drive.add(File::doc("doc1", "Plan", "# Plan\n"));
-    // The grant is made directly (as the owner's approved call would be), so there is access to take.
-    ok(&r, "drive.share", grant.clone()).await;
-    assert!(plan(&r, "drive.share", remove.clone()).authority.is_none());
-    let sid = session(&r.core);
-    let res = turn(&r.core, &sid, "stop sharing it").await;
-    assert!(res.awaiting_confirm.is_none(), "{res:?}");
-    assert!(drive.file("doc1").unwrap().permissions.is_empty());
-    let n = notes(&r);
-    assert_eq!(n.len(), 1, "{n:?}");
-    assert_eq!(n[0].1, None, "no Undo: giving it back asks");
-    assert_eq!(
-        n[0].0,
-        "ℹ️ FYI · Stopped sharing a Drive file\nIn \"stop sharing it\", without asking you\n\
-             Removed collaborator@example.test's access (writer) to Drive file doc1.\n\
-             To give it back, ask Theseus to share Drive file doc1 with \
-             collaborator@example.test as writer: that asks you first."
-    );
-    // No button: giving access back is a grant, and a grant asks at every posture.
-    let out = ok(&r, "drive.share", grant.clone()).await;
+    ok(&r, "drive.share", grant).await;
+    let p = plan(&r, "drive.share", remove);
+    let why = p.authority.clone().unwrap_or_default();
     assert!(
-        out.meta.get(super::told::KEY).is_none(),
-        "a grant is not told: it asked"
+        why.contains("which reaches other people or removes a file, so the owner decides it"),
+        "{why}"
     );
-    let out = ok(&r, "drive.share", remove).await;
-    assert_eq!(out.meta[super::told::KEY]["undo"], json!([]));
     let t = tool(&r, "drive.share");
-    let p = plan(&r, "drive.share", grant);
-    assert!(p.authority.is_some());
-    assert!(!r.core.tools.policy.posture_only(t.as_ref(), &p));
     assert_eq!(
         r.core.tools.policy.decide(t.as_ref(), &p).posture,
         Posture::Approve
     );
-    // A write into a shared folder still asks.
-    drive.add(File::folder("team", "Team").shared());
-    let into = json!({"name": "Notes", "content": "x", "folder": "team", "into_shared": true});
-    let into_shared = plan(&r, "drive.write", into);
-    assert!(into_shared.authority.is_some(), "{into_shared:?}");
+    let res = turn(&r.core, &session(&r.core), "stop sharing it").await;
+    assert!(res.awaiting_confirm.is_some(), "{res:?}");
+    assert_eq!(drive.file("doc1").unwrap().permissions.len(), 1);
+    assert!(notes(&r).is_empty());
 }
 
 #[tokio::test]
 async fn an_explicit_approve_on_the_tool_still_asks_for_a_trash_and_tells_nothing() {
     let trash = json!({"id": "doc1", "trash": true});
-    let r = drive_rig_with(vec![share("c1", trash.clone())], |c| {
+    let r = rig_of(vec![share("c1", trash.clone())], |c| {
         c.policy
             .tools
             .insert("drive.share".into(), Posture::Approve);
@@ -279,101 +308,330 @@ async fn an_explicit_approve_on_the_tool_still_asks_for_a_trash_and_tells_nothin
     assert!(out.meta.get(super::told::KEY).is_none(), "{}", out.meta);
 }
 
+#[tokio::test]
+async fn a_google_call_drive_trash_of_trashed_alone_is_told_and_undone_exactly() {
+    let trash = json!({"method": "drive.files.update", "params": {"fileId": "doc1"},
+        "body": {"trashed": true}});
+    let r = rig_of(vec![call("c1", trash), Scripted::text("Done.")], |_| {}).await;
+    let drive = Drive::install(&r.fake);
+    drive.add(File::doc("doc1", "Plan", "# Plan\n"));
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, "trash that file").await;
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    assert!(drive.file("doc1").unwrap().trashed);
+    let words = format!(
+        "ℹ️ FYI · Moved a Drive file to the Trash\n{}\nMoved 1 Drive file to the Trash.\n\
+         Undo puts it back exactly as it was.",
+        by(&sid)
+    );
+    press(&r, &words, || drive.file("doc1").unwrap().trashed).await;
+    assert!(!drive.file("doc1").unwrap().trashed);
+}
+
+/// A trash that also moves the file into another folder is not a trash: it
+/// asks, and nothing is sent.
+#[tokio::test]
+async fn a_google_call_drive_update_that_also_moves_a_parent_asks() {
+    let moved = json!({"method": "drive.files.update",
+        "params": {"fileId": "doc1", "addParents": "team"}, "body": {"trashed": true}});
+    let r = rig_of(vec![call("c1", moved)], |c| {
+        c.policy.enforcement = Posture::Open;
+        c.policy.tools.insert("google.call".into(), Posture::Open);
+    })
+    .await;
+    let drive = Drive::install(&r.fake);
+    drive.add(File::doc("doc1", "Plan", "# Plan\n"));
+    let res = turn(&r.core, &session(&r.core), "file it in team").await;
+    assert!(res.awaiting_confirm.is_some(), "{res:?}");
+    assert_eq!(seen(&r, "PATCH", "/drive/v3/files/doc1"), 0);
+    assert!(!drive.file("doc1").unwrap().trashed);
+    assert!(notes(&r).is_empty());
+}
+
 // ------------------------------------------------------------------ Gmail
 
-#[tokio::test]
-async fn a_mail_trash_runs_unasked_is_told_once_and_its_undo_restores_the_labels() {
-    let trash = json!({"ids": ["t1", "p2"], "trash": true});
-    let r = rig(vec![
-        Scripted::tools("", &[("c1", "gmail_label", trash.clone())]),
-        Scripted::text("Done."),
-    ])
-    .await;
-    let mail = r.fake.mail();
-    mail.thread(
-        "t1",
-        vec![MsgSpec::new("m1", "Sam <sam@example.test>", "Hi", "x").label("UNREAD")],
-    );
-    mail.thread(
-        "t8",
-        vec![
-            MsgSpec::new("p1", "Sam <sam@example.test>", "A", "a"),
-            MsgSpec::new("p2", "Sam <sam@example.test>", "B", "b").label("STARRED"),
-        ],
-    );
-    let sorted = |m: &str| {
-        let mut l = r.fake.mail().labels_of(m);
-        l.sort();
-        l
+/// A thread of three: one in the inbox and unread, one archived under a
+/// label, one already in the Trash.
+fn mixed_thread(r: &Rig) {
+    let archived = MsgSpec {
+        labels: vec!["Label_7".into()],
+        ..MsgSpec::new("m2", "Sam <sam@example.test>", "B", "b")
     };
-    let before = (sorted("m1"), sorted("p1"), sorted("p2"));
-    assert!(plan(&r, "gmail.label", trash.clone()).authority.is_none());
-    let sid = session(&r.core);
-    let res = turn(&r.core, &sid, "clear out my inbox").await;
-    assert!(res.awaiting_confirm.is_none(), "{res:?}");
-    assert!(sorted("m1").contains(&"TRASH".to_string()));
-    assert!(sorted("p2").contains(&"TRASH".to_string()));
-    let trashed = (sorted("m1"), sorted("p1"), sorted("p2"));
-    press(
-        &r,
-        "ℹ️ FYI · Moved mail to the Trash\nIn \"clear out my inbox\", without asking you\n\
-             Moved 2 Gmail thread(s) to the Trash: t1, p2.\nUndo takes them out of the Trash.",
-        || (sorted("m1"), sorted("p1"), sorted("p2")) == trashed,
-    )
-    .await;
-    assert_eq!((sorted("m1"), sorted("p1"), sorted("p2")), before);
-    // The undo names the kind that took each id: a thread, and a message.
-    let out = ok(&r, "gmail.label", trash).await;
-    assert_eq!(
-        out.meta[super::told::KEY]["undo"],
-        json!([
-            {"method": "POST /gmail/v1/users/me/threads/t1/untrash"},
-            {"method": "POST /gmail/v1/users/me/messages/p2/untrash"}
-        ])
+    let binned = MsgSpec {
+        labels: vec!["TRASH".into()],
+        ..MsgSpec::new("m3", "Sam <sam@example.test>", "C", "c")
+    };
+    r.fake.mail().thread(
+        "t1",
+        vec![
+            MsgSpec::new("m1", "Sam <sam@example.test>", "A", "a").label("UNREAD"),
+            archived,
+            binned,
+        ],
     );
 }
 
-// ------------------------------------------------------------------ google.call
-
 #[tokio::test]
-async fn a_google_call_trash_runs_unasked_and_its_undo_is_the_untrash() {
-    let trash = json!({"method": "gmail.users.threads.trash", "params": {"id": "t1"}});
-    let r = rig(vec![call("c1", trash.clone()), Scripted::text("Done.")]).await;
+async fn a_mail_trash_is_told_and_its_undo_restores_each_message_exactly() {
+    let trash = json!({"ids": ["t1"], "trash": true});
+    let r = rig_of(vec![label("c1", trash.clone()), Scripted::text("Done.")], |_| {}).await;
+    mixed_thread(&r);
+    let before: Vec<_> = ["m1", "m2", "m3"].iter().map(|m| sorted(&r, m)).collect();
+    assert!(plan(&r, "gmail.label", trash).authority.is_none());
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, "clear that out").await;
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    for m in ["m1", "m2", "m3"] {
+        assert!(sorted(&r, m).contains(&"TRASH".to_string()), "{m}");
+    }
+    // A message that joins the thread afterwards is no part of the act.
+    r.fake
+        .mail()
+        .deliver("t1", MsgSpec::new("m4", "Sam <sam@example.test>", "D", "d"));
+    let trashed: Vec<_> = ["m1", "m2", "m3", "m4"].iter().map(|m| sorted(&r, m)).collect();
+    let words = format!(
+        "ℹ️ FYI · Moved mail to the Trash\n{}\nMoved 3 Gmail messages to the Trash.\n\
+         Undo puts each one back exactly as it was.",
+        by(&sid)
+    );
+    let now = || -> Vec<_> { ["m1", "m2", "m3", "m4"].iter().map(|m| sorted(&r, m)).collect() };
+    press(&r, &words, || now() == trashed).await;
+    // Each back as it was: the unread one in the inbox, the archived one
+    // still archived, the one already in the Trash still there.
+    let after: Vec<_> = ["m1", "m2", "m3"].iter().map(|m| sorted(&r, m)).collect();
+    assert_eq!(after, before);
+    assert_eq!(sorted(&r, "m4"), vec!["INBOX".to_string()]);
+    assert!(
+        r.fake.log().iter().all(|l| !l.path.contains("/m4")),
+        "the later message was never touched"
+    );
+}
+
+/// The second message's trash is refused: the first moved and is told, with
+/// an Undo for it alone; the third is as it was.
+#[tokio::test]
+async fn a_mail_trash_that_fails_partway_is_told_for_what_moved() {
+    let trash = json!({"ids": ["t1"], "trash": true});
+    let r = rig_of(vec![label("c1", trash), Scripted::text("It failed.")], |_| {}).await;
     r.fake.mail().thread(
         "t1",
-        vec![MsgSpec::new("m1", "Sam <sam@example.test>", "Hi", "x")],
+        ["m1", "m2", "m3"]
+            .iter()
+            .map(|m| MsgSpec::new(m, "Sam <sam@example.test>", "A", "a"))
+            .collect(),
     );
-    let p = plan(&r, "google.call", trash.clone());
-    assert!(p.authority.is_none(), "{p:?}");
-    let t = tool(&r, "google.call");
-    assert!(r.core.tools.policy.posture_only(t.as_ref(), &p));
+    r.fake
+        .route("POST", "/gmail/v1/users/me/messages/m2/trash", |_| {
+            Reply::json(
+                403,
+                json!({"error": {"code": 403, "message": "Forbidden",
+                    "errors": [{"reason": "forbidden"}]}}),
+            )
+        });
     let sid = session(&r.core);
-    let res = turn(&r.core, &sid, "trash that thread").await;
+    turn(&r.core, &sid, "clear that out").await;
+    assert_eq!(sorted(&r, "m1"), vec!["TRASH".to_string()]);
+    for m in ["m2", "m3"] {
+        assert_eq!(sorted(&r, m), vec!["INBOX".to_string()], "{m}");
+    }
+    let words = format!(
+        "ℹ️ FYI · Moved mail to the Trash\n{}\nMoved 1 of 3 Gmail messages to the Trash; then \
+         Google refused one, and the rest are as they were.\nUndo puts each one back exactly \
+         as it was.",
+        by(&sid)
+    );
+    press(&r, &words, || sorted(&r, "m1") == ["TRASH"]).await;
+    for m in ["m1", "m2", "m3"] {
+        assert_eq!(sorted(&r, m), vec!["INBOX".to_string()], "{m}");
+    }
+}
+
+/// An Undo that can put back only part says how much, never that nothing
+/// was made: one message Google no longer has is said plainly, and the note
+/// stays open for another press.
+#[tokio::test]
+async fn an_undo_that_restores_part_says_partly_restored() {
+    let trash = json!({"ids": ["t1"], "trash": true});
+    let r = rig_of(vec![label("c1", trash), Scripted::text("Done.")], |_| {}).await;
+    r.fake.mail().thread(
+        "t1",
+        ["m1", "m2"]
+            .iter()
+            .map(|m| MsgSpec::new(m, "Sam <sam@example.test>", "A", "a"))
+            .collect(),
+    );
+    turn(&r.core, &session(&r.core), "clear that out").await;
+    // The second is gone for good: emptied from the Trash.
+    r.fake.route("GET", "/gmail/v1/users/me/messages/m2", |_| {
+        Reply::json(
+            404,
+            json!({"error": {"code": 404, "message": "Not Found",
+                "errors": [{"reason": "notFound"}]}}),
+        )
+    });
+    let n = notes(&r);
+    let post = n[0].1.clone().expect("an Undo");
+    let e = r.core.told_undo(&post, &owner()).await.unwrap_err();
+    assert_eq!(
+        e.message,
+        "Partly restored: 1 of 2. 1 of them no longer exist in Google (deleted for good, or \
+         emptied from the Trash), so they cannot come back."
+    );
+    assert_eq!(
+        e.data["partly"],
+        json!({"restored": 1, "of": 2, "gone": 1})
+    );
+    assert!(!e.message.contains("not made"));
+    assert_eq!(sorted(&r, "m1"), vec!["INBOX".to_string()]);
+    // Not marked undone: a press again tries again, and puts back no more.
+    let again = r.core.told_undo(&post, &owner()).await.unwrap_err();
+    assert!(again.message.starts_with("Partly restored: 1 of 2."), "{}", again.message);
+}
+
+/// The owner's explicit "approve" makes a Gmail trash ask, typed or through
+/// `google.call`; nothing is trashed and nothing is told.
+#[tokio::test]
+async fn an_explicit_approve_still_asks_for_a_mail_trash_typed_or_generic() {
+    for (tool_name, script) in [
+        ("gmail.label", label("c1", json!({"ids": ["t1"], "trash": true}))),
+        (
+            "google.call",
+            call(
+                "c1",
+                json!({"method": "gmail.users.messages.trash", "params": {"id": "m1"}}),
+            ),
+        ),
+    ] {
+        let r = rig_of(vec![script], |c| {
+            c.policy.tools.insert(tool_name.into(), Posture::Approve);
+        })
+        .await;
+        r.fake.mail().thread(
+            "t1",
+            vec![MsgSpec::new("m1", "Sam <sam@example.test>", "A", "a")],
+        );
+        let res = turn(&r.core, &session(&r.core), "clear that out").await;
+        assert!(res.awaiting_confirm.is_some(), "{tool_name}: {res:?}");
+        assert_eq!(sorted(&r, "m1"), vec!["INBOX".to_string()], "{tool_name}");
+        assert!(notes(&r).is_empty(), "{tool_name}");
+    }
+}
+
+#[tokio::test]
+async fn a_google_call_message_trash_is_told_and_its_undo_keeps_it_archived() {
+    let trash = json!({"method": "gmail.users.messages.trash", "params": {"id": "m2"}});
+    let r = rig_of(vec![call("c1", trash.clone()), Scripted::text("Done.")], |_| {}).await;
+    mixed_thread(&r);
+    let p = plan(&r, "google.call", trash);
+    assert!(p.authority.is_none(), "{p:?}");
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, "bin that one").await;
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
-    assert_eq!(r.fake.mail().labels_of("m1"), vec!["TRASH".to_string()]);
-    press(
-        &r,
-        "ℹ️ FYI · A Google call was made\nIn \"trash that thread\", without asking you\n\
-             gmail.users.threads.trash: POST /gmail/v1/users/me/threads/t1/trash \
-             (moves to or from the trash).\nUndo runs its opposite.",
-        || r.fake.mail().labels_of("m1") == ["TRASH"],
-    )
-    .await;
-    assert_eq!(r.fake.mail().labels_of("m1"), vec!["INBOX".to_string()]);
-    // The undo's own call is in the ledger, as any Google call is.
+    assert!(sorted(&r, "m2").contains(&"TRASH".to_string()));
+    let words = format!(
+        "ℹ️ FYI · Moved mail to the Trash\n{}\nMoved 1 Gmail message to the Trash.\n\
+         Undo puts each one back exactly as it was.",
+        by(&sid)
+    );
+    press(&r, &words, || sorted(&r, "m2").contains(&"TRASH".to_string())).await;
+    assert_eq!(sorted(&r, "m2"), vec!["Label_7".to_string()]);
+    // The undo's own calls are in the ledger, as any Google call is.
     let called = ledgered(&r.core, "google.called");
     assert!(
         called
             .iter()
-            .any(|c| c["method"].as_str().is_some_and(|m| m.contains("untrash"))),
+            .any(|c| c["method"] == "gmail.users.messages.untrash"),
         "{called:?}"
     );
-    // A node that is no tidy act's is refused, and so is an unknown one.
+    // A node that is no told act's is refused, and so is an unknown one.
     for id in ["nod_nothing", ""] {
         let e = r.core.google_take_back(id).await.unwrap_err();
         assert!(e.message.contains("no Google act"), "{}", e.message);
     }
 }
+
+/// A whole thread trashed through `google.call` asks: what it would move is
+/// not read first, so it could not be put back exactly.
+#[tokio::test]
+async fn a_google_call_thread_trash_asks() {
+    let trash = json!({"method": "gmail.users.threads.trash", "params": {"id": "t1"}});
+    let r = rig_of(vec![call("c1", trash)], |c| {
+        c.policy.enforcement = Posture::Open;
+        c.policy.tools.insert("google.call".into(), Posture::Open);
+    })
+    .await;
+    mixed_thread(&r);
+    let res = turn(&r.core, &session(&r.core), "bin the thread").await;
+    assert!(res.awaiting_confirm.is_some(), "{res:?}");
+    assert_eq!(seen(&r, "POST", "/threads/t1/trash"), 0);
+    assert!(notes(&r).is_empty());
+}
+
+/// The note quotes nothing anyone else wrote and names no one: not the
+/// conversation's title, not a subject, not an address, not an id.
+#[tokio::test]
+async fn a_note_names_no_title_subject_address_or_id() {
+    let trash = json!({"ids": ["t1"], "trash": true});
+    let r = rig_of(vec![label("c1", trash), Scripted::text("Done.")], |_| {}).await;
+    r.fake.mail().thread(
+        "t1",
+        vec![MsgSpec::new(
+            "m1",
+            "Alice Example <alice@example.test>",
+            "Secret merger plan",
+            "x",
+        )],
+    );
+    let mut rec =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    rec.label = Some("Re: Secret merger plan from alice@example.test".into());
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let sid = rec.session_id.clone();
+    turn(&r.core, &sid, "bin the merger mail from alice@example.test").await;
+    let n = notes(&r);
+    assert_eq!(n.len(), 1, "{n:?}");
+    assert!(n[0].0.contains(&by(&sid)), "{}", n[0].0);
+    // Its own words, the conversation's short id aside.
+    let words = n[0].0.replace(&by(&sid), "");
+    for bad in ["Secret", "merger", "alice", "Alice", "example.test", "t1", "m1", "Re:"] {
+        assert!(!words.contains(bad), "{bad:?} in {}", n[0].0);
+    }
+}
+
+// ------------------------------------------------------------------ calendar
+
+#[tokio::test]
+async fn a_calendar_made_through_a_turn_is_told_once_with_no_name_and_no_undo() {
+    let made = json!({"method": "calendar.calendars.insert", "body": {"summary": "Trip with Sam"}});
+    let r = rig_of(vec![call("c1", made.clone()), Scripted::text("Made.")], |_| {}).await;
+    r.fake.json(
+        "POST",
+        "/calendar/v3/calendars",
+        json!({"id": "cal9@group.example.test", "summary": "Trip with Sam"}),
+    );
+    assert!(plan(&r, "google.call", made).authority.is_none());
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, "make me a calendar for the trip").await;
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    let n = notes(&r);
+    assert_eq!(n.len(), 1, "{n:?}");
+    assert_eq!(n[0].1, None, "no Undo: taking it back is a delete, which asks");
+    let head = format!(
+        "ℹ️ FYI · Made a calendar\n{}\nMade 1 Google calendar.\nTo take it back, delete it: \
+         that asks you first.\nAct: ",
+        by(&sid)
+    );
+    assert!(n[0].0.starts_with(&head), "{}", n[0].0);
+    // The act is named by its result's id, and the calendar not at all.
+    let act = &n[0].0[head.len()..];
+    assert!(!act.is_empty() && !act.contains(char::is_whitespace), "{act}");
+    for bad in ["Trip", "Sam", "cal9", "example.test"] {
+        assert!(!n[0].0[..head.len()].contains(bad), "{bad:?} in {}", n[0].0);
+        assert!(!act.contains(bad), "{bad:?} in {act}");
+    }
+}
+
+// ------------------------------------------------------------------ what still asks
 
 #[tokio::test]
 async fn a_message_put_into_the_mailbox_still_asks_and_nothing_is_put_or_told() {
@@ -381,7 +639,7 @@ async fn a_message_put_into_the_mailbox_still_asks_and_nothing_is_put_or_told() 
     // and a note that names an id cannot warn him well enough: it asks.
     let insert = json!({"method": "gmail.users.messages.insert", "body": {"raw": "eA"}});
     let import = json!({"method": "gmail.users.messages.import", "body": {"raw": "eA"}});
-    let r = rig(vec![call("c1", insert.clone()), Scripted::text("Done.")]).await;
+    let r = rig_of(vec![call("c1", insert.clone()), Scripted::text("Done.")], |_| {}).await;
     let t = tool(&r, "google.call");
     for input in [&insert, &import] {
         let p = plan(&r, "google.call", input.clone());
@@ -410,44 +668,89 @@ async fn a_message_put_into_the_mailbox_still_asks_and_nothing_is_put_or_told() 
     assert!(notes(&r).is_empty());
 }
 
+/// Through `google.call`, every KEEP call and every call off the allow list
+/// asks at every posture: what sends, deletes, shares, invites, hides mail
+/// or changes how mail is handled.
 #[tokio::test]
-async fn a_calendar_made_is_told_with_how_to_take_it_back_and_the_keep_calls_still_ask() {
-    let r = rig(vec![]).await;
-    r.fake.json(
-        "POST",
-        "/calendar/v3/calendars",
-        json!({"id": "cal9@group.example.test", "summary": "x"}),
-    );
-    let made = json!({"method": "calendar.calendars.insert", "body": {"summary": "Trips"}});
-    assert!(plan(&r, "google.call", made.clone()).authority.is_none());
-    let out = ok(&r, "google.call", made).await;
-    let told = &out.meta[super::told::KEY];
-    assert_eq!(told["undo"], json!([]));
-    assert_eq!(
-        told["back"],
-        "To take it back, delete calendar cal9@group.example.test: that asks you first."
-    );
-    // That delete, and every other KEEP call, still asks at every posture.
+async fn the_keep_calls_and_the_unlisted_writes_still_ask_at_every_posture() {
+    let r = rig_of(vec![], |c| {
+        c.policy.enforcement = Posture::Open;
+        c.policy.tools.insert("google.call".into(), Posture::Open);
+    })
+    .await;
     let t = tool(&r, "google.call");
-    for (m, params) in [
-        ("calendar.calendars.delete", json!({"calendarId": "cal9"})),
-        ("calendar.calendars.clear", json!({})),
-        ("gmail.users.messages.send", json!({})),
-        ("gmail.users.messages.insert", json!({})),
-        ("gmail.users.messages.import", json!({})),
-        ("gmail.users.messages.delete", json!({"id": "m77"})),
-        ("gmail.users.messages.batchDelete", json!({})),
-        ("drive.files.delete", json!({"fileId": "f1"})),
-        ("drive.permissions.create", json!({"fileId": "f1"})),
-        ("calendar.acl.insert", json!({})),
-        ("calendar.events.insert", json!({"sendUpdates": "all"})),
+    let attendees = json!({"summary": "x", "attendees": [{"email": "a@example.test"}]});
+    for (m, params, body) in [
+        ("calendar.calendars.delete", json!({"calendarId": "cal9"}), None),
+        ("calendar.calendars.clear", json!({}), None),
+        ("gmail.users.messages.send", json!({}), None),
+        ("gmail.users.messages.insert", json!({}), None),
+        ("gmail.users.messages.import", json!({}), None),
+        ("gmail.users.messages.delete", json!({"id": "m77"}), None),
+        ("gmail.users.messages.batchDelete", json!({}), None),
+        ("drive.files.delete", json!({"fileId": "f1"}), None),
+        ("drive.permissions.create", json!({"fileId": "f1"}), None),
+        ("calendar.acl.insert", json!({}), None),
+        ("calendar.events.insert", json!({"sendUpdates": "all"}), None),
+        // Off the allow list (issue 57).
+        (
+            "drive.files.create",
+            json!({}),
+            Some(json!({"name": "x", "parents": ["team"]})),
+        ),
+        (
+            "drive.files.copy",
+            json!({"fileId": "f1"}),
+            Some(json!({"parents": ["team"]})),
+        ),
+        ("calendar.events.insert", json!({}), Some(attendees.clone())),
+        (
+            "calendar.events.patch",
+            json!({"eventId": "e1"}),
+            Some(attendees),
+        ),
+        (
+            "gmail.users.messages.modify",
+            json!({"id": "m1"}),
+            Some(json!({"removeLabelIds": ["INBOX"]})),
+        ),
+        (
+            "gmail.users.messages.batchModify",
+            json!({}),
+            Some(json!({"ids": ["m1"], "addLabelIds": ["SPAM"]})),
+        ),
+        (
+            "gmail.users.threads.modify",
+            json!({"id": "t1"}),
+            Some(json!({"addLabelIds": ["TRASH"]})),
+        ),
+        (
+            "POST /gmail/v1/users/me/settings/filters",
+            json!({}),
+            Some(json!({"action": {}})),
+        ),
+        (
+            "PUT /gmail/v1/users/me/settings/autoForwarding",
+            json!({}),
+            Some(json!({"enabled": true})),
+        ),
+        (
+            "PUT /gmail/v1/users/me/settings/vacation",
+            json!({}),
+            Some(json!({"enableAutoReply": true})),
+        ),
+        ("POST /drive/v3/files/f1/watch", json!({}), Some(json!({}))),
     ] {
-        let p = plan(&r, "google.call", json!({"method": m, "params": params}));
-        assert!(p.authority.is_some(), "{m}");
+        let mut input = json!({"method": m, "params": params});
+        if let Some(b) = body {
+            input["body"] = b;
+        }
+        let p = plan(&r, "google.call", input.clone());
+        assert!(p.authority.is_some(), "{input}");
         assert_eq!(
             r.core.tools.policy.decide(t.as_ref(), &p).posture,
             Posture::Approve,
-            "{m}"
+            "{input}"
         );
     }
 }

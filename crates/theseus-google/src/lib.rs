@@ -13,7 +13,7 @@ pub mod scopes;
 pub mod secret;
 pub mod token;
 
-pub use classify::{classify, Class, Classified};
+pub use classify::{classify, Class, Classified, Tidy};
 pub use client::{Body, Client, Endpoints, Failure, Request, Response};
 pub use error::{GoogleError, Kind};
 pub use retry::{Policy, Repeat};

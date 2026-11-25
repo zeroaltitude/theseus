@@ -53,36 +53,36 @@ impl ToolRuntime {
         Ok(accepted)
     }
 
-    /// A tidy Google act the owner did not approve is told to him once, in
+    /// A told Google act the owner did not approve is told to him once, in
     /// its result's frame (issue 57, `google::told`): never to the session's
-    /// own place, which may be shared. One with an exact opposite carries its
-    /// Undo (`owner_note::told`), named by this result node.
+    /// own place, which may be shared. One that can be put back carries its
+    /// Undo (`owner_note::told`), named by this result node; one with none
+    /// names the act, for the owner to look up. A call that failed partway is
+    /// told for the part that was done.
     fn tell_google(
         tc: &TurnCtx<'_>,
         node: &Node,
         frame: &mut Vec<theseus_store::NewRecord>,
     ) -> Result<Option<theseus_kernel::Action>> {
         use crate::google::told;
-        let crate::node::Body::ToolResult { meta, status, .. } = &node.body else {
+        let crate::node::Body::ToolResult { meta, .. } = &node.body else {
             return Ok(None);
         };
-        if *status != crate::node::ResultStatus::Ok || !crate::google::private::marked(meta) {
+        if !crate::google::private::marked(meta) {
             return Ok(None);
         }
-        let session: Option<crate::session::SessionRecord> =
-            tc.store.get_session(tc.session_id).ok().flatten();
-        let title = session.and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
-        let Some(p) = told::parts(&meta[told::KEY], title.as_deref()) else {
+        let Some(p) = told::parts(&meta[told::KEY], tc.session_id) else {
             return Ok(None);
         };
-        let (post, more) = match told::undo_calls(node) {
+        let (post, more) = match told::undo_before(node) {
             Some(_) => {
                 let undo = crate::owner_note::told::Undo::GoogleTakeBack(node.id.clone());
                 crate::owner_note::told::stage(tc.outbox, None, &p.title, &p.by, &p.body, &undo)?
             }
             None => {
+                let body = format!("{}\nAct: {}", p.body, node.id);
                 let text =
-                    crate::owner_note::note(crate::owner_note::Kind::Fyi, &p.title, &p.by, &p.body);
+                    crate::owner_note::note(crate::owner_note::Kind::Fyi, &p.title, &p.by, &body);
                 tc.outbox.stage_to_operator(
                     None,
                     serde_json::json!({"kind": "notice", "text": text, "announce": true}),

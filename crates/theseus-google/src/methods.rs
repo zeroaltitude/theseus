@@ -532,14 +532,15 @@ pub fn resolve(
     .iter()
     .find_map(|k| params.get(*k).and_then(Value::as_str))
     .map(str::to_string);
-    let path = fill(&template, &mut params)?;
+    // One normal form for the path: what is judged is what is sent.
+    let path = crate::classify::normal(&fill(&template, &mut params)?).to_string();
     let query: Vec<(String, String)> = params
         .iter()
         .flat_map(|(k, v)| query_value(v).into_iter().map(move |s| (k.clone(), s)))
         .collect();
     // The filled path, not the template: a path's own `{x}` filled with `send`
     // is a send.
-    let class = classify(&verb, &path, id, &query);
+    let class = classify(&verb, &path, id, &query, body);
     let body = match body {
         None | Some(Value::Null) => Body::None,
         Some(v) => Body::Json(v.clone()),

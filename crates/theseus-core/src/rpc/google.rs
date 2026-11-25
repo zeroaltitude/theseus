@@ -61,59 +61,35 @@ impl crate::Core {
         }
     }
 
-    /// The tidy act whose result node is `id`, taken back: `told.undo`'s arm
+    /// The told act whose result node is `id`, taken back: `told.undo`'s arm
     /// for [`crate::owner_note::told::Undo::GoogleTakeBack`], which has judged
-    /// the press already. Each call the act's result recorded runs through
-    /// `google.call`, as the owner approved it; one whose plan would ask
-    /// anybody is refused, and nothing after it runs.
+    /// the press already. Each thing the act changed is put back exactly as it
+    /// was before it (`google::take_back`), each tried; one that cannot be is
+    /// said, with how many were put back.
     pub(crate) async fn google_take_back(&self, id: &str) -> Result<(), RpcFailure> {
         let node = self.store.get_node(id).map_err(RpcFailure::invalid)?;
-        let Some(calls) = node.and_then(|(_, n)| crate::google::told::undo_calls(&n)) else {
+        let Some(before) = node.and_then(|(_, n)| crate::google::told::undo_before(&n)) else {
             return Err(RpcFailure::new(
                 error_code::INVALID_PARAMS,
                 format!("{id} is no Google act Theseus can take back"),
             ));
         };
-        self.google()?;
-        let tool = self
-            .tools
-            .registry
-            .get(crate::google::call::NAME)
-            .cloned()
-            .ok_or_else(|| {
-                RpcFailure::new(error_code::INVALID_PARAMS, "google.call is not here")
-            })?;
-        let ctx = theseus_tools::ToolCtx {
-            approved: true,
-            ..Default::default()
-        };
-        for call in &calls {
-            let plan = tool
-                .plan(call, &ctx)
-                .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))?;
-            if plan.authority.is_some() {
-                return Err(RpcFailure::new(
-                    error_code::REFUSED,
-                    format!("{}: it would ask, so an undo does not run it", plan.summary),
-                ));
-            }
-            let ran = tool.run_async(call, &ctx).await;
-            let meta = match &ran {
-                Ok((out, _)) => &out.meta,
-                Err(f) => &f.meta,
-            };
-            let also = meta["google_called_also"].as_array().into_iter().flatten();
-            for row in also.chain(meta.get("google_called")) {
-                self.google_row(&crate::fact::google::GoogleCalled { row });
-            }
-            if let Err(f) = ran {
-                return Err(RpcFailure::new(
-                    error_code::INVALID_PARAMS,
-                    format!("{}: {}", plan.summary, f.message),
-                ));
-            }
+        let g = self.google()?;
+        let mut rows = Vec::new();
+        let tools = (crate::google::mail::LABEL, crate::google::drive::SHARE);
+        let p = crate::google::take_back::restore(&g, tools, &before, &mut rows).await;
+        for row in &rows {
+            self.google_row(&crate::fact::google::GoogleCalled { row });
         }
-        Ok(())
+        match p.whole() {
+            true => Ok(()),
+            false => Err(RpcFailure {
+                code: error_code::INVALID_PARAMS,
+                message: p.words(),
+                data: serde_json::json!({"partly": {"restored": p.restored, "of": p.of,
+                    "gone": p.gone}}),
+            }),
+        }
     }
 
     fn google(&self) -> Result<Arc<Google>, RpcFailure> {
