@@ -115,6 +115,7 @@ impl Connect for Fakes {
                 return Err(theseus_mcp::Error::Http {
                     status: 401,
                     body: SIGN_IN_BODY.into(),
+                    challenge: Some("Bearer error=\"invalid_token\"".into()),
                 }
                 .to_string());
             }

@@ -169,12 +169,27 @@ pub fn stdio_command(argv: &[String]) -> Option<tokio::process::Command> {
     Some(cmd)
 }
 
+/// Where a server that signs in (issue 55) gets its token: asked before each
+/// request, so a token about to run out is renewed first, and told when the
+/// server refused one with 401, so it is renewed once and the request goes
+/// again. Its values are never logged or shown.
+pub trait TokenSource: Send + Sync + 'static {
+    /// The token to send now; None when there is none (not signed in).
+    fn token(&self) -> futures_util::future::BoxFuture<'_, Option<String>>;
+    /// The server refused `sent` with 401: true when a new token is ready to
+    /// try once more.
+    fn refused<'a>(&'a self, sent: &'a str) -> futures_util::future::BoxFuture<'a, bool>;
+}
+
 /// A remote server, over streamable HTTP.
 #[derive(Clone)]
 pub struct HttpTarget {
     pub url: String,
     /// Sent as `Authorization: Bearer …`; never logged, never shown.
     pub bearer: Option<String>,
+    /// A server that signs in: its token, in place of `bearer`. Such a
+    /// connection follows no redirect, so its token goes to this `url` alone.
+    pub token: Option<Arc<dyn TokenSource>>,
     /// A connect that takes longer fails (on some hosts a connect to a
     /// loopback port nothing listens on hangs instead of being refused).
     pub connect_timeout: Duration,
@@ -188,6 +203,7 @@ impl HttpTarget {
         Self {
             url: url.into(),
             bearer: None,
+            token: None,
             connect_timeout: Duration::from_secs(10),
             server_stream: true,
         }
@@ -199,6 +215,7 @@ impl std::fmt::Debug for HttpTarget {
         f.debug_struct("HttpTarget")
             .field("url", &self.url)
             .field("bearer", &self.bearer.as_ref().map(|_| "(set)"))
+            .field("token", &self.token.as_ref().map(|_| "(a sign-in)"))
             .field("connect_timeout", &self.connect_timeout)
             .field("server_stream", &self.server_stream)
             .finish()
@@ -301,8 +318,14 @@ pub enum Error {
     },
     #[error("the server answered protocol revision {answered:?}, which this client does not speak (it offered {offered})")]
     UnsupportedVersion { offered: String, answered: String },
+    /// `challenge`: a 401's `WWW-Authenticate`, which says where a server
+    /// that wants a sign-in has its metadata (issue 55).
     #[error("HTTP {status}: {body}")]
-    Http { status: u16, body: String },
+    Http {
+        status: u16,
+        body: String,
+        challenge: Option<String>,
+    },
     #[error("the server broke the protocol: {0}")]
     Protocol(String),
     /// HTTP: the server ended the session the request carried (inside the
@@ -1204,10 +1227,13 @@ struct Http {
     client: reqwest::Client,
     url: reqwest::Url,
     bearer: Option<String>,
+    token: Option<Arc<dyn TokenSource>>,
     server_stream: bool,
     session: Mutex<Option<String>>,
     /// The server gave a session once, so a request without one has lost it.
     had_session: AtomicBool,
+    /// The signed-in token the last request carried: what a 401 refused.
+    last_sent: Mutex<Option<zeroize::Zeroizing<String>>>,
     version: Mutex<Option<String>>,
     /// Held while a new `initialize` runs, so only one does.
     reinit: tokio::sync::Mutex<()>,
@@ -1229,6 +1255,10 @@ impl Http {
             // A proxy from the environment never sees a loopback server.
             builder = builder.no_proxy();
         }
+        if t.token.is_some() {
+            // A signed-in token goes to this server alone.
+            builder = builder.redirect(reqwest::redirect::Policy::none());
+        }
         let client = builder
             .build()
             .map_err(|e| Error::Unreachable(format!("the HTTP client: {}", chain(&e))))?;
@@ -1236,9 +1266,11 @@ impl Http {
             client,
             url,
             bearer: t.bearer,
+            token: t.token,
             server_stream: t.server_stream,
             session: Mutex::new(None),
             had_session: AtomicBool::new(false),
+            last_sent: Mutex::new(None),
             version: Mutex::new(None),
             reinit: tokio::sync::Mutex::new(()),
             stream_task: Mutex::new(None),
@@ -1266,12 +1298,33 @@ impl Http {
             .clone()
     }
 
+    fn last_sent(&self) -> Option<String> {
+        self.last_sent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|s| s.to_string())
+    }
+
+    fn set_last_sent(&self, sent: Option<String>) {
+        if sent.is_some() {
+            *self.last_sent.lock().unwrap_or_else(PoisonError::into_inner) =
+                sent.map(zeroize::Zeroizing::new);
+        }
+    }
+
     fn set_version(&self, v: Option<String>) {
         *self.version.lock().unwrap_or_else(PoisonError::into_inner) = v;
     }
 
-    /// A request with the session's headers, and the key.
-    fn build(&self, method: reqwest::Method, initialize: bool) -> reqwest::RequestBuilder {
+    /// A request with the session's headers, and the key: a signed-in
+    /// server's token as its source has it now, which is returned too, so a
+    /// 401 can name the one refused.
+    async fn build(
+        &self,
+        method: reqwest::Method,
+        initialize: bool,
+    ) -> (reqwest::RequestBuilder, Option<String>) {
         let mut req = self.client.request(method, self.url.clone());
         if !initialize {
             if let Some(s) = self.session() {
@@ -1281,10 +1334,14 @@ impl Http {
                 req = req.header("mcp-protocol-version", v);
             }
         }
-        if let Some(b) = &self.bearer {
+        let sent = match &self.token {
+            Some(source) => source.token().await,
+            None => None,
+        };
+        if let Some(b) = sent.as_ref().or(self.bearer.as_ref()) {
             req = req.bearer_auth(b);
         }
-        req
+        (req, sent)
     }
 }
 
@@ -1293,9 +1350,37 @@ impl Http {
 async fn exchange(shared: Arc<Shared>, msg: Value, carries: Option<i64>) {
     let initialize = msg.get("method").and_then(Value::as_str) == Some("initialize");
     let mut again = true;
+    let mut renewed = false;
     loop {
         match post(&shared, &msg, carries).await {
             Ok(()) => return,
+            Err(Error::Http {
+                status: 401,
+                body,
+                challenge,
+            }) if !renewed => {
+                // A signed-in server refused its token: renewed once, and
+                // the message goes again.
+                renewed = true;
+                let http = shared.http.as_ref().expect("an HTTP connection");
+                let sent = http.last_sent();
+                let fresh = match (&http.token, sent) {
+                    (Some(source), Some(sent)) => source.refused(&sent).await,
+                    _ => false,
+                };
+                if !fresh {
+                    let e = Error::Http {
+                        status: 401,
+                        body,
+                        challenge,
+                    };
+                    match carries {
+                        Some(id) => shared.fail(id, e),
+                        None => tracing::warn!(error = %e, "mcp: a message to the server was not delivered"),
+                    }
+                    return;
+                }
+            }
             Err(Error::SessionExpired(old)) if !initialize && again => {
                 again = false;
                 if let Err(e) = reinitialize(&shared, &old).await {
@@ -1350,8 +1435,9 @@ async fn post(shared: &Arc<Shared>, msg: &Value, carries: Option<i64>) -> Result
         // A new `initialize` is running, or one was interrupted.
         return Err(Error::SessionExpired(String::new()));
     }
-    let resp = http
-        .build(reqwest::Method::POST, initialize)
+    let (req, sent) = http.build(reqwest::Method::POST, initialize).await;
+    http.set_last_sent(sent);
+    let resp = req
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "application/json, text/event-stream")
         .body(msg.to_string())
@@ -1381,10 +1467,29 @@ async fn post(shared: &Arc<Shared>, msg: &Value, carries: Option<i64>) -> Result
         };
     }
     if !status.is_success() {
+        let challenge = match status.as_u16() {
+            401 | 403 => resp
+                .headers()
+                .get(reqwest::header::WWW_AUTHENTICATE)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| jsonrpc::clip(v, 2000)),
+            _ => None,
+        };
         let body = read_body(resp, 2000).await.unwrap_or_default();
+        let body = match http.token.is_some() {
+            // A signed-in server's refusal is said by its standard code
+            // alone: never its own words (issue 55).
+            true => serde_json::from_slice::<Value>(&body)
+                .ok()
+                .and_then(|v| v["error"].as_str().and_then(crate::oauth::standard_code))
+                .map(|c| json!({ "error": c }).to_string())
+                .unwrap_or_default(),
+            false => jsonrpc::clip(String::from_utf8_lossy(&body).trim(), 500),
+        };
         return Err(Error::Http {
             status: status.as_u16(),
-            body: jsonrpc::clip(String::from_utf8_lossy(&body).trim(), 500),
+            body,
+            challenge,
         });
     }
     let kind = content_type(&resp);
@@ -1488,6 +1593,8 @@ async fn get(shared: &Shared, last_event_id: Option<&str>) -> Result<reqwest::Re
     let http = shared.http.as_ref().expect("an HTTP connection");
     let mut req = http
         .build(reqwest::Method::GET, false)
+        .await
+        .0
         .header(ACCEPT, "text/event-stream");
     if let Some(id) = last_event_id {
         req = req.header("last-event-id", id);
@@ -1588,7 +1695,7 @@ async fn delete_session(shared: &Shared) {
     if http.session().is_none() {
         return;
     }
-    let req = http.build(reqwest::Method::DELETE, false).send();
+    let req = http.build(reqwest::Method::DELETE, false).await.0.send();
     let _ = tokio::time::timeout(Duration::from_secs(5), req).await;
 }
 

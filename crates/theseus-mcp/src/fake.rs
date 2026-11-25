@@ -102,6 +102,10 @@ pub struct Config {
     pub poll: bool,
     /// HTTP: the key every request must carry as `Authorization: Bearer`.
     pub bearer: Option<String>,
+    /// HTTP: a server that signs in (issue 55): every request must carry a
+    /// token this fake authorization server issued and still takes; a 401
+    /// says where the resource's metadata is, and the fake serves it.
+    pub oauth: Option<Arc<crate::oauth::fake::FakeAuth>>,
     /// A process's fake exits (status 3) on a crash; otherwise its pipes
     /// close.
     pub exit_on_crash: bool,
@@ -122,6 +126,7 @@ impl Default for Config {
             server_stream: true,
             poll: false,
             bearer: None,
+            oauth: None,
             exit_on_crash: false,
             name: "fake".into(),
         }
@@ -627,6 +632,32 @@ impl Fake {
         let head = tokio::time::timeout(Duration::from_secs(10), read_head(&mut r))
             .await
             .map_err(|_| io::Error::other("a request head that took too long"))??;
+        let oauth = self.config().oauth;
+        if let Some(auth) = &oauth {
+            let me = format!(
+                "http://{}",
+                head.headers.get("host").map_or("127.0.0.1", String::as_str)
+            );
+            let path = head.path.split('?').next().unwrap_or("");
+            if let Some(doc) = auth.resource_metadata(path, &me) {
+                let body = doc.to_string();
+                return respond(&mut w, 200, &[("content-type", "application/json".into())], &body)
+                    .await;
+            }
+            if path == "/mcp" {
+                let ok = head
+                    .headers
+                    .get("authorization")
+                    .and_then(|g| g.strip_prefix("Bearer "))
+                    .is_some_and(|t| auth.valid(t));
+                if !ok {
+                    self.record(|s| s.unauthorized += 1);
+                    let body = r#"{"error":"invalid_token","error_description":"the harbour portal wants you"}"#;
+                    return respond(&mut w, 401, &[("www-authenticate", auth.challenge(&me))], body)
+                        .await;
+                }
+            }
+        }
         if head.path.split('?').next() != Some("/mcp") {
             return respond(&mut w, 404, &[], "").await;
         }
