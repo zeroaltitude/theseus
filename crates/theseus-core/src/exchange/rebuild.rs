@@ -24,7 +24,10 @@
 //!   no association is lost. The index only adds touches; it never ends one.
 //!   A label's place, an item's or a picture's, is its turn's time
 //!   (`item_labels::keyed_at`, `names::pictures::keyed_at`), so one there is
-//!   left, and one elsewhere is moved there.
+//!   left, and one elsewhere is moved there. A record under the touches'
+//!   prefix that would be moved and does not read as a touch is passed over,
+//!   left where it is, and counted (`touches_passed_over`); its key alone is
+//!   named in the log.
 //!
 //! The dry run counts and writes nothing.
 
@@ -286,9 +289,15 @@ fn label_touches(
 /// The touches keyed off their exchange's start, each moved: its record at
 /// the start's key, then the old key's end, a pair that is appended in one
 /// frame (`run` keeps the pairs whole), so an old key ends only with its
-/// replacement written beside it.
-fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[NewRecord; 2]>> {
+/// replacement written beside it. A record there that does not read as a
+/// touch is not moved: it is passed over, left as it is, and counted (the
+/// second of the pair).
+pub(super) fn misplaced(
+    store: &Store,
+    starts: &HashMap<&str, u64>,
+) -> anyhow::Result<(Vec<[NewRecord; 2]>, u64)> {
     let mut out = Vec::new();
+    let mut passed = 0;
     for r in store
         .inner()
         .latest_with_prefix(kinds::META, TOUCH_PREFIX)?
@@ -314,7 +323,14 @@ fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[
         else {
             continue;
         };
-        let mut moved: super::Touch = r.decode()?;
+        let Ok(mut moved) = r.decode::<super::Touch>() else {
+            tracing::warn!(
+                key,
+                "exchanges: a record under the touches' prefix could not be read as a touch: passed over, and left as it is"
+            );
+            passed += 1;
+            continue;
+        };
         moved.at_ms = start;
         let canonical = format!("{root}{SEP}{:020}{SEP}{turn}", u64::MAX - start);
         out.push([
@@ -322,7 +338,7 @@ fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[
             NewRecord::delete_meta(key),
         ]);
     }
-    Ok(out)
+    Ok((out, passed))
 }
 
 /// `exchange.rebuild`.
@@ -359,7 +375,7 @@ pub async fn run(
         out.things_skipped = Some(why.clone());
     }
     let reader = store.clone();
-    let (recs, ended, passed) = blocking(move || {
+    let (recs, (ended, touches_passed), passed) = blocking(move || {
         let mut recs = records(&reader, &planned, named.as_deref().ok())?;
         let starts: HashMap<&str, u64> = planned
             .iter()
@@ -381,6 +397,7 @@ pub async fn run(
     out.touches = (recs.len() as u64).saturating_sub(out.exchanges);
     out.repaired = ended.len() as u64;
     out.labels_passed_over = passed;
+    out.touches_passed_over = touches_passed;
     if !p.dry_run {
         let writer = store.clone();
         blocking(move || {

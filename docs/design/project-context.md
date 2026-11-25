@@ -241,15 +241,14 @@ text, and nothing below changes that. What changed is what a CHANGE to a granted
 reaches, and it changed in two ways. If a session carrying `injection` compiles a granted
 repository whose instruction file has changed since the owner last read it, **the new
 text is named and not read until he says yes**, whatever `[project] on_change` is set to.
-And if such a file moves **while a labelled session's acting call runs**, the new text is
-held out of **every** session's block — clean ones included — until he says yes, in any
-granted repository and not only the one that session is working in. So the text the owner
-granted is still carried; a change made after he looked is not carried into a session
-something has already tried to steer, and a change made *by* such a session is not
-carried into the clean session that opens next. Which files that sweep actually compares,
-and the writes it does not reach — not one write, as this line said until the fourth round
-of review, but a rule with three known cases and two further writes beside it — are in
-"After a grant" below.
+And once a session carrying `injection` makes an acting call, or that label lands on a
+session, **every** granted repository is held: the new text of any change against what the
+owner last read is named and not read in **every** session's block — clean ones included —
+until he says yes, with one `theseus project trust` on that repository. So the text the
+owner granted is still carried; a change made after he looked is not carried into a
+session something has already tried to steer, and a change made after such a session
+acted is not carried into the clean session that opens next. What the two keys hold, and
+the writes they do not reach, are in "After a grant" below.
 
 ### Trusted is still fenced
 
@@ -353,7 +352,7 @@ is the one case where the setting does not get the last word, and the reason is 
 his own attention, and a session that something has already tried to steer is not the
 case he was thinking about when he set it. The hold is the `ask` hold exactly — the new
 text waits, the unchanged files beside it are carried as before, what he last read does
-not move forward, and `untrust` then `trust` is the yes that releases it. Only the
+not move forward, and one `theseus project trust` on the repository is the yes that releases it. Only the
 sentence in the block differs, because the reason differs.
 
 **There are two keys, and the second is the one the owner's ruling names.** The first is
@@ -362,47 +361,37 @@ where a steered session's own edit comes back to it as an instruction. On its ow
 leaves the case that matters more — a labelled session EDITS the file and the next
 session to open in that repository is CLEAN, so nothing holds the new text for it.
 
-The second key is the **writer** key, and it works without knowing who wrote. A later
-comparison of stored digests cannot say whose hand moved a file; but the daemon is
-present at the moment of every acting call, and a file that moved while a labelled
-session's acting call ran is treated as that call's. After each acting call of such a
-session — a file tool, a program, anything that is not a local read, and whether the
-call ran straight off the gate or after the operator confirmed it — **every** granted
-repository's swept files are compared with their stored sightings, and one that moved is
-**held for every session** until the owner grants that repository again. That covers a
-shell write as surely as `fs.write`, which is the property that matters, and the hold is
-a stored record rather than a daemon's memory, so a restart does not launder it. The
-ledger row names the session whose call it moved under.
+The second key is the **act** key, and it works without knowing who wrote. A later
+comparison of stored digests cannot say whose hand moved a file, and the daemon does not
+try. Once a session carrying `injection` makes an acting call — a file tool, a program,
+anything that is not a local read, and whether the call ran straight off the gate or after
+the operator confirmed it — or that label lands on a session, a hold is stored on **every**
+granted repository (`project_context::change::hold_all`; a repository already held keeps the
+hold it has). The act compares nothing and reads no file. The hold is read where a change is
+found: at the next compile in any directory of any granted repository, every change against
+the owner's sighting is named and not read, **for every session**, until the owner grants
+that repository again. So it does not matter which directory the write was in, which
+repository, or when it lands: a background job that writes after its call returned is held
+as surely as the call's own write, and a shell write as surely as `fs.write`. The hold is a
+stored record rather than a daemon's memory, so a restart does not launder it. The ledger
+row names the session whose act or label stored it.
 
-**A repository's swept files are not all the files under its root.** They are the union
-of two sets: the files the owner's stored sighting of that repository already names, and
-— for the repository the session is actually working in — the chain from its root down
-to the session's own directory. The stored sighting holds what the grant's walk found and
-what every compile since has seen. The union is reached without walking the repository on
-each call, which would make the cost of an acting call scale with the size of the tree
-rather than with the grant.
-
-It errs the safe way where it is imprecise. A file that moved under such a call for an
-unrelated reason — a `git pull` in another terminal — is held too; the cost of that is
-one re-grant. A file the call created is held where it is swept; a file it deleted is
-named, and there is no new text to hold. A held file the owner then edits himself stays
-held, because nothing here can tell his hand from another write and the repository is
-what he re-reads when he re-grants. A granted repository whose root is not a directory
-right now — an unmounted disk — is skipped rather than held as one whose every file went
-away.
+It errs the safe way. The hold is the repository's, not a digest's: a file the owner then
+edits himself is held too, because nothing here can tell his hand from another write and
+the repository is what he re-reads when he re-grants. A file that moved for an unrelated
+reason — a `git pull` in another terminal — is held too; the cost of that is one
+`theseus project trust`. A file that has gone is named, and there is no new text to hold.
+The yes is one `theseus project trust` on the repository, naming the session's directory:
+it accepts what is there now, stores a fresh sighting and drops the hold in one frame
+(`untrust` then `trust` does the same).
 
 **What neither key closes**, listed in full because a design note that overstates a
 containment is worse than none:
 
-1. **Any instruction file that is neither in a granted repository's stored sighting nor
-   on the chain from the session's own repository root to its own working directory**:
-   one that appeared after the grant where no compile has looked since, or one the grant's
-   walk did not reach. It is in neither swept set, so no sweep sees it, and the first
-   clean session to open where it lives carries it.
-2. A **background job that writes after its own call has returned**. The next acting call
-   of that session catches it; a clean session that opens before then does not.
-3. Text written by a session that was **never labelled at all**. What fits that is the
-   tool floor, which is a separate and still-open question.
+1. Text written while no session carrying the label has acted or been labelled: by a
+   session that was **never labelled at all**, or one whose label had not landed when its
+   text was accepted by a clean compile. `[project] on_change = "ask"` holds it. What fits
+   it is the tool floor, which is a separate and still-open question.
 
 ### How the owner sees it
 
@@ -476,8 +465,9 @@ block, and the OS fact.
   the saying of it) or `"ask"`. At `ask` the *changed* files are named and not read, the unchanged
   ones are carried as before, no sighting is stored -- so the file keeps waiting rather than
   arriving by itself on the next turn -- and the row says `carried: false`. The owner's accept is
-  `untrust` then `trust`: `Core::project_untrust` drops the repository's sighting in the grant's own
-  frame, so the grant given again does not report a change he has just this moment read. The block
+  one `theseus project trust` on the repository: a trust of a repository already trusted stores a fresh
+  sighting in the grant's own frame, so it does not report a change he has just this moment read (an
+  `untrust` then a `trust` does the same: `Core::project_untrust` drops the sighting). The block
   says to name the session's directory in that `trust`, so the grant pins every file of that
   directory's chain, whatever its walk or its digests reached.
   `notice` is the default because the design says why in as many words: a card that fires on every
@@ -502,16 +492,13 @@ agent. That and a grant from chat validated as the owner are tracked as `theseus
 "After a grant" is **built** (2026-11-13, above): the change is named in the block, it is one
 `project.changed` row a file, and `[project] on_change = "ask"` turns the notice into an ask. What
 remains open under it is the live proof of (1) — a real edit to a real granted repository, seen in a
-real recompile. **The residual risk is narrower than this paragraph used to say, though not as
-narrow as §8's item 1 said until round 3.** It remains true
+real recompile. **The residual risk is narrower than this paragraph used to say.** It remains true
 that block 3 is assembled text and no node, so no content label can ever be raised on it
 (`judge/content.rs`, "A granted repository's instruction text is no item, on purpose"), and nothing
 asks the injection question of a granted file. What has changed is that the question no longer has
-to be asked to contain the write: a **swept** file of any granted repository that moves under the
-acting call of a session already carrying `injection` is held out of **every** session's block
-until the owner says yes (S31-1, the writer key), and a changed file read by a labelled session is
-held for that session (the reader key). What is left is three writes: any instruction file that is
-neither in a granted repository's stored sighting nor on the chain from the session's own
-repository root to its own working directory (§8's item 1); a background job whose write lands
-after its own call returned; and a write by a session that was never labelled. Closing the last
-would mean labelling block 3's project text, which is a different design.
+to be asked to contain the write: once a session carrying `injection` has acted or been labelled,
+a change to any granted repository's instruction files is held out of **every** session's block
+until the owner says yes (S31-1, the act key), and a changed file read by a labelled session is
+held for that session (the reader key). What is left is a write by a session that was never
+labelled, or whose label had not landed. Closing it would mean labelling block 3's project text,
+which is a different design.

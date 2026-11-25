@@ -526,8 +526,8 @@ fn check_arguments(server: &str, def: &Prompt, r: &McpPromptRef) -> Result<(), R
 pub fn read_stored(store: &crate::store::Store, server: &str) -> Option<StoredPrompts> {
     match store.get_meta::<StoredPrompts>(&format!("{STORED_PREFIX}{server}")) {
         Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(error = %e, server, "an MCP server's stored prompt list did not read");
+        Err(_) => {
+            tracing::warn!(server, "an MCP server's stored prompt list did not read");
             None
         }
     }
@@ -537,8 +537,8 @@ pub fn read_stored(store: &crate::store::Store, server: &str) -> Option<StoredPr
 pub fn read_used(store: &crate::store::Store, server: &str) -> BTreeMap<String, Used> {
     match store.get_meta::<BTreeMap<String, Used>>(&format!("{USED_PREFIX}{server}")) {
         Ok(v) => v.unwrap_or_default(),
-        Err(e) => {
-            tracing::warn!(error = %e, server, "an MCP server's used prompts did not read");
+        Err(_) => {
+            tracing::warn!(server, "an MCP server's used prompts did not read");
             BTreeMap::new()
         }
     }

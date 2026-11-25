@@ -103,6 +103,9 @@ pub struct Scan {
     pub setup: u64,
     /// Lines dropped as one task's, one repository's, branch's or run's.
     pub one_task: u64,
+    /// Records under the tags' prefix that could not be read as a tag's
+    /// counts: their sessions are not read.
+    pub tags_unread: u64,
 }
 
 /// What an assistant's instructions to itself say: a session's machinery.
@@ -320,7 +323,9 @@ fn cut(cuts: &Cuts, s: &str, max: usize) -> String {
 /// the tags' session records, and the nodes of the evidence episodes alone.
 pub fn scan(store: &Store) -> Result<Scan> {
     let mut out = Scan::default();
-    for tag in write::list(store)?.tags {
+    let list = write::list(store)?;
+    out.tags_unread = list.unread.len() as u64;
+    for tag in list.tags {
         let sessions = write::sessions_of_tag(store, &tag.tag, &|| false)?.unwrap_or_default();
         for (sid, rec) in sessions {
             let Some(i) = rec.imported else { continue };

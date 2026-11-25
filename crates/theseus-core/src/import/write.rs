@@ -766,14 +766,25 @@ pub(crate) fn sessions_of_tag(
     Ok(Some(sessions))
 }
 
-/// `import.list`: each tag with its counts, from their META records.
+/// `import.list`: each tag with its counts, from their META records. A
+/// record under the tags' prefix that does not read as a tag's counts is
+/// passed over, left as it is, and named in `unread` by its key.
 pub fn list(store: &Store) -> Result<ImportListResult> {
     let mut tags = Vec::new();
+    let mut unread = Vec::new();
     for r in store
         .inner()
         .latest_with_prefix(kinds::META, &tag_key(""))?
     {
-        let c: TagCounts = r.decode()?;
+        let Ok(c) = r.decode::<TagCounts>() else {
+            let key = r.key.unwrap_or_default();
+            tracing::warn!(
+                key,
+                "import: a record under the tags' prefix could not be read as a tag's counts: passed over, and left as it is"
+            );
+            unread.push(key);
+            continue;
+        };
         tags.push(ImportTagInfo {
             tag: c.tag,
             sessions: c.sessions,
@@ -786,5 +797,5 @@ pub fn list(store: &Store) -> Result<ImportListResult> {
         });
     }
     tags.sort_by(|a, b| a.tag.cmp(&b.tag));
-    Ok(ImportListResult { tags })
+    Ok(ImportListResult { tags, unread })
 }

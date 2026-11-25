@@ -31,6 +31,25 @@ pub fn stop_has_begun() -> bool {
     STOP_BEGAN.get().is_some()
 }
 
+/// The core for one unit of a background thread's work (issue 51). None once
+/// the stop has begun: a unit begun then could still hold the core, and so
+/// its store, when the runtime drops. None once the core is gone. Such a
+/// thread runs at normal priority: in `SCHED_IDLE` on a saturated machine it
+/// could hold the core for seconds past the stop's wait.
+pub(crate) fn core_for_a_unit(
+    core: &std::sync::Weak<crate::rpc::Core>,
+) -> Option<std::sync::Arc<crate::rpc::Core>> {
+    #[cfg(test)]
+    tests::took(theseus_store::pressure::this_thread_is_idle());
+    if stop_has_begun() {
+        return None;
+    }
+    core.upgrade().inspect(|_| {
+        #[cfg(test)]
+        tests::given();
+    })
+}
+
 /// A phase of the stop has ended: one line at info with the milliseconds
 /// since the stop began. Install #9's stop took 11.87 s with these at debug,
 /// so the journal could not say where (theseus-vjn7). Nothing before a stop
@@ -123,9 +142,91 @@ impl StartupLog {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Weak};
     use std::time::Duration;
+
+    use crate::rpc::Core;
+
+    /// How many units asked `core_for_a_unit` for the core, and whether one
+    /// asked from a thread in `SCHED_IDLE`. nextest runs each test in its own
+    /// process, so these are one test's.
+    static ASKED: AtomicU64 = AtomicU64::new(0);
+    static ASKED_IN_IDLE: AtomicBool = AtomicBool::new(false);
+    /// How many units it gave the core.
+    static GIVEN: AtomicU64 = AtomicU64::new(0);
+
+    pub(super) fn took(idle: bool) {
+        ASKED_IN_IDLE.fetch_or(idle, Ordering::SeqCst);
+        ASKED.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub(super) fn given() {
+        GIVEN.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A core over a fresh store.
+    pub(crate) fn core() -> (tempfile::TempDir, Arc<Core>) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().join("state").to_string_lossy().into_owned();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let provider = Arc::new(crate::provider::FakeProvider::default());
+        let core = Core::build(crate::rpc::Parts::for_tests(cfg, provider, store)).unwrap();
+        (dir, core)
+    }
+
+    /// Runs a background thread's body over `core` on a thread of its own
+    /// until one of its units has asked for the core: whether one asked from
+    /// `SCHED_IDLE`. The thread is left to the process's end.
+    pub(crate) fn asked_in_idle(
+        core: &Arc<Core>,
+        body: impl FnOnce(Weak<Core>) + Send + 'static,
+    ) -> bool {
+        let weak = Arc::downgrade(core);
+        std::thread::spawn(move || body(weak));
+        let t0 = std::time::Instant::now();
+        while ASKED.load(Ordering::SeqCst) == 0 {
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "no unit ever asked for the core"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        ASKED_IN_IDLE.load(Ordering::SeqCst)
+    }
+
+    /// Begins the stop, then runs a background thread's body over a live
+    /// `core` on a thread of its own: `Ok` once the body has ended taking no
+    /// core, `Err` as soon as a unit was given it.
+    pub(crate) fn ends_at_the_stop(
+        core: &Arc<Core>,
+        body: impl FnOnce(Weak<Core>) + Send + 'static,
+    ) -> Result<(), String> {
+        let weak = Arc::downgrade(core);
+        stop_began();
+        let (done, ended) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            body(weak);
+            let _ = done.send(());
+        });
+        let t0 = std::time::Instant::now();
+        loop {
+            if GIVEN.load(Ordering::SeqCst) > 0 {
+                return Err("a unit took the core during the stop".into());
+            }
+            if ended.try_recv().is_ok() {
+                return Ok(());
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "the body neither ended nor took the core"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
 
     #[test]
     fn phases_are_timed_from_the_origin_and_sorted_by_start() {

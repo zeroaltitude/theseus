@@ -29,6 +29,12 @@ setup: number,
  */
 one_task: number, 
 /**
+ * Records under the import's tags' prefix that could not be read as a
+ * tag's counts: their sessions were not read as evidence, and the
+ * records are left as they are. Absent when none.
+ */
+tags_unread?: number, 
+/**
  * Clusters of near-duplicate lines, and those worth a call (mostly new).
  */
 clusters: number, fresh: number, 

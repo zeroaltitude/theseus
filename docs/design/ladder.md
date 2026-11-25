@@ -85,7 +85,10 @@ An item written by an older writer version (a line or a node) carries a warning:
 labels, which lines a node is fed) may not match what that writer was given, so the owner skips it or judges it
 knowing that, not as an ordinary verdict. An item whose exchange, message or reply is no longer in the store says
 so, since its material then lacks what the writer read. The sheet says how many lines and first-level nodes exist,
-and says so when fewer exist than were asked.
+and says so when fewer exist than were asked. It opens with a plain header for a reader who is not an engineer: what
+the sheet is, how many items follow, what each mark and label means (the `!!` mark included), and how to read it
+against the owner's bar (of 50 notes at most 1 with a wrong number, name or choice and at most 5 with any other error;
+of 10 summaries none and at most 1).
 
 A sample is drawn from the `did` lines and first-level nodes that EXIST (an exchange with no summary is not in it),
 from every place when none is named, with no filter by who opened an exchange: it can include exchanges opened by a

@@ -65,8 +65,8 @@ impl Core {
     pub fn watch_seed(&self, e: &Execution, w: &PendingWake, now: u64, fresh: bool) {
         let spec = match Spec::of(w) {
             Ok(s) => s,
-            Err(why) => {
-                tracing::warn!(wake_id = %w.id, error = %why, "a watch's record does not read; it is not checked");
+            Err(_) => {
+                tracing::warn!(wake_id = %w.id, "a watch's record does not read; it is not checked");
                 return;
             }
         };

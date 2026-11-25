@@ -73,6 +73,8 @@ mod tests_sync_spawn;
 mod tests_system;
 #[cfg(test)]
 mod tests_topics;
+#[cfg(test)]
+pub(crate) mod tests_unread;
 
 use serde::{Deserialize, Serialize};
 

@@ -739,25 +739,13 @@ const TOTAL_EVERY_SECS: u64 = 60;
 impl crate::rpc::Core {
     /// Keeps the stored total near the log's end while the daemon runs
     /// (theseus-vqcgq), so a restart's read is a minute's rows, not the
-    /// day's: a thread of its own, in the idle class, holding the core by
-    /// `Weak`, which reads the rows written since its last pass.
+    /// day's: a thread of its own, holding the core by `Weak`, which reads
+    /// the rows written since its last pass.
     pub fn keep_day_total(self: &std::sync::Arc<Self>) {
         let weak = std::sync::Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("day-total".into())
-            .spawn(move || {
-                let _ = theseus_store::pressure::idle_this_thread();
-                loop {
-                    for _ in 0..TOTAL_EVERY_SECS {
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                        if weak.strong_count() == 0 {
-                            return;
-                        }
-                    }
-                    let Some(core) = weak.upgrade() else { return };
-                    core.runner.advance_day_total();
-                }
-            });
+            .spawn(move || keep_total(&weak, std::time::Duration::from_secs(1)));
         if let Err(e) = spawned {
             tracing::warn!(error = %e, "day ceiling: today's total is not kept");
         }
@@ -781,5 +769,51 @@ impl crate::rpc::Core {
         if let Err(e) = spawned {
             tracing::warn!(error = %e, "day ceiling: today's read was not started");
         }
+    }
+}
+
+/// The day-total thread: a pass every `TOTAL_EVERY_SECS` ticks, at normal
+/// priority, until the stop begins or the core is gone (`core_for_a_unit`,
+/// issue 51).
+fn keep_total(weak: &std::sync::Weak<crate::rpc::Core>, tick: std::time::Duration) {
+    loop {
+        for _ in 0..TOTAL_EVERY_SECS {
+            std::thread::sleep(tick);
+            if weak.strong_count() == 0 {
+                return;
+            }
+        }
+        let Some(core) = crate::startup::core_for_a_unit(weak) else {
+            return;
+        };
+        core.runner.advance_day_total();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    /// The day-total thread reads at normal priority (issue 51): in
+    /// `SCHED_IDLE` on a saturated machine it could hold the core past the
+    /// stop's wait.
+    #[test]
+    fn the_day_total_holds_the_core_at_normal_priority() {
+        let (_d, core) = crate::startup::tests::core();
+        let idle = crate::startup::tests::asked_in_idle(&core, |w| {
+            super::keep_total(&w, Duration::from_micros(10))
+        });
+        assert!(!idle, "the day-total asked for the core in SCHED_IDLE");
+    }
+
+    /// Once the stop has begun the day-total takes no core and ends (issue
+    /// 51): a pass begun then could still hold it when the runtime drops.
+    #[test]
+    fn a_day_total_takes_no_core_once_the_stop_has_begun() {
+        let (_d, core) = crate::startup::tests::core();
+        let got = crate::startup::tests::ends_at_the_stop(&core, |w| {
+            super::keep_total(&w, Duration::from_micros(10))
+        });
+        assert_eq!(got, Ok(()));
     }
 }

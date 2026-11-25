@@ -1016,8 +1016,8 @@ enum Ended {
 pub fn read_stored(store: &crate::store::Store, server: &str) -> Option<StoredList> {
     match store.get_meta::<StoredList>(&format!("{STORED_PREFIX}{server}")) {
         Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(error = %e, server, "an MCP server's stored tool list did not read");
+        Err(_) => {
+            tracing::warn!(server, "an MCP server's stored tool list did not read");
             None
         }
     }

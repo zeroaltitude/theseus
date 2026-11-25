@@ -25,6 +25,11 @@ repaired: number,
  */
 labels_passed_over: number, 
 /**
+ * Records under the touches' prefix that would be moved and could not be
+ * read as a touch: passed over, and left as they are.
+ */
+touches_passed_over: number, 
+/**
  * Why the things named in them were not looked for, if they were not.
  */
 things_skipped?: string, };
