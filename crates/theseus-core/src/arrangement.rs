@@ -35,6 +35,11 @@
 //!   at `PIECE_CHARS`), author, time, and session, so the compiler renders it
 //!   from the child's own nodes (`render`); a superseded piece carries no
 //!   text, and renders by reference only.
+//! - **By reference** (issue 49). A piece of a person's message or of a reply
+//!   keeps its words as quotes of that node's record (`parts`), cut where its
+//!   text is cut, the cut's seam the code's own words, and is stored with no
+//!   text (`stored`); the child's compile reads them (`laid`). A piece of a
+//!   tool result keeps its words, as one written before did.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -42,6 +47,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::node::{Body, Node, Origin, ResultStatus};
+use crate::quotes::{Field, Form, Part, Quote, Read, UNREADABLE_QUOTE};
 use crate::scrub::Cuts;
 
 /// The author an old thread split gave the arrangement it wrote (`thread:<source>`), where a task's is
@@ -325,6 +331,7 @@ pub fn resolve(
         .filter(|n| Some(n.id.as_str()) != holder && !echoes(n))
         .filter_map(|n| text_of(n).map(|t| (n, t)))
         .collect();
+    let positions: BTreeMap<&str, u64> = nodes.iter().map(|(p, n)| (n.id.as_str(), *p)).collect();
     let trusted: BTreeSet<usize> = input.trust.iter().copied().collect();
     let superseded = input.superseded();
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
@@ -356,20 +363,20 @@ pub fn resolve(
             });
         }
         let superseded_by = superseded.get(&i).map(|n| *n as u32);
+        let rest = |_: &str| {
+            format!(
+                "the whole message is node {} of session {}",
+                node.id, node.session_id
+            )
+        };
         let body = superseded_by.is_none().then(|| {
-            let (t, _) = crate::toolrun::cap(
-                &text,
-                PIECE_CHARS,
-                |_| {
-                    format!(
-                        "the whole message is node {} of session {}",
-                        node.id, node.session_id
-                    )
-                },
-                cuts,
-            );
+            let (t, _) = crate::toolrun::cap(&text, PIECE_CHARS, &rest, cuts);
             t
         });
+        let parts = match (superseded_by, positions.get(node.id.as_str())) {
+            (None, Some(at)) => quoted(node, *at, &text, &rest, cuts),
+            _ => Vec::new(),
+        };
         out.push(Piece {
             role: p.role,
             node: node.id.clone(),
@@ -381,10 +388,64 @@ pub fn resolve(
             first_line: crate::session::title_from(&text, cuts),
             trusted: trusted.contains(&i),
             superseded_by,
-            parts: Vec::new(),
+            parts,
         });
     }
     Ok(out)
+}
+
+/// A piece's words as quotes of `node`'s record at `position`, cut where `toolrun::cap` cuts `text`: none for a
+/// node whose words no field of a quote reads (a tool result), which keeps its words.
+fn quoted(
+    node: &Node,
+    position: u64,
+    text: &str,
+    rest: impl FnOnce(&str) -> String,
+    cuts: &Cuts,
+) -> Vec<Part> {
+    let field = match &node.body {
+        Body::UserMessage { parts, .. } if parts.is_empty() => Field::Text,
+        Body::AssistantMessage { .. } => Field::ReplyText,
+        _ => return Vec::new(),
+    };
+    let Ok(to) = u32::try_from(text.len()) else {
+        return Vec::new();
+    };
+    let whole = Part::Quote(Quote {
+        node: node.id.clone(),
+        position,
+        field,
+        from: 0,
+        to,
+        form: Form::Verbatim,
+    });
+    let read = |_: &Quote| Read::Field(text.to_string());
+    crate::quotes::cap::cap_with(vec![whole], read, PIECE_CHARS, rest, cuts).0
+}
+
+/// The pieces as the arrangement node stores them: one kept by reference without its words.
+pub fn stored(mut pieces: Vec<Piece>) -> Vec<Piece> {
+    for p in pieces.iter_mut().filter(|p| !p.parts.is_empty()) {
+        p.text = None;
+    }
+    pieces
+}
+
+/// `n` as the child's compile lays it: an arrangement's pieces kept by reference with their words read
+/// (`quotes::render`); any other node as it is.
+pub fn laid(store: &crate::store::Store, n: &Node) -> Node {
+    let mut node = n.clone();
+    if let Body::Arrangement { pieces, .. } = &mut node.body {
+        let none = BTreeSet::new();
+        let since = crate::copies::since::Since::new(store, &none);
+        for p in pieces.iter_mut().filter(|p| !p.parts.is_empty()) {
+            p.text = Some(
+                crate::quotes::render(store, &p.parts, &since)
+                    .unwrap_or_else(|_| UNREADABLE_QUOTE.to_string()),
+            );
+        }
+    }
+    node
 }
 
 /// The one node a quote names.
@@ -511,7 +572,9 @@ pub fn render(pieces: &[Piece]) -> String {
         );
         let trusted = if p.trusted { ", trusted testimony" } else { "" };
         out.push_str("\n\n");
-        match (&p.text, p.superseded_by) {
+        // A piece kept by reference whose words were not read shows the renderer's fixed line, never nothing.
+        let unread = (!p.parts.is_empty()).then_some(UNREADABLE_QUOTE);
+        match (p.text.as_deref().or(unread), p.superseded_by) {
             (Some(text), None) => {
                 out.push_str(&format!(
                     "--- Piece {} of {n} ({}{trusted}): from {from} ---\n{text}",
@@ -623,6 +686,9 @@ pub fn clip(pieces: usize) -> String {
         crate::narrative::count(pieces as u64, "piece", "pieces")
     )
 }
+
+#[cfg(test)]
+mod tests_parts;
 
 #[cfg(test)]
 mod tests {

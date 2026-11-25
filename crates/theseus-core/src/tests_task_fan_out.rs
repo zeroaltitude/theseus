@@ -88,7 +88,8 @@ fn briefs(core: &Core, e: &Execution) -> String {
         .session_nodes(&e.session_id)
         .unwrap()
         .iter()
-        .filter_map(|(_, n)| match &n.body {
+        .map(|(_, n)| crate::arrangement::laid(&core.store, n))
+        .filter_map(|n| match &n.body {
             Body::UserMessage { text, .. } => Some(text.clone()),
             Body::Arrangement { pieces, .. } => Some(
                 pieces
