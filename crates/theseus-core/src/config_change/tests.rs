@@ -1173,6 +1173,7 @@ fn outside_text_is_read_from_the_results_since_the_owner_last_spoke() {
             Body::UserMessage {
                 text: "hi".into(),
                 attachments: vec![],
+                parts: Vec::new(),
             },
         );
         n.id = id.into();
@@ -1200,6 +1201,7 @@ fn outside_text_is_read_from_the_results_since_the_owner_last_spoke() {
                 image: None,
                 external: url.map(|u| theseus_tools::External { url: u.into() }),
                 payload: None,
+                parts: Vec::new(),
             },
         );
         n.id = id.into();

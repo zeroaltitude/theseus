@@ -1106,7 +1106,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   whole report and whether the task is held. The report is the node its record's `report:` evidence names (one point read),
   else why it ended; it is read only when a filter asks. Tests: `rpc/tests_task_history.rs`.
 - **`work.digest`** (theseus-qkoi3; `rpc/digest.rs`, `push/work/digest.rs`): "since you last looked", in a few lines. Params
-  `{since: position | since_ms, roots?: [session_id]}`, answer `{from, to, lines, from_ledger, now, questions}`; the
+  `{since: position | since_ms | since_look, roots?: [session_id]}`, answer `{from, to, lines, from_ledger, now, questions,
+  look?}`; the
   protocol (`work_digest.rs`) words a `DigestLine` once (`digest_words`), folds bursts (three or more of one kind under
   one root within ten minutes of each other become one line, `fold_digest`) and words the summary line every surface prints
   (`digest_summary`). From the work board's notice ring when it reaches back to `since` (`notices_since` complete), plus
@@ -1117,12 +1118,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   told by title with the first line of its report (`DigestLine.report`, `Core::report_text`, the one reader `task.list` uses
   too): up to five under one root, then `📋 and N more: A, B`, never `N tasks reported`. A time is turned into a position by the ledger index's first row at or after it. Both
   sources make the same `Raw` lines, so a window told from either has the same kind, work and count (the test
-  `the_ring_and_the_ledger_agree_on_the_same_window`); a job that ended well is no news in either. Seen stays the
-  client's: the daemon keeps no position per surface, and writes no frame. The place rule is `work.watch`'s: a
+  `the_ring_and_the_ledger_agree_on_the_same_window`); a job that ended well is no news in either. The read writes no
+  frame. Where the owner last looked is the store's own (issue 46): META `look` (`{position, at_ms}`), which
+  **`work.look`** (`rpc/look.rs`) moves when a terminal client showed the board and `since_look` reads from, so it points
+  into the history of the store that holds it, through a restore, a switch of store or a copy. It only moves forward,
+  refuses a position past the store's head (`PAST_HEAD`, never clamped), writes nothing when nothing but its own last
+  record came since, and is moved only by a connection that reads private text (never MCP: `NOT_FOR_MCP`); every
+  digest answer carries it as read. Discord's per-place mark and the cockpit's time stay theirs. The place rule is `work.watch`'s: a
   connection that reads no private text names its roots and is told of a shared place's alone, scrubbed and unable to
   answer; the in-process Discord binding may also name a private place (its DM), and only what lies under the roots it
   names. `roots: [task]` is that task's own timeline. A question an agent answered says so (theseus-5rvss): `DigestLine.by`, from the ledger row's `by` (`agent:<name>`) or the ring's `Notice.by`, words it "✓ answered by an agent (claude): …" and counts it apart (`1 answered by you, 3 answered by an agent`), never folded with the owner's; a line with no `by` is the owner's. Tests: `tests_work_digest.rs` (a child of `tests_work.rs`: the
-  scenario told from both sources, a window past the ring's start, a task's timeline, the place rule).
+  scenario told from both sources, a window past the ring's start, a task's timeline, the place rule) and
+  `rpc/tests_look.rs` (the look through a restore, two stores, a copy, its refusals).
 - **Session states** (theseus-emqx): live, quiet or retired, derived when read (`theseus_protocol::sessions::derive`,
   `SessionRecord::state_at`; `session_info` gives every list its state, busy reading live whatever its age), never
   stored as a state: the record keeps only `retired` (superseded or by hand; empty is derived past `[sessions]

@@ -50,6 +50,7 @@ pub(crate) mod view;
 mod work;
 
 pub(crate) use vault::vault_named;
+pub(crate) use work::clip1;
 
 pub const THESEUS: &str = "look.theseus";
 pub const VAULT: &str = "look.vault";

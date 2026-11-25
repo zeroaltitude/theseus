@@ -123,6 +123,7 @@ pub(crate) fn result(session: &str, tool: &str, content: &str, external: bool) -
             external: external
                 .then(|| serde_json::from_value(json!({"url": "https://example.org/a"})).unwrap()),
             payload: None,
+            parts: Vec::new(),
         },
     )
 }

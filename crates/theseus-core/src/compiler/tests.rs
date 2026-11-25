@@ -94,6 +94,7 @@ fn result(id: &str, content: &str, status: ResultStatus, late: bool) -> Node {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     )
 }

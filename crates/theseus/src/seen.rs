@@ -21,7 +21,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use theseus_protocol::{ExecutionView, Level};
+use theseus_protocol::{ExecutionView, Level, Looked};
 
 /// The file's format.
 const VERSION: u32 = 1;
@@ -44,32 +44,6 @@ pub struct Mark {
     pub turns: u64,
 }
 
-/// The machine's "last looked" (theseus-qkoi3): the work board's position, and
-/// the time, at which a terminal client last showed the operator a board. The
-/// digest ("since you last looked") starts after it. One for the machine, not
-/// one per execution: what finished while the operator was away is a question
-/// of the whole board.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Looked {
-    pub position: u64,
-    pub at_ms: u64,
-}
-
-impl Looked {
-    fn is_none(&self) -> bool {
-        self.position == 0 && self.at_ms == 0
-    }
-
-    /// The later of two: by position, then by time.
-    pub fn later(self, other: Looked) -> Looked {
-        if (other.position, other.at_ms) > (self.position, self.at_ms) {
-            other
-        } else {
-            self
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct File {
     version: u32,
@@ -79,9 +53,22 @@ struct File {
     #[serde(default = "yes")]
     board_read: bool,
     executions: HashMap<String, Mark>,
-    /// When the work board was last shown (a file from before says none).
-    #[serde(default, skip_serializing_if = "Looked::is_none")]
-    looked: Looked,
+    /// The store's look as this machine last read or wrote it (issue 46): a
+    /// store whose look is another is another history, and the marks start
+    /// again (`Seen::store_looked`). Two writers keep the later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    store_look: Option<Looked>,
+    /// The last look an older build kept here, as it wrote it (issue 46): the
+    /// only copy of when the owner last looked before the store kept its own.
+    /// Only its time is read (`old_look_time`), never its position, which may
+    /// be another history's. Every write keeps it, until a look the store took
+    /// hands it over (`record_store_look`, or a TUI's save after one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    looked: Option<serde_json::Value>,
+    /// The TUI took a look (`Seen::wrote_look`): its save hands the older
+    /// build's time over. Never written to disk.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    handed_off: bool,
     /// Executions to drop from the file (the TUI's board no longer holds
     /// them). Never written to disk.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -188,10 +175,13 @@ fn update(
             version: VERSION,
             board_read: false,
             executions: HashMap::new(),
-            looked: Looked::default(),
+            store_look: None,
+            looked: None,
+            handed_off: false,
             forget: Vec::new(),
         });
         change(&mut file);
+        file.handed_off = false;
         let text = serde_json::to_string(&file).map_err(io::Error::other)?;
         write_atomic(path, text.as_bytes(), rename)?;
         Ok(file)
@@ -205,7 +195,10 @@ pub fn write_merged(path: &Path, text: &str) -> io::Result<HashMap<String, Mark>
     let mine: File = serde_json::from_str(text).map_err(io::Error::other)?;
     let file = update(path, &|a, b| std::fs::rename(a, b), |cur| {
         cur.board_read |= mine.board_read;
-        cur.looked = cur.looked.later(mine.looked);
+        cur.store_look = later(cur.store_look, mine.store_look);
+        if mine.handed_off {
+            cur.looked = None;
+        }
         for id in &mine.forget {
             cur.executions.remove(id);
         }
@@ -214,21 +207,32 @@ pub fn write_merged(path: &Path, text: &str) -> io::Result<HashMap<String, Mark>
     Ok(file.executions)
 }
 
-/// When the operator last looked at the work board on this machine; none (all
-/// zero) when no client has recorded one. For the digest's `--since-seen`, the
-/// status line, and the terminal UI's welcome back.
-pub fn looked(path: &Path) -> Looked {
-    read_file(path).map_or_else(Looked::default, |f| f.looked)
+/// The later of two looks, by the time the daemon was told of each.
+fn later(a: Option<Looked>, b: Option<Looked>) -> Option<Looked> {
+    a.into_iter().chain(b).max_by_key(|l| (l.at_ms, l.position))
 }
 
-/// Record that the operator was shown the work board at `position`, `at_ms`.
-/// Another client's later look is kept by the merge. Fails quietly into the
-/// caller's hands: a look that cannot be written is not worth a failure.
-pub fn record_looked(path: &Path, position: u64, at_ms: u64) -> io::Result<()> {
+/// A look this machine wrote (`work.look`'s answer), for the TUI's next start
+/// to know the store by (issue 46). The store has taken a look, so the time an
+/// older build kept here is handed over: this write, after the look, is the
+/// only one that drops it.
+pub fn record_store_look(path: &Path, look: Looked) -> io::Result<()> {
     update(path, &|a, b| std::fs::rename(a, b), |cur| {
-        cur.looked = cur.looked.later(Looked { position, at_ms });
+        cur.store_look = later(cur.store_look, Some(look));
+        cur.looked = None;
     })
     .map(|_| ())
+}
+
+/// The time of the last look an older build kept in this file (issue 46), to
+/// start the store's look from before it has one: carried over by its time,
+/// never by its position, which may belong to another store's history. None
+/// when the file holds none: this build never writes one, and keeps an older
+/// build's until the store has taken a look (`record_store_look`).
+pub fn old_look_time(path: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v.get("looked")?.get("at_ms")?.as_u64().filter(|ms| *ms > 0)
 }
 
 /// How many executions finished since the operator last looked at them, as the
@@ -317,8 +321,13 @@ pub struct Seen {
     /// No file was read: the first board the TUI reads counts as seen, so a
     /// first start shows nothing done.
     fresh: bool,
-    /// When the work board was last shown, as this client knows it.
-    looked: Looked,
+    /// The store's look as this machine last read or wrote it (issue 46).
+    store_look: Option<Looked>,
+    /// A look this TUI sent was taken: the next write hands an older build's
+    /// time over.
+    handed_off: bool,
+    /// The marks of another history, dropped from the file at the next write.
+    dropped: Vec<String>,
     /// Changed since the file was last written.
     pub dirty: bool,
 }
@@ -340,14 +349,18 @@ impl Seen {
                 path,
                 marks: f.executions,
                 fresh: !f.board_read,
-                looked: f.looked,
+                store_look: f.store_look,
+                handed_off: false,
+                dropped: Vec::new(),
                 dirty: false,
             },
             None => Self {
                 path,
                 marks: HashMap::new(),
                 fresh: true,
-                looked: Looked::default(),
+                store_look: None,
+                handed_off: false,
+                dropped: Vec::new(),
                 dirty: false,
             },
         }
@@ -365,23 +378,37 @@ impl Seen {
         Some(base.join("theseus").join(FILE_NAME))
     }
 
-    /// When the work board was last shown on this machine (zero: never).
-    pub fn looked(&self) -> Looked {
-        self.looked
-    }
-
-    /// The operator is looking at the board now, at `position`: the digest
-    /// ("since you last looked") starts here. Only moves forward.
-    pub fn look(&mut self, position: u64, at_ms: u64) {
-        let now = self.looked.later(Looked { position, at_ms });
-        if now != self.looked {
-            self.looked = now;
-            self.dirty = true;
-        }
-    }
-
     pub fn path(&self) -> Option<&PathBuf> {
         self.path.as_ref()
+    }
+
+    /// The store's look as the daemon tells it now (issue 46). When this
+    /// machine knew another, the board is of another history (a restore,
+    /// another store, a copy, or a look taken on another machine): the marks
+    /// start again as a first start's, so nothing reads as finished that this
+    /// machine never saw working. True when they did.
+    pub fn store_looked(&mut self, look: Option<Looked>) -> bool {
+        if look == self.store_look {
+            return false;
+        }
+        let other = self.store_look.is_some();
+        self.store_look = look;
+        self.dirty = true;
+        if other {
+            self.dropped.extend(self.marks.drain().map(|(id, _)| id));
+            self.fresh = true;
+        }
+        other
+    }
+
+    /// A look this machine wrote: the store's look it knows, and the store has
+    /// taken one, so the next write hands an older build's time over.
+    pub fn wrote_look(&mut self, look: Looked) {
+        if self.store_look != Some(look) || !self.handed_off {
+            self.store_look = Some(look);
+            self.handed_off = true;
+            self.dirty = true;
+        }
     }
 
     /// Done until seen: it finished after it was last displayed, and is
@@ -458,6 +485,7 @@ impl Seen {
     /// What another client recorded, as the file holds it after a write: the
     /// greater positions are taken up.
     pub fn adopt(&mut self, marks: HashMap<String, Mark>) {
+        self.dropped.clear();
         merge_into(&mut self.marks, marks);
     }
 
@@ -480,12 +508,20 @@ impl Seen {
             .filter(|(id, _)| keep(id))
             .map(|(id, m)| (id.clone(), *m))
             .collect();
-        let forget = self.marks.keys().filter(|id| !keep(id)).cloned().collect();
+        let forget = self
+            .marks
+            .keys()
+            .filter(|id| !keep(id))
+            .chain(&self.dropped)
+            .cloned()
+            .collect();
         serde_json::to_string(&File {
             version: VERSION,
             board_read: !self.fresh,
             executions,
-            looked: self.looked,
+            store_look: self.store_look,
+            looked: None,
+            handed_off: self.handed_off,
             forget,
         })
         .unwrap_or_default()

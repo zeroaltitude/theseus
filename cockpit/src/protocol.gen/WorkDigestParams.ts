@@ -2,7 +2,8 @@
 
 /**
  * `work.digest`'s params. One of `since` and `since_ms`; neither reads from
- * the start of what the board holds.
+ * the start of what the board holds. `since_look` reads from the store's look
+ * when it has one, and as the others say when it has none.
  */
 export type WorkDigestParams = { 
 /**
@@ -14,6 +15,11 @@ since?: number,
  * A time, unix milliseconds: the lines at or after it.
  */
 since_ms?: number, 
+/**
+ * Since the store's look: the lines after the position the owner last
+ * looked at in this store. With no look yet, `since` or `since_ms` decide.
+ */
+since_look?: boolean, 
 /**
  * Only these conversations or tasks (session ids): a task's own timeline.
  * A connection that reads no private text must name them, and sees those

@@ -98,7 +98,7 @@ impl Chat {
 
     /// The snapshot: the board as it stands. No line is printed for what
     /// already runs; a question that already waits is told once.
-    pub(super) fn work_snapshot(&mut self, r: WorkWatchResult) -> Vec<Effect> {
+    pub(super) fn work_snapshot(&mut self, r: WorkWatchResult) {
         self.board.live = true;
         self.board.position = r.position;
         self.board.views = r.views.into_iter().map(|v| (v.id.clone(), v)).collect();
@@ -108,17 +108,6 @@ impl Chat {
         }
         self.board_changed();
         self.viewed_changed();
-        // A first start has no look to tell from: this board is it.
-        let first = self
-            .cfg
-            .seen_path
-            .as_deref()
-            .is_some_and(|p| theseus_client::seen::looked(p).position == 0);
-        if first {
-            self.look(r.position)
-        } else {
-            Vec::new()
-        }
     }
 
     /// A frame's changes, by (position, time): the daemon's sample of a running job's last line

@@ -1046,6 +1046,7 @@ mod tests {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         };
         let spoken = bounded(
             laid(vec![answer("t1", vec![call]), done]),
@@ -1088,6 +1089,7 @@ mod tests {
                 image: None,
                 external: None,
                 payload: None,
+                parts: Vec::new(),
             };
             n
         };

@@ -88,6 +88,7 @@ fn result(id: &str, content: &str, from: Option<&str>) -> Node {
             image: None,
             external: from.map(|u| theseus_tools::External { url: u.into() }),
             payload: None,
+            parts: Vec::new(),
         },
     )
 }

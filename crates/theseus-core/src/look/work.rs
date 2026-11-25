@@ -303,7 +303,7 @@ fn clip_kept(s: &str, max: usize, cuts: &Cuts) -> (String, std::ops::Range<usize
 /// The form Clip1: `s` with each run of blanks (control characters and whitespace) one space, nothing
 /// trimmed; every other character as it is. [`clip`]'s line is it, trimmed, then cut.
 /// Frozen once a stored reference names it: a change adds a new numbered form, never edits this one.
-fn clip1(s: &str) -> String {
+pub(crate) fn clip1(s: &str) -> String {
     crate::view::text::kept::one_line(s, |c| c)
 }
 

@@ -182,7 +182,9 @@ impl State {
             self.tail_from = Some(out.len());
         }
         match &n.body {
-            Body::UserMessage { text, attachments } => {
+            Body::UserMessage {
+                text, attachments, ..
+            } => {
                 // A message of attachments alone has no text block; one
                 // without attachments renders as it always did.
                 let blocks = user_blocks(n, text, attachments, media, &mut self.spend);
@@ -428,6 +430,7 @@ mod tests_late {
             image: None,
             external: None,
             payload,
+            parts: Vec::new(),
         };
 
         let held = Node::tool_result("s", None, None, body(Some(Box::new(marked.clone()))));

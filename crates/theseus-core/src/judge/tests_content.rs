@@ -130,6 +130,7 @@ fn plant_result(r: &Rig, sid: &str, node: &str, text: &str) -> Node {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     );
     n.id = node.to_string();
@@ -960,6 +961,7 @@ async fn an_item_with_no_text_is_not_asked() {
                     url: "https://example.com/page".into(),
                 }),
                 payload: None,
+                parts: Vec::new(),
             },
         )
     };
