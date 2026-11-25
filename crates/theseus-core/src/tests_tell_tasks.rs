@@ -265,7 +265,10 @@ async fn a_task_undo_whose_receipt_was_lost_counts_once() {
         "{again}"
     );
     assert_eq!(r.task(&t.id), back, "nothing ran twice");
-    assert!(press(&r.core, how).await.is_err(), "a third press is refused");
+    assert!(
+        press(&r.core, how).await.is_err(),
+        "a third press is refused"
+    );
     stop_holding(&r);
 }
 
