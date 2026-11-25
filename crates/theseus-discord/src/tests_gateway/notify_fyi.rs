@@ -52,14 +52,20 @@ fn guild(private: bool) -> Guild {
 
 /// Ana is the owner; with `silent`, a notice posts without a ping.
 async fn rig(notify: bool, private: bool, silent: bool) -> Rig {
-    Rig::start_tweaked(model, guild(private), &file(notify, private), &[], move |c| {
-        c.places.owner = Some(vec![format!("discord:{ANA}")]);
-        c.self_improve.mode = SelfMode::Act;
-        c.self_improve.backlog_starts = Some(0);
-        if silent {
-            c.discord.silent = vec![Category::Notices];
-        }
-    })
+    Rig::start_tweaked(
+        model,
+        guild(private),
+        &file(notify, private),
+        &[],
+        move |c| {
+            c.places.owner = Some(vec![format!("discord:{ANA}")]);
+            c.self_improve.mode = SelfMode::Act;
+            c.self_improve.backlog_starts = Some(0);
+            if silent {
+                c.discord.silent = vec![Category::Notices];
+            }
+        },
+    )
     .await
 }
 
@@ -98,8 +104,10 @@ fn times(r: &Rig, channel: u64, text: &str) -> usize {
 }
 
 async fn landed(r: &Rig, channel: u64, text: &str) {
-    r.until(&format!("{text:?} in {channel}"), || times(r, channel, text) > 0)
-        .await;
+    r.until(&format!("{text:?} in {channel}"), || {
+        times(r, channel, text) > 0
+    })
+    .await;
 }
 
 fn state(r: &Rig, id: &str) -> Option<ActionState> {
@@ -139,7 +147,10 @@ async fn a_definite_refusal_in_the_notices_place_sends_the_fyi_to_the_dm_once() 
             .find(|m| m.versions[0].contains("fyi-refused-one"))
             .unwrap();
         assert_eq!(m.buttons[0].custom_id, "onto:undo:jdg_mint", "{status}");
-        assert!(failed_there(&r) >= 2, "{status}: both were tried there first");
+        assert!(
+            failed_there(&r) >= 2,
+            "{status}: both were tried there first"
+        );
         r.stop();
     }
 }
@@ -164,7 +175,11 @@ async fn a_notices_place_that_does_not_answer_holds_up_nothing_bound_for_the_dm(
     r.fake.fail_creates_in(NOTICES, None);
     landed(&r, NOTICES, "fyi-waits-aside").await;
     assert_eq!(times(&r, NOTICES, "fyi-waits-aside"), 1);
-    assert_eq!(times(&r, ANA_DM, "fyi-waits-aside"), 0, "never also in the DM");
+    assert_eq!(
+        times(&r, ANA_DM, "fyi-waits-aside"),
+        0,
+        "never also in the DM"
+    );
     r.stop();
 }
 
@@ -293,12 +308,18 @@ async fn presses_in_the_notices_place_are_judged_as_any_press_is() {
         let p = r.press(&mint.id, "Undo", (ANA, "ana"));
         match private {
             true => {
-                r.until("ana's undo passed the gate", told(&r, &p, "⚠️ The undo was not made"))
-                    .await
+                r.until(
+                    "ana's undo passed the gate",
+                    told(&r, &p, "⚠️ The undo was not made"),
+                )
+                .await
             }
             false => {
-                r.until("ana's undo in a shared place", told(&r, &p, "🔐 Your undo did not count"))
-                    .await
+                r.until(
+                    "ana's undo in a shared place",
+                    told(&r, &p, "🔐 Your undo did not count"),
+                )
+                .await
             }
         }
 
@@ -321,8 +342,11 @@ async fn presses_in_the_notices_place_are_judged_as_any_press_is() {
             .await;
         assert!(r.core.self_state().halted, "private = {private}");
         let p = r.press(&join.id, "Halt self-improvement", (ANA, "ana"));
-        r.until("already", told(&r, &p, "🛑 Self-improvement was already halted"))
-            .await;
+        r.until(
+            "already",
+            told(&r, &p, "🛑 Self-improvement was already halted"),
+        )
+        .await;
         r.stop();
     }
 }
