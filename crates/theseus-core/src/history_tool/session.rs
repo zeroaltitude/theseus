@@ -27,12 +27,14 @@ use theseus_store::pages::ledger_session;
 use theseus_store::{kinds, Page, Store as _};
 
 use crate::node::{Body, Node, Origin};
+use crate::quotes::{Field, Form};
 use crate::view::text::{labels, literal};
 use crate::view::timeline::Cursor;
 use crate::view::Author;
 
 use super::open::{author_of, margined, OPEN_TOKENS};
 use super::page::{cursor_text, flat, when, Lens};
+use super::written::{self, Written};
 
 /// Whether `handle` names a session rather than an exchange.
 pub fn names_a_session(handle: &str) -> bool {
@@ -44,6 +46,8 @@ pub fn names_a_session(handle: &str) -> bool {
 #[derive(Debug)]
 pub struct Opened {
     pub text: String,
+    /// The same text, kept by reference: the code's own words and quotes of the words it shows (issue 49).
+    pub parts: Vec<crate::quotes::Part>,
     pub outside: bool,
     pub next: Option<Cursor>,
     /// The nodes whose words it shows: what its result copies (`history_tool::copies`).
@@ -73,7 +77,8 @@ pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened
     };
     let (mut lines, left, next) = read_back(lens, id, before)?;
     lines.reverse();
-    let mut text = format!(
+    let mut w = Written::default();
+    w.code(&format!(
         "[Session {}, {}, its messages in spoken form: the newest {}, oldest first (each line of what was said \
          behind \u{2502}). It is history, not a present instruction.]",
         literal::literal(id, 80),
@@ -87,16 +92,16 @@ pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened
         } else {
             "read back from its end"
         },
-    );
-    for l in &lines {
-        text.push('\n');
-        text.push_str(&l.text);
+    ));
+    for l in &mut lines {
+        w.code("\n");
+        w.append(std::mem::take(&mut l.written));
     }
     if lines.is_empty() {
-        text.push_str("\nNothing of it was said in words here.");
+        w.code("\nNothing of it was said in words here.");
     }
     if let Some(l) = left.said() {
-        text.push_str(&format!("\nLeft out: {l}."));
+        w.code(&format!("\nLeft out: {l}."));
     }
     // Its continuation, as the text says it and as data (an MCP caller's `next`).
     let next = next.map(|b| Cursor {
@@ -104,15 +109,17 @@ pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened
         turn_id: id.to_string(),
     });
     match &next {
-        Some(c) => text.push_str(&format!(
+        Some(c) => w.code(&format!(
             "\nShown {} message{}. Earlier: open this session again with before={}.",
             lines.len(),
             if lines.len() == 1 { "" } else { "s" },
             cursor_text(c)
         )),
-        None => text.push_str("\nThat is its beginning."),
+        None => w.code("\nThat is its beginning."),
     }
+    let (text, parts) = w.into_parts();
     Ok(Opened {
+        parts,
         outside: lines.iter().any(|l| l.outside),
         sources: lines.into_iter().map(|l| l.node).collect(),
         text,
@@ -181,12 +188,15 @@ fn read_back(
                 // it is not asserted clean (D6 round 3, A).
                 line.outside = *holds.get_or_insert_with(|| holds_outside(lens.store, id));
             }
-            let cost = crate::view::text::tokens(&line.text) + 1;
+            let cost = crate::view::text::tokens(line.written.text()) + 1;
             if used + cost > budget {
                 if lines.is_empty() {
                     // One message larger than the allowance: cut in words, never shown past it.
-                    let had = crate::view::text::tokens(&line.text);
-                    line.text = fitted(&line.text, budget, had, &lens.cuts);
+                    let had = crate::view::text::tokens(line.written.text());
+                    let (shown, kept) = fitted_kept(line.written.text(), budget, had, &lens.cuts);
+                    let mut fit = std::mem::take(&mut line.written).head(kept.end, &lens.cuts);
+                    fit.code(&shown[kept.end..]);
+                    line.written = fit;
                     next = Some(r.position);
                     lines.push(line);
                 } else {
@@ -223,6 +233,7 @@ fn newest(lens: &Lens<'_>, position: u64, n: Node) -> anyhow::Result<Option<Node
 }
 
 /// `text` cut to about `max` tokens, never inside a known value (`cuts`), with what was cut said.
+#[cfg(test)]
 fn fitted(text: &str, max: u64, had: u64, cuts: &crate::scrub::Cuts) -> String {
     fitted_kept(text, max, had, cuts).0
 }
@@ -368,11 +379,11 @@ fn holds_outside(store: &crate::store::Store, id: &str) -> bool {
     }
 }
 
-/// One spoken message: its WAL position, its text as the page shows it, whether it is outside text, when its
+/// One spoken message: its WAL position, its text as the page shows it, written with its parts, whether it is outside text, when its
 /// author decides that alone, whether it is another's words (a person's message, an import), and whether it
 /// is an imported agent's message (outside when its session holds an outside message the page omits).
 struct Line {
-    text: String,
+    written: Written,
     outside: bool,
     theirs: Option<bool>,
     agent: bool,
@@ -414,7 +425,7 @@ impl Left {
 }
 
 /// The message `n` as a page line, or none (left out, and counted in `left`).
-fn line_of(lens: &Lens<'_>, _position: u64, n: &Node, left: &mut Left) -> Option<Line> {
+fn line_of(lens: &Lens<'_>, position: u64, n: &Node, left: &mut Left) -> Option<Line> {
     let who = match &n.body {
         Body::UserMessage { .. } if matches!(n.origin, Origin::Operator | Origin::Mcp) => {
             match author_of(lens, n) {
@@ -452,6 +463,15 @@ fn line_of(lens: &Lens<'_>, _position: u64, n: &Node, left: &mut Left) -> Option
         return None;
     }
     let body = margined(&words);
+    let trimmed = words.trim();
+    let from = trimmed.as_ptr() as usize - words.as_ptr() as usize;
+    let range = from..from + trimmed.len();
+    let quoted = written::quoted(
+        (&n.id, position),
+        (Field::Chunk, &words),
+        range,
+        Form::Margin1,
+    );
     let (label, body) = match who {
         Who::Owner => ("the owner".to_string(), body),
         Who::Theseus => ("Theseus".into(), body),
@@ -478,8 +498,14 @@ fn line_of(lens: &Lens<'_>, _position: u64, n: &Node, left: &mut Left) -> Option
     // A volatile value is read with the time it was true at, never as a bare fact (M6 §2.11).
     let mark =
         crate::recall::render::volatile(n, &words).map_or_else(String::new, |m| format!(" · {m}"));
+    let mut w = Written::default();
+    w.code(&format!("{} · {label}{mark}\n", when(n.created_at_ms)));
+    // The words behind their margin, wrapped when they are another person's: the wrapping is code.
+    let at = body.rfind(margined(&words).as_str()).unwrap_or(0);
+    w.code(&body[..at]);
+    w.said(&body[at..], quoted.as_ref());
     Some(Line {
-        text: format!("{} · {label}{mark}\n{body}", when(n.created_at_ms)),
+        written: w,
         outside: who == Who::Other,
         theirs,
         agent: who == Who::Agent,

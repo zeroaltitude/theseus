@@ -17,6 +17,7 @@ use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn
 use crate::Core;
 
 mod by_reference;
+mod parts;
 
 /// What the person says in the first place: its words are the ones each read copies.
 const SAID: &str = "the zircon heron nests by the north weir at dawn";
@@ -79,7 +80,8 @@ async fn say(core: &Arc<Core>) -> Said {
     }
 }
 
-/// `sid`'s turn calls the tool with `args`: its stored result's node and text (the newest call's).
+/// `sid`'s turn calls the tool with `args`: its stored result's node and text (the newest call's), its parts
+/// rendered when it is kept by reference.
 async fn read_in(core: &Arc<Core>, sid: &str, args: Value) -> (String, String) {
     turn(core, sid, &format!("CALL {args}")).await;
     (core.store.session_nodes(sid).unwrap().into_iter())
@@ -88,8 +90,11 @@ async fn read_in(core: &Arc<Core>, sid: &str, args: Value) -> (String, String) {
             Body::ToolResult {
                 tool_use_id,
                 content,
+                parts,
                 ..
-            } if tool_use_id == "h1" => Some((n.id, content)),
+            } if tool_use_id == "h1" => {
+                Some((n.id, crate::tests_places::kept_text(core, content, &parts)))
+            }
             _ => None,
         })
         .expect("the call's result")
@@ -177,11 +182,32 @@ async fn an_imported_message_opened_by_its_session_is_found_from_it() {
     let (copy, text) = read_in(&r.core, &other, json!({ "open": ids[0] })).await;
     assert!(text.contains(WORD), "{text}");
     finds(&reach(&r.core, &node), &copy, &other);
+    // A result stored before results were kept by reference holds its words (an old record, written here by
+    // hand: the same result with its words and no parts).
+    let (_, mut old) = r.core.store.get_node(&copy).unwrap().unwrap();
+    old.id = format!("{}_old", old.id);
+    if let Body::ToolResult {
+        tool_use_id,
+        content,
+        parts,
+        ..
+    } = &mut old.body
+    {
+        *tool_use_id = "h_old".into();
+        *content = text.clone();
+        parts.clear();
+    }
+    r.core.store.append(&[old.record().unwrap()]).unwrap();
     // An erase follows no copy (for any route): the import's own nodes are its tombstones, and the result that
-    // copied its words stays where it lies, listed by reach from the tombstone, as glide's copies were.
+    // copied its words stays where it lies, listed by reach from the tombstone, as glide's copies were. A result
+    // kept by reference shows none of the erased words (issue 49); an old one still holds them.
     crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
     assert!(
-        crate::tests_places::result_of(&r.core, &other, "h1").contains(WORD),
+        !crate::tests_places::result_of(&r.core, &other, "h1").contains(WORD),
+        "a result kept by reference shows none of the erased words"
+    );
+    assert!(
+        crate::tests_places::result_of(&r.core, &other, "h_old").contains(WORD),
         "the copy is not erased with its source"
     );
     finds(&reach(&r.core, &node), &copy, &other);

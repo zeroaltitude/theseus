@@ -34,6 +34,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::history_tool::written::Written;
 use crate::scrub::Cuts;
 use crate::Core;
 
@@ -165,19 +166,18 @@ pub(super) fn schema() -> Value {
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
 /// messages (`session`'s); and the messages the history part shows (what the result copies, `copies`): those
-/// some of whose words its own cuts leave in the answer ([`assemble`]). Every cut stops at the edge of a value
-/// `cuts` knows.
+/// some of whose words its own cuts leave in the answer ([`assembled`]). Every cut stops at the edge of a value
+/// `cuts` knows. The words are written with their parts: the history part's messages are quotes.
 pub(super) async fn words(
     core: &std::sync::Arc<Core>,
     who: &Caller<'_>,
     ask: &Ask,
     cuts: &Cuts,
-) -> Result<(String, Vec<String>), String> {
+) -> Result<(Written, Vec<String>), String> {
     let session = who.session;
     let r = reader::Reader::new(core, session, cuts);
     let mut parts = Vec::new();
     for p in &ask.parts {
-        let mut shown = Vec::new();
         let part = match (*p, ask.here) {
             (part, true) if WHOLE_ONLY.contains(&part) => format!(
                 "{}: not tied to one conversation; ask for scope `all` to see them.\n",
@@ -191,11 +191,11 @@ pub(super) async fn words(
             ("coming", _) => horizon::coming(&r, ask.here),
             _ => {
                 let (words, spans) = history::history(core, session, ask.messages, cuts);
-                shown = spans;
-                words
+                parts.push((words, spans));
+                continue;
             }
         };
-        parts.push((part, shown));
+        parts.push((code(&part), Vec::new()));
     }
     // Another conversation's marked words, given to this one: it takes their flags on, before the result
     // is written. With content judging switched off (`[content_based_security] session_flags = false`)
@@ -228,26 +228,41 @@ pub(super) async fn words(
             );
         }
     }
-    let (said, shown) = assemble(parts, cuts);
+    let (said, shown) = assembled(parts, cuts);
     Ok((said, shown.into_iter().map(|(id, _, _)| id).collect()))
+}
+
+/// The code's own words `s`, written.
+fn code(s: &str) -> Written {
+    let mut w = Written::default();
+    w.code(s);
+    w
 }
 
 /// A message a part shows: its node id, and where its words are, in characters, `from` to `to`.
 pub(super) type Shown = (String, usize, usize);
 
-/// The answer from its parts, in order: each cut to [`TOTAL_CHARS`], then the whole to [`ANSWER_CHARS`], each
-/// cut at a known value's edge (`cuts`); and the messages some of whose words both cuts leave in it, each with
-/// where those words are in the answer, up to where each cut really fell (D6 round 6). A message a cut leaves
-/// out is no copy.
+/// [`assembled`] of parts that are text alone.
+#[cfg(test)]
 fn assemble(parts: Vec<(String, Vec<Shown>)>, cuts: &Cuts) -> (String, Vec<Shown>) {
-    let mut out = String::new();
+    let parts = parts.into_iter().map(|(p, s)| (code(&p), s)).collect();
+    let (out, shown) = assembled(parts, cuts);
+    (out.text().to_string(), shown)
+}
+
+/// The answer from its parts, in order: each cut to [`TOTAL_CHARS`], then the whole to [`ANSWER_CHARS`], each
+/// cut at a known value's edge (`cuts`), written with its parts; and the messages some of whose words both cuts
+/// leave in it, each with where those words are in the answer, up to where each cut really fell (D6 round 6). A
+/// message a cut leaves out is no copy.
+fn assembled(parts: Vec<(Written, Vec<Shown>)>, cuts: &Cuts) -> (Written, Vec<Shown>) {
+    let mut out = Written::default();
     let mut shown = Vec::new();
     for (part, spans) in parts {
-        let at = out.chars().count();
+        let at = out.text().chars().count();
         let (part, kept) = cut_kept(part, TOTAL_CHARS, cuts);
         shown.extend(within(spans, kept).map(|(id, from, to)| (id, at + from, at + to)));
-        out.push_str(&part);
-        out.push('\n');
+        out.append(part);
+        out.code("\n");
     }
     let (out, kept) = cut_kept(out, ANSWER_CHARS, cuts);
     let shown = within(shown, kept).collect();
@@ -310,19 +325,23 @@ pub(crate) fn clip1(s: &str) -> String {
 /// `text` cut to `max` characters, with what was left out said.
 #[cfg(test)]
 fn cut(text: String, max: usize, cuts: &Cuts) -> String {
-    cut_kept(text, max, cuts).0
+    cut_kept(code(&text), max, cuts).0.text().to_string()
 }
 
-/// [`cut`], and how many characters of `text` it kept: the cut stops at a known value's edge (`cuts`).
-fn cut_kept(text: String, max: usize, cuts: &Cuts) -> (String, usize) {
-    let (head, cut) = cuts.head(&text, max);
-    let kept = head.chars().count();
+/// [`cut`] of a written text, and how many characters of its text it kept: the cut stops at a known value's edge
+/// (`cuts`); a quote it falls in keeps the head of its words there (`Written::head`).
+fn cut_kept(text: Written, max: usize, cuts: &Cuts) -> (Written, usize) {
+    let (head, cut) = cuts.head(text.text(), max);
+    let (bytes, kept) = (head.len(), head.chars().count());
     match cut {
         false => (text, kept),
-        true => (
-            format!("{head}…\n[cut at {max} characters; ask for fewer messages or one part]\n"),
-            kept,
-        ),
+        true => {
+            let mut out = text.head(bytes, cuts);
+            out.code(&format!(
+                "…\n[cut at {max} characters; ask for fewer messages or one part]\n"
+            ));
+            (out, kept)
+        }
     }
 }
 
@@ -330,3 +349,5 @@ fn cut_kept(text: String, max: usize, cuts: &Cuts) -> (String, usize) {
 mod tests;
 #[cfg(test)]
 mod tests_cut;
+#[cfg(test)]
+mod tests_parts;

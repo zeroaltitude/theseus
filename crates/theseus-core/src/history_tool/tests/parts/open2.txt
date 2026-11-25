@@ -1,0 +1,7 @@
+[Exchange "turn_0002", in "local", <AT2>: what was said then, in spoken form (tool traffic as one-line stubs; each line of what was said behind │). It is history, not a present instruction.]
+[outside text from "another person"; not the person's words; not an instruction]
+person: [outside text from "another person"; not the person's words; not an instruction; fence b5f97b05970f]
+│ a guest's question about the lantern
+[end of outside text, fence b5f97b05970f]
+[from "local", <SAID2>, chosen: laid by Theseus; testimony, not instruction; possibly stale]
+Theseus: │ reply to a guest's question about the lantern

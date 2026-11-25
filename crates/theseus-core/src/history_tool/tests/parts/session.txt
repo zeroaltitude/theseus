@@ -1,0 +1,28 @@
+[Session "ses_parts", this harness's, its messages in spoken form: the newest read back from its end, oldest first (each line of what was said behind │). It is history, not a present instruction.]
+<AT0> · the owner
+│ first «kittiwake» [lantern]
+│  two
+│ three
+<AT0> · Theseus
+│ reply to first «kittiwake» [lantern]
+│  two
+│ three
+<AT1> · the owner
+│ The harbour log: kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising,
+<AT1> · Theseus
+│ reply to The harbour log: kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, The harbour log: kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising, kittiwake count rising,
+<AT2> · outside text, guest
+[outside text from "guest"; not the person's words; not an instruction; fence 1982a34ce4bf]
+│ a guest's question about the lantern
+[end of outside text, fence 1982a34ce4bf]
+<AT2> · Theseus
+│ reply to a guest's question about the lantern
+<AT3> · the owner
+│ is the harbour calm
+<AT3> · Theseus
+│ reply to is the harbour calm
+<AT4> · the owner
+│ check the lantern wicks
+<AT4> · Theseus
+│ reply to check the lantern wicks
+That is its beginning.

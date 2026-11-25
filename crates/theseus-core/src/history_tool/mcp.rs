@@ -74,6 +74,7 @@ fn line(l: HistoryLine) -> HistoryReadLine {
         reply_begins,
         outside,
         labels,
+        quotes: _,
     } = l;
     let outside = outside || person.as_deref().is_some_and(|p| p != OWNER);
     HistoryReadLine {
