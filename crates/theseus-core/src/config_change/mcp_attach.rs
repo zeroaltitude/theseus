@@ -531,9 +531,14 @@ fn put(
     marker: Value,
 ) -> Result<(String, Value), String> {
     let (base, digest, settings) = candidate;
-    let proposal = Proposal {
-        tool: ACK.into(),
-        args: json!({
+    // A restart makes live what was written since the start: the card says so.
+    let live = match restart {
+        true => super::told::going_live(tc, rt.config_change.started_ms),
+        false => vec![],
+    };
+    let question = format!("{question}{}", super::told::going_live_line(&live));
+    let question = question.as_str();
+    let args = json!({
             "question": question,
             "settled": super::words::mcp(&marker, restart),
             "base_sha256": crate::config_copy::sha256(base),
@@ -544,7 +549,17 @@ fn put(
             "outside_text": outside_text(tc),
             "asked_by": asked_by(tc),
             "mcp": marker,
-        }),
+    });
+    // Issue 57: removing a server follows the tool's own setting (`told.rs`); a
+    // restart it needs is held to the same bound as any.
+    if args["mcp"]["op"] == "detach" {
+        if let Some(said) = detach_told(rt, tc, correlation_id, &args)? {
+            return Ok((said, json!({"settings": settings.len(), "told": true})));
+        }
+    }
+    let proposal = Proposal {
+        tool: ACK.into(),
+        args,
         resource: Some("config".into()),
         policy_context: json!({}),
     };
@@ -563,6 +578,48 @@ fn put(
         said,
         json!({"settings": settings.len(), "candidate": digest}),
     ))
+}
+
+/// A detach with no card, when the tool's setting lets it run and a restart it
+/// needs is not past its bound or making a secret live (`told.rs`): what the
+/// tool says. None: the card is asked.
+fn detach_told(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    correlation_id: &str,
+    args: &Value,
+) -> Result<Option<String>, String> {
+    let Some(setting) = super::told::untold(rt, DETACH) else {
+        return Ok(None);
+    };
+    let records = match args["restart"] == true {
+        false => vec![],
+        true => {
+            let live = super::told::going_live(tc, rt.config_change.started_ms);
+            match (live.is_empty(), super::told::restart_spent(tc)) {
+                (true, Ok(spend)) => vec![spend],
+                _ => return Ok(None),
+            }
+        }
+    };
+    let core = rt
+        .config_change
+        .core()
+        .ok_or("Theseus is not ready to change its settings: try again in a moment")?;
+    let name = args["mcp"]["name"].as_str().unwrap_or_default();
+    let note = super::told::detach_note(args, &card::lit(name), &setting);
+    let said = format!(
+        "Removed, with no card ({setting} lets {DETACH} run); the owner was told.\n{}",
+        note.lines().skip(2).collect::<Vec<_>>().join("\n")
+    );
+    let t = super::told::Told {
+        id: correlation_id,
+        session_id: tc.session_id,
+        args,
+        setting: &setting,
+        records,
+    };
+    core.write_told(t, |_| (said, note)).map(Some)
 }
 
 /// Settings that change anything but the server's own table are not this tool's.
@@ -781,6 +838,8 @@ pub(crate) fn at_yes(args: &Value, settings: &[diff::Setting]) -> Result<bool, S
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_no_card;
 #[cfg(test)]
 mod tests_proof;
 #[cfg(test)]

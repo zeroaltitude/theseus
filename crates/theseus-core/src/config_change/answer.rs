@@ -53,19 +53,59 @@ impl Answer<'_> {
 }
 
 /// What a yes did.
-struct Applied {
-    previous: u32,
-    before: String,
-    after: String,
-    restart: bool,
+pub(super) struct Applied {
+    pub(super) previous: u32,
+    pub(super) before: String,
+    pub(super) after: String,
+    pub(super) restart: bool,
     /// The marker the restart follows, kept before the file was written.
-    pending: Option<Pending>,
+    pub(super) pending: Option<Pending>,
+}
+
+/// The question a write answers: its id, its session and its arguments, and the
+/// planned question itself when there is one (a change written with no card has
+/// none, `told.rs`).
+#[derive(Clone, Copy)]
+pub(super) struct Asked<'a> {
+    pub(super) id: &'a str,
+    pub(super) session_id: &'a str,
+    pub(super) args: &'a Value,
+    pub(super) action: Option<&'a Action>,
+}
+
+impl<'a> Asked<'a> {
+    fn of(a: &'a Action, args: &'a Value) -> Self {
+        Self {
+            id: &a.correlation_id,
+            session_id: &a.session_id,
+            args,
+            action: Some(a),
+        }
+    }
 }
 
 /// Who asked the question, and where, as a ledger row names it.
 fn asked_by(a: &Action, args: &Value) -> Value {
     json!({"session_id": a.session_id, "execution_id": a.execution_id,
            "turn_id": args["asked_by"]["turn_id"], "place": args["asked_by"]["place"]})
+}
+
+/// The `config.changed` row of a change written: on a card's yes, or with no
+/// card (`told.rs`), whose row says so with `told`.
+pub(super) fn changed_row(q: Asked<'_>, d: &Applied, who: &Value, by: &str, via: &str) -> LedgerRow {
+    let args = q.args;
+    let mut data = json!({
+        "source": "owner", "question": q.id, "paths": args["paths"],
+        "asked_by": who, "approved_by": by, "via": via,
+        "digest_before": d.before, "digest_after": d.after,
+        "previous_copy": d.previous, "restart": d.restart,
+        "restart_only": args["restart_only"].as_bool().unwrap_or(false),
+        "file": args["file"],
+    });
+    if q.action.is_none() {
+        data["told"] = json!(true);
+    }
+    LedgerRow::new(LedgerKind::ConfigChanged, Some(q.session_id), None, data)
 }
 
 /// The note a keep card's conversation reads when its card ends here (declined, or expired): none for
@@ -83,8 +123,8 @@ fn keep_note(a: &Action, answer: &Answer<'_>, note: Option<&str>) -> Result<Opti
 
 /// The `config.undone` record a yes to an undo writes beside `config.changed`:
 /// none for any other question, or for an answer that wrote nothing.
-fn undone_row(
-    a: &Action,
+pub(super) fn undone_row(
+    a: Asked<'_>,
     approve: bool,
     args: &Value,
     who: &Value,
@@ -94,7 +134,7 @@ fn undone_row(
     let Some(u) = args.get("undoes").filter(|u| approve && u.is_object()) else {
         return Ok(None);
     };
-    let row = super::undo::undone_row(&a.session_id, &a.correlation_id, u, args, who, by, via);
+    let row = super::undo::undone_row(a.session_id, a.id, u, args, who, by, via);
     Ok(Some(NewRecord::json(kinds::LEDGER, None, &row)?))
 }
 
@@ -104,7 +144,7 @@ impl Core {
     /// back to the copy kept (the same text) if it is not healthy.
     fn plan_plain_restart(
         &self,
-        a: &Action,
+        q: Asked<'_>,
         file: &std::path::Path,
         by: &str,
         via: &str,
@@ -115,20 +155,16 @@ impl Core {
         let (previous, copy) = write::keep_previous(&w.state, &now)
             .map_err(|e| format!("the settings could not be kept, so nothing restarts: {e}"))?;
         let sha = sha256(&now);
-        let args = a
-            .proposal
-            .as_ref()
-            .map(|p| p.args.clone())
-            .unwrap_or_default();
+        let args = q.args;
         let p = Pending {
-            id: a.correlation_id.clone(),
+            id: q.id.to_string(),
             file: file.to_path_buf(),
             previous: copy,
             previous_sha256: sha.clone(),
             digest_before: sha.clone(),
             digest_after: sha.clone(),
             paths: vec![],
-            session_id: a.session_id.clone(),
+            session_id: q.session_id.to_string(),
             place: args["asked_by"]["place"].as_str().map(str::to_string),
             approved_by: by.to_string(),
             via: via.to_string(),
@@ -150,14 +186,15 @@ impl Core {
         })
     }
 
-    /// The yes: write the candidate the card showed, or say why not.
-    fn write_change(
+    /// The yes: write the candidate the card showed, or say why not. A change
+    /// the tool's setting lets run with no card comes here too (`told.rs`).
+    pub(super) fn write_change(
         &self,
-        a: &Action,
-        args: &Value,
+        q: Asked<'_>,
         by: &str,
         via: &str,
     ) -> Result<Applied, String> {
+        let args = q.args;
         let w = &self.tools.config_change;
         // One yes at a time, and none while a change is still being applied.
         let _one = w
@@ -175,6 +212,7 @@ impl Core {
         }
         // A prompt file is changed in its own way: no restart, its own copies.
         if super::prompt_file::write::is_card(args) {
+            let a = q.action.ok_or("a prompt file is changed only on a card's yes")?;
             let (previous, before, after) = self.write_prompt_file(a, args, by, via)?;
             return Ok(Applied {
                 previous,
@@ -189,7 +227,7 @@ impl Core {
             .clone()
             .ok_or("the settings are not a file this daemon can change")?;
         if args["restart_only"].as_bool() == Some(true) {
-            return self.plan_plain_restart(a, &file, by, via);
+            return self.plan_plain_restart(q, &file, by, via);
         }
         let want_base = args["base_sha256"].as_str().unwrap_or_default();
         let sha = args["candidate_sha256"].as_str().unwrap_or_default();
@@ -217,7 +255,7 @@ impl Core {
             true => super::mcp_attach::needs(args, &settings),
             false => proof_seam::Needs::of(&settings),
         };
-        proof_seam::at_yes(&self.store, &a.correlation_id, needs)?;
+        proof_seam::at_yes(&self.store, q.id, needs)?;
         let (previous, copy) = write::keep_previous(&w.state, &now).map_err(|e| {
             format!("the previous settings could not be kept, so nothing was written: {e}")
         })?;
@@ -225,7 +263,7 @@ impl Core {
         // The restart's memory is kept before the file changes, so a start
         // that cannot load the new settings can find its way back.
         let pending = restart.then(|| Pending {
-            id: a.correlation_id.clone(),
+            id: q.id.to_string(),
             file: file.clone(),
             previous: copy,
             previous_sha256: sha256(&now),
@@ -239,7 +277,7 @@ impl Core {
                         .collect()
                 })
                 .unwrap_or_default(),
-            session_id: a.session_id.clone(),
+            session_id: q.session_id.to_string(),
             place: args["asked_by"]["place"].as_str().map(str::to_string),
             approved_by: by.to_string(),
             via: via.to_string(),
@@ -284,7 +322,7 @@ impl Core {
             .unwrap_or_default();
         let state = self.tools.config_change.state.clone();
         let (applied, note): (Option<Applied>, Option<String>) = match answer {
-            Answer::Yes => match self.write_change(a, &args, by, via) {
+            Answer::Yes => match self.write_change(Asked::of(a, &args), by, via) {
                 Ok(done) => (Some(done), None),
                 Err(why) => (None, Some(why)),
             },
@@ -296,19 +334,7 @@ impl Core {
         let corr = a.correlation_id.as_str();
         let who = asked_by(a, &args);
         let row = match &applied {
-            Some(d) => LedgerRow::new(
-                LedgerKind::ConfigChanged,
-                session,
-                None,
-                json!({
-                    "source": "owner", "question": corr, "paths": args["paths"],
-                    "asked_by": who, "approved_by": by, "via": via,
-                    "digest_before": d.before, "digest_after": d.after,
-                    "previous_copy": d.previous, "restart": d.restart,
-                    "restart_only": args["restart_only"].as_bool().unwrap_or(false),
-                    "file": args["file"],
-                }),
-            ),
+            Some(d) => changed_row(Asked::of(a, &args), d, &who, by, via),
             None => LedgerRow::new(
                 LedgerKind::ConfigDeclined,
                 session,
@@ -338,7 +364,7 @@ impl Core {
             NewRecord::json(kinds::LEDGER, None, &row)?,
         ];
         // An undo that was written names the change it undid.
-        rows.extend(undone_row(a, approve, &args, &who, by, via)?);
+        rows.extend(undone_row(Asked::of(a, &args), approve, &args, &who, by, via)?);
         rows.extend(keep_note(a, &answer, note.as_deref())?);
         // A server attached or removed by asking: who did it rides in the frame.
         let live = match applied.is_some() {

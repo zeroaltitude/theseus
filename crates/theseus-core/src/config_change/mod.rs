@@ -43,6 +43,7 @@ pub mod restart;
 pub mod show;
 pub mod shown;
 pub mod source;
+pub mod told;
 pub mod undo;
 pub mod vault_keep;
 pub mod vault_use;
@@ -104,6 +105,9 @@ pub struct Where {
     /// Held across a yes's re-read, keep and write, so two yeses never both
     /// pass the digest check before either writes.
     pub(crate) writes: Arc<std::sync::Mutex<()>>,
+    /// When this daemon was built: a change written since is not live until a
+    /// restart (`told::going_live`).
+    pub started_ms: u64,
 }
 
 impl Where {
@@ -113,6 +117,7 @@ impl Where {
             state,
             core: Arc::default(),
             writes: Arc::default(),
+            started_ms: theseus_protocol::now_unix_ms(),
         }
     }
 
@@ -378,6 +383,41 @@ pub fn restart(
         return Err("give a reason in the owner's words, one line".into());
     }
     let (outside, steered) = outside_text(tc);
+    let going_live = told::going_live(tc, rt.config_change.started_ms);
+    let asked_by = json!({
+        "session_id": tc.session_id, "execution_id": tc.execution_id,
+        "turn_id": tc.turn_id, "place": tc.outbox.target(tc.session_id),
+    });
+    // Issue 57: a restart follows the tool's own setting, once per message of
+    // the owner's, and asks while a change it would make live sends a secret
+    // or names an address (`told.rs`).
+    let untold = told::untold(rt, RESTART).filter(|_| going_live.is_empty());
+    if let Some((setting, spend)) = untold.and_then(|s| Some((s, told::restart_spent(tc).ok()?))) {
+        let core = rt
+            .config_change
+            .core()
+            .ok_or("Theseus is not ready to restart: try again in a moment")?;
+        let args = json!({
+            "restart_only": true, "paths": Vec::<String>::new(), "restart": true,
+            "reason": reason, "outside_text": outside || steered,
+            "settled": words::RESTART, "asked_by": asked_by,
+        });
+        let note = told::restart_note(&args, &setting);
+        let said = format!(
+            "Restarting, with no card ({setting} lets {RESTART} run); the owner was told. It waits \
+             up to {RESTART_WAIT_SECS} s for a running turn to end, and this turn resumes \
+             afterwards."
+        );
+        let t = told::Told {
+            id: correlation_id,
+            session_id: tc.session_id,
+            args: &args,
+            setting: &setting,
+            records: vec![spend],
+        };
+        let said = core.write_told(t, |_| (said, note))?;
+        return Ok((said, json!({"told": true})));
+    }
     let question = card::restart_question(&card::RestartFacts {
         // The asking turn is one of them, and ends as this returns.
         running: rt.admission.load().0.saturating_sub(1),
@@ -390,17 +430,14 @@ pub fn restart(
         steered,
         reason: &reason,
         wait_secs: RESTART_WAIT_SECS,
-    });
+    }) + &told::going_live_line(&going_live);
     let proposal = Proposal {
         tool: ACK.into(),
         args: json!({
             "question": question, "restart_only": true, "paths": Vec::<String>::new(),
             "restart": true, "reason": reason, "outside_text": outside || steered,
             "settled": words::RESTART,
-            "asked_by": {
-                "session_id": tc.session_id, "execution_id": tc.execution_id,
-                "turn_id": tc.turn_id, "place": tc.outbox.target(tc.session_id),
-            },
+            "asked_by": asked_by,
         }),
         resource: Some("daemon".into()),
         policy_context: json!({}),
@@ -557,6 +594,9 @@ pub(crate) fn put_using(
     let long = too_big(&settings)?;
     let needs = proof_seam::Needs::of(&settings);
     let (outside, steered) = outside_text(tc);
+    // Written since this daemon started and live at its next start: a restart
+    // with no card would send a secret, or send to an address, unasked.
+    let going_live = told::going_live(tc, w.started_ms);
     let facts = card::Facts {
         settings: &settings,
         outside_text: outside || steered,
@@ -572,7 +612,7 @@ pub(crate) fn put_using(
         }
         (None, Some(s)) => card::question_using(&s.preface(&loaded, &settings), &facts),
         (None, None) => card::question(&facts),
-    };
+    } + &told::going_live_line(&going_live);
     let digest = write::keep_candidate(&w.state, &candidate)
         .map_err(|e| format!("the candidate could not be kept for the card: {e}"))?;
     // A card with a long value has a whole text to read before the yes: the
@@ -610,6 +650,28 @@ pub(crate) fn put_using(
     if let Some(s) = secret {
         args["secret"] = s.args();
     }
+    // Issue 57: an ordinary change follows the tool's own setting (`told.rs`).
+    let tool = match undoes {
+        Some(_) => undo::UNDO,
+        None => PROPOSE,
+    };
+    let ordinary = secret.is_none() && long == 0 && sensitive(changes, &settings).is_empty();
+    if let (true, Some(setting)) = (ordinary && going_live.is_empty(), told::untold(rt, tool)) {
+        let spend = match args["restart"] == true {
+            true => told::restart_spent(tc).ok().map(Some),
+            false => Some(None),
+        };
+        if let Some(spend) = spend {
+            let t = told::Told {
+                id: correlation_id,
+                session_id: tc.session_id,
+                args: &args,
+                setting: &setting,
+                records: spend.into_iter().collect(),
+            };
+            return change_told(rt, tc, t, (tool, base, &settings), outside || steered);
+        }
+    }
     let proposal = Proposal {
         tool: ACK.into(),
         args,
@@ -633,6 +695,50 @@ pub(crate) fn put_using(
         said,
         json!({"settings": settings.len(), "candidate": digest}),
     ))
+}
+
+/// An ordinary change written with no card (`told.rs`): the tool's result says
+/// it was done, its number, and how to undo it; the owner is told the same.
+fn change_told(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    t: told::Told<'_>,
+    (tool, base, settings): (&str, &str, &[diff::Setting]),
+    outside_text: bool,
+) -> Result<(String, Value), String> {
+    let core = rt
+        .config_change
+        .core()
+        .ok_or("Theseus is not ready to change its settings: try again in a moment")?;
+    let (args, setting) = (t.args, t.setting);
+    let mut number = 0;
+    let said = core.write_told(t, |n| {
+        number = n;
+        let note = told::change_note(args, settings, n, (tool, setting), outside_text);
+        let said = format!(
+            "Done, with no card ({setting} lets {tool} run): the daemon wrote it, and the owner \
+             was told, with an Undo. It is change #{n}: `config.undo` with change {n} puts it \
+             back.\n{}\n{}",
+            note.lines().skip(2).collect::<Vec<_>>().join("\n"),
+            show::before(base, settings)
+        );
+        (said, note)
+    })?;
+    settle_words(rt, tc);
+    Ok((
+        said,
+        json!({"settings": settings.len(), "told": true, "change": number}),
+    ))
+}
+
+/// The owner's words that began this turn are settled by the act (the card,
+/// or the act told): not also offered or kept as a standing record (issue 22).
+fn settle_words(rt: &ToolRuntime, tc: &TurnCtx<'_>) {
+    if let Some(core) = rt.config_change.core() {
+        if let Some(node) = core.turn_input(tc.turn_id) {
+            core.settled_by_act(tc.session_id, &node);
+        }
+    }
 }
 
 /// What cannot be shown whole is refused first, in its own words; else how many
@@ -676,7 +782,7 @@ pub(crate) fn ask(
         .plan_confirm_with(tc.guard, &proposal, RetryClass::NonRepeatable, None, |a| {
             let mut records = vec![NewRecord::json(
                 kinds::META,
-                Some(&format!("{CALL_PREFIX}{correlation_id}")),
+                Some(&call_key(correlation_id)),
                 &said,
             )?];
             // A card that asks for the second proof is marked by the daemon's
@@ -700,11 +806,7 @@ pub(crate) fn ask(
     }
     // The card is the question: the owner's words that began this turn are not
     // also offered or kept as a standing record (issue 22).
-    if let Some(core) = rt.config_change.core() {
-        if let Some(node) = core.turn_input(tc.turn_id) {
-            core.settled_by_act(tc.session_id, &node);
-        }
-    }
+    settle_words(rt, tc);
     if let Ok(Some(session)) = tc
         .store
         .get_session::<crate::session::SessionRecord>(tc.session_id)
@@ -715,6 +817,11 @@ pub(crate) fn ask(
         tc.record(&crate::fact::tool::CallAsked { request: &request });
     }
     Ok(())
+}
+
+/// The key of the record a call run again after a restart reads.
+pub(crate) fn call_key(correlation_id: &str) -> String {
+    format!("{CALL_PREFIX}{correlation_id}")
 }
 
 /// A proposal run again after a restart: what the first run asked, else why
@@ -817,6 +924,8 @@ mod tests_profile_run_more;
 mod tests_proof;
 #[cfg(test)]
 mod tests_source;
+#[cfg(test)]
+mod tests_told;
 #[cfg(test)]
 mod tests_undo;
 #[cfg(test)]

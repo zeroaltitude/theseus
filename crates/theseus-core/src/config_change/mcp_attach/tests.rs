@@ -185,7 +185,21 @@ pub(super) struct Rig {
     _dir: tempfile::TempDir,
 }
 
+/// The rig, with `mcp.detach` set to `approve`, as an owner who wants every
+/// removal asked would: a test of its card states it under that setting, and
+/// the gate's own question for the call is answered as the owner first
+/// (`Rig::run`). [`rig_told`] leaves it at the default (issue 57).
 pub(super) fn rig() -> Rig {
+    rig_at(true)
+}
+
+/// The rig at the settings' own default for `mcp.detach`: a removal runs with
+/// no card and tells the owner (issue 57).
+pub(super) fn rig_told() -> Rig {
+    rig_at(false)
+}
+
+fn rig_at(asking: bool) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
@@ -213,6 +227,11 @@ pub(super) fn rig() -> Rig {
     );
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.policy.enforcement = Posture::Notify;
+    if asking {
+        cfg.policy
+            .tools
+            .insert(super::DETACH.into(), Posture::Approve);
+    }
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
     cfg.config_file = Some(file.clone());
     cfg.index.enabled = false;
@@ -278,6 +297,26 @@ impl Rig {
     }
 
     async fn run(&self, sid: &str, input: &str, agent: Option<&str>) {
+        self.run_once(sid, Some(input), agent).await;
+        // Under `approve` the gate asks for the call itself first: the owner says
+        // yes from their own terminal, and the call that waited runs.
+        while let Some(q) = self
+            .asked()
+            .into_iter()
+            .find(|q| q.tool == super::DETACH && q.session_id == sid)
+        {
+            if self
+                .core
+                .confirm_action(&q.correlation_id, true, None, "cli")
+                .is_err()
+            {
+                break;
+            }
+            self.run_once(sid, None, agent).await;
+        }
+    }
+
+    async fn run_once(&self, sid: &str, input: Option<&str>, agent: Option<&str>) {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -291,7 +330,7 @@ impl Rig {
                 prompt: None,
                 surface: None,
                 session: rec,
-                input: Some(input.into()),
+                input: input.map(str::to_string),
                 target,
                 sink: EventSink::new(self.core.bus.clone(), sid, None)
                     .from_agent(agent.map(str::to_string)),
@@ -357,7 +396,7 @@ impl Rig {
     }
 
     /// Attach `call` and say yes to its card; the card's text and the session.
-    async fn attached(&self, call: Value) -> (String, String) {
+    pub(super) async fn attached(&self, call: Value) -> (String, String) {
         let sid = self.session();
         self.turn(&sid, "mcp_attach", call).await;
         let q = self.asked().remove(0);

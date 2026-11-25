@@ -262,6 +262,35 @@ pub(super) fn rig() -> Rig {
     rig_with(|_, _| {})
 }
 
+/// The tools that ran with a card before issue 57 and now follow their own
+/// setting: the rig sets each to `approve`, as an owner who wants every one
+/// asked would, so a test of the card states it under that setting. The gate's
+/// own question for the call is answered as the owner before the card
+/// (`Rig::run_at`). [`rig_told`] leaves them at the default.
+pub(super) const ASKING: [&str; 4] = [
+    super::PROPOSE,
+    super::undo::UNDO,
+    super::RESTART,
+    super::mcp_attach::DETACH,
+];
+
+/// A rig with the settings' own default for the tools of [`ASKING`]: each
+/// follows `enforcement` (notify), so an ordinary change, a restart and a
+/// removal run with no card and tell the owner (issue 57).
+pub(super) fn rig_told() -> Rig {
+    rig_told_with(|_, _| {})
+}
+
+/// [`rig_told`], with `tweak` to say about the settings last.
+pub(super) fn rig_told_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
+    rig_with(|cfg, state| {
+        for t in ASKING {
+            cfg.policy.tools.remove(t);
+        }
+        tweak(cfg, state);
+    })
+}
+
 /// [`rig`], with `tweak` to say about the settings last: it is given them and
 /// the state directory.
 pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
@@ -278,6 +307,9 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
     cfg.policy.enforcement = Posture::Notify;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
     cfg.config_file = Some(file.clone());
+    for t in ASKING {
+        cfg.policy.tools.insert(t.into(), Posture::Approve);
+    }
     // No index tender runs in a test, so a daemon that waits for it to answer
     // would never be healthy.
     cfg.index.enabled = false;
@@ -584,6 +616,31 @@ impl Rig {
     }
 
     async fn run_at(
+        &self,
+        sid: &str,
+        input: Option<String>,
+        answer_at: Option<String>,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        let mut done = self.run_once(sid, input, answer_at.clone()).await;
+        // Under `approve` the gate asks for the call itself first: the owner says
+        // yes from their own terminal, and the call that waited runs.
+        while let Some(q) = self
+            .asked()
+            .into_iter()
+            .find(|q| ASKING.contains(&q.tool.as_str()) && q.session_id == sid)
+        {
+            let yes = self
+                .core
+                .confirm_action(&q.correlation_id, true, None, "cli");
+            if yes.is_err() {
+                break;
+            }
+            done = self.run_once(sid, None, answer_at.clone()).await;
+        }
+        done
+    }
+
+    async fn run_once(
         &self,
         sid: &str,
         input: Option<String>,
