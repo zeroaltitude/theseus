@@ -75,6 +75,8 @@ pub struct SelfSealedChecked<'a> {
     /// What main was when the check ran: its commit, and the commit of the build scored as main's
     /// (none when that build names no commit); none when it did not run.
     pub main: Option<(&'a str, Option<&'a str>)>,
+    /// The model main and the candidate both answered on; none when it did not run.
+    pub model: Option<&'a str>,
 }
 
 impl SelfSealedChecked<'_> {
@@ -100,6 +102,7 @@ impl Fact for SelfSealedChecked<'_> {
                "before": v.before, "after": v.after, "total": v.total,
                "cached": self.cached, "holds": v.holds, "reported": v.reported,
                "main": self.main.map(|(commit, build)| json!({"commit": commit, "build": build})),
+               "model": self.model,
                "broken": v.broken, "what": self.what(),
                "why": self.reason.map(str::to_string).or_else(|| v.holds().then(|| v.why())),
                "numbers": {"before": v.before, "after": v.after, "total": v.total,

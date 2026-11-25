@@ -80,11 +80,19 @@ impl Scorer for Canned {
     }
 }
 
+/// The example config's live profile, which the rig keeps.
+const LIVE: &str = "sonnet";
+
 fn whose(head: &str) -> Whose {
+    whose_on(head, LIVE)
+}
+
+fn whose_on(head: &str, profile: &str) -> Whose {
     Whose {
         branch: "self/tide".into(),
         head: head.into(),
         bins: PathBuf::from("/nowhere"),
+        profile: profile.into(),
     }
 }
 
@@ -289,6 +297,31 @@ async fn mains_score_is_cached_per_commit_and_set() {
     assert_eq!(canned.asked().len(), 3);
 }
 
+/// Main's score is kept for the model it answered on: the same commit and
+/// sets on a profile of another model are scored again, and a second profile
+/// of the same model reuses the first one's score.
+#[tokio::test(flavor = "current_thread")]
+async fn mains_score_is_cached_per_model() {
+    let main = vec![scores("tides", &[("fact", 1, 1), ("route", 1, 1)])];
+    let (r, canned) = rigged(main, vec![]).await;
+    assert_eq!(r.profile, LIVE);
+    let cfg = &r.core.cfg;
+    let model = |p: &str| cfg.profile(p).unwrap().model.clone();
+    assert_ne!(model(LIVE), model("opus"));
+    assert_eq!(model("fable"), model("fable52"));
+    let cached = |profile: &str| {
+        let (core, canned, w) = (r.core.clone(), canned.clone(), whose_on("mainsha", profile));
+        async move { core.sealed_main(&*canned, &w).await.unwrap().1 }
+    };
+    assert!(!cached(LIVE).await);
+    assert!(cached(LIVE).await);
+    assert!(!cached("opus").await, "another model scores main again");
+    assert!(cached("opus").await);
+    assert!(!cached("fable").await);
+    assert!(cached("fable52").await, "the same model reuses the score");
+    assert_eq!(canned.asked().len(), 3);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn off_or_halted_scores_nothing_and_spends_nothing() {
     let main = vec![scores("tides", &[("fact", 1, 1)])];
@@ -472,7 +505,8 @@ async fn no_item_text_in_any_row() {
         &r.core
             .store
             .get_meta::<Value>(&format!(
-                "self.sealed.main.mainsha.{}",
+                "self.sealed.main.mainsha.{}.{}",
+                r.model,
                 r.core.sealed_digest().await.unwrap()
             ))
             .unwrap(),

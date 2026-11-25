@@ -10,8 +10,9 @@
 //! and never held on: n is noise. The verdict carries counts, family names
 //! and the opaque ids of the items that newly fail, never an item.
 //!
-//! **Main's score** is cached, one for each (main commit, set digest), in
-//! META (`Core::sealed_main`), and the first one after switch-on is kept as
+//! **Main's score** is cached, one for each (main commit, model, set digest),
+//! in META (`Core::sealed_main`); both sides of a check are scored on one
+//! profile ([`Whose::profile`]), and the first one after switch-on is kept as
 //! the baseline the weekly drift check compares the installed main to
 //! (`Core::sealed_drift`).
 //!
@@ -225,12 +226,14 @@ pub fn judge(main: &[Scores], candidate: &[Scores]) -> Verdict {
 }
 
 /// Whose build is scored: the line its spend is booked on, the commit its
-/// row names, and the directory holding its `theseusd` and `theseus`.
+/// row names, the directory holding its `theseusd` and `theseus`, and the
+/// profile it answers on (the same for main and the candidate of one check).
 #[derive(Debug, Clone)]
 pub struct Whose {
     pub branch: String,
     pub head: String,
     pub bins: PathBuf,
+    pub profile: String,
 }
 
 pub type Fut<'a> = Pin<Box<dyn Future<Output = Result<Vec<Scores>>> + Send + 'a>>;

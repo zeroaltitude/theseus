@@ -9,8 +9,9 @@
 //! try's main commit: when it is another (main moved past the install, or the
 //! install has not finished), nothing is scored and the join stops before
 //! main's gate, to be tried again (`main_build_clear`). Main's score is cached
-//! for the try's main commit and the sets' digest. The row names main's commit
-//! and the commit of the build scored as main's. The row (`self.sealed.checked`) is
+//! for the try's main commit, the model and the sets' digest, and both sides
+//! are scored on one profile, read once. The row names main's commit, the
+//! commit of the build scored as main's, and the model. The row (`self.sealed.checked`) is
 //! checked against the sets' own strings before it is written, as the
 //! scorer's output is.
 //!
@@ -112,16 +113,21 @@ impl Run<'_> {
         }
         let scorer = self.seams.sealed.clone();
         let branch = self.b.branch.clone();
+        // One profile, read once, for both sides: main and the candidate answer on the same model.
+        let profile = core.live_profile().0;
+        let model = core.cfg.profile(&profile)?.model.clone();
         let main = Whose {
             branch: branch.clone(),
             head: m.base.clone(),
             bins: installed_bins()?,
+            profile: profile.clone(),
         };
         let (before, cached) = core.sealed_main(&*scorer, &main).await?;
         let candidate = Whose {
             branch,
             head: self.b.head.clone(),
             bins: m.t.target.join("debug"),
+            profile,
         };
         let after = scorer.score(&core, &candidate).await?;
         let verdict = hold::judge(&before, &after);
@@ -135,6 +141,7 @@ impl Run<'_> {
             verdict: &verdict,
             cached,
             main: Some((&m.base, build.as_deref())),
+            model: Some(&model),
         };
         if !sealed.allows(&fact.row().to_string())? {
             bail!("its numbers held a string of a sealed set, so the filter withheld them");
@@ -158,6 +165,7 @@ impl Run<'_> {
             verdict: &verdict,
             cached: false,
             main: None,
+            model: None,
         });
         Ok(true)
     }

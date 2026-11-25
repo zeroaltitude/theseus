@@ -336,4 +336,7 @@ async fn the_checked_row_names_mains_commit_and_build() {
         json!({"commit": s.main, "build": s.main}),
         "{checked}"
     );
+    let live = s.r.core.live_profile().0;
+    let model = s.r.core.cfg.profile(&live).unwrap().model.clone();
+    assert_eq!(checked["model"], json!(model), "{checked}");
 }

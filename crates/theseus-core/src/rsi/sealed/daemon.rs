@@ -21,9 +21,9 @@ const BASELINE: &str = "self.sealed.baseline";
 const DRIFT_AT: &str = "self.sealed.drift.at";
 const DAY_MS: u64 = 86_400_000;
 
-/// The cache's key: one score for each (main commit, set digest).
-fn main_key(commit: &str, digest: &str) -> String {
-    format!("self.sealed.main.{commit}.{digest}")
+/// The cache's key: one score for each (main commit, model, set digest).
+fn main_key(commit: &str, model: &str, digest: &str) -> String {
+    format!("self.sealed.main.{commit}.{model}.{digest}")
 }
 
 /// Why sealed scoring may not run now; none when it may.
@@ -116,7 +116,7 @@ impl Core {
         .await?
     }
 
-    /// Every sealed set that holds an item, scored for `whose` on the live
+    /// Every sealed set that holds an item, scored for `whose` on its
     /// profile (theseus-pw1q.21.7): one `self.sealed.scored` row each, spent
     /// only through the relay on `whose.branch`'s line. Asks `rsi::gate` first.
     pub async fn sealed_score(self: &Arc<Self>, whose: &Whose) -> Result<Vec<Scores>> {
@@ -131,7 +131,7 @@ impl Core {
             let candidate = Candidate {
                 branch: whose.branch.clone(),
                 bins: whose.bins.clone(),
-                profile: self.live_profile().0,
+                profile: whose.profile.clone(),
             };
             out.push(
                 self.sealed_score_branch(&set, candidate, &whose.head)
@@ -150,8 +150,9 @@ impl Core {
     }
 
     /// Main's score for `whose` (its `head` is main's commit): from the cache
-    /// when this commit and these sets were scored, else scored and kept. The
-    /// first score ever kept is the drift check's baseline. Whether it was
+    /// when this commit, on its profile's model, and these sets were scored,
+    /// else scored and kept. The first score ever kept is the drift check's
+    /// baseline. Whether it was
     /// cached comes with it. Reads and writes nothing while self-improvement
     /// is off or halted.
     pub async fn sealed_main(
@@ -162,8 +163,9 @@ impl Core {
         if let Some(why) = refused(self) {
             bail!("sealed scoring does not run: {why}");
         }
+        let model = self.cfg.profile(&whose.profile)?.model.clone();
         let digest = self.sealed_digest().await?;
-        let key = main_key(&whose.head, &digest);
+        let key = main_key(&whose.head, &model, &digest);
         if let Some(kept) = self.store.get_meta::<Kept>(&key)? {
             return Ok((kept.scores, true));
         }
@@ -207,6 +209,7 @@ impl Core {
             branch: "sealed.drift".into(),
             head: "installed".into(),
             bins,
+            profile: self.live_profile().0,
         };
         let digest = self.sealed_digest().await?;
         let scores = scorer.score(self, &whose).await?;
