@@ -245,22 +245,27 @@ impl Fold {
         out
     }
 
-    /// The message as it shows now: `head` closed, or the page it is open at.
+    /// The message as it shows now: `head` closed, or the page it is open
+    /// at. Open with no line left to show (its place has hidden what it
+    /// held), it shows closed.
     fn render(&self, turn: &str, head: &str) -> Option<(String, FoldButtons)> {
         let menu = self.menu();
         // A turn whose calls the renderer does not count (none here) still
         // says it holds steps: its lines are never left unwritten.
         let head = if head.is_empty() { "-# steps" } else { head };
-        let Some(page) = self.page else {
-            return (!self.loops.is_empty()).then(|| {
+        let closed = || {
+            (!self.loops.is_empty()).then(|| {
                 let b = FoldButtons {
                     turn: turn.to_string(),
                     page: None,
                     pages: 1,
-                    menu,
+                    menu: menu.clone(),
                 };
                 (head.to_string(), b)
-            });
+            })
+        };
+        let Some(page) = self.page else {
+            return closed();
         };
         let lines = self.lines();
         let pages = paginate(&lines);
@@ -280,7 +285,7 @@ impl Fold {
             ));
         }
         if content.trim().is_empty() {
-            return None;
+            return closed();
         }
         let b = FoldButtons {
             turn: turn.to_string(),
@@ -324,7 +329,7 @@ fn paginate(lines: &[&str]) -> Vec<std::ops::Range<usize>> {
 }
 
 /// `<turn>:L<loop>:tools` as its turn and loop.
-fn loop_of(key: &str) -> Option<(&str, u32)> {
+pub(crate) fn loop_of(key: &str) -> Option<(&str, u32)> {
     let (turn, li) = key.strip_suffix(TOOLS)?.rsplit_once(":L")?;
     Some((turn, li.parse().ok()?))
 }
@@ -404,6 +409,7 @@ impl Folds {
     fn write(&mut self, turn: &str, head: &str) -> Option<Op> {
         let f = self.fold_mut(turn);
         let shown = f.render(turn, head)?;
+        f.page = shown.1.page;
         if f.shown.as_ref() == Some(&shown) {
             return None;
         }
@@ -449,10 +455,62 @@ impl Folds {
             }
         }
         let f = self.fold_mut(turn);
+        let was = f.page;
         f.page = page;
-        let shown = f.render(turn, head)?;
+        let Some(shown) = f.render(turn, head) else {
+            f.page = was;
+            return None;
+        };
+        f.page = shown.1.page;
         f.shown = Some(shown.clone());
         Some((shown.0, Buttons::Fold(shown.1)))
+    }
+
+    /// The turns this place holds a fold of.
+    pub(crate) fn turns(&self) -> Vec<String> {
+        self.turns.iter().map(|(t, _)| t.clone()).collect()
+    }
+
+    /// The loops `turn`'s fold took, in order.
+    pub(crate) fn loops(&self, turn: &str) -> Vec<u32> {
+        self.turns
+            .iter()
+            .find(|(t, _)| t == turn)
+            .map(|(_, f)| f.loops.keys().copied().collect())
+            .unwrap_or_default()
+    }
+
+    /// `turn`'s fold made again from `ops`, its loops' process messages as
+    /// the place shows them now (`View::set`): each loop it took takes its
+    /// message and its choices from them, and none it did not take is
+    /// added. What it shows now, when that changed.
+    pub(crate) fn remake(&mut self, turn: &str, ops: Vec<Op>, head: &str) -> Option<Op> {
+        let f = self.fold_mut(turn);
+        for op in ops {
+            let Op::Upsert {
+                key,
+                content,
+                buttons,
+            } = op
+            else {
+                continue;
+            };
+            let Some((_, li)) = loop_of(&key) else {
+                continue;
+            };
+            if let Some(c) = f.loops.get_mut(&li) {
+                *c = content;
+                match buttons {
+                    Buttons::ShouldHaveAsked(menu) => {
+                        f.menus.insert(li, menu);
+                    }
+                    _ => {
+                        f.menus.remove(&li);
+                    }
+                }
+            }
+        }
+        self.write(turn, head)
     }
 }
 

@@ -28,6 +28,15 @@ pub(crate) struct View {
     folds: Folds,
 }
 
+/// Why a press on a fold shows nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unshown {
+    /// The place shows neither its tool lines nor its thinking now.
+    Hidden,
+    /// The turn cannot be read back.
+    TooOld,
+}
+
 /// A place's words, as its binding gives them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Show {
@@ -89,11 +98,66 @@ impl View {
         }
     }
 
-    /// The bindings file changed the place's words (theseus-ocwt).
-    pub(crate) fn set(&mut self, s: Show) {
+    /// The bindings file changed the place's words (theseus-ocwt). When
+    /// what it shows changed, each fold it holds is made again from both
+    /// halves under the new words, and what changed of it is returned to be
+    /// written: a fold never shows what its place is set not to show now,
+    /// open or closed, though it was made when the place showed it (issue
+    /// 56). A fold made under `steps = "folded"` stays a fold for its message
+    /// when the place says `open`; nothing new is folded then (`out`).
+    pub(crate) fn set(&mut self, s: Show, r: &Renderer) -> Vec<Op> {
+        let changed = (s.tools, s.thinking) != (self.tools, self.thinking);
         self.tools = s.tools;
         self.thinking = s.thinking;
         self.steps = s.steps;
+        if !changed {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for turn in self.folds.turns() {
+            let loops = self.folds.loops(&turn);
+            let ops = self.messages(&turn, &loops, r);
+            let head = self.head(&turn, r);
+            out.extend(self.folds.remake(&turn, ops, &head));
+        }
+        out
+    }
+
+    /// Turn `turn`'s process messages for `loops`, as the place shows them
+    /// now: each loop's thinking (the place's own) over its tool lines (the
+    /// renderer's), each half only under its word, and the loop's choices
+    /// only with its tools.
+    fn messages(&self, turn: &str, loops: &[u32], r: &Renderer) -> Vec<Op> {
+        let s = self.shown();
+        let mut tools: std::collections::BTreeMap<String, (String, Buttons)> = r
+            .tool_messages(turn)
+            .into_iter()
+            .filter_map(|op| match op {
+                Op::Upsert {
+                    key,
+                    content,
+                    buttons,
+                } => Some((key, (content, buttons))),
+                _ => None,
+            })
+            .collect();
+        loops
+            .iter()
+            .map(|li| {
+                let key = format!("{turn}:L{li}:tools");
+                let (raw, menu) = tools.remove(&key).unwrap_or((String::new(), Buttons::Keep));
+                Op::Upsert {
+                    content: self.process.compose(turn, *li, &raw, s),
+                    buttons: if s.tools { menu } else { Buttons::Keep },
+                    key,
+                }
+            })
+            .collect()
+    }
+
+    /// Turn `turn`'s closed line, as the place shows it now.
+    fn head(&self, turn: &str, r: &Renderer) -> String {
+        fold::line(r.tally(turn).as_ref(), self.process.thought(turn), self.shown())
     }
 
     fn shown(&self) -> Shown {
@@ -148,25 +212,35 @@ impl View {
 
     /// A press on turn `turn`'s fold: open at `page`, or closed. Its lines
     /// are the place's own, or, when it holds no fold for the turn (a
-    /// restart), the renderer's for it, as the place would show them. None
-    /// when the renderer holds no such turn.
+    /// restart), the renderer's for it, as the place shows them now. Nothing
+    /// changes when the place shows neither half, or the renderer holds no
+    /// such turn.
     pub(crate) fn press(
         &mut self,
         turn: &str,
         page: Option<usize>,
         r: &Renderer,
-    ) -> Option<(String, Buttons)> {
-        if !r.knows(turn) {
-            return None;
+    ) -> Result<(String, Buttons), Unshown> {
+        if !self.tools && !self.thinking {
+            return Err(Unshown::Hidden);
         }
-        let s = self.shown();
+        if !r.knows(turn) {
+            return Err(Unshown::TooOld);
+        }
         let seed = if self.folds.holds(turn) {
             Vec::new()
         } else {
-            self.process.fold_ops(r.tool_messages(turn), s)
+            let loops: Vec<u32> = r
+                .tool_messages(turn)
+                .iter()
+                .filter_map(|op| op.key().and_then(fold::loop_of).map(|(_, li)| li))
+                .collect();
+            self.messages(turn, &loops, r)
         };
-        let head = fold::line(r.tally(turn).as_ref(), self.process.thought(turn), s);
-        self.folds.press(turn, page, &head, || seed)
+        let head = self.head(turn, r);
+        self.folds
+            .press(turn, page, &head, || seed)
+            .ok_or(Unshown::TooOld)
     }
 }
 
@@ -282,7 +356,7 @@ mod tests {
         assert!(v.on_event(&started).is_empty());
         assert!(v.on_event(&think("Tides.")).is_empty());
         assert!(v.tick().is_empty());
-        v.set(Show::default());
+        assert!(v.set(Show::default(), &Renderer::new(false)).is_empty());
         assert!(v.on_event(&think(" Low at six.")).is_empty());
         let ops = v.tick();
         assert_eq!(ops.len(), 1, "{ops:?}");
