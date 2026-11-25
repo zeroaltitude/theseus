@@ -211,24 +211,26 @@ async fn a_new_topic_at_the_act_band_is_minted_in_the_judgments_frame_with_its_f
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_confirm_band_answer_is_filed_and_told_with_its_undo() {
     let jev = FakeJev::start().unwrap();
-    jev.script_onto("topic", "c1", 0.7);
+    // The session's own category comes first, so the ledger is c2.
+    jev.script_onto("topic", "c2", 0.7);
     let r = rig(jev);
+    let sid = bound(&r.core);
     operator_writes(
         &r.core,
-        vec![Record::Category(Category::new(
-            id("topic:ledger"),
-            "Ledger",
-            "ada",
-        ))],
+        vec![
+            Record::Category(Category::new(id("topic:web"), "web", "ada")),
+            Record::Category(Category::new(id("topic:ledger"), "Ledger", "ada")),
+            held(&sid, &["topic:web"]),
+        ],
     );
-    let sid = bound(&r.core);
     let was = list_bytes(&r.core, &sid);
     said(&r, &sid, SAID).await;
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
     let list = o.member_list(&sid, "topic").expect("the session is filed");
-    let [m] = list.members.as_slice() else {
+    let [web, m] = list.members.as_slice() else {
         panic!("{list:?}")
     };
+    assert_eq!(web.category, id("topic:web"), "the operator's entry stands");
     assert_eq!(m.category, id("topic:ledger"));
     assert_eq!((m.origin, m.confidence), (Origin::Jev, Some(0.7)));
     assert_eq!(reply(&r.core)["result"]["filed"], "filed: topic › Ledger");

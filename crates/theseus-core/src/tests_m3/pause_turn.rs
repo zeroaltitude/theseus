@@ -14,7 +14,8 @@ use super::*;
 
 /// A rig whose model calls `self.pause` once with `action` in a fresh conversation (the owner's
 /// alone: no binding, a private place), paused before it when `paused_before`; `approve` sets the
-/// tool's own posture to "approve".
+/// tool's own posture to "approve", and without it the tool inherits the shipped template's
+/// `enforcement = "notify"`.
 fn pause_rig(action: &str, paused_before: bool, approve: bool) -> Rig {
     let r = rig_with(
         vec![
@@ -34,6 +35,9 @@ fn pause_rig(action: &str, paused_before: bool, approve: bool) -> Rig {
                 cfg.policy
                     .tools
                     .insert("self.pause".into(), Posture::Approve);
+            } else {
+                // The template's own enforcement: this rig's is "approve", to test the gate's stops.
+                cfg.policy.enforcement = Posture::Notify;
             }
         },
     );

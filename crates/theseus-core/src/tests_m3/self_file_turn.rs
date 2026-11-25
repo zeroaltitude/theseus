@@ -14,7 +14,8 @@ use super::*;
 use crate::approval::Answerer;
 
 /// A rig whose model calls `self.file` once in a fresh conversation (the owner's alone: no
-/// binding, a private place); `approve` sets the tool's own posture to "approve".
+/// binding, a private place); `approve` sets the tool's own posture to "approve", and without it
+/// the tool inherits the shipped template's `enforcement = "notify"`.
 fn filing_rig(approve: bool) -> Rig {
     rig_with(
         vec![
@@ -37,6 +38,9 @@ fn filing_rig(approve: bool) -> Rig {
                 cfg.policy
                     .tools
                     .insert("self.file".into(), Posture::Approve);
+            } else {
+                // The template's own enforcement: this rig's is "approve", to test the gate's stops.
+                cfg.policy.enforcement = Posture::Notify;
             }
         },
     )
