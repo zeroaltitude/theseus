@@ -406,8 +406,10 @@ fn a_capped_quote_that_ends_inside_a_value_is_never_stored_by_reference() {
         }
     }
     assert!(checked > 2_000, "{checked}");
-    // The cap keeps this rule by itself now: the lines a value runs over stay one quote, and a cut beside them falls
-    // at its edge (issue 52). The check still decides, and refuses a quote that ends inside a value
+    // Over these cases (each encoding of `VALUES`, the two written over lines among them, in fields of every form),
+    // the cap keeps this rule by itself: the lines a value runs over stay one quote, and a cut beside them falls at
+    // its edge (issue 52). That is what was tried, not every field: where the cap does split a value, the check
+    // refuses the quote and the runtime stores the words
     // (`tests_oracle::a_range_is_stored_only_when_neither_edge_is_inside_an_encoded_value`).
     assert_eq!(
         refused, 0,

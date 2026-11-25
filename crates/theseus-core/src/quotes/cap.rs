@@ -425,11 +425,11 @@ fn margined(q: &Quote, field: &str, k: Range<usize>, cuts: &Cuts) -> Vec<Part> {
 /// empty line does not: `str::lines` drops it), else each as its margin, its words as `Line1`, and the breaks; but
 /// the lines a known value runs over, by `cuts`, stay one `Margin1` quote when that shows them so.
 fn whole_lines(q: &Quote, field: &str, shown: &str, lines: &[Line], cuts: &Cuts) -> Vec<Part> {
-    if let Some(one) = one_quote(q, field, shown, lines) {
-        return vec![Part::Quote(one)];
-    }
     // Only a value that holds a line break runs across one: where the first begins, read once on the whole field.
     let over = cuts.unchanged(field, |c| matches!(c, '\n' | '\r'));
+    if let Some(one) = one_quote(q, field, shown, lines, (cuts, over), false) {
+        return vec![Part::Quote(one)];
+    }
     let joined = |e: usize| {
         over < q.from as usize + lines[e + 1].src.start
             && across(q, field, &lines[e], &lines[e + 1], cuts, Side::Head).is_some()
@@ -444,7 +444,7 @@ fn whole_lines(q: &Quote, field: &str, shown: &str, lines: &[Line], cuts: &Cuts)
         if i > 0 {
             out.push(Part::Code("\n".into()));
         }
-        match (e > i).then(|| one_quote(q, field, shown, &lines[i..=e])) {
+        match (e > i).then(|| one_quote(q, field, shown, &lines[i..=e], (cuts, over), true)) {
             Some(Some(one)) => out.push(Part::Quote(one)),
             _ => {
                 for (n, l) in lines[i..=e].iter().enumerate() {
@@ -461,14 +461,38 @@ fn whole_lines(q: &Quote, field: &str, shown: &str, lines: &[Line], cuts: &Cuts)
     out
 }
 
-/// `lines`, whole and in a row, as one `Margin1` quote of `q`'s field, when that shows exactly their rendering.
-fn one_quote(q: &Quote, field: &str, shown: &str, lines: &[Line]) -> Option<Quote> {
+/// `lines`, whole and in a row, as one `Margin1` quote of `q`'s field, when that shows exactly their rendering and
+/// does not end inside a known value that holds a line break (by `cuts`, the first of them beginning at `over`).
+/// It ends at the last line's end; or, when that end is inside such a value or `joined` (the lines a value runs
+/// over, which may end in an empty line), past the line break after it, which `str::lines` drops, so the quote
+/// shows the same: the end of a value that ends in its line break, or of the empty line after it.
+fn one_quote(
+    q: &Quote,
+    field: &str,
+    shown: &str,
+    lines: &[Line],
+    (cuts, over): (&Cuts, usize),
+    joined: bool,
+) -> Option<Quote> {
     let (first, last) = (&lines[0], &lines[lines.len() - 1]);
     let bytes = &field[q.from as usize..q.to as usize];
-    let one = sub(q, first.src.start..last.src.end, Form::Margin1);
-    (Form::Margin1.apply(&bytes[first.src.start..last.src.end])
-        == shown[first.start..last.words.end])
-        .then_some(one)
+    let shows = |end: usize| {
+        Form::Margin1.apply(&bytes[first.src.start..end]) == shown[first.start..last.words.end]
+    };
+    let inside = |end: usize| {
+        let p = q.from as usize + end;
+        over < p && cuts.before(field, p) != p
+    };
+    let end = last.src.end;
+    if shows(end) && !inside(end) {
+        return Some(sub(q, first.src.start..end, Form::Margin1));
+    }
+    let rest = &bytes[end..];
+    let brk = [("\r\n", 2), ("\n", 1)]
+        .into_iter()
+        .find(|(b, _)| rest.starts_with(b));
+    let end = end + brk.filter(|_| joined || inside(end))?.1;
+    (shows(end) && !inside(end)).then(|| sub(q, first.src.start..end, Form::Margin1))
 }
 
 /// `r` within `k`; empty when they do not meet.

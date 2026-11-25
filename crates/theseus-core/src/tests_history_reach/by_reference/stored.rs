@@ -57,7 +57,12 @@ async fn as_parts(r: &Rig, reader: &str, copy: &str, kept: &str, value: &str) {
     );
     let record = serde_json::to_string(&parts).unwrap();
     for line in value.lines() {
-        assert!(no_part_of(&record, line), "{line:?} is stored: {record}");
+        // `no_part_of` allows a whole occurrence by design; neither is stored here.
+        assert!(!record.contains(line), "{line:?} is stored: {record}");
+        assert!(
+            no_part_of(&record, line),
+            "part of {line:?} is stored: {record}"
+        );
     }
     assert_eq!(render_with(&parts, read), kept);
     for line in value.lines() {

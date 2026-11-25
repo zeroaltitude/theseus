@@ -8,6 +8,9 @@ use crate::quotes::{cut_through, edges_hold_with};
 /// A value written over two lines, as a key file's is; and the same with a carriage return before its line break.
 const KEY: &str = "kelp-ferry-0417-north\nvault-token-9932-south";
 const KEY_CR: &str = "kelp-ferry-0417-north\r\nvault-token-9932-south";
+/// The key ending in its line break, as a key file's last line does; and the same with carriage returns.
+const KEY_LF: &str = "kelp-ferry-0417-north\nvault-token-9932-south\n";
+const KEY_CRLF: &str = "kelp-ferry-0417-north\r\nvault-token-9932-south\r\n";
 
 /// An open's code line, then its message: a note, `key` over its lines, an empty line and one long line, each line
 /// ending in `brk`. A head cut in the long line keeps the lines before it whole, and their run ends in the empty
@@ -108,21 +111,24 @@ fn a_cut_over_a_margined_field_with_carriage_returns_never_ends_inside_a_value_o
 }
 
 /// Every cut of an open's `Margin1` quote holding a value written over lines (the key, with and without a carriage
-/// return, and the wrapped and the folded encodings of each value), among lines of words, empty lines and long
+/// return, ending in its line break or not, and the wrapped and the folded encodings of each value), among lines of
+/// words, empty lines and long
 /// lines: no quote it keeps begins or ends inside the value, so the check never refuses it; and it shows the cap of
 /// the text, or that cut shorter at the value's edge.
 #[test]
 fn every_cut_of_a_margined_quote_keeps_a_value_over_lines_whole_or_not_at_all() {
     let mut draw = Draw::new(0xbb67_ae85_84ca_a73b);
     let (mut checked, mut shorter) = (0, 0);
-    for round in 0..48 {
-        let (value, brk) = match round % 4 {
+    for round in 0..72 {
+        let (value, brk) = match round % 6 {
             0 => (KEY, "\n"),
             1 => (KEY_CR, "\r\n"),
+            4 => (KEY_LF, "\n"),
+            5 => (KEY_CRLF, "\r\n"),
             r => (VALUES[r % 2], "\n"),
         };
-        let shapes: Vec<(usize, String)> = match round % 4 {
-            0 | 1 => vec![(0, value.to_string())],
+        let shapes: Vec<(usize, String)> = match round % 6 {
+            0 | 1 | 4 | 5 => vec![(0, value.to_string())],
             _ => {
                 let e = encodings(value);
                 vec![(2, e[2].clone()), (5, e[5].clone())]
@@ -184,4 +190,88 @@ fn every_cut_of_a_margined_quote_keeps_a_value_over_lines_whole_or_not_at_all() 
         shorter > 0,
         "no cut fell at a value's edge: the sweep tried nothing"
     );
+}
+
+/// The quotes of `parts` that hold `value` (at `at` in its field) whole.
+fn holding(parts: &[Part], at: &Range<usize>) -> usize {
+    (parts.iter())
+        .filter(|p| matches!(p, Part::Quote(q) if q.from as usize <= at.start && at.end <= q.to as usize))
+        .count()
+}
+
+/// A value that ends in its line break (with and without a carriage return), in an open's `Margin1` quote: followed
+/// by an empty line and a long line, by the long line, or ending the field. A head and a tail cut at each place of
+/// the rendering (at the value's two ends among them), each moved as the cap moves it ([`guarded`]): the parts show
+/// exactly that head or tail, no more than the cut asked, and no quote of them begins or ends inside the value,
+/// which is whole in one quote wherever it is shown whole. `str::lines` drops the break a run of lines ends in, so a
+/// quote that ended at its last line's end would end inside the value.
+#[test]
+fn a_cut_anywhere_through_a_value_ending_in_a_line_break_keeps_it_whole_or_not_at_all() {
+    let mut ends = 0;
+    for (key, brk) in [(KEY_LF, "\n"), (KEY_CRLF, "\r\n")] {
+        let cuts = knowing(&[key]).cuts();
+        let long = "the tide table ".repeat(8);
+        for after in [format!("{brk}{long}"), long.clone(), String::new()] {
+            let f = format!("the keeper's note{brk}{key}{after}");
+            let at = f.find(key).unwrap()..f.find(key).unwrap() + key.len();
+            let mut fields = Fields(HashMap::new());
+            let parts = vec![
+                Part::Code("[exchange 1]\n".into()),
+                fields.quote(f.clone(), 0..f.len(), Form::Margin1),
+            ];
+            let mut read = fields.read();
+            let laid: Vec<Laid> = parts.into_iter().map(|p| lay(p, &mut read)).collect();
+            let text: String = laid.iter().map(Laid::text).collect();
+            let (start, south) = (
+                text.find("kelp").unwrap(),
+                text.find("south").unwrap() + "south".len(),
+            );
+            for x in (0..=text.len()).filter(|x| text.is_char_boundary(*x)) {
+                ends += usize::from(x == start || x == south || x == south + 1);
+                let h = guarded(&laid, head_end(&text, x), &cuts, Side::Head).unwrap_or(x);
+                let t = guarded(&laid, x, &cuts, Side::Tail).unwrap_or(x);
+                let head = 0..head_end(&text, h);
+                assert!(head.end <= head_end(&text, x), "x {x}");
+                assert!(t >= x, "x {x}");
+                for k in [head, t..text.len()] {
+                    let got = tidy(kept(&laid, k.clone(), &cuts));
+                    let case = format!("{key:?} then {after:?}, x {x}, kept {k:?}: {got:#?}");
+                    assert_eq!(fields.render(&got), text[k.clone()], "{case}");
+                    let through = cut_through(&got, fields.read(), &[key]);
+                    assert!(through.is_empty(), "a quote cuts the key: {case}");
+                    assert!(edges_hold_with(&got, fields.read(), &cuts), "{case}");
+                    if k.start <= start && south <= k.end {
+                        assert_eq!(holding(&got, &at), 1, "the key is not whole: {case}");
+                    }
+                }
+            }
+        }
+    }
+    // Each of the value's two ends, and past its line break where the field goes on, for both keys.
+    assert_eq!(ends, 2 * (3 + 3 + 2));
+}
+
+/// The cap of the look's shape with the key ending in its line break: its lines, its break and the empty line after
+/// it stay one `Margin1` quote that holds the key whole, the check holds, and the parts show the cap of the text.
+#[test]
+fn a_head_cut_past_a_value_ending_in_a_line_break_keeps_it_in_one_quote() {
+    for (key, brk) in [(KEY_LF, "\n"), (KEY_CRLF, "\r\n")] {
+        let cuts = knowing(&[key]).cuts();
+        let mut fields = Fields(HashMap::new());
+        let parts = keyed(&mut fields, key, brk);
+        let text = fields.render(&parts);
+        let (capped, cut) = cap_with(parts, fields.read(), 300, rest, &cuts);
+        assert!(cut);
+        let through = cut_through(&capped, fields.read(), &[key]);
+        assert!(through.is_empty(), "a quote cuts the key: {through:#?}");
+        assert!(
+            edges_hold_with(&capped, fields.read(), &cuts),
+            "{capped:#?}"
+        );
+        let f = &fields.0["msg_0"];
+        let at = f.find(key).unwrap()..f.find(key).unwrap() + key.len();
+        assert_eq!(holding(&capped, &at), 1, "{capped:#?}");
+        let (want, _) = toolrun::cap(&text, 300, rest, &cuts);
+        assert_eq!(fields.render(&capped), want);
+    }
 }
