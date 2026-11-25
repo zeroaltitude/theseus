@@ -22,7 +22,7 @@ pub const LOOKS_PER_TURN: u32 = 5;
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HistoryArgs {
-    /// Another place, any of the owner's; absent: here.
+    /// Another place, any of the owner's; `"*"`: every place, newest first; absent: here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<String>,
     /// A label's timeline: a topic or a thing by its id (`topic:…`, `file:…`), or one of Jev's four content
