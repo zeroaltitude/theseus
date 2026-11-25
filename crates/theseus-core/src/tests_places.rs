@@ -597,8 +597,14 @@ async fn in_the_owners_dm_a_metadata_address_a_name_and_his_own_line_still_ask()
         ("http://[fe80::1]/x", "[fe80::1] is a link-local address"),
         ("http://localhost:7455/notes", "localhost is this machine"),
         // A literal with credentials in it: the client would send them.
-        ("http://user:pw@127.0.0.1/", "127.0.0.1 is a loopback address"),
-        ("http://user@192.168.1.1/", "192.168.1.1 is a private address"),
+        (
+            "http://user:pw@127.0.0.1/",
+            "127.0.0.1 is a loopback address",
+        ),
+        (
+            "http://user@192.168.1.1/",
+            "192.168.1.1 is a private address",
+        ),
     ] {
         let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
         turn(&r.core, &sid, &format!("FETCH {url}")).await;

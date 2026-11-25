@@ -286,8 +286,14 @@ mod tests {
         }
         // Credentials before the host: a loopback or LAN literal, but not told.
         for (url, why) in [
-            ("http://user:pw@127.0.0.1/", "127.0.0.1 is a loopback address"),
-            ("http://user@192.168.1.1/", "192.168.1.1 is a private address"),
+            (
+                "http://user:pw@127.0.0.1/",
+                "127.0.0.1 is a loopback address",
+            ),
+            (
+                "http://user@192.168.1.1/",
+                "192.168.1.1 is a private address",
+            ),
             ("http://:pw@10.0.0.1/", "10.0.0.1 is a private address"),
         ] {
             assert_eq!(told_url(url), None, "{url}");

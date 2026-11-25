@@ -689,8 +689,14 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
     // it still wait.
     for (url, why) in [
         ("http://localhost/", "localhost is this machine"),
-        ("http://user:pw@127.0.0.1/", "127.0.0.1 is a loopback address"),
-        ("http://user@192.168.1.1/", "192.168.1.1 is a private address"),
+        (
+            "http://user:pw@127.0.0.1/",
+            "127.0.0.1 is a loopback address",
+        ),
+        (
+            "http://user@192.168.1.1/",
+            "192.168.1.1 is a private address",
+        ),
         (
             "http://169.254.169.254/",
             "169.254.169.254 is a link-local address",
