@@ -640,15 +640,13 @@ fn offered(q: &crate::provider::ProviderRequest) -> Vec<String> {
         .collect()
 }
 
-/// The first request whose first message begins as `words` do.
+/// The first request whose newest user message says `words`: the first request of the turn that
+/// input opens. Not its first message: a fixer reads at the widest, so its place's earlier
+/// exchanges come first.
 fn request_of(r: &Rig, words: &str) -> crate::provider::ProviderRequest {
     r.requests()
         .into_iter()
-        .find(|q| {
-            q.messages
-                .first()
-                .is_some_and(|m| m.to_string().contains(words))
-        })
+        .find(|q| crate::tests_places::last_user(q).contains(words))
         .unwrap_or_else(|| panic!("no request says {words:?}"))
 }
 
@@ -676,8 +674,8 @@ impl super::Fixer for Proposing {
 
 /// Review round 1, B1: the fixer's own turn calls `self.propose_change` for the item whose tree
 /// it was lent. It is not offered the verb (nor any self verb: only its tree's file and command
-/// tools), its call is refused, and no green branch exists that a session other than the
-/// builder's built.
+/// tools, and the history tool, which acts on nothing), its call is refused, and no green branch
+/// exists that a session other than the builder's built.
 #[tokio::test]
 async fn a_fixer_turn_that_calls_propose_change_builds_no_branch() {
     let r = rig(|_| {});
@@ -696,7 +694,7 @@ async fn a_fixer_turn_that_calls_propose_change_builds_no_branch() {
     for n in &tools {
         let family = n.split('_').next().unwrap_or(n);
         assert!(
-            ["fs", "proc", "git", "job", "tools"].contains(&family),
+            ["fs", "proc", "git", "job", "tools"].contains(&family) || n == "context_history",
             "a fixer is offered {n}: {tools:?}"
         );
     }
