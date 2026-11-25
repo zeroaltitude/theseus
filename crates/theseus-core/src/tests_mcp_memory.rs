@@ -196,7 +196,11 @@ async fn memory_lookup_is_no_method_now() {
     let e = rpc(&r.core, Surface::Cli, "memory.lookup", p)
         .await
         .unwrap_err();
-    assert_eq!(e.code, theseus_protocol::error_code::METHOD_NOT_FOUND, "{e:?}");
+    assert_eq!(
+        e.code,
+        theseus_protocol::error_code::METHOD_NOT_FOUND,
+        "{e:?}"
+    );
     assert!(rows(&r.core, "memory.read").is_empty());
 }
 

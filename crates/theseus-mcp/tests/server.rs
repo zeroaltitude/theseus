@@ -290,7 +290,10 @@ async fn the_old_memory_tools_are_unknown_tools() {
     let server = start(&core, |_| {}).await;
     let client = client(&server).await;
     for name in ["memory_search", "memory_get"] {
-        match client.call_tool(name, json!({"words": "ferry", "id": "nod_a"})).await {
+        match client
+            .call_tool(name, json!({"words": "ferry", "id": "nod_a"}))
+            .await
+        {
             Err(Error::Rpc { code, message, .. }) => {
                 assert_eq!(code, -32602, "{name}");
                 assert_eq!(message, format!("Unknown tool: {name}"));

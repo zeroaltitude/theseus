@@ -407,9 +407,7 @@ impl Core {
             // A wait parks on the board's feed, never holding a worker.
             method::SESSION_WAIT => reply(self.session_wait(parse(params)?, conn).await?),
             m if super::index_rebuild::OWN.contains(&m) => self.rpc_index(m, params, conn).await,
-            m @ (method::MEMORY_SEARCH | method::HISTORY_READ) => {
-                self.mem(m, params, conn).await
-            }
+            m @ (method::MEMORY_SEARCH | method::HISTORY_READ) => self.mem(m, params, conn).await,
             m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.mem_reads(m, params),
             method::MEMORY_LABEL | method::FACT_RETRACT => self.rpc_acts(&req.method, params, conn),
             // Jev's judgments (M5 23b): their rows, and one with its state.

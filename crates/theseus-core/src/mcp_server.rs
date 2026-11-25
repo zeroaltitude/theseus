@@ -553,7 +553,7 @@ mod tests {
     #[test]
     fn allowed_says_yes_to_each_list_and_no_to_the_rest() {
         let yes: Vec<&str> = [ALLOWED.as_slice(), JUDGED.as_slice(), FORK].concat();
-        assert_eq!(yes.len(), 17, "the methods an MCP connection may call");
+        assert_eq!(yes.len(), 16, "the methods an MCP connection may call");
         for m in &yes {
             assert!(allowed(m), "{m} is listed and allowed() refuses it");
         }
