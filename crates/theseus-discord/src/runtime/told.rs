@@ -4,8 +4,11 @@
 //! the press is one call as the presser, from where they pressed: `told.undo`,
 //! which the core judges (the owner, from a private place), runs the note's
 //! undo, and answers with what the note says now. The note is edited to that
-//! and loses its button; a later press is refused by the core. A child of
-//! `runtime`, apart from it for the shape budget's file ceiling.
+//! and loses its button; a later press is refused by the core, and edits a
+//! note an earlier edit missed. Every word this sends passes the exit's
+//! masking just before Discord (`exits.text`, as the lane's own writes do);
+//! the core's stored note stays as written. A child of `runtime`, apart from
+//! it for the shape budget's file ceiling.
 
 use serde_json::Value;
 use theseus_core::rpc::told::{ToldUndoParams, ToldUndoResult};
@@ -82,7 +85,12 @@ impl Shared {
         let text = match r {
             Ok(done) => {
                 self.told_edit(i, &done.text).await;
-                "↩️ Undone.".to_string()
+                match done.found {
+                    true => "↩️ Nothing left to undo: an earlier press had done it. The note \
+                             now says so."
+                        .to_string(),
+                    false => "↩️ Undone.".to_string(),
+                }
             }
             Err(e) if e.code == theseus_protocol::error_code::REFUSED => format!(
                 "🔐 Your undo did not count: {}.",
@@ -97,20 +105,36 @@ impl Shared {
                 format!("↩️ {}", e.message)
             }
             Err(e) => match e.data.get("undone_by").and_then(Value::as_str) {
-                Some(by) => format!("↩️ Already undone by {by}: nothing was done."),
-                None => format!("⚠️ The undo was not made: {}", e.message),
+                Some(by) => {
+                    if let Some(t) = e.data.get("text").and_then(Value::as_str) {
+                        self.told_edit(i, t).await;
+                    }
+                    format!("↩️ Already undone by {by}: nothing was done.")
+                }
+                // The core's words say what is done and what is not.
+                None if e.data.get("unfinished").is_some() || e.data.get("done").is_some() => {
+                    format!("⚠️ {}", e.message)
+                }
+                None if e.code == theseus_protocol::error_code::NOT_FOUND => {
+                    format!("⚠️ The undo was not made: {}", e.message)
+                }
+                None => format!(
+                    "⚠️ The undo was not confirmed: {}. Press Undo again: it never runs twice.",
+                    e.message
+                ),
             },
         };
         self.followup(i, &text).await;
     }
 
-    /// The pressed note, edited to `text` with no button.
+    /// The pressed note, edited to `text` with no button, masked at the exit.
     async fn told_edit(&self, i: &Interaction, text: &str) {
         let Some(m) = &i.message else { return };
+        let masked = self.core.exits.text(text).0;
         let edit = self
             .http
             .update_message(m.channel_id, m.id)
-            .content(Some(text))
+            .content(Some(masked.as_ref()))
             .components(Some(&[]));
         if let Err(e) = edit.await {
             self.board.error("undone note", None, e);
