@@ -564,7 +564,8 @@ fn record_held(c: &Arc<Core>, held: &crate::rsi::mine::Occurrence, t: u64) -> St
 
 /// `sid`'s answer to a history call `a`, as the tool runs it.
 async fn history(c: &Arc<Core>, sid: &str, a: Value) -> Result<String, String> {
-    let pov = crate::history_tool::pov_of(c, sid, "t_now", None, crate::places::PlaceClass::Private);
+    let pov =
+        crate::history_tool::pov_of(c, sid, "t_now", None, crate::places::PlaceClass::Private);
     let a: crate::view::history::HistoryArgs = serde_json::from_value(a).unwrap();
     let board = crate::history_tool::Board::default();
     crate::history_tool::answer(c, &board, (sid, "t_now"), &pov, &a)
@@ -599,16 +600,27 @@ async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_o
             .expect("its request");
         serde_json::to_string(&q.messages).unwrap()
     };
-    assert!(sent("ordinary").contains("HELD-BACK-HARBOR"), "the control is laid it");
-    assert!(!sent("writer").contains("HELD-BACK-HARBOR"), "the writer is not");
+    assert!(
+        sent("ordinary").contains("HELD-BACK-HARBOR"),
+        "the control is laid it"
+    );
+    assert!(
+        !sent("writer").contains("HELD-BACK-HARBOR"),
+        "the writer is not"
+    );
     // Paged, opened, found: the ordinary session reaches it, the writer does not.
     for a in [
         json!({"open": held.turn.clone()}),
         json!({"place": place.clone()}),
         json!({"place": "*"}),
     ] {
-        let wide = history(&c, &ordinary, a.clone()).await.unwrap_or_else(|e| e);
-        assert!(wide.contains("HELD-BACK-HARBOR"), "{a}: the control: {wide}");
+        let wide = history(&c, &ordinary, a.clone())
+            .await
+            .unwrap_or_else(|e| e);
+        assert!(
+            wide.contains("HELD-BACK-HARBOR"),
+            "{a}: the control: {wide}"
+        );
         let own = history(&c, &writer, a.clone()).await.unwrap_or_else(|e| e);
         assert!(!own.contains("HELD-BACK-HARBOR"), "{a}: the writer: {own}");
     }
