@@ -305,8 +305,8 @@ pub const OUTSIDE_HOLD: &str = "this conversation has read text from outside sin
      message; this ends with your next message";
 
 /// The hold's words when the session's flag holds the call, before the way to clear it.
-pub const FLAG_HOLD: &str = "Theseus's check flagged text in this conversation as trying to \
-     steer it; it asks each time until you clear the flag";
+pub const FLAG_HOLD: &str = "Theseus's check flagged text in this conversation as steering \
+     it; it asks each time until you clear the flag";
 
 /// Why a call that reads Theseus's own state is held, in the words of its cause (`what` is
 /// what the call asks to do): the session's flag, which asks every time until the owner clears
@@ -333,7 +333,7 @@ pub(crate) fn flag_way(tc: &TurnCtx<'_>) -> String {
 pub fn flag_way_in(place: Option<&str>, session_id: &str) -> String {
     match place {
         Some(p) if p.starts_with("discord:dm:") => {
-            "/trust in the DM, or Remove on its ⚑ notice".into()
+            "/trust in the DM or Remove on its ⚑ notice".into()
         }
         _ => {
             let n = session_id.chars().count();
