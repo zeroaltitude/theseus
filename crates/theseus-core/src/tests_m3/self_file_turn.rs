@@ -87,7 +87,11 @@ pub(super) fn notes(core: &Core) -> Vec<Value> {
             (b["kind"] == "notice" && b[crate::outbox::ANNOUNCE_KEY] == true)
                 || b["kind"] == crate::owner_note::told::KIND
         })
-        .filter(|b| b["text"].as_str().is_some_and(|t| t.starts_with("ℹ️ FYI · ")))
+        .filter(|b| {
+            b["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("ℹ️ FYI · "))
+        })
         .collect()
 }
 
@@ -217,7 +221,14 @@ async fn the_filings_undo_puts_the_backlog_back() {
     .await;
     assert!(theirs.error.is_some(), "{:?}", theirs.result);
     assert_eq!(open(&r.core), after, "nothing was undone");
-    let mine = press(&r.core, &note, crate::approval::Surface::Cli, "the owner", None).await;
+    let mine = press(
+        &r.core,
+        &note,
+        crate::approval::Surface::Cli,
+        "the owner",
+        None,
+    )
+    .await;
     assert!(mine.error.is_none(), "{:?}", mine.error);
     assert_eq!(open(&r.core), before, "the backlog is as it was");
 }

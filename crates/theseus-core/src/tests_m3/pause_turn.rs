@@ -143,10 +143,21 @@ async fn a_chat_unpause_runs_unasked_and_its_undo_pauses_again() {
         n.ends_with("Undo: `theseus self pause paused again from its note`"),
         "{n}"
     );
-    let mine = press(&r.core, &notes[0], crate::approval::Surface::Cli, "the owner", None).await;
+    let mine = press(
+        &r.core,
+        &notes[0],
+        crate::approval::Surface::Cli,
+        "the owner",
+        None,
+    )
+    .await;
     assert!(mine.error.is_none(), "{:?}", mine.error);
     let p = r.core.self_paused().expect("paused again");
-    assert!(p.words().contains("paused again from its note"), "{}", p.words());
+    assert!(
+        p.words().contains("paused again from its note"),
+        "{}",
+        p.words()
+    );
     // Cleared once more, someone else's press from a shared channel pauses as well: a pause is
     // anyone's, and only does less.
     r.core.self_pause_apply(true, None, "test");

@@ -230,12 +230,13 @@ fn by(core: &Core, session: &str, did: &str) -> String {
 /// the act stands.
 pub(crate) fn told(core: &Core, session: &str, title: &str, did: &str, body: &str, undo: &Undo) {
     let by = by(core, session, did);
-    let staged = crate::owner_note::told::stage(&core.outbox, Some(session), title, &by, body, undo)
-        .and_then(|(post, records)| {
-            core.store.append(&records)?;
-            core.outbox.posted(&post);
-            Ok(())
-        });
+    let staged =
+        crate::owner_note::told::stage(&core.outbox, Some(session), title, &by, body, undo)
+            .and_then(|(post, records)| {
+                core.store.append(&records)?;
+                core.outbox.posted(&post);
+                Ok(())
+            });
     if let Err(e) = staged {
         tracing::warn!(session, error = %format!("{e:#}"), "self: the owner's note was not posted");
     }
