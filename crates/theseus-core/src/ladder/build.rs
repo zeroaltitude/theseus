@@ -13,7 +13,7 @@ use super::fold::Flags;
 use super::read::{self, Step};
 use super::writer::{Ask, ModelWriter, Work, Writer};
 use super::DayPurse;
-use super::{FOLD_STEP, WINDOW_FLOOR};
+use super::FOLD_STEP;
 use crate::exchange::{self, Root};
 use crate::judge::categorize::ExchangeEnd;
 use crate::judge::JudgeService;
@@ -160,6 +160,7 @@ impl Core {
             writer: &writer,
             flags: &flags,
             purse: &purse,
+            floor: self.cfg.context.sizes().here,
         };
         let s = read::fold_step(&self.store, &ex.place, since.as_ref(), &step).await?;
         if let Some(why) = s.failed {
@@ -222,9 +223,9 @@ impl Core {
         }
         let purse = DayPurse::new(&self.store, money.cap_usd, money.over_day_line);
         b.day_left_usd = DayPurse::new(&self.store, None, false).left()?;
-        let w = l.window.len();
-        let folds = match crate::view::fold::fold_due(w) {
-            true => (w - WINDOW_FLOOR) / FOLD_STEP,
+        let (w, floor) = (l.window.len(), self.cfg.context.sizes().here);
+        let folds = match crate::view::fold::fold_due_over(w, floor) {
+            true => (w - floor) / FOLD_STEP,
             false => 0,
         };
         if dry_run {
@@ -245,6 +246,7 @@ impl Core {
             writer,
             flags: &flags,
             purse: &purse,
+            floor,
         };
         let s = read::fold_step(&self.store, place, since.as_ref(), &step).await?;
         b.spent_usd = purse.spent();

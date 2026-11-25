@@ -54,6 +54,7 @@ async fn a_fold_over_a_moved_message_is_written_by_the_model() {
         writer: &w,
         flags: &NoFlags,
         purse: &purse,
+        floor: WINDOW_FLOOR,
     };
     let out = read::fold_step(&s, PLACE, None, &step).await.unwrap();
     assert_eq!(out.made.len(), 1);

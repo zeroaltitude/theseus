@@ -243,6 +243,17 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # Omitted: the model's full window from the catalog. A turn that outgrows it clears its own
 # old tool results and makes room; one that still does not fit fails, saying so.
 # working_window_tokens = 200000
+# The sizes of what a turn looks back over, in exchanges. A value out of its range stops the
+# daemon at start, naming the setting and its range; it is never clamped. A change rewrites each
+# conversation's cached front once, at its next turn.
+# HERE: a conversation's newest exchanges kept whole (10 to 60). Older ones are summarised 20 at a
+# time; lowered, each conversation's next exchange summarises what is over it (one small-model
+# call each), and raised again, nothing is unsummarised.
+# here_exchanges = 30
+# EVERYWHERE: the newest exchanges from every other place, laid beside the message (5 to 50).
+# everywhere_exchanges = 15
+# The history tool's page (20 to 200).
+# history_page_exchanges = 100
 # Every request is built by the view (what this conversation's place may see), from the exchange
 # ledger: beside each person's message, whether it was typed by the owner in person and where it
 # arrived; each turn's exchange and what it touched (`theseus ledger exchanges`). There is nothing

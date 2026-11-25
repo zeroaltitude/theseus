@@ -254,6 +254,7 @@ fn step<'a>(w: &'a Fake, purse: &'a DayPurse<'a>) -> Step<'a> {
         writer: w,
         flags: &NoFlags,
         purse,
+        floor: WINDOW_FLOOR,
     }
 }
 
@@ -373,6 +374,7 @@ async fn a_level_of_twice_the_step_folds_into_one_above_built_by_code() {
         writer: &w,
         flags: &flags,
         purse: &purse,
+        floor: WINDOW_FLOOR,
     };
     let mut made = Vec::new();
     // Stepped at every exchange's end, as the job runs it: 40 first-level nodes, and a window of 30.

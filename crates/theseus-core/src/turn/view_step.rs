@@ -34,7 +34,7 @@ use crate::task_graph::joined::{judged_task, StoreCards};
 use crate::view::budget::{Budget, Overflow};
 use crate::view::fold::FoldNode;
 use crate::view::permit::Permit;
-use crate::view::render::{MarkedBlock, Renderer};
+use crate::view::render::MarkedBlock;
 use crate::view::select::sources::{Names, Sources, Things};
 use crate::view::select::{table, Part};
 use crate::view::sources_names::{Called, ViewAdmits};
@@ -43,6 +43,7 @@ use crate::view::sources_store::{author_of, Sessions, StoreSources};
 use crate::view::sources_waiting::StoreWaiting;
 use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
+use crate::view::text::page::memory_page_at;
 use crate::view::text::parts::{self, Seen};
 use crate::view::text::tokens;
 use crate::view::wire::OnceLadder;
@@ -273,7 +274,8 @@ impl TurnRunner {
         let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, &message);
         let renderer = self.renderer(store, &read, &marked);
         let who = self.who_am_i(spec);
-        let (frame, now) = frame_and_now(spec, (renderer.memory_page().1, &who), &message, harness);
+        let memory_page = memory_page_at(src.sizes.here).into_owned();
+        let (frame, now) = frame_and_now(spec, (&memory_page, &who), &message, harness);
         let selectors = table(src, frame, now);
         let parts = Parts {
             selectors: &selectors,
@@ -283,7 +285,6 @@ impl TurnRunner {
             since,
         };
         let block = |b: &MarkedBlock| Frozen::block(sid, turn, &b.heading, &b.text);
-        let memory_page = renderer.memory_page().1.to_string();
         let a = match assemble(&pov, &snap, &parts, budget) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
@@ -359,6 +360,7 @@ impl TurnRunner {
                 cuts: self.tools.scrubber.cuts(),
                 since: Some(said),
             },
+            sizes: self.cfg.context.sizes(),
         })
     }
 
@@ -560,11 +562,13 @@ struct Moving<'a> {
     called: Option<Called<'a>>,
     waiting: StoreWaiting<'a>,
     people: StorePeople<'a>,
+    /// The look-backs' sizes, `[context]`'s.
+    sizes: crate::config::context::Sizes,
 }
 
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
 /// the named things (none outside a core), what waits, the facts about the person, the joined task's
-/// card, and the message.
+/// card, the message, and the look-backs' sizes.
 fn sources_of<'a, 'b>(
     gate: &'a Permit,
     (store, moving): (&'a StoreSources<'b>, &'a Moving<'b>),
@@ -589,6 +593,7 @@ fn sources_of<'a, 'b>(
         recall: store,
         people: &moving.people,
         message,
+        sizes: moving.sizes,
     }
 }
 

@@ -148,4 +148,6 @@ pub struct Sources<'a> {
     pub people: &'a dyn People,
     /// The message this turn answers.
     pub message: &'a str,
+    /// The look-backs' sizes, `[context]`'s: EVERYWHERE's count is `sizes.everywhere`.
+    pub sizes: crate::config::context::Sizes,
 }

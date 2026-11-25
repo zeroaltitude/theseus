@@ -242,6 +242,9 @@ pub struct Lens<'a> {
     pub scope: Option<SelfScope>,
     /// Where a line's words may be cut.
     pub cuts: Cuts,
+    /// The exchanges a page holds (`[context] history_page_exchanges`); the read steps ([`STEP`], [`READ_MOST`])
+    /// stay as they are.
+    pub page: usize,
 }
 
 /// What a session the self loop opened reads of history (`view_gate::Verified::own_place_only`), as its view
@@ -519,7 +522,7 @@ impl Lens<'_> {
                     Some(ex) if only.as_ref().is_some_and(|p| &ex.place != p) => {}
                     Some(ex) if seen.contains(&ex.turn_id) => {}
                     Some(ex) => {
-                        if lines.len() == PAGE_EXCHANGES {
+                        if lines.len() == self.page {
                             more = true;
                             break 'walk;
                         }

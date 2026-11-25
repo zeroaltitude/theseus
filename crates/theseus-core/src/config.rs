@@ -13,7 +13,7 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
-mod context;
+pub(crate) mod context;
 mod google;
 pub(crate) mod google_calendars;
 pub use context::ContextConfig;

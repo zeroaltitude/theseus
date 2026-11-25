@@ -140,6 +140,7 @@ async fn gists_shows_a_level_one_node_with_its_exchanges() {
         writer: &w,
         flags: &NoFlags,
         purse: &purse,
+        floor: WINDOW_FLOOR,
     };
     let made = read::fold_step(&s, PLACE, None, &step).await.unwrap().made;
     assert_eq!(made.len(), 1);

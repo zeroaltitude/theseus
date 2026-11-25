@@ -1031,3 +1031,28 @@ fn fit_reports_each_parts_kept_bytes() {
         }
     }
 }
+
+/// The page a turn lays names the window `[context] here_exchanges` sets: at the default it is the golden page
+/// itself; at 10 and at 60 it says "up to 10 to 29" and "up to 60 to 79", once, and nothing else of it changes.
+#[test]
+fn the_memory_page_names_the_configured_window() {
+    use super::page::memory_page_at;
+    use crate::ladder::WINDOW_FLOOR;
+    assert_eq!(memory_page_at(WINDOW_FLOOR), MEMORY_PAGE);
+    let default = "up to 30 to 49 recent exchanges";
+    assert_eq!(MEMORY_PAGE.matches(default).count(), 1);
+    for (floor, says) in [
+        (10, "up to 10 to 29 recent exchanges"),
+        (60, "up to 60 to 79 recent exchanges"),
+    ] {
+        let page = memory_page_at(floor);
+        assert_eq!(page.matches(says).count(), 1, "floor {floor}");
+        assert!(!page.contains(default), "floor {floor}");
+        assert_eq!(
+            page.replacen(says, default, 1),
+            MEMORY_PAGE,
+            "floor {floor}"
+        );
+        assert!(super::tokens(&page) <= PAGE_TOKENS);
+    }
+}

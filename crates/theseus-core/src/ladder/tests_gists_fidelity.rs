@@ -139,6 +139,7 @@ async fn gists_shows_the_material_the_writers_request_holds() {
         writer: &w,
         flags: &NoFlags,
         purse: &purse,
+        floor: WINDOW_FLOOR,
     };
     assert_eq!(
         read::fold_step(&s, PLACE, None, &step)

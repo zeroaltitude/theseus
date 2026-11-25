@@ -1338,3 +1338,42 @@ async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_requ
         );
     }
 }
+
+/// `[context]`'s sizes at their bounds (issue 48): a view turn assembles at each, and its request lays the
+/// window the HERE setting names and the history tool's page the pager setting names.
+#[tokio::test]
+async fn a_view_assembles_at_each_sizes_bounds() {
+    use crate::config::context::{
+        EVERYWHERE_EXCHANGES_RANGE as E, HERE_EXCHANGES_RANGE as H,
+        HISTORY_PAGE_EXCHANGES_RANGE as P,
+    };
+    for (here, everywhere, page) in [
+        (*H.start(), *E.start(), *P.start()),
+        (*H.end(), *E.end(), *P.end()),
+    ] {
+        let r = rig_with(|c| {
+            c.context.here_exchanges = Some(here);
+            c.context.everywhere_exchanges = Some(everywhere);
+            c.context.history_page_exchanges = Some(page);
+        });
+        let sid = session_in(&r.core, None, &r.root);
+        turn(&r.core, &sid, "bounds: the first").await;
+        turn(&r.core, &sid, "bounds: the second").await;
+        let q = asked(&r, "bounds: the second").pop().expect("a request");
+        assert!(
+            texts(&q).contains("bounds: the first"),
+            "{here}: the window carries the first"
+        );
+        let system = crate::tests_places::system_text(&q);
+        let window = format!("up to {here} to {} recent exchanges", here + 19);
+        assert_eq!(system.matches(&window).count(), 1, "{here}: {system}");
+        let history = (q.tools.iter())
+            .find(|t| t["name"] == "context_history")
+            .and_then(|t| t["description"].as_str())
+            .expect("the history tool is offered");
+        assert!(
+            history.starts_with(&format!("Earlier history, {page} exchanges a page. ")),
+            "{history}"
+        );
+    }
+}

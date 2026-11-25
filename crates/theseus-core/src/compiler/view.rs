@@ -512,10 +512,10 @@ fn effective(s: &RequestSpec, page: &str) -> RequestSpec {
     }
 }
 
-/// The spec a turn's first call would render from `s` today, the memory page in it: what
-/// `context.explain` digests to say whether a turn's system is unchanged.
-pub(crate) fn first_call_spec(s: &RequestSpec) -> RequestSpec {
-    effective(s, crate::view::text::page::memory_page().1)
+/// The spec a turn's first call would render from `s` today, the memory page in it, its window over `floor`
+/// (`[context] here_exchanges`): what `context.explain` digests to say whether a turn's system is unchanged.
+pub(crate) fn first_call_spec(s: &RequestSpec, floor: usize) -> RequestSpec {
+    effective(s, &crate::view::text::page::memory_page_at(floor))
 }
 
 /// A result of the turn's own laid as its first `shown` characters, with one line saying so.

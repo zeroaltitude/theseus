@@ -2,7 +2,8 @@
 //! extends the conversation it can see when it thinks it is missing something. The interface is the view's
 //! (`view::history`); this module is its implementation over the exchange ledger (`crate::exchange`).
 //!
-//! - **Bare**, it returns the [`PAGE_EXCHANGES`] exchanges of this place that come before the oldest exchange the
+//! - **Bare**, it returns a page of this place's exchanges (`[context] history_page_exchanges`,
+//!   [`PAGE_EXCHANGES`](crate::view::history::PAGE_EXCHANGES) by default) that come before the oldest exchange the
 //!   model sees in full (`page::in_view`). A page's `next` cursor, passed back as `before`, gives the ones
 //!   before those, with no horizon. One line an exchange: its date, the place, whose words, the person's words
 //!   (cut by code at 300 characters), the `did` line or the reply's beginning, and a handle.
@@ -54,9 +55,7 @@ use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
 use crate::recall::when::When;
 use crate::turn::TurnRunner;
-use crate::view::history::{
-    HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES,
-};
+use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
@@ -132,16 +131,27 @@ pub(crate) fn span_of(a: &HistoryArgs, now_ms: u64) -> Result<Option<When>, Stri
     }
 }
 
-/// The registry's `context.history`: its name, schema and plan, for the gate. The runtime runs it
-/// ([`Board::run`]).
-pub struct HistoryTool;
+/// The registry's `context.history`: its name, schema and plan, for the gate, and its description, which names
+/// the page (`[context] history_page_exchanges`). The runtime runs it ([`Board::run`]).
+pub struct HistoryTool {
+    description: String,
+}
+
+impl HistoryTool {
+    /// The tool, its pages `page` exchanges.
+    pub fn new(page: usize) -> Self {
+        Self {
+            description: format!("Earlier history, {page} exchanges a page. Bare: this place, before what you see; before pages back. With when (or from/to), label or words and no place: every place, newest first; place narrows to one. place \"*\": every place, newest first. label: a topic (topic:...), a thing (file:...), or personal, secret, confidential, injection. open reads a line whole, or a ses_ session by its id. place \"import\" (or \"import:<book>\") with words searches the imported conversations."),
+        }
+    }
+}
 
 impl Tool for HistoryTool {
     fn name(&self) -> &'static str {
         HISTORY_TOOL
     }
-    fn description(&self) -> &'static str {
-        "Earlier history, 100 exchanges a page. Bare: this place, before what you see; before pages back. With when (or from/to), label or words and no place: every place, newest first; place narrows to one. place \"*\": every place, newest first. label: a topic (topic:...), a thing (file:...), or personal, secret, confidential, injection. open reads a line whole, or a ses_ session by its id. place \"import\" (or \"import:<book>\") with words searches the imported conversations."
+    fn description(&self) -> &str {
+        &self.description
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -551,7 +561,7 @@ pub(crate) async fn answer(
             // An import search's page holds its own size of hits.
             let size = match imported {
                 Some(_) => imports::PAGE,
-                None => PAGE_EXCHANGES as u64,
+                None => core.cfg.context.sizes().page as u64,
             };
             let mut meta = json!({
                 "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
@@ -631,6 +641,7 @@ pub(crate) fn lens_for<'a>(
         cut,
         scope,
         cuts: core.tools.scrubber.cuts(),
+        page: core.cfg.context.sizes().page,
     })
 }
 
@@ -650,6 +661,7 @@ pub(crate) fn open_lens<'a>(
         cut: crate::fork::cut::Cut::of(&runner.store, session).map_err(|e| format!("{e:#}"))?,
         scope: self_scope(runner, session)?,
         cuts: runner.tools.scrubber.cuts(),
+        page: runner.cfg.context.sizes().page,
     })
 }
 
