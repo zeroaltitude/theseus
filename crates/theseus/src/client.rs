@@ -307,9 +307,13 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
+<<<<<<< ours
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start),
 /// and the undo of a change to a task that ran without asking (issue 57).
-pub const OPERATORS: [(&str, &str); 108] = [
+=======
+/// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
+>>>>>>> theirs
+pub const OPERATORS: [(&str, &str); 109] = [
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
@@ -401,6 +405,7 @@ pub const OPERATORS: [(&str, &str); 108] = [
     ),
     (method::CARD_DONE, "theseus card done"),
     (method::STANDING_REVOKE, "theseus standing revoke"),
+    (method::TOLD_UNDO, "theseus told undo"),
     (method::STANDING_ANSWER, "theseus standing answer"),
     (method::SELF_DROP, "theseus self drop"),
     (method::SELF_MOVE, "theseus self move"),
