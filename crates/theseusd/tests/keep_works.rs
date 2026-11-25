@@ -378,26 +378,25 @@ fn a_run_that_ends_at_a_prompt_says_how_and_leaves_a_row() {
     assert!(common::vault::stored(r.vault.path()).is_none());
 }
 
-/// A wrong code is refused with a row that says so, the card keeps waiting,
-/// and the value is not kept anywhere.
+/// A keep card takes no second proof (the owner, 2026-11-25: "the form to ask
+/// for it, yes, the 2fa, no"): with an authenticator paired and its window
+/// ended, the terminal asks for the value alone, it is kept, and no row says
+/// a proof stopped it.
 #[test]
-fn a_wrong_code_leaves_a_row_and_the_card_waiting() {
+fn a_keep_asks_no_code_even_with_an_authenticator_paired() {
     let r = Rig::start();
     r.pair();
     r.card();
-    let (code, out) = r.at_a_terminal(
-        &["vault", "keep"],
-        &[(CODE_PROMPT, "000000"), (VALUE_PROMPT, VALUE)],
-        "",
+    let (code, out) = r.at_a_terminal(&["vault", "keep"], &[(VALUE_PROMPT, VALUE)], "");
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains(CODE_PROMPT), "{out}");
+    assert!(r.keep_rows("stopped").is_empty());
+    assert_eq!(r.keep_rows("kept").len(), 1);
+    assert!(r.cards().is_empty());
+    assert_eq!(
+        common::vault::stored(r.vault.path()).as_deref().map(str::trim),
+        Some(VALUE)
     );
-    assert_eq!(code, 1, "{out}");
-    assert!(out.contains("keeps waiting"), "{out}");
-    let stopped = r.keep_rows("stopped");
-    assert_eq!(stopped.len(), 1, "{stopped:?}");
-    assert_eq!(stopped[0]["why"], "proof");
-    assert!(stopped[0]["pid"].is_u64());
-    assert_eq!(r.cards().len(), 1);
-    assert!(common::vault::stored(r.vault.path()).is_none());
     r.value_nowhere(&out);
 }
 

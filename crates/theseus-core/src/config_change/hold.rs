@@ -166,13 +166,7 @@ pub(crate) enum Cause {
 /// A marker as the note names it: up to its `?` (a query can hold anything), cut short.
 pub(crate) fn source_words(marker: &str) -> String {
     let head = marker.split('?').next().unwrap_or(marker).trim();
-    match head.chars().count() > SOURCE_CHARS {
-        true => format!(
-            "{}…",
-            head.chars().take(SOURCE_CHARS - 1).collect::<String>()
-        ),
-        false => head.to_string(),
-    }
+    crate::scrub::safe::head_marked(head, SOURCE_CHARS - 1)
 }
 
 /// The note: FYI-headed, the conversation, the cause and its source, what the call looked at,
@@ -286,8 +280,10 @@ pub(crate) fn tell(holds: &Holds, tc: &TurnCtx<'_>, freeze: bool, name: &str, in
 /// One note to the owner alone, riding the turn's next frame; never a node of the session. A note
 /// that cannot be staged is logged by the tool's name, and the call goes on.
 pub(crate) fn tell_owner(tc: &TurnCtx<'_>, text: &str, tool: &str) {
-    let body = json!({"kind": "notice", "text": text});
-    match tc.outbox.stage_to_operator(Some(tc.session_id), body) {
+    match tc
+        .outbox
+        .stage_to_operator(Some(tc.session_id), json!({"kind": "notice", "text": text}))
+    {
         Ok((post, records)) => {
             for r in records {
                 if let Err(e) = tc.store.defer(r) {
