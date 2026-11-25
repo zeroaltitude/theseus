@@ -229,8 +229,11 @@ pub(crate) fn tell(core: &Core, session: &str, title: &str, did: &str, body: &st
         &format!("{here}, {did}"),
         body,
     );
-    let body = json!({"kind": "notice", "text": text, crate::outbox::ANNOUNCE_KEY: true});
-    if let Err(e) = core.outbox.to_operator(Some(session), body) {
+    let posted = core.outbox.to_operator(
+        Some(session),
+        json!({"kind": "notice", "text": text, crate::outbox::ANNOUNCE_KEY: true}),
+    );
+    if let Err(e) = posted {
         tracing::warn!(session, error = %format!("{e:#}"), "self: the owner's note was not posted");
     }
 }

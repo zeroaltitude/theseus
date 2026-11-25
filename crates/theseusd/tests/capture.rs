@@ -8,7 +8,8 @@
 //!   `wrong capture`;
 //! - said again, with the record live, writes `standing.repeated`, no second
 //!   record, and `standing.list` counts it for the week;
-//! - an order is asked, never kept; the answer keeps it;
+//! - an order is kept as a preference is, asked nothing (issue 57), and its
+//!   undo ends it;
 //! - `[standing] capture = false` asks Jev nothing.
 //!
 //! The capture is judged beside the turn and written off its path.
@@ -309,29 +310,30 @@ fn a_rephrased_preference_is_kept_with_its_own_notice_not_counted_as_a_repeat() 
     r.stop(d);
 }
 
-/// An order is asked, never kept on confidence; the owner's answer keeps it.
+/// An order is kept as a preference is, with its notice, and nothing is asked
+/// (issue 57); its undo (`standing.revoke`) ends it.
 #[test]
-fn an_order_is_asked_and_the_answer_keeps_it() {
+fn an_order_is_kept_and_its_undo_ends_it() {
     let jev = FakeJev::start().unwrap();
     hears(&jev, "order", 0.99);
     let r = Rig::new(Some(&jev.base()), true);
     let d = r.spawn();
     r.ask("never push to main");
-    let asks = r.wait("the ask", || {
-        let a = r.standing()["asks"].as_array().cloned().unwrap_or_default();
-        (!a.is_empty()).then_some(a)
+    let live = r.wait("the record", || {
+        let l = r.live();
+        (!l.is_empty()).then_some(l)
     });
-    assert_eq!(asks[0]["why"], "order");
-    assert!(r.live().is_empty(), "nothing is kept unasked");
-    let kept = r
-        .call(
-            "standing.answer",
-            json!({"id": asks[0]["id"], "answer": "keep"}),
-        )
+    assert_eq!(live[0]["kind"], "order");
+    assert_eq!(live[0]["text"], "never push to main");
+    assert!(
+        r.standing()["asks"].as_array().unwrap().is_empty(),
+        "nothing is asked"
+    );
+    let ended = r
+        .call("standing.revoke", json!({"id": live[0]["id"]}))
         .unwrap();
-    assert_eq!(kept["record"]["kind"], "order");
-    assert_eq!(r.live().len(), 1);
-    assert!(r.standing()["asks"].as_array().unwrap().is_empty());
+    assert_eq!(ended["ended"], live[0]["id"]);
+    assert!(r.live().is_empty());
     r.stop(d);
 }
 
