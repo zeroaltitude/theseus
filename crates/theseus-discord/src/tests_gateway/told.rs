@@ -286,7 +286,7 @@ async fn a_wake_notes_undo_counts_only_for_the_owner_in_private() {
 
 /// Each of the four undos runs through `told.undo` and does what its own
 /// method does; a second `told.undo` of the same note is refused by the core
-/// and does it no twice.
+/// and does not do it twice.
 #[tokio::test]
 async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() {
     use theseus_core::rpc::told::{ToldUndoParams, ToldUndoResult};
