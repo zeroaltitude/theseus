@@ -10,9 +10,13 @@
 //! write asks once more at the yes ([`at_yes`]): the question must carry the
 //! mark its settings call for, so a card asked without one is never written.
 //!
-//! An ordinary change needs the card alone. A change to who the owner is, to
-//! the proof itself, or turning `[self] install` to `"auto"` is marked fresh:
-//! a code typed for that change, covered by no window.
+//! An ordinary change needs the card alone, and so does a sensitive one whose
+//! settings `config::sensitivity::proof_reason` does not name (issue 57: the
+//! code is kept for the approval rules, secrets, the sandbox, places, the
+//! broker, where Theseus listens, its MCP server, who the owner is, and a
+//! raised spend). A change to who the owner is, to the proof itself, or turning
+//! `[self] install` to `"auto"` is marked fresh: a code typed for that change,
+//! covered by no window.
 
 use theseus_store::NewRecord;
 
@@ -31,11 +35,15 @@ pub enum Needs {
 }
 
 impl Needs {
-    /// What a change of `settings` asks: `sensitive` when it reached a
-    /// sensitive setting, or is one of the kinds that always are (an MCP
-    /// server's card, the install card).
-    pub fn of(sensitive: bool, settings: &[Setting]) -> Self {
-        match (needs_fresh(settings), sensitive) {
+    /// What a change of `settings` asks: fresh when any needs a fresh code, the
+    /// proof when any needs the code (`sensitivity::proof_reason`), else the
+    /// card alone.
+    pub fn of(settings: &[Setting]) -> Self {
+        let proof = settings.iter().any(|s| {
+            crate::config::sensitivity::proof_reason(&s.path, s.before.as_ref(), s.after.as_ref())
+                .is_some()
+        });
+        match (needs_fresh(settings), proof) {
             (true, _) => Self::Fresh,
             (false, true) => Self::Proof,
             (false, false) => Self::Card,
@@ -147,17 +155,73 @@ mod tests {
             "[server]\nstate_dir = \"/elsewhere\"\n",
             "[owner_proof]\nwindow_hours = 0\n",
         ] {
-            assert_eq!(
-                Needs::of(true, &between("", after)),
-                Needs::Fresh,
-                "{after}"
-            );
+            assert_eq!(Needs::of(&between("", after)), Needs::Fresh, "{after}");
         }
         let sensitive_only = between("", "[sandbox]\negress = [\"a.example:443\"]\n");
-        assert_eq!(Needs::of(true, &sensitive_only), Needs::Proof);
+        assert_eq!(Needs::of(&sensitive_only), Needs::Proof);
         assert_eq!(
-            Needs::of(false, &between("", "[import.notes]\nenabled = false\n")),
+            Needs::of(&between("", "[import.notes]\nenabled = false\n")),
             Needs::Card
         );
+    }
+
+    /// Issue 57: the code is kept for the rules, secrets, the sandbox, places, the broker, where
+    /// Theseus listens, its MCP server and a raised spend; every other sensitive setting keeps its
+    /// card and needs no code.
+    #[test]
+    fn the_code_is_kept_for_the_gates_and_money_and_dropped_for_the_rest() {
+        for after in [
+            "[policy.tools]\n\"proc.run\" = \"open\"\n",
+            "[secrets]\nk = \"op://v/i/f\"\n",
+            "[places]\npublic = [\"discord:9\"]\n",
+            "[broker]\nenabled = true\n",
+            "[server]\nport = 9\n",
+            "[mcp_server]\nport = 9\n",
+            "[google]\ncredentials = \"elsewhere\"\n",
+            "[mcp.servers.files]\ncommand = [\"x\"]\n",
+            "[mcp.servers.files]\nauth_secret = \"k\"\n",
+            "brand_new = 1\n",
+        ] {
+            assert_eq!(Needs::of(&between("", after)), Needs::Proof, "{after}");
+        }
+        for after in [
+            "[self]\nmode = \"act\"\n",
+            "[self_issues]\nrepo = \"x\"\n",
+            "[self_fix]\nin_place = true\n",
+            "[aws]\nregion = \"x\"\n",
+            "[google]\nenabled = true\n",
+            "[content_based_security]\ninjection = \"notify\"\n",
+            "[judge]\nenabled = false\n",
+            "[privacy]\nmodels = [\"x\"]\n",
+            "[vault]\nform = true\n",
+            "[tools]\nroots = [\"/x\"]\n",
+            "[tools]\nagent_processes = [\"x\"]\n",
+            "[model]\nsystem = \"x\"\n",
+            "[model]\nprovider = \"x\"\n",
+            "[providers.x]\napi_base = \"https://x.example\"\n",
+        ] {
+            assert_eq!(Needs::of(&between("", after)), Needs::Card, "{after}");
+        }
+    }
+
+    /// Raising a spending ceiling or budget needs the code; lowering one does not; a change that
+    /// cannot be read as a lowering keeps it.
+    #[test]
+    fn only_a_lowered_spend_goes_without_the_code() {
+        let usd = |b: &str, a: &str| Needs::of(&between(b, a));
+        let five = "[self.budget]\nusd = 5.0\n";
+        let three = "[self.budget]\nusd = 3.0\n";
+        assert_eq!(usd(five, three), Needs::Card);
+        assert_eq!(usd(three, five), Needs::Proof);
+        assert_eq!(usd("", five), Needs::Proof, "set where there was none");
+        assert_eq!(usd(five, ""), Needs::Proof, "removed: its default may be higher");
+        assert_eq!(
+            usd(five, "[self.budget]\nusd = \"lots\"\n"),
+            Needs::Proof,
+            "not a number"
+        );
+        let ceiling = |v: &str| format!("[kernel]\ndaily_spend_ceiling_usd = {v}\n");
+        assert_eq!(usd(&ceiling("50"), &ceiling("40")), Needs::Card);
+        assert_eq!(usd(&ceiling("40"), &ceiling("50")), Needs::Proof);
     }
 }

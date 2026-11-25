@@ -1,8 +1,9 @@
 //! Which settings are sensitive, and which take effect at once (issue 22).
 //!
 //! The one place that says it. A change to a sensitive setting is the kind
-//! that governs what Theseus may do, so it is never made on a card's yes
-//! alone (`config_change`): what needs approval, where each secret is read
+//! that governs what Theseus may do, so it is never made without a card
+//! (`config_change`), and some need the owner's code as well ([`proof_reason`],
+//! issue 57): what needs approval, where each secret is read
 //! from, the sandbox and the hosts it allows, the folders Theseus may touch,
 //! who the owner is and which places are private, every spending ceiling and
 //! budget, Theseus's own MCP server, self-improvement's mode and sealed sets,
@@ -113,6 +114,21 @@ pub const ORDINARY_KEYS: &[&str] = &[
 
 /// Why a key that holds an address is sensitive (`key_reason`).
 pub const ADDRESS_REASON: &str = "an address Theseus listens on or sends to";
+/// Why a key that names where a secret is read from is sensitive (`key_reason`).
+pub const SECRET_REASON: &str = "where a secret is read from";
+/// Why a key that names the owner is sensitive (`key_reason`).
+pub const OWNER_REASON: &str = "who the owner is";
+/// Why a spending ceiling or budget is sensitive (`key_reason`).
+pub const SPEND_REASON: &str = "a spending ceiling or budget";
+/// Why a key of the sandbox's kind is sensitive (`key_reason`).
+pub const SANDBOX_REASON: &str = "the sandbox, what may run, and the hosts it may reach";
+
+/// Whether a key (lower case) is a spending ceiling or budget.
+fn spend_key(k: &str) -> bool {
+    ["usd", "budget", "ceiling", "spend", "runaway"]
+        .iter()
+        .any(|s| k.contains(s))
+}
 
 /// What the settings' own words say about a key, whatever its table: the
 /// reason it is sensitive, or `None`.
@@ -133,10 +149,10 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || has("token_file")
         || has("password")
     {
-        return Some("where a secret is read from");
+        return Some(SECRET_REASON);
     }
     if has("owner") {
-        return Some("who the owner is");
+        return Some(OWNER_REASON);
     }
     if is("system")
         || has("prompt")
@@ -150,8 +166,8 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
     if has("agent") || is("provider") || ends("_provider") || has("not_") {
         return Some("which processes count as agents, which provider sees the owner's text, or what Theseus is told never to keep");
     }
-    if has("usd") || has("budget") || has("ceiling") || has("spend") || has("runaway") {
-        return Some("a spending ceiling or budget");
+    if spend_key(&k) {
+        return Some(SPEND_REASON);
     }
     if is("roots")
         || is("projects_dir")
@@ -184,7 +200,7 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || has("posture_")
         || is("enforcement")
     {
-        return Some("the sandbox, what may run, and the hosts it may reach");
+        return Some(SANDBOX_REASON);
     }
     if is("url")
         || ends("_url")
@@ -259,6 +275,79 @@ pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> 
         || (at(&["self", "install"])
             && path.len() == 2
             && after.is_some_and(|v| v.as_str() == Some("auto")))
+}
+
+/// The tables a change to which needs the owner's authenticator code as well as the card's
+/// yes (issue 57): the approval rules, where secrets come from, the sandbox, the places and
+/// who owns them, the secrets broker, where Theseus listens and keeps its state, its own MCP
+/// server, and the second proof itself. Every other sensitive table keeps its card and needs
+/// no code.
+pub const PROOF_TABLES: [&str; 8] = [
+    "policy",
+    "secrets",
+    "sandbox",
+    "places",
+    "broker",
+    "server",
+    "mcp_server",
+    "owner_proof",
+];
+
+/// The kinds of key, in any table, a change to which needs the code too: where a secret is
+/// read from, who the owner is, and the sandbox's kind (what may run and the hosts it may
+/// reach). A spending ceiling or budget needs it only when raised ([`proof_reason`]).
+pub const PROOF_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
+
+/// Why a change of `path` from `before` to `after` needs the owner's authenticator code on
+/// top of the card's yes (issue 57), or `None` when the card alone is enough. The second
+/// reason table beside [`reason`]: a setting may be sensitive (it keeps its card) and need no
+/// code.
+///
+/// - who the owner is and the proof itself: [`needs_fresh_proof`], a code typed for it;
+/// - a table nobody classified, and the tables of [`PROOF_TABLES`];
+/// - in any table, a key of a kind [`PROOF_KEYS`] names;
+/// - a spending ceiling or budget that is raised, or whose change cannot be read as a lowering
+///   (a removal, a value set where there was none, or one that is not a number): money spent
+///   cannot come back. Lowering one needs no code.
+pub fn proof_reason(
+    path: &[String],
+    before: Option<&serde_json::Value>,
+    after: Option<&serde_json::Value>,
+) -> Option<String> {
+    if needs_fresh_proof(path, after) {
+        return Some("who the owner is, or the second proof itself".into());
+    }
+    let first = path.first()?.as_str();
+    if PROOF_TABLES.contains(&first) {
+        return reason(path);
+    }
+    let known = ORDINARY_TABLES.contains(&first)
+        || ORDINARY_TABLES_MORE.contains(&first)
+        || SENSITIVE_TABLES.iter().any(|(t, _)| *t == first);
+    if !known {
+        return reason(path);
+    }
+    for k in path.iter().skip(1) {
+        let lower = k.to_ascii_lowercase();
+        if let Some(why) = key_reason(k).filter(|w| PROOF_KEYS.contains(w)) {
+            return Some(why.into());
+        }
+        if spend_key(&lower) && !lowered(before, after) {
+            return Some(format!("{SPEND_REASON}, raised"));
+        }
+    }
+    None
+}
+
+/// Whether a value went down: both sides numbers, and the new one lower.
+fn lowered(before: Option<&serde_json::Value>, after: Option<&serde_json::Value>) -> bool {
+    match (
+        before.and_then(serde_json::Value::as_f64),
+        after.and_then(serde_json::Value::as_f64),
+    ) {
+        (Some(b), Some(a)) => a < b,
+        _ => false,
+    }
 }
 
 /// The settings that take effect without a restart: where the code already

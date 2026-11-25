@@ -5,9 +5,10 @@
 //! address. `mcp.attach` then, in this order:
 //!
 //! 1. refuses unless the caller is the owner (`wall.rs`). Attaching can give a
-//!    server secrets and a network, so its card is always marked as needing
-//!    the second proof (`proof_seam.rs`): a code, or an open window of the
-//!    same place. Nothing has started by then;
+//!    server secrets and a network, so a card for one whose table names a
+//!    secret or a host is marked as needing the second proof (`proof_seam.rs`,
+//!    [`needs`]): a code, or an open window of the same place. Nothing has
+//!    started by then;
 //! 2. **tries the server once**, in the sandbox (L1, whatever the owner asked
 //!    for it to run in), with no secret and no network beyond the hosts asked
 //!    for, and lists its tools. A server over HTTP is asked for its list
@@ -547,19 +548,17 @@ fn put(
         resource: Some("config".into()),
         policy_context: json!({}),
     };
+    let needs = needs(&proposal.args, settings);
     let said = format!(
-        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place, \
-         with the second proof; the daemon then writes the settings itself. If they decline, or \
-         do not answer in time, nothing is written."
+        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place{}; \
+         the daemon then writes the settings itself. If they decline, or do not answer in time, \
+         nothing is written.",
+        match needs {
+            proof_seam::Needs::Card => "",
+            _ => ", with the second proof",
+        }
     );
-    super::ask(
-        rt,
-        tc,
-        proposal,
-        correlation_id,
-        &said,
-        proof_seam::Needs::Proof,
-    )?;
+    super::ask(rt, tc, proposal, correlation_id, &said, needs)?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),
@@ -734,10 +733,29 @@ pub fn detach(
     )
 }
 
+/// What a server's card asks besides the yes (issue 57): attaching one whose table names a
+/// secret (`env`, `auth_secret`) or a host (`url`, `egress`) needs the owner's code; attaching
+/// one with neither, and removing one, need the card alone. Read from the settings that
+/// really change, at the card and again at the yes.
+pub(crate) fn needs(args: &Value, settings: &[diff::Setting]) -> proof_seam::Needs {
+    let attach = args["mcp"]["op"] == "attach";
+    let reaches = settings.iter().any(|s| {
+        s.after.is_some()
+            && matches!(
+                s.path.get(3).map(String::as_str),
+                Some("env" | "auth_secret" | "url" | "egress")
+            )
+    });
+    match attach && reaches {
+        true => proof_seam::Needs::Proof,
+        false => proof_seam::Needs::Card,
+    }
+}
+
 /// The yes's check, for a question that carries an `mcp` marker: the settings
 /// that really change must be the server's own table and nothing else, only
 /// added for an attach and only removed for a detach. `Ok(true)` when the
-/// question is one of these, whose change is always sensitive.
+/// question is one of these, whose proof is [`needs`]'s.
 pub(crate) fn at_yes(args: &Value, settings: &[diff::Setting]) -> Result<bool, String> {
     let Some(m) = args.get("mcp") else {
         return Ok(false);

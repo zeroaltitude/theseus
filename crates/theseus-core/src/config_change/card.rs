@@ -203,12 +203,16 @@ fn lines(f: &Facts<'_>) -> String {
     // Long values, whole when they fit what is left of the card's room.
     let room = super::prompt_file::card::CARD_CHARS.saturating_sub(out.chars().count() + 900);
     out.push_str(&super::long_value::blocks(f.settings, room));
+    // Only the settings that need the code are named (issue 57): every other
+    // sensitive one needs this card's yes alone.
     let sensitive: Vec<String> = f
         .settings
         .iter()
         .filter_map(|s| {
-            sensitivity::reason(&s.path)
-                .map(|why| format!("{} ({why})", super::edit::dotted(&s.path)))
+            let code =
+                sensitivity::proof_reason(&s.path, s.before.as_ref(), s.after.as_ref())?;
+            let why = sensitivity::reason(&s.path).unwrap_or(code);
+            Some(format!("{} ({why})", super::edit::dotted(&s.path)))
         })
         .collect();
     if !sensitive.is_empty() {

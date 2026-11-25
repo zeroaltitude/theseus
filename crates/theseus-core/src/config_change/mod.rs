@@ -228,8 +228,8 @@ impl Tool for Propose {
          for the file. The result says each setting's value before, set or default, so no look is needed first \
          (`config.show` reads other settings). Theseus checks that the settings still load, then shows the owner one \
          card with each value before and after; only their yes changes anything, and the daemon writes it itself. \
-         A setting that governs what Theseus may do (approvals, secrets, the sandbox, folders, who the owner is, \
-         spending) needs a second proof as well. A secret in the vault is used by `vault.use`, never by writing \
+         A setting that governs what Theseus may do (approvals, secrets, the sandbox, places, who the owner is, \
+         a raised spend) needs a second proof as well. A secret in the vault is used by `vault.use`, never by writing \
          an `op://` reference here. A fact its maker publishes (a model's exact name, a provider's address and \
          protocol) may be looked up with the web tools rather than asked for: give it with a `source`, never a \
          guess. The owner still confirms, on the card, where a secret is sent. Offered only to the owner, in a \
@@ -555,7 +555,7 @@ pub(crate) fn put_using(
         vault_use::refuse_other_references(&settings, secret)?;
     }
     let long = too_big(&settings)?;
-    let needs = proof_seam::Needs::of(!sensitive(changes, &settings).is_empty(), &settings);
+    let needs = proof_seam::Needs::of(&settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
         settings: &settings,

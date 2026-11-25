@@ -18,7 +18,7 @@ use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
 use super::restart::{self, Pending, Stage};
-use super::{diff, proof_seam, sensitive, write};
+use super::{diff, proof_seam, write};
 use crate::config_copy::sha256;
 use crate::fact::answer::CallAnswered;
 use crate::ledger::LedgerRow;
@@ -207,14 +207,16 @@ impl Core {
             .map(drop)
             .map_err(|e| format!("the candidate no longer loads: {e:#}"))?;
         let settings = diff::between(&now, &candidate)?;
-        let sens = sensitive(&[], &settings);
-        // An attached or removed MCP server is always sensitive, whatever the
-        // table says (`mcp_attach`), and only its own table may change.
+        // An attached or removed MCP server is judged by its own rule
+        // (`mcp_attach::needs`), and only its own table may change.
         let server = super::mcp_attach::at_yes(args, &settings)?;
         // The second wall: the answer's code was judged where it became a
         // decision; a change that needs the proof is written only if its
         // question was asked with the mark its settings call for.
-        let needs = proof_seam::Needs::of(!sens.is_empty() || server, &settings);
+        let needs = match server {
+            true => super::mcp_attach::needs(args, &settings),
+            false => proof_seam::Needs::of(&settings),
+        };
         proof_seam::at_yes(&self.store, &a.correlation_id, needs)?;
         let (previous, copy) = write::keep_previous(&w.state, &now).map_err(|e| {
             format!("the previous settings could not be kept, so nothing was written: {e}")
