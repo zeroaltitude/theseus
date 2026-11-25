@@ -14,6 +14,10 @@
 //!   (a runtime cut keeps a link to words it cut), and the line must not bring the words of a message the
 //!   conversation never saw. A source erased since lays one fixed line in place of all the words that may
 //!   have shown it, whether or not they did ([`ERASED_RESULT`], [`ERASED_REPORT`]).
+//! - **A result kept by reference** (`quotes`) says exactly what it showed, and its one renderer
+//!   (`quotes::render`) lays an erased quote as one fixed line in place of its words alone, and a quoted source
+//!   marked wrong with the since line, once a result. So here its edges are not read: only its own mark is
+//!   said, after the rendering a reader laid in `content`.
 //! - **Once, then still.** The line depends only on what has been said, so two turns with nothing said
 //!   between them lay the same bytes; a correction changes the bytes of the earlier exchange once.
 //! - **Fail closed.** A source that cannot be found is treated as erased, as recall treats a source it cannot
@@ -110,8 +114,12 @@ impl<'a> Since<'a> {
             return Ok(None);
         }
         let mut lines = Vec::new();
-        let Some((via, sources)) = self.sources(n)? else {
-            return Ok(Some(Said::Unchecked));
+        let (via, sources) = match by_reference(n) {
+            true => ("", Vec::new()),
+            false => match self.sources(n)? {
+                Some(s) => s,
+                None => return Ok(Some(Said::Unchecked)),
+            },
         };
         let mut read = Vec::new();
         for source in sources {
@@ -240,9 +248,16 @@ impl<'a> Since<'a> {
 }
 
 /// Whether `n` showed words of a node erased since, or cannot be found (a look back's result by its copy
-/// edges, a report by its report edge), or names more than are read: a replay of a request that laid it
-/// would send them again (`own_bench::rebuild`).
+/// edges, a report by its report edge, either kept by reference by a quote that does not read as it was
+/// written), or names more than are read: a replay of a request that laid it would send them again
+/// (`own_bench::rebuild`).
 pub fn shows_erased(store: &Store, n: &Node) -> Result<bool> {
+    if let Body::ToolResult { parts, .. } | Body::UserMessage { parts, .. } = &n.body {
+        let gone = |q| !matches!(crate::quotes::read(store, q), crate::quotes::Read::Field(_));
+        if (parts.iter()).any(|p| matches!(p, crate::quotes::Part::Quote(q) if gone(q))) {
+            return Ok(true);
+        }
+    }
     let none = BTreeSet::new();
     let s = Since::new(store, &none);
     let Some((_, sources)) = s.sources(n)? else {
@@ -280,6 +295,11 @@ pub fn alone(store: &Store, result: &Node, source: &Node) -> Result<bool> {
     Ok(same == 1)
 }
 
+/// Whether `n` is a look back's result kept by reference (`quotes`).
+fn by_reference(n: &Node) -> bool {
+    matches!(&n.body, Body::ToolResult { parts, .. } if !parts.is_empty())
+}
+
 /// `n` as laid with `said`: its words, the only part changed. A copy, in memory.
 fn laid(n: &Node, said: Said) -> Node {
     let mut node = n.clone();
@@ -313,3 +333,5 @@ fn laid(n: &Node, said: Said) -> Node {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_parts;
