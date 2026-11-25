@@ -208,7 +208,7 @@ impl Core {
         if let Some(found) = self.undo_found(&undo)? {
             return self.receipt(post, who, &text, &told::found_line(found), true);
         }
-        match self.undo_now(&undo, who).await {
+        match self.undo_now(&undo, who) {
             Ok(Effect::Done) => {}
             Ok(Effect::Moved { line, message }) => {
                 // Nothing changed: the note says so, and loses its Undo. A
@@ -283,7 +283,7 @@ impl Core {
     /// An undo, through the existing code that makes it, as `who`. A new
     /// undo is one arm here: an existing method's function, or an internal
     /// one when the undo has no method of its own.
-    async fn undo_now(&self, undo: &Undo, who: &Answerer) -> Result<Effect, RpcFailure> {
+    fn undo_now(&self, undo: &Undo, who: &Answerer) -> Result<Effect, RpcFailure> {
         match undo {
             Undo::StandingRevoke(id) => {
                 let p = StandingRevokeParams {
