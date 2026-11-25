@@ -573,49 +573,70 @@ async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
 
 /// With its judge acting, his clean narrowing applies at once, without a
 /// card, and spends the message's receipt; a second change from the same
-/// message is not carried by his words: with nothing set on `task.update` it
-/// is told, with the record before it kept for its undo (issue 57).
+/// message is not carried by his words, so it keeps its card where the owner
+/// set `task.update` to ask; with nothing set it is told, with the record
+/// before it kept for its undo (issue 57).
 #[tokio::test]
 async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
-    let (_dir, core, model) = judging_core_with(|_| {});
-    let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
-    let first = submit(&core, owner(), "hello", None).await;
-    let said = "make it the north side only";
-    let new = format!("{}; {said}", before.objective);
-    let again = json!({"id": TASK, "version": 2, "patch": {"objective": format!("{new}; {said}")}, "kind": "narrows"});
-    ladder_row(&core.store, "live");
-    model.next(
-        &first.session_id,
-        vec![narrow(&new), again],
-        Some((Operation::Restricts, true)),
-    );
-    submit(&core, owner(), said, Some(&first.session_id)).await;
-    let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
-    assert_eq!(
-        (now.version, now.objective),
-        (3, format!("{new}; {said}")),
-        "his words applied once, and the second was told"
-    );
-    let accepted = crate::test_support::ledger_rows_100k(&core, "task.change_accepted");
-    assert_eq!(accepted.len(), 1);
-    assert_eq!(accepted[0].data["words"]["kind"], "narrows");
-    let node = accepted[0].data["words"]["said"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let r = receipt(&core.store, &node)
-        .unwrap()
-        .expect("the receipt is spent");
-    assert_eq!((r.base_version, r.acting), (1, true));
-    let rows = proposed(&core);
-    assert!(rows.is_empty(), "no card: {rows:?}");
-    let told: Vec<_> = crate::test_support::ledger_rows_100k(&core, "task.updated")
-        .into_iter()
-        .filter(|r| r.data["told"] == true)
-        .collect();
-    assert_eq!(told.len(), 1, "the second is told: {told:?}");
-    assert_eq!(told[0].data["before"]["objective"], json!(new));
-    assert!(core.confirm_list().unwrap().is_empty(), "nothing asks");
+    for ask in [true, false] {
+        let (_dir, core, model) = judging_core_with(|c| {
+            if ask {
+                asking(c);
+            }
+        });
+        let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        let first = submit(&core, owner(), "hello", None).await;
+        let said = "make it the north side only";
+        let new = format!("{}; {said}", before.objective);
+        let again = json!({"id": TASK, "version": 2, "patch": {"objective": format!("{new}; {said}")}, "kind": "narrows"});
+        ladder_row(&core.store, "live");
+        model.next(
+            &first.session_id,
+            vec![narrow(&new), again],
+            Some((Operation::Restricts, true)),
+        );
+        submit(&core, owner(), said, Some(&first.session_id)).await;
+        let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        if ask {
+            assert_eq!(
+                (now.version, now.objective.as_str()),
+                (2, new.as_str()),
+                "applied once"
+            );
+        } else {
+            assert_eq!(
+                (now.version, now.objective),
+                (3, format!("{new}; {said}")),
+                "his words applied once, and the second was told"
+            );
+        }
+        let accepted = crate::test_support::ledger_rows_100k(&core, "task.change_accepted");
+        assert_eq!(accepted.len(), 1);
+        assert_eq!(accepted[0].data["words"]["kind"], "narrows");
+        let node = accepted[0].data["words"]["said"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let r = receipt(&core.store, &node)
+            .unwrap()
+            .expect("the receipt is spent");
+        assert_eq!((r.base_version, r.acting), (1, true));
+        let rows = proposed(&core);
+        if ask {
+            assert_eq!(rows.len(), 1, "the second waits on a card: {rows:?}");
+            assert_eq!(rows[0]["would"], "card");
+            assert_eq!(core.confirm_list().unwrap().len(), 1, "one card asks");
+        } else {
+            assert!(rows.is_empty(), "no card: {rows:?}");
+            let told: Vec<_> = crate::test_support::ledger_rows_100k(&core, "task.updated")
+                .into_iter()
+                .filter(|r| r.data["told"] == true)
+                .collect();
+            assert_eq!(told.len(), 1, "the second is told: {told:?}");
+            assert_eq!(told[0].data["before"]["objective"], json!(new));
+            assert!(core.confirm_list().unwrap().is_empty(), "nothing asks");
+        }
+    }
 }
 
 /// A page the session read before his message, and an agent's process at
@@ -1105,12 +1126,23 @@ fn a_turn_given_the_places_last_words_is_outside() {
 /// gate reads a live pack and lets the call run without its card; the test
 /// holds the task's lock, so the run waits; the rollback is written; then the
 /// lock is let go. The run's own check under the lock reads the rollback: his
-/// words do not carry the change and nothing is spent. With nothing set on
-/// `task.update` it is told, with the record before it kept for its undo
-/// (issue 57), not accepted in his words.
+/// words do not carry the change and nothing is spent. Where the owner set
+/// `task.update` to ask, it refuses: nothing changes. With nothing set it is
+/// told, with the record before it kept for its undo (issue 57), not accepted
+/// in his words.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
-    let (_dir, core, model) = judging_core_with(|_| {});
+    for ask in [true, false] {
+        rollback_between_the_gate_and_the_lock(ask).await;
+    }
+}
+
+async fn rollback_between_the_gate_and_the_lock(ask: bool) {
+    let (_dir, core, model) = judging_core_with(|c| {
+        if ask {
+            asking(c);
+        }
+    });
     let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     let first = submit(&core, owner(), "hello", None).await;
     ladder_row(&core.store, "live");
@@ -1137,17 +1169,25 @@ async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
     drop(held);
     turn.await.unwrap();
     let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
-    assert_eq!(
-        (now.version, &now.objective),
-        (2, &new),
-        "told, not accepted in his words"
-    );
-    let told: Vec<_> = crate::test_support::ledger_rows_100k(&core, "task.updated")
-        .into_iter()
-        .filter(|r| r.data["told"] == true)
-        .collect();
-    assert_eq!(told.len(), 1, "{told:?}");
-    assert_eq!(told[0].data["before"]["objective"], json!(before.objective));
+    if ask {
+        assert_eq!(
+            (now.version, &now.objective),
+            (1, &before.objective),
+            "nothing changed"
+        );
+    } else {
+        assert_eq!(
+            (now.version, &now.objective),
+            (2, &new),
+            "told, not accepted in his words"
+        );
+        let told: Vec<_> = crate::test_support::ledger_rows_100k(&core, "task.updated")
+            .into_iter()
+            .filter(|r| r.data["told"] == true)
+            .collect();
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert_eq!(told[0].data["before"]["objective"], json!(before.objective));
+    }
     assert!(crate::test_support::ledger_rows_100k(&core, "task.change_accepted").is_empty());
     assert!(
         proposed(&core).is_empty(),
