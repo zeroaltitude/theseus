@@ -485,6 +485,7 @@ impl CutPage {
 #[tokio::test]
 async fn a_message_the_runtime_cut_out_of_a_page_is_seen_and_no_note_is_delivered() {
     let p = cut_page().await;
+    old_shape(&p.r.core, &p.copy, &p.text);
     let node = p.cut_out().to_string();
     let linked = (reach(&p.r.core, &node).descendants.iter()).any(|d| d.node_id == p.copy);
     assert!(linked, "the link is kept: {}", p.text);

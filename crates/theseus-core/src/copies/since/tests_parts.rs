@@ -160,3 +160,45 @@ fn a_quoted_source_marked_wrong_is_said_once_by_its_rendering() {
     let own = "[Since this was said: it was labelled wrong or stale. The words above are as they were said.]";
     assert_eq!(lay(&s, &wrong, &n), format!("{shown}\n{line}\n{own}"));
 }
+
+/// A task's report kept by reference is told by its quotes as a look back's result is: a relayed message erased
+/// since does not blank the whole report by its report edge, and its own mark is said after its words.
+#[test]
+fn a_report_kept_by_reference_is_not_blanked_whole_by_its_report_edge() {
+    let (_d, s) = store();
+    let north = said(&s, "t0", NORTH);
+    let mut n = Node::relayed("s", Some("t2"), Origin::Harness, "task:abc123", "");
+    if let Body::UserMessage { parts, .. } = &mut n.body {
+        *parts = vec![
+            Part::Code("[Report from task abc123]\n".into()),
+            Part::Quote(Quote {
+                node: north.0.id.clone(),
+                position: north.1,
+                field: Field::Text,
+                from: 0,
+                to: NORTH.len() as u32,
+                form: Form::Verbatim,
+            }),
+        ];
+    }
+    let e = Edge::new(EdgeKind::DerivedFrom, &n.id, &north.0.id, VIA_REPORT);
+    s.append(&[n.record().unwrap(), e.record().unwrap()])
+        .unwrap();
+    s.append(&[north.0.erased(AT_MS, "a test").record().unwrap()])
+        .unwrap();
+    let wrong = BTreeSet::from([n.id.clone()]);
+    let since = Since::new(&s, &wrong);
+    let mut read = n;
+    if let Body::UserMessage { text, parts, .. } = &mut read.body {
+        *text = crate::quotes::render(&s, parts, &since).unwrap();
+    }
+    let laid = since.lay(vec![(0, Stub::from(read))]).unwrap();
+    let Body::UserMessage { text, .. } = &laid[0].1.body else {
+        panic!("{laid:?}")
+    };
+    let own = "[Since this was said: it was labelled wrong or stale. The words above are as they were said.]";
+    assert_eq!(
+        *text,
+        format!("[Report from task abc123]\n{ERASED_QUOTE}\n{own}")
+    );
+}

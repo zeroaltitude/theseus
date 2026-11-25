@@ -295,9 +295,9 @@ pub fn alone(store: &Store, result: &Node, source: &Node) -> Result<bool> {
     Ok(same == 1)
 }
 
-/// Whether `n` is a look back's result kept by reference (`quotes`).
+/// Whether `n` is a look back's result or a task's report kept by reference (`quotes`).
 fn by_reference(n: &Node) -> bool {
-    matches!(&n.body, Body::ToolResult { parts, .. } if !parts.is_empty())
+    matches!(&n.body, Body::ToolResult { parts, .. } | Body::UserMessage { parts, .. } if !parts.is_empty())
 }
 
 /// `n` as laid with `said`: its words, the only part changed. A copy, in memory.

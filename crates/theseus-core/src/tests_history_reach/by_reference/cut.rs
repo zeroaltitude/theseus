@@ -196,6 +196,7 @@ async fn a_cut_open_whose_tail_reads_as_a_page_line_shows_nothing() {
     let probe = forged(100).await;
     let y = 100 + TAIL - to_end(&probe.text, &format!("- {}", "y".repeat(100)));
     let f = forged(y).await;
+    old_shape(&f.r.core, &f.copy, &f.text);
     let line = format!("- {} \u{b7} {}", "y".repeat(y), f.turn);
     let lines: Vec<&str> = f.text.lines().collect();
     let at = seam(&f.text);
@@ -284,6 +285,7 @@ async fn a_cut_pages_fragment_is_not_evidence_and_a_whole_line_after_it_is() {
         .checked_sub(TAIL)
         .unwrap_or_else(|| panic!("the ` - ` cannot reach the tail's start: {}", probe.text));
     let p = mid_line(k).await;
+    old_shape(&p.r.core, &p.copy, &p.text);
     let lines: Vec<&str> = p.text.lines().collect();
     let at = seam(&p.text);
     let fragment = lines[at + 1];
@@ -438,6 +440,7 @@ impl TwoHits {
 async fn an_import_message_the_cut_took_is_not_shown_by_its_sessions_kept_line() {
     let h = two_hits(true).await;
     h.assert_cut();
+    old_shape(&h.r.core, &h.copy, &h.text);
     let out = retract(&h.r.core, &h.y);
     let e = of_copy(&out, &h.reader, &h.copy);
     assert_eq!(
@@ -454,6 +457,7 @@ async fn an_import_message_the_cut_took_is_not_shown_by_its_sessions_kept_line()
 async fn an_import_line_kept_by_a_cut_shared_by_two_linked_messages_is_ambiguous() {
     let h = two_hits(true).await;
     h.assert_cut();
+    old_shape(&h.r.core, &h.copy, &h.text);
     let out = retract(&h.r.core, &h.x);
     let e = of_copy(&out, &h.reader, &h.copy);
     assert_eq!(
