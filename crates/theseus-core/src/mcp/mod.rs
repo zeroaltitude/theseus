@@ -860,6 +860,7 @@ impl McpBoard {
         if failed {
             s.set(|l| l.state = Some(State::Failed));
             tracing::warn!(server = %s.name, why = %why, "MCP server failed");
+            self.tell_failed(&s.name, &why);
             self.record(McpFailed {
                 server: s.name.clone(),
                 why,
