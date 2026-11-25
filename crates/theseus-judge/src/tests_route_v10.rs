@@ -297,6 +297,7 @@ fn the_cases_hold_the_designs_counts_and_ids() {
     // then the owner's 2026-11-03 rulings: L10 sonnet -> haiku, and W44 (sonnet) added.
     // Then the owner's 2026-11-14 "A" (the file's VERSION 5): L1, L6 and W2 haiku -> sonnet, and W12 and
     // W28 deepseek_flash -> sonnet, after the vendor's price made no model cheaper than staying there.
+    // Then W14 sonnet -> deepseek_flash: the state no longer carries its data rule, so it is W11's state.
     let counts: BTreeMap<String, u32> = model_counts(&s);
     let n = |m: &str| counts[m];
     assert_eq!(
@@ -307,7 +308,7 @@ fn the_cases_hold_the_designs_counts_and_ids() {
             n("fable"),
             n("deepseek_flash")
         ),
-        (16, 29, 12, 4, 1)
+        (16, 28, 12, 4, 2)
     );
     // The `must` cases: fourteen in the design, W40 being a daemon test.
     let must: Vec<&str> = s
