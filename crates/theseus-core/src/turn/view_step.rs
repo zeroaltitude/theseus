@@ -302,9 +302,8 @@ impl TurnRunner {
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
         let wrong = self.memory.labeled(store)?;
-        let said = crate::copies::since::Since::new(store, &wrong);
         let (window, mut sessions, window_read) =
-            window_of((store, &read, sid), &a, &pov, (turn, &said), renderer.zone)?;
+            window_of((store, &read, sid), &a, &pov, (turn, &wrong), renderer.zone)?;
         sessions.extend(resolved.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -707,9 +706,11 @@ fn window_of(
     (store, read, sid): (&Store, &Sessions, &str),
     a: &Assembled,
     pov: &PointOfView,
-    (turn, said): (&str, &crate::copies::since::Since<'_>),
+    (turn, wrong): (&str, &std::collections::BTreeSet<String>),
     zone: crate::recall::stamp::ZoneAt<'_>,
 ) -> anyhow::Result<(Transcript, Vec<String>, Vec<String>)> {
+    // What has been said since, read once for the whole window: every node is laid through it.
+    let said = &crate::copies::since::Since::new(store, wrong);
     let here: HashMap<&str, Form> = (a.view.shown.iter())
         .filter(|s| s.piece.slot == Slot::Here)
         .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
@@ -740,7 +741,7 @@ fn window_of(
         let nodes = labelled(store, nodes, pov, at, zone);
         let handle = Handle(e.turn_id.clone());
         window.extend(match form {
-            Form::Whole => crate::quoted::said_beside(said, nodes)?,
+            Form::Whole => said.lay(nodes)?,
             Form::Spoken => bounded(nodes, &handle),
             Form::Line => as_line((store, read), nodes, &handle)?,
         });

@@ -7,6 +7,10 @@
 //!   pays for an exchange, `turn.inspect`, `node.list`, a session's page and publish read the rendering first
 //!   ([`laid`], [`shown`]). `tests::no_reader_reads_content_of_a_parts_result` lists every reader of a
 //!   result's `content` and why it may read it.
+//! - **What has been said since.** A rendering says it per quote (`quotes::render`): an erased quote's words
+//!   blank alone, and a quoted source marked wrong has its line once. The window then lays every node through
+//!   `Since::lay` with the same `Since`, which reads a result kept by reference by its parts, not its copy
+//!   edges, so it adds only the result's own mark; the result keeps its parts, which is how it is known.
 //! - **Frozen within a turn.** A provider binds a thinking block to every byte before it, so nothing is
 //!   rendered again within a turn: the window's results are rendered when the view is frozen, and the turn's
 //!   own once, at the first call that lays them, kept on the turn's view ([`freeze`]) and laid as they are by
@@ -130,19 +134,6 @@ pub fn lay_window(
                 out.push((p, Stub::from(with_text(&n, &r.text))));
             }
             None => out.push((p, n)),
-        }
-    }
-    Ok(out)
-}
-
-/// `nodes` with what has been said since beside each (`Since::lay`), but a result kept by reference: its
-/// rendering already carries it (`quotes::render`).
-pub fn said_beside(since: &Since<'_>, nodes: Vec<(u64, Stub)>) -> Result<Vec<(u64, Stub)>> {
-    let mut out = Vec::with_capacity(nodes.len());
-    for (p, n) in nodes {
-        match n.kind == Kind::ToolResult && holds_parts(&n) {
-            true => out.push((p, n)),
-            false => out.extend(since.lay(vec![(p, n)])?),
         }
     }
     Ok(out)

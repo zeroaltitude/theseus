@@ -120,7 +120,7 @@ fn an_own_result_not_rendered_lays_the_fixed_line() {
 }
 
 /// The window lays a result kept by reference as its rendering, keeps the node it read, and lays nothing more
-/// beside it; an old result with its words reads as it always did.
+/// beside it when nothing was said since; an old result with its words reads as it always did.
 #[test]
 fn the_window_lays_the_rendering_and_an_old_result_as_stored() {
     let (_d, s) = store();
@@ -133,7 +133,7 @@ fn the_window_lays_the_rendering_and_an_old_result_as_stored() {
     ]);
     let mut read = Vec::new();
     let laid = lay_window(&s, nodes, &since, &mut read).unwrap();
-    let laid = said_beside(&since, laid).unwrap();
+    let laid = since.lay(laid).unwrap();
     let text = |i: usize| crate::view::text::forms::result_text(&laid[i].1).unwrap();
     assert_eq!((text(0), text(1)), (page_text(), "as said".to_string()));
     assert_eq!(read, vec![id]);
@@ -161,6 +161,40 @@ fn an_erase_drops_the_turns_rendering_and_the_next_shows_the_line() {
     assert!(again.read.is_empty());
 }
 
+/// One of the turn's own results kept by reference whose ONE quoted message of two was erased before the turn
+/// rendered it lays that quote as the erased line and the other with its words (issue 49): the turn's own
+/// results are rendered as the window's are, quote by quote.
+#[test]
+fn an_own_result_blanks_only_its_erased_quote() {
+    let (_d, s) = store();
+    let (id, at) = source(&s);
+    let tern = Node::user("ses_weir", Some("t1"), "cli", "the tern nests by the mill");
+    let tern_at = put(&s, &tern);
+    let mut parts = page_parts(&id, at);
+    parts.push(Part::Code("\n- ".into()));
+    parts.push(Part::Quote(Quote {
+        node: tern.id,
+        position: tern_at,
+        field: Field::Text,
+        from: 0,
+        to: 26,
+        form: Form::Flat1,
+    }));
+    let n = page("t1", "c1", parts);
+    let (_, m) = s.get_node(&id).unwrap().unwrap();
+    put(&s, &m.erased(1, "a test"));
+    let mut f = frozen("t1", &[]);
+    freeze(&s, &mut f, &stubs(std::slice::from_ref(&n)), || {
+        Ok(BTreeSet::new())
+    })
+    .unwrap();
+    let laid = own_laid(Stub::from(n), &f);
+    assert_eq!(
+        crate::view::text::forms::result_text(&laid).unwrap(),
+        format!("- {ERASED_QUOTE} \u{b7} t0\n- the tern nests by the mill")
+    );
+}
+
 /// A reader outside a conversation (inspect, a node's page, publish) shows the rendering; a node with no parts
 /// as it is.
 #[test]
@@ -186,7 +220,7 @@ const READERS: &[&str] = &[
     "compiler/view.rs 2 the laid nodes: a turn's own head, a receipt",
     "content.rs 1 the content judge at entry, on what the writer wrote",
     "copies.rs 1 the old results' rule; parts ask their parts (R5)",
-    "copies/since.rs 3 old results only: `said_beside` passes parts by",
+    "copies/since.rs 3 old results only: a parts result is read by its parts (R5)",
     "fact/tool.rs 2 the end event and its narration, at write",
     "flow/run.rs 1 a flow step's command result: to defer",
     "judge/gate.rs 1 reads of files and pages, never kept by reference",
