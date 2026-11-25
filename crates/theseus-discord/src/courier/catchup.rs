@@ -189,6 +189,12 @@ impl Lane {
         let Some((since_ms, began_ms)) = self.catchup.outage else {
             return Ok(());
         };
+        // The operator lane has no place of its own to fold into: each of its
+        // posts goes on its own, to the DM or the notices place.
+        if self.kind == "operator" {
+            self.catchup.outage = None;
+            return Ok(());
+        }
         let silent = self.silent();
         let posts: Vec<(Action, Line)> = self
             .shared
