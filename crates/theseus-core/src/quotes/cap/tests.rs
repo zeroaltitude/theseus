@@ -10,6 +10,8 @@ use crate::quotes::render_with;
 use crate::quotes::tests_oracle::{each_found, inside, knowing, Draw, VALUES};
 use crate::scrub::oracle::{encodings, spans_of};
 
+mod lines;
+
 /// Fields by node id, read whole, as a store reads a quote's field at its position.
 struct Fields(HashMap<String, String>);
 
@@ -204,7 +206,7 @@ fn a_cut_inside_an_opens_line_keeps_its_margin_as_code_and_its_words_as_line1() 
         shown,
         "\u{2502} first line\n\u{2502}  second\n\u{2502} third"
     );
-    let head = tidy(within(&whole, bytes, 0..23));
+    let head = tidy(within(&whole, bytes, 0..23, &Cuts::none()));
     assert_eq!(
         head,
         vec![
@@ -213,7 +215,7 @@ fn a_cut_inside_an_opens_line_keeps_its_margin_as_code_and_its_words_as_line1() 
             q(11, 15, Form::Line1),
         ]
     );
-    let tail = tidy(within(&whole, bytes, 23..shown.len()));
+    let tail = tidy(within(&whole, bytes, 23..shown.len(), &Cuts::none()));
     assert_eq!(
         tail,
         vec![
@@ -232,7 +234,7 @@ fn a_cut_inside_an_opens_line_keeps_its_margin_as_code_and_its_words_as_line1() 
         ..whole
     };
     let shown = Form::Margin1.apply(bytes);
-    let head = tidy(within(&whole, bytes, 0..18));
+    let head = tidy(within(&whole, bytes, 0..18, &Cuts::none()));
     assert_eq!(
         head,
         vec![
