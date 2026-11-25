@@ -102,6 +102,7 @@ fn server_cfg(read: &[&str]) -> McpServerConfig {
         env: Default::default(),
         url: None,
         auth_secret: None,
+        oauth: None,
         read: read.iter().map(|s| s.to_string()).collect(),
         sandbox: Default::default(),
         egress: vec![],

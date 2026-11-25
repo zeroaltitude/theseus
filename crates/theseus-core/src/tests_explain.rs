@@ -59,6 +59,7 @@ fn with_mcp(cfg: &mut crate::Config) {
             env: Default::default(),
             url: None,
             auth_secret: None,
+            oauth: None,
             read: vec![],
             sandbox: Default::default(),
             egress: vec![],

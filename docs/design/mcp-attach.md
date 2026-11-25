@@ -12,6 +12,7 @@ and `crates/theseus-core/src/mcp/attached.rs`.
 - "Attach the word counter: run `wc-server --lines`." Theseus calls `mcp.attach` with `name` and `command` (the program
   and each argument as its own list entry; there is no shell line), or `url` for a server over HTTP, and optionally
   `read` (the tools the owner says are read-only), `env` (variable to the NAME of a `[secrets]` entry), `auth_secret`,
+  `oauth` (issue 55: a server that signs in in a browser; the card says to run `theseus mcp login NAME` after the yes),
   `sandbox` and `egress`.
 - One card: the server's name; exactly what will run (the argument list as a JSON list, so an argument with a space
   or a `;` stays one argument), and whether it runs in the sandbox or OUTSIDE it; each tool the trial listed, with its

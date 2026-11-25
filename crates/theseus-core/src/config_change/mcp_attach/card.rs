@@ -143,7 +143,12 @@ pub fn fits(s: &McpServerConfig) -> Result<(), String> {
         .flat_map(|(k, v)| [k, v])
         .chain(s.egress.iter())
         .chain(s.read.iter())
-        .chain(s.auth_secret.iter());
+        .chain(s.auth_secret.iter())
+        .chain(
+            s.oauth
+                .iter()
+                .flat_map(|o| o.client_id.iter().chain(o.scopes.iter())),
+        );
     if let Some(e) = entries
         .into_iter()
         .find(|e| lit(e).chars().count() > ENTRY_CHARS)
@@ -233,11 +238,50 @@ fn secrets(s: &McpServerConfig) -> String {
     }
 }
 
+/// Whether the trial was refused for want of a sign-in: HTTP 401.
+fn refused_sign_in(t: &Tried) -> bool {
+    t.error
+        .as_deref()
+        .is_some_and(|e| e.starts_with("HTTP 401"))
+}
+
+/// How it signs in (issue 55), and what the owner does next: said before the
+/// yes. A server asked for with no sign-in whose trial was refused for want
+/// of one is told so, with what to ask instead.
+fn sign_in(name: &str, t: &Tried, s: &McpServerConfig) -> String {
+    match &s.oauth {
+        Some(o) => {
+            let mut out = format!(
+                "Sign-in: it signs in in a browser. After your yes, run `theseus mcp login {name}` \
+                 in your own terminal and sign in once; until then it is attached but not \
+                 connected. What the sign-in gives is kept and renewed by Theseus itself, never \
+                 in this conversation.\n"
+            );
+            if let Some(id) = &o.client_id {
+                out.push_str(&format!("Its sign-in uses the client id {}.\n", lit(id)));
+            }
+            if !o.scopes.is_empty() {
+                out.push_str(&format!("It asks for the scopes {}.\n", lits(&o.scopes)));
+            }
+            out
+        }
+        None if refused_sign_in(t) && s.auth_secret.is_none() => format!(
+            "The trial was refused for want of a sign-in (HTTP 401). As asked, it has no \
+             sign-in, so it would be attached but would not connect. Ask for it again with a \
+             sign-in (`oauth`); then, after your yes, run `theseus mcp login {name}`.\n"
+        ),
+        None => String::new(),
+    }
+}
+
 /// The tools the trial listed: every name whole, the first few with a line of
 /// their description.
 fn tools(t: &Tried, s: &McpServerConfig) -> Result<String, String> {
     if let Some(e) = &t.error {
         let needs = match s.secrets().next() {
+            _ if s.oauth.is_some() => {
+                "Tools: not listed. It signs in first, and the trial does not sign in."
+            }
             Some(_) => {
                 "Tools: not listed. It needs its secret to start, and the trial gives it none, \
                  or it could not start."
@@ -362,15 +406,22 @@ pub fn attach(f: &Facts<'_>) -> Result<String, String> {
         out.push_str(&super::super::source::line(said));
     }
     out.push_str(&tools(f.tried, f.server)?);
+    out.push_str(&sign_in(f.name, f.tried, f.server));
     out.push_str(&read_only(f.tried, f.server));
     out.push_str(&secrets(f.server));
     out.push_str(&hosts(f.server));
     out.push_str(external(f.server));
     out.push_str(trial_line(f.tried));
-    out.push_str(
-        "Its tools are offered from your next message, with no restart. It can be removed again \
-         by asking.\n",
-    );
+    out.push_str(match f.server.oauth.is_some() {
+        true => {
+            "Its tools are offered once you have signed in, with no restart. It can be removed \
+             again by asking.\n"
+        }
+        false => {
+            "Its tools are offered from your next message, with no restart. It can be removed \
+             again by asking.\n"
+        }
+    });
     out.push_str(
         "Attaching a server can give it secrets and a network, so this needs a second proof as \
          well as your yes.\n",
