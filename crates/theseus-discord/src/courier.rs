@@ -878,7 +878,8 @@ impl Lane {
         let text = body["text"].as_str().unwrap_or("").to_string();
         let (channel, extra) = match kind {
             "content_flag" => {
-                let (channel, place) = self.informed(kind, body, &text, (here, self.target.clone()));
+                let (channel, place) =
+                    self.informed(kind, body, &text, (here, self.target.clone()));
                 (channel, json!({"place": place}))
             }
             _ => (here, json!({})),

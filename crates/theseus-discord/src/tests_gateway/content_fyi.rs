@@ -140,8 +140,11 @@ async fn under_notify_the_flag_is_an_fyi_in_the_notices_place_and_its_remove_cou
     assert!(notices(&r, ANA_DM).is_empty(), "not also in the DM");
 
     let p = r.press(&m.id, "Remove", (BEN, "ben"));
-    r.until("ben is refused", told(&r, &p, "🔐 Your removal did not count"))
-        .await;
+    r.until(
+        "ben is refused",
+        told(&r, &p, "🔐 Your removal did not count"),
+    )
+    .await;
     assert!(carrying(&r, &sid));
     r.press(&m.id, "Remove", (ANA, "ana"));
     r.until("the label is removed", || !carrying(&r, &sid))
@@ -168,6 +171,9 @@ async fn under_refuse_the_flag_stays_in_the_dm() {
         m.versions
     );
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert!(notices(&r, NOTICES).is_empty(), "nothing in the notices place");
+    assert!(
+        notices(&r, NOTICES).is_empty(),
+        "nothing in the notices place"
+    );
     r.stop();
 }

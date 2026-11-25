@@ -147,7 +147,11 @@ impl Core {
         // of its own kind, which goes to the owner's notices place when one is bound, with its
         // Remove button. Under `refuse` it needs him and keeps the session's place.
         if (l.flag, mode) == (Flag::Injection, InjectionMode::Notify) {
-            let title = rec.label.clone().filter(|t| !t.is_empty()).or(rec.title.clone());
+            let title = rec
+                .label
+                .clone()
+                .filter(|t| !t.is_empty())
+                .or(rec.title.clone());
             body["kind"] = json!(FLAG_FYI);
             body["text"] = json!(crate::owner_note::note(
                 crate::owner_note::Kind::Fyi,

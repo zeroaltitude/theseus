@@ -150,7 +150,11 @@ mod tests {
             assert_eq!((o.key(), o.button()), ('a', "Approve and clear"));
             assert_eq!(o.option().id, APPROVE_GRANT);
             assert_eq!(o.option().label, "Approve and clear");
-            assert!(o.option().effect.starts_with("the call runs, and "), "{:?}", o.option());
+            assert!(
+                o.option().effect.starts_with("the call runs, and "),
+                "{:?}",
+                o.option()
+            );
         }
         assert!(GrantOffer::clear(true).words.contains("flag"));
         assert!(GrantOffer::clear(false).words.contains("outside"));

@@ -296,7 +296,8 @@ fn the_form_in_the_dm_keeps_the_value_and_the_value_is_found_nowhere_else() {
     assert!(id.starts_with("kf:act_"), "{id}");
     // The value is the one field: the form takes no code.
     assert!(
-        !rendered.contains("\"custom_id\":\"code\"") && rendered.contains("\"custom_id\":\"value\""),
+        !rendered.contains("\"custom_id\":\"code\"")
+            && rendered.contains("\"custom_id\":\"value\""),
         "{rendered}"
     );
     r.fake

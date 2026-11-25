@@ -314,8 +314,10 @@ fn a_cleared_holds_card_says_what_its_third_answer_does() {
     );
     assert!(!c.content.contains("/trust"), "{}", c.content);
     assert!(
-        c.content.contains("**Approve** runs this one call · **Approve and clear** runs it and \
-                            clears the flag (what it flagged stays here) · **Decline** refuses it"),
+        c.content.contains(
+            "**Approve** runs this one call · **Approve and clear** runs it and \
+                            clears the flag (what it flagged stays here) · **Decline** refuses it"
+        ),
         "{}",
         c.content
     );

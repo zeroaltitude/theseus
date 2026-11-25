@@ -189,7 +189,11 @@ const PREVIEW_ROWS: usize = 12;
 pub fn offer_line(o: &theseus_protocol::grants::GrantOffer) -> String {
     if o.kind == theseus_protocol::grants::KIND_CLEAR {
         // A held look's other yes (issue 54): what clearing does, in its own words.
-        return format!("  [{}] approve, and {}", o.key(), o.words.trim_start_matches("yes, and "));
+        return format!(
+            "  [{}] approve, and {}",
+            o.key(),
+            o.words.trim_start_matches("yes, and ")
+        );
     }
     format!(
         "  [{}] approve the plan, and accept edits: file edits here run with a notice",

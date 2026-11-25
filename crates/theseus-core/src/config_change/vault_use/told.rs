@@ -58,7 +58,11 @@ const SECRET_KEY: &str = "where a secret is read from";
 /// the settings file still points where its use pointed it, its reference, and what reads it.
 /// Names and references only.
 pub(crate) fn waiting(w: &super::super::Where) -> Vec<String> {
-    let told = w.told.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let told = w
+        .told
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
     let Some(file) = w.file.as_ref().filter(|_| !told.is_empty()) else {
         return Vec::new();
     };
@@ -76,7 +80,9 @@ pub(crate) fn waiting(w: &super::super::Where) -> Vec<String> {
         }
         let readers = super::given_to(&written, name);
         out.push(match readers.is_empty() {
-            true => format!("the secret `{name}` is read from {reference}, and nothing reads it yet"),
+            true => {
+                format!("the secret `{name}` is read from {reference}, and nothing reads it yet")
+            }
             false => format!(
                 "the secret `{name}` is read from {reference} by {}",
                 readers.join(" and ")
@@ -114,7 +120,10 @@ pub(crate) fn note_text(
         false => format!("Given to: {}.", readers.join("; ")),
     };
     let was = before.map_or(String::new(), |b| {
-        format!(" It was re-pointed: until now `{}` was read from {b}.", used.name)
+        format!(
+            " It was re-pointed: until now `{}` was read from {b}.",
+            used.name
+        )
     });
     crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
@@ -228,5 +237,8 @@ pub(super) fn put_told(
             false => format!("read by {}", readers.join("; ")),
         }
     );
-    Ok((said, json!({"settings": settings.len(), "told": true, "change": number})))
+    Ok((
+        said,
+        json!({"settings": settings.len(), "told": true, "change": number}),
+    ))
 }

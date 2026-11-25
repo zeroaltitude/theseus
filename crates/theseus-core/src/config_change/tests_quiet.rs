@@ -147,7 +147,11 @@ async fn at_the_default_each_tool_runs_unasked_and_the_owner_is_told_once() {
         r.steps(&sid, vec![(wire, input.clone()), (wire, input.clone())])
             .await;
         ran(&r, &sid);
-        assert!(r.asked().iter().all(|q| q.tool != tool), "{tool}: {:?}", r.asked());
+        assert!(
+            r.asked().iter().all(|q| q.tool != tool),
+            "{tool}: {:?}",
+            r.asked()
+        );
         let told = notes(&r);
         assert_eq!(told.len(), 1, "{tool}: one note for the span: {told:?}");
         assert!(told[0].contains("flagged"), "{}", told[0]);
@@ -159,14 +163,29 @@ async fn at_the_default_each_tool_runs_unasked_and_the_owner_is_told_once() {
         }
         guest(&r);
         let sid = r.session();
-        r.steps(&sid, vec![read_guest(), (wire, input.clone()), (wire, input)])
-            .await;
+        r.steps(
+            &sid,
+            vec![read_guest(), (wire, input.clone()), (wire, input)],
+        )
+        .await;
         ran(&r, &sid);
-        assert!(r.asked().iter().all(|q| q.tool != tool), "{tool}: {:?}", r.asked());
+        assert!(
+            r.asked().iter().all(|q| q.tool != tool),
+            "{tool}: {:?}",
+            r.asked()
+        );
         let told = notes(&r);
         assert_eq!(told.len(), 1, "{tool}: {told:?}");
-        assert!(told[0].contains("from history"), "the source is named: {}", told[0]);
-        assert!(!told[0].contains(GUEST), "none of what it said: {}", told[0]);
+        assert!(
+            told[0].contains("from history"),
+            "the source is named: {}",
+            told[0]
+        );
+        assert!(
+            !told[0].contains(GUEST),
+            "none of what it said: {}",
+            told[0]
+        );
         assert!(!told[0].contains("layer 1"), "{}", told[0]);
         assert!(
             told[0].contains("outside = \"ask\""),
@@ -213,15 +232,25 @@ fn the_note_says_the_cause_where_it_came_from_and_the_setting() {
     assert!(crate::owner_note::is_headed(&n), "{n}");
     assert!(n.contains("\"Trip planning\""), "{n}");
     assert!(n.contains("history:ses_1"), "{n}");
-    assert!(!n.contains("secret") && !n.contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "{n}");
-    assert!(n.contains("look at what Theseus runs as, and nothing was held"), "{n}");
+    assert!(
+        !n.contains("secret")
+            && !n.contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "{n}"
+    );
+    assert!(
+        n.contains("look at what Theseus runs as, and nothing was held"),
+        "{n}"
+    );
     assert!(n.contains("until your next message"), "{n}");
     let f = hold::note_text(
         None,
         &Cause::Flag("http.fetch https://x.example.test/p?k=v".into()),
         "read Theseus's own settings",
     );
-    assert!(f.contains("flagged") && f.contains("until the flag is cleared"), "{f}");
+    assert!(
+        f.contains("flagged") && f.contains("until the flag is cleared"),
+        "{f}"
+    );
     assert!(!f.contains("k=v") && !f.contains("layer 1"), "{f}");
 }
 
@@ -258,15 +287,30 @@ fn the_hold_counts_from_a_cleared_result() {
         n.id = id.into();
         n
     };
-    let nodes = |v: Vec<Node>| v.into_iter().enumerate().map(|(i, n)| (i as u64, n)).collect::<Vec<_>>();
+    let nodes = |v: Vec<Node>| {
+        v.into_iter()
+            .enumerate()
+            .map(|(i, n)| (i as u64, n))
+            .collect::<Vec<_>>()
+    };
     let read = result("a", Some("https://pages.example.test/guide"), &Value::Null);
     let clear = result("b", None, &cleared);
     let later = result("c", Some("https://pages.example.test/guide"), &Value::Null);
     assert!(super::outside_since_owner(&nodes(vec![read.clone()])));
-    assert!(!super::outside_since_owner(&nodes(vec![read.clone(), clear.clone()])));
-    assert!(super::outside_since_owner(&nodes(vec![read.clone(), clear, later])));
+    assert!(!super::outside_since_owner(&nodes(vec![
+        read.clone(),
+        clear.clone()
+    ])));
+    assert!(super::outside_since_owner(&nodes(vec![
+        read.clone(),
+        clear,
+        later
+    ])));
     let own = result("d", Some("https://pages.example.test/guide"), &cleared);
-    assert!(super::outside_since_owner(&nodes(vec![read, own])), "its own mark counts");
+    assert!(
+        super::outside_since_owner(&nodes(vec![read, own])),
+        "its own mark counts"
+    );
 }
 
 /// At `ask` the card offers "Approve and clear" for the flag; its press removes the flag as
@@ -288,14 +332,23 @@ async fn at_ask_the_flags_clear_removes_it_and_a_later_call_is_free() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     let q = &asks[0];
     assert_eq!(q.grant_offer, Some(GrantOffer::clear(true)));
-    assert!(q.options.iter().any(|o| o.label == "Approve and clear"), "{:?}", q.options);
+    assert!(
+        q.options.iter().any(|o| o.label == "Approve and clear"),
+        "{:?}",
+        q.options
+    );
     let answer = GrantAnswer {
         pattern: CLEAR_FLAG.into(),
     };
 
     let e = r
         .core
-        .confirm_granting(&q.correlation_id, None, crate::test_support::stranger(), &answer)
+        .confirm_granting(
+            &q.correlation_id,
+            None,
+            crate::test_support::stranger(),
+            &answer,
+        )
         .expect_err("a stranger's press");
     assert!(!format!("{e:#}").is_empty());
     assert!(flag_of(&r, &sid), "the flag stays");
@@ -308,11 +361,22 @@ async fn at_ask_the_flags_clear_removes_it_and_a_later_call_is_free() {
         .unwrap();
     assert!(done.approved);
     assert!(!flag_of(&r, &sid), "the press removed the flag");
-    assert!(!r.rows("content.removed").is_empty(), "removed as /trust removes it");
+    assert!(
+        !r.rows("content.removed").is_empty(),
+        "removed as /trust removes it"
+    );
     continue_turn(&r, &sid).await;
     assert_eq!(r.result(&sid).0, ResultStatus::Ok);
-    assert_eq!(r.result_of(&sid, "p2").0, ResultStatus::Ok, "the later call ran");
-    assert!(r.asked().is_empty(), "the later call is free: {:?}", r.asked());
+    assert_eq!(
+        r.result_of(&sid, "p2").0,
+        ResultStatus::Ok,
+        "the later call ran"
+    );
+    assert!(
+        r.asked().is_empty(),
+        "the later call is free: {:?}",
+        r.asked()
+    );
 }
 
 /// At `ask`, outside text's card offers "Approve and clear"; its press ends the hold as if the
@@ -407,7 +471,10 @@ async fn an_unknown_outside_is_refused_at_a_settings_change() {
     .await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Error, "{text}");
-    assert!(text.contains("do not load") && text.contains("loud"), "{text}");
+    assert!(
+        text.contains("do not load") && text.contains("loud"),
+        "{text}"
+    );
     assert!(r.asked().is_empty());
     let e = format!(
         "{:#}",
