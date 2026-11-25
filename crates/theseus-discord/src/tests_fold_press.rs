@@ -210,13 +210,11 @@ async fn a_press_waits_for_the_lanes_held_write_and_opposing_presses_agree() {
 #[tokio::test]
 async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
     let r = rig(
-        |dir| {
-            std::fs::create_dir_all(dir.join("work")).unwrap();
-            let missing = dir.join("work").join("missing.txt");
+        |_| {
             vec![
                 Scripted::tools(
                     "",
-                    &[("m1", "fs_read", json!({"path": missing.to_string_lossy()}))],
+                    &[("m1", "proc_run", json!({"argv": ["sh", "-c", "exit 3"]}))],
                 ),
                 Scripted::text("No such chart."),
             ]
@@ -226,8 +224,8 @@ async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
     .await;
     // The fold's create waits at Discord, applied but unanswered: the lane
     // holds the turn's later updates of it meanwhile.
-    r.fake.hold_writes_containing(Some("-# 1 step: 1 read"));
-    r.say((ANA, "ana"), None, "Read the missing chart.");
+    r.fake.hold_writes_containing(Some("-# 1 step: 1 command"));
+    r.say((ANA, "ana"), None, "Run the failing count.");
     r.until("the fold's create held, and the turn ended", || {
         !folds(&r, ANA_DM).is_empty()
             && !r.ledger("turn.ended").is_empty()
@@ -247,13 +245,17 @@ async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
     })
     .await;
     r.until("the fold open", || {
-        message(&r, ANA_DM, &f.id).content.contains("`fs.read`")
+        message(&r, ANA_DM, &f.id).content.contains("`proc.run`")
     })
     .await;
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let m = message(&r, ANA_DM, &f.id);
-    assert!(m.content.contains("`fs.read`"), "still open: {m:#?}");
-    assert_eq!(labels(&m), ["Hide steps"], "{m:#?}");
+    assert!(m.content.contains("`proc.run`"), "still open: {m:#?}");
+    assert_eq!(
+        labels(&m).last().map(String::as_str),
+        Some("Hide steps"),
+        "{m:#?}"
+    );
 }
 
 /// While the place's lane waits out Discord, a press is told so, alone, and
@@ -458,7 +460,15 @@ async fn a_fold_pressed_for_another_places_turn_edits_nothing() {
 async fn a_non_member_may_press_a_fold_but_not_its_control_and_an_unbound_place_answers_nothing()
 {
     let r = rig(
-        |dir| vec![reads(dir, "lab", 2), Scripted::text("Read.")],
+        |_| {
+            vec![
+                Scripted::tools(
+                    "",
+                    &[("c1", "proc_run", json!({"argv": ["sh", "-c", "echo lab"]}))],
+                ),
+                Scripted::text("Read."),
+            ]
+        },
         "private = true\n",
     )
     .await;
@@ -467,7 +477,7 @@ async fn a_non_member_may_press_a_fold_but_not_its_control_and_an_unbound_place_
         r.posted(LAB).iter().any(|m| m.content.contains("Read."))
             && folds(&r, LAB)
                 .first()
-                .is_some_and(|f| f.content == "-# 2 steps: 2 reads")
+                .is_some_and(|f| f.content == "-# 1 step: 1 command")
             && r.core.outbox.status("discord").pending == 0
     })
     .await;
@@ -478,12 +488,12 @@ async fn a_non_member_may_press_a_fold_but_not_its_control_and_an_unbound_place_
         .expect("a notified call's control on the fold");
     r.press(&f.id, "Show steps", (CY, "cy"));
     r.until("open, by cy", || {
-        message(&r, LAB, &f.id).content.contains("`fs.read`")
+        message(&r, LAB, &f.id).content.contains("`proc.run`")
     })
     .await;
     r.press(&f.id, "Hide steps", (CY, "cy"));
     r.until("closed, by cy", || {
-        message(&r, LAB, &f.id).content == "-# 2 steps: 2 reads"
+        message(&r, LAB, &f.id).content == "-# 1 step: 1 command"
     })
     .await;
     let pressed = r.press(&f.id, &control, (CY, "cy"));
@@ -499,7 +509,7 @@ async fn a_non_member_may_press_a_fold_but_not_its_control_and_an_unbound_place_
     );
     let posted: Value = reqwest::Client::new()
         .post(url)
-        .json(&json!({"content": "-# 2 steps: 2 reads", "components": [{"type": 1, "components": [
+        .json(&json!({"content": "-# 1 step: 1 command", "components": [{"type": 1, "components": [
             {"type": 2, "style": 2, "custom_id": format!("fold:o:0:{}", turn_of(&f)), "label": "Show steps"}]}]}))
         .send()
         .await

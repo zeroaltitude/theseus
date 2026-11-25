@@ -46,6 +46,23 @@ fn turn(dir: &Path, word: &str) -> Vec<Scripted> {
     ]
 }
 
+/// A loop that thinks, says a line and runs a notified command, whose
+/// "Should I have asked?" control rides on its fold; then the answer.
+fn command_turn(word: &str) -> Vec<Scripted> {
+    vec![
+        Scripted::Blocks {
+            blocks: vec![
+                json!({"type": "thinking", "thinking": format!("The {word} chart is a command away."), "signature": "sig"}),
+                json!({"type": "text", "text": format!("Reading the {word} chart.")}),
+                json!({"type": "tool_use", "id": format!("c_{word}"), "name": "proc_run",
+                    "input": {"argv": ["sh", "-c", format!("echo {word}")]}}),
+            ],
+            stop_reason: "tool_use".into(),
+        },
+        Scripted::text(&format!("Low tide by the {word} chart is at 06:12.")),
+    ]
+}
+
 async fn rig(script: impl FnOnce(&Path) -> Vec<Scripted>, file: &str) -> Rig {
     Rig::start_on(
         |dir, _| Arc::new(FakeProvider::scripted(script(dir))),
@@ -163,26 +180,27 @@ async fn each_half_of_a_fold_shows_only_under_its_word() {
 /// Set to hide both, it shows nothing, and a press opens nothing.
 #[tokio::test]
 async fn a_live_change_to_hide_a_half_reaches_an_old_fold() {
-    let r = rig(|dir| turn(dir, "dm"), &bindings("", "")).await;
+    let r = rig(|_| command_turn("dm"), &bindings("", "")).await;
     exchange(&r, None, "dm").await;
     r.until("the DM's fold, closed", || {
         folds(&r, ANA_DM)
             .first()
-            .is_some_and(|f| f.content.ends_with(" · 1 step: 1 read"))
+            .is_some_and(|f| f.content.ends_with(" · 1 step: 1 command"))
     })
     .await;
     let f = folds(&r, ANA_DM).remove(0);
     assert!(labels(&f).len() > 1, "a notified call's control: {f:#?}");
     r.press(&f.id, "Show steps", (ANA, "ana"));
-    r.until("open, with its tool line", || {
-        message(&r, ANA_DM, &f.id).content.contains("`fs.read`")
+    r.until("open, with its tool line and its control", || {
+        let m = message(&r, ANA_DM, &f.id);
+        m.content.contains("`proc.run`") && labels(&m).len() > 1
     })
     .await;
 
     rebind(&r, &bindings("", "show_tools = false\n")).await;
     r.until("the open fold without its tool line", || {
         let m = message(&r, ANA_DM, &f.id);
-        !m.content.contains("fs.read") && m.content.starts_with("-# 💭 thought for ")
+        !m.content.contains("proc.run") && m.content.starts_with("-# 💭 thought for ")
     })
     .await;
     assert_eq!(labels(&message(&r, ANA_DM, &f.id)), ["Hide steps"]);
@@ -198,12 +216,12 @@ async fn a_live_change_to_hide_a_half_reaches_an_old_fold() {
         labels(&message(&r, ANA_DM, &f.id)) == ["Hide steps"]
     })
     .await;
-    assert!(!message(&r, ANA_DM, &f.id).content.contains("fs.read"));
+    assert!(!message(&r, ANA_DM, &f.id).content.contains("proc.run"));
 
     rebind(&r, &bindings("", "show_tools = false\nshow_thinking = false\n")).await;
     r.until("the fold shows nothing of either", || {
         let m = message(&r, ANA_DM, &f.id);
-        !m.content.contains("💭") && !m.content.contains("fs.read") && labels(&m) == ["Show steps"]
+        !m.content.contains("💭") && !m.content.contains("proc.run") && labels(&m) == ["Show steps"]
     })
     .await;
     let closed = message(&r, ANA_DM, &f.id);
