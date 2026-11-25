@@ -640,6 +640,7 @@ pub(crate) fn not_run_results(
                 image: None,
                 external: None,
                 payload: None,
+                parts: Vec::new(),
             },
         );
         out.push(node.record()?);

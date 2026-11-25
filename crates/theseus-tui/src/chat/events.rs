@@ -115,10 +115,10 @@ impl Chat {
                 Vec::new()
             }
             Purpose::WorkWatch => {
-                match serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
-                    Ok(r) => self.work_snapshot(r),
-                    Err(_) => Vec::new(),
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
+                    self.work_snapshot(r);
                 }
+                Vec::new()
             }
             Purpose::Context | Purpose::Cost => self.said_usage(&purpose, v),
             Purpose::Mode => {
@@ -131,6 +131,7 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Welcome => self.welcome_said(v),
+            Purpose::Look => self.look_said(&v),
             // `AtRoots` is taken before this match (`at_roots`), and so is `Why`
             // (`why_got`): these two arms never run. A re-route of either through
             // here must call its handler, not do nothing.
@@ -162,6 +163,7 @@ impl Chat {
             // if one is re-routed, `why_got`'s Err path must run instead.
             Purpose::Typing
             | Purpose::Welcome
+            | Purpose::Look
             | Purpose::AtRoots
             | Purpose::Why(_)
             | Purpose::Recover(..) => Vec::new(),
@@ -433,6 +435,7 @@ impl Chat {
     pub fn notified(&mut self, method_name: &str, params: &Value) -> Vec<Effect> {
         let mut effects = self.notified_one(method_name, params);
         effects.extend(self.release_queue());
+        effects.extend(self.look_due());
         effects
     }
 

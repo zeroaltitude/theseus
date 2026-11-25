@@ -73,6 +73,7 @@ mod digest_google;
 mod forecast;
 mod grants;
 mod judge_latency;
+mod look;
 mod memory_read;
 mod money;
 mod never;
@@ -160,6 +161,8 @@ mod tests_lists;
 mod tests_live_pin;
 #[cfg(test)]
 mod tests_live_release;
+#[cfg(test)]
+mod tests_look;
 #[cfg(test)]
 mod tests_money;
 #[cfg(test)]

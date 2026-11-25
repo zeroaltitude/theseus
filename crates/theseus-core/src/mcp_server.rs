@@ -389,6 +389,7 @@ mod tests {
         method::WORK_UNWATCH,
         method::WORK_AGENDA,
         method::WORK_DIGEST,
+        method::WORK_LOOK,
         method::WORK_PEEK,
         method::JOB_STOP,
         method::ACTION_OUTPUT,

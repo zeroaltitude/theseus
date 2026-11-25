@@ -173,7 +173,9 @@ impl Core {
 
     pub fn node_info(position: u64, n: &Node) -> theseus_protocol::NodeInfo {
         let (text, thinking, detail, bytes) = match &n.body {
-            Body::UserMessage { text, attachments } => {
+            Body::UserMessage {
+                text, attachments, ..
+            } => {
                 // What the node holds: the typed text and the text kept of each file.
                 let bytes = text.len() as u64
                     + attachments

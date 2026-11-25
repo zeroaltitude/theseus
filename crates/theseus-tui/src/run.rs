@@ -334,6 +334,7 @@ impl<B: Backend> Runner<B> {
                 // On the way out, what was seen is written (design §2.9).
                 Effect::Quit => {
                     self.quit = true;
+                    self.last_look().await;
                     if let Some(Effect::Save(path, text)) = self.app.save() {
                         self.save(&path, &text);
                     }
@@ -369,6 +370,18 @@ impl<B: Backend> Runner<B> {
     fn write(&mut self, bytes: &[u8]) {
         if !bytes.is_empty() {
             let _ = self.out.write_all(bytes).and_then(|()| self.out.flush());
+        }
+    }
+
+    /// The look on the way out (issue 46), waited for a moment so it reaches
+    /// the daemon before the connection closes.
+    async fn last_look(&mut self) {
+        let (Some(Effect::Call(c)), Some(conn)) = (self.app.last_look(), self.conn.as_mut()) else {
+            return;
+        };
+        let look = conn.call(c.method, c.params, |_, _| {});
+        if let Ok(Ok(v)) = tokio::time::timeout(Duration::from_millis(500), look).await {
+            self.app.look_said(v);
         }
     }
 

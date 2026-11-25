@@ -182,6 +182,7 @@ pub(crate) fn session(core: &Core, read: Option<PageRead>) -> String {
                 url: "http://site.test/page.html".into(),
             }),
             payload: None,
+            parts: Vec::new(),
         };
         let node = crate::node::Node::tool_result(&rec.session_id, None, None, body);
         core.store.append(&[node.record().unwrap()]).unwrap();

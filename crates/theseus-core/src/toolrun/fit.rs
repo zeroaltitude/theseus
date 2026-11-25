@@ -129,7 +129,7 @@ impl ToolRuntime {
     pub(super) fn fit_noted<'a>(&self, mut r: ResultNode<'a>) -> ResultNode<'a> {
         let keep = r.status == ResultStatus::Background;
         if let Some(note) = self.fit_notes.get(r.tool_use_id, keep) {
-            r.text = format!("{note}\n{}", r.text);
+            r.text = format!("{}{}", super::noted(&note), r.text);
         }
         r
     }
