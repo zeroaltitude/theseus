@@ -1464,7 +1464,12 @@ impl Sharing {
 
     /// A trash (`t`) or restore, the file's state read before it: what it
     /// tells the owner, which his Undo puts back exactly (issue 57).
-    async fn trash(&self, g: &Google, t: bool, rows: &mut Vec<Value>) -> Result<Value, ToolFailure> {
+    async fn trash(
+        &self,
+        g: &Google,
+        t: bool,
+        rows: &mut Vec<Value>,
+    ) -> Result<Value, ToolFailure> {
         let id = self.id.as_str();
         let was = match super::take_back::drive_trashed(g, rows, SHARE, id).await {
             Ok(Some(w)) => w,
