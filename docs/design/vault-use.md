@@ -40,12 +40,21 @@ for `config.propose`) the other settings that should read that name: a provider'
 4. **reads the reference once, as a start will, and keeps nothing**: the proof that the item and field are there, that the
    account can read them, and that the field holds something. A failure is told by class (`Failed`), never in the program's
    words, and makes no card.
-5. puts the whole change to the owner as **one card** (`config_change::put_using`, the path every settings change takes):
-   the item and field as the owner would say them, that the daemon read it just now, the name it is kept under, **what
-   is given it** (every setting in the loaded settings that reads that name: "the provider `lantern` (its key)", "the
-   program `deployer` (its variable `DEPLOY_KEY`)"), then each setting before and after, the restart, and the second proof
-   (a secret's source is on the sensitive list). After the yes the card's own restart applies it; the new secret resolves
-   at that start.
+5. **writes it and tells the owner, when the use changes only the secret's own entry (new, or pointed at another item)
+   and settings that come to read it** (issue 54; `vault_use/told.rs`): the previous file is kept as a numbered copy, the
+   file is written whole, a `config.changed` row records it (`approved_by` "told: the owner's own turn", `told: true`), and
+   one FYI note to the owner names the item and field, the name, what reads it, that it takes effect at the next restart
+   (nothing here restarts Theseus; only the owner does), and the undo: `config.undo` of that change number, which puts back
+   each setting the use touched, byte for byte. No card, no second proof.
+6. **otherwise puts the whole change to the owner as one card** (`config_change::put_using`, the path every settings change
+   takes): when `also` sets anything else (a provider's address beside its key, which is where the value would be sent,
+   or a setting that has nothing to do with the secret). The card says the item and field as the owner would say them,
+   that the daemon read it just now, the name it is kept under, **what is given it** (every setting in the loaded settings
+   that reads that name: "the provider `lantern` (its key)", "the program `deployer` (its variable `DEPLOY_KEY`)"), then
+   each setting before and after and the restart. The secret's own entry and the settings that read it ask no second proof
+   ("using a secret must not ask for 2fa", the owner, 2026-11-25); any other sensitive setting `also` reaches keeps its
+   own (`config_change::sensitive_of`). After the yes the card's own restart applies it; the new secret resolves at that
+   start.
 
 **A vault reference is never written by a turn.** `config.propose` (and `also`) refuse a change that writes a `[secrets]`
 entry that is not `env:` or `file:`, in words that point to `vault.use`. Before this, a proposal could write any string
@@ -56,10 +65,11 @@ earlier card showed. `also` may not write `[secrets]`: the tool writes that entr
 ## Who may, and what an injected turn can do
 
 The wall is the settings tools' (`wall.rs`): the owner's own turn in a private place, never a job, a task, the self loop, an
-MCP client's session or a shared place. **When the turn has read text from outside since the owner's last message, the call
-is asked at the gate before the daemon reads anything from the vault** (`vault_use::ask_if_outside`): a tricked turn must
-not use the call to learn which items or fields exist or can be read. The tool is in `routine::grant::NEVER`. It changes
-nothing by itself: the owner's yes, with the second proof, does.
+MCP client's session or a shared place. **When the turn has read text from outside since the owner's last message, or
+carries the `injection` flag**, `[content_based_security] outside` decides (issue 54): at `"notify"`, the default, the call
+goes on and the owner is told once in an FYI note; at `"ask"` it is asked at the gate before the daemon reads anything from
+the vault (`vault_use::ask_if_outside`), with Approve and Decline only. The tool is in `routine::grant::NEVER`. A use that is
+told changes the settings file and nothing else: it takes effect at the next restart, which only the owner starts.
 
 The tool has no field that carries a value, and its description and the family's always-seen summary say that a secret is
 used by its name, that its value is never asked for, and that the vault's program in a shell has no session by design.

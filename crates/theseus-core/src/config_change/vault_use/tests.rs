@@ -195,21 +195,19 @@ async fn a_field_in_a_section_is_written_with_its_section() {
     r.turn_with("vault_use", &sid, input).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    let asks = r.asked();
-    assert_eq!(asks.len(), 1, "{asks:?}");
+    let asks = use_notes(&r);
+    assert_eq!(asks.len(), 1, "told, not asked: {asks:?}");
     assert!(
         asks[0]
-            .reason
             .contains("field \"backup code\", in the section \"Recovery\""),
         "{}",
-        asks[0].reason
+        asks[0]
     );
     assert!(asks[0]
-        .reason
         .contains("op://Harbor/Lantern key/Recovery/backup code"));
     assert!(logged(&dir)
         .contains(&"read --no-newline op://Harbor/Lantern key/Recovery/backup code".to_string()));
-    assert!(asks[0].reason.contains("Nothing is given it yet"));
+    assert!(asks[0].contains("Nothing is given it yet"));
 }
 
 /// Two items of one title are not guessed between: their ids are given, and
@@ -244,16 +242,15 @@ async fn a_name_with_a_slash_is_written_by_its_id() {
     r.turn_with("vault_use", &sid, input).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    let asks = r.asked();
-    assert_eq!(asks.len(), 1, "{asks:?}");
+    let asks = use_notes(&r);
+    assert_eq!(asks.len(), 1, "told, not asked: {asks:?}");
     assert!(
         asks[0]
-            .reason
             .contains("read from op://Harbor/itemid00000000000000000001/apikey"),
         "{}",
-        asks[0].reason
+        asks[0]
     );
-    assert!(asks[0].reason.contains("written by the vault's own ids"));
+    assert!(asks[0].contains("written by the vault's own ids"));
     assert!(logged(&dir)
         .contains(&"read --no-newline op://Harbor/itemid00000000000000000001/apikey".to_string()));
     assert!(!everything(&r, &sid).contains(VALUE));
@@ -580,16 +577,15 @@ async fn a_shared_title_is_written_by_the_id_that_was_asked_for() {
     r.turn_with("vault_use", &sid, input).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    let asks = r.asked();
-    assert_eq!(asks.len(), 1, "{asks:?}");
+    let asks = use_notes(&r);
+    assert_eq!(asks.len(), 1, "told, not asked: {asks:?}");
     assert!(
         asks[0]
-            .reason
             .contains("read from op://Harbor/itemid00000000000000000009/credential"),
         "{}",
-        asks[0].reason
+        asks[0]
     );
-    assert!(asks[0].reason.contains("written by the vault's own ids"));
+    assert!(asks[0].contains("written by the vault's own ids"));
     assert!(logged(&dir).contains(
         &"read --no-newline op://Harbor/itemid00000000000000000009/credential".to_string()
     ));
@@ -637,8 +633,7 @@ async fn a_shared_field_label_is_written_by_its_id() {
         assert!(logged(&dir).contains(&want), "{asked}: {:?}", logged(&dir));
         let by_id = id != "keyword";
         assert_eq!(
-            r.asked()[0]
-                .reason
+            use_notes(&r)[0]
                 .contains("written by the vault's own ids"),
             by_id,
             "{asked}"
@@ -721,4 +716,176 @@ async fn a_published_address_beside_a_vault_secret_is_on_the_one_card_with_its_s
         2,
         "under each setting of the table (the address and the key's name): {card}"
     );
+}
+
+/// The owner's notes that a secret was put to use, or pointed elsewhere.
+fn use_notes(r: &Rig) -> Vec<String> {
+    r.core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(str::to_string))
+        .filter(|t| t.starts_with("ℹ️ FYI · Theseus p"))
+        .collect()
+}
+
+/// A use that only adds the secret's entry is written by the daemon with no question put, by the
+/// path a card's yes takes, and the owner is told once: the item, the field, the name, what reads
+/// it, that it waits for a restart, and the undo. The value is in no result, note, record or file.
+#[tokio::test]
+async fn an_adding_use_is_written_and_told_with_no_question() {
+    let (r, dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(json!([]))).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert!(r.asked().is_empty(), "no question: {:?}", r.asked());
+    assert!(
+        r.file_text()
+            .contains("lantern_key = \"op://Harbor/Lantern key/credential\""),
+        "{}",
+        r.file_text()
+    );
+    let told = use_notes(&r);
+    assert_eq!(told.len(), 1, "{told:?}");
+    for part in [
+        "ℹ️ FYI · Theseus put a secret from the vault to use",
+        "The item \"Lantern key\", field \"credential\", in the vault \"Harbor\", is kept under the name `lantern_key`, read from op://Harbor/Lantern key/credential.",
+        "Nothing is given it yet.",
+        "It takes effect when Theseus next restarts; nothing restarts it but you.",
+        "Undo: ask Theseus to undo settings change",
+    ] {
+        assert!(told[0].contains(part), "{part} in {}", told[0]);
+    }
+    let rows = r.rows("config.changed");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!((rows[0]["told"].as_bool(), rows[0]["restart"].as_bool()), (Some(true), Some(false)));
+    let all = format!("{text}{told:?}{}{}", everything(&r, &sid), r.file_text());
+    assert!(!all.contains(VALUE), "the value reached a record");
+    assert!(
+        logged(&dir).contains(&"read --no-newline op://Harbor/Lantern key/credential".to_string()),
+        "{:?}",
+        logged(&dir)
+    );
+}
+
+/// A use that points an existing secret at another vault item is told too, and the undo the note
+/// names puts the settings file back byte for byte.
+#[tokio::test]
+async fn a_repointing_use_is_told_and_its_undo_puts_the_file_back_exactly() {
+    use crate::config_change::{edit, history, undo};
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    let mut c = call(json!([]));
+    c["name"] = json!("anthropic_api_key");
+    r.turn_with("vault_use", &sid, c).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert!(r.asked().is_empty(), "{:?}", r.asked());
+    let after = r.file_text();
+    assert_ne!(after, crate::config_change::tests::FILE);
+    let told = use_notes(&r);
+    assert!(told[0].contains("pointed a secret at another vault item"), "{told:?}");
+    let n = r.rows("config.changed")[0]["previous_copy"].as_u64().unwrap() as u32;
+    assert!(told[0].contains(&format!("undo settings change {n}")), "{told:?}");
+    let rows = history::rows(&r.core.store);
+    let entries = history::entries(&rows, &r.state, Some(&r.file), history::SHOWN);
+    let planned = undo::plan(&entries, Some(n), &after).unwrap();
+    let back = edit::apply(&after, &planned.changes).unwrap();
+    assert_eq!(back, crate::config_change::tests::FILE, "byte for byte");
+}
+
+/// A use that also sets a provider's address keeps ONE card, since the address is where the value
+/// would be sent; the address keeps its own second proof, and the secret and its reader ask none.
+#[tokio::test]
+async fn a_use_that_sets_where_the_value_goes_keeps_one_card() {
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(provider())).await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(asks[0].needs_proof, "the address keeps its proof");
+    assert!(
+        asks[0].reason.contains("need a second proof as well as your yes: providers.lantern.api_base ("),
+        "{}",
+        asks[0].reason
+    );
+    for own in ["secrets.lantern_key (", "providers.lantern.api_key_secret ("] {
+        assert!(!asks[0].reason.contains(own), "{own}: {}", asks[0].reason);
+    }
+    assert_eq!(r.file_text(), crate::config_change::tests::FILE);
+    assert!(use_notes(&r).is_empty());
+}
+
+/// The wall is unchanged: a task's session and a shared place are refused, and nothing is written
+/// or told.
+#[tokio::test]
+async fn a_told_use_keeps_the_wall() {
+    let (r, dir, _d) = rig_vault("ok");
+    let parent = r.session();
+    let mut rec =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    rec.task = Some(crate::session::TaskOf {
+        parent_session: parent,
+        parent_execution: "exe_x".into(),
+        by: "tool_x".into(),
+        target: None,
+        arrangement: None,
+        check: None,
+        notify_done: false,
+    });
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.turn_with("vault_use", &rec.session_id, call(json!([]))).await;
+    assert_eq!(r.result(&rec.session_id).0, ResultStatus::Error);
+    let shared = r.session_at("channel:314159265358979323");
+    r.turn_with("vault_use", &shared, call(json!([]))).await;
+    assert_ne!(r.result(&shared).0, ResultStatus::Ok);
+    assert_eq!(r.file_text(), crate::config_change::tests::FILE);
+    assert!(use_notes(&r).is_empty());
+    assert!(logged(&dir).is_empty(), "the vault was not read");
+}
+
+/// At `[content_based_security] outside = "notify"` a flagged turn's use is not held first: it is
+/// told, as the looks are. At `ask` the hold's card comes first, with two answers only.
+#[tokio::test]
+async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
+    use crate::content::{Flag, OutsideMode};
+    for outside in [OutsideMode::Notify, OutsideMode::Ask] {
+        let (r, dir, _d) = rig_vault_at("ok", outside);
+        let sid = r.session();
+        crate::test_support::label_session(&r.core, &sid, Flag::Injection);
+        r.turn_with("vault_use", &sid, call(json!([]))).await;
+        let asks = r.asked();
+        match outside {
+            OutsideMode::Notify => {
+                assert!(asks.is_empty(), "{asks:?}");
+                assert_eq!(use_notes(&r).len(), 1);
+            }
+            OutsideMode::Ask => {
+                assert_eq!(asks.len(), 1, "{asks:?}");
+                assert_eq!(asks[0].tool, USE);
+                assert_eq!(asks[0].grant_offer, None, "no third answer");
+                assert!(logged(&dir).is_empty(), "the vault was not read yet");
+            }
+        }
+    }
+}
+
+/// A use whose `also` reaches a sensitive setting that does not read the secret keeps that
+/// setting's second proof: only the secret and what reads it lose theirs.
+#[tokio::test]
+async fn a_use_that_also_reaches_a_sensitive_setting_keeps_its_proof() {
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with(
+        "vault_use",
+        &sid,
+        call(json!([{"path": "policy.enforcement", "value": "approve"}])),
+    )
+    .await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(asks[0].needs_proof, "policy keeps its proof");
+    assert!(asks[0].reason.contains("second proof"), "{}", asks[0].reason);
+    assert!(!asks[0].reason.contains("secrets.lantern_key ("), "{}", asks[0].reason);
 }

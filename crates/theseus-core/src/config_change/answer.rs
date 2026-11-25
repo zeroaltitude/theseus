@@ -18,7 +18,7 @@ use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
 use super::restart::{self, Pending, Stage};
-use super::{diff, proof_seam, sensitive, write};
+use super::{diff, proof_seam, write};
 use crate::config_copy::sha256;
 use crate::fact::answer::CallAnswered;
 use crate::ledger::LedgerRow;
@@ -207,7 +207,7 @@ impl Core {
             .map(drop)
             .map_err(|e| format!("the candidate no longer loads: {e:#}"))?;
         let settings = diff::between(&now, &candidate)?;
-        let sens = sensitive(&[], &settings);
+        let sens = super::sensitive_of(&[], &settings, args["secret"]["name"].as_str());
         // An attached or removed MCP server is always sensitive, whatever the
         // table says (`mcp_attach`), and only its own table may change.
         let server = super::mcp_attach::at_yes(args, &settings)?;

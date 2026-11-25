@@ -508,6 +508,28 @@ pub(crate) fn sensitive(
     out
 }
 
+/// [`sensitive`], for a change that uses the vault's secret `used` when it names one: the secret's
+/// own entry and the settings that come to read it ask no second proof (issue 54, "using a secret
+/// must not ask for 2fa"); any other sensitive setting the change reaches keeps its own. Read
+/// where the card is asked and again at its yes.
+pub(crate) fn sensitive_of(
+    changes: &[edit::Change],
+    settings: &[diff::Setting],
+    used: Option<&str>,
+) -> Vec<(String, String)> {
+    let all = sensitive(changes, settings);
+    let Some(name) = used else {
+        return all;
+    };
+    all.into_iter()
+        .filter(|(p, _)| {
+            !settings
+                .iter()
+                .any(|x| edit::dotted(&x.path) == *p && vault_use::told::ours(x, name))
+        })
+        .collect()
+}
+
 /// Run `config.propose` for the call `correlation_id` of the turn `tc`: build
 /// the candidate, check it loads, and ask. An error is the result the model
 /// reads.
@@ -612,7 +634,8 @@ pub(crate) fn put_using(
         vault_use::refuse_other_references(&settings, secret)?;
     }
     let long = too_big(&settings)?;
-    let needs = proof_seam::Needs::of(!sensitive(changes, &settings).is_empty(), &settings);
+    let sens = sensitive_of(changes, &settings, secret.map(|s| s.name.as_str()));
+    let needs = proof_seam::Needs::of(!sens.is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
         settings: &settings,
@@ -621,6 +644,7 @@ pub(crate) fn put_using(
         reason,
         wait_secs: RESTART_WAIT_SECS,
         sources,
+        used: secret.map(|s| s.name.as_str()),
     };
     let question = match (undoes, secret) {
         (Some(u), _) => {

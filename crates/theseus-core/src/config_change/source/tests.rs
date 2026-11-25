@@ -27,6 +27,7 @@ fn card(settings: &[Setting], sources: &[Sourced], outside: bool) -> String {
         reason: "the owner asked",
         wait_secs: 120,
         sources,
+        used: None,
     })
 }
 

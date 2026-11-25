@@ -25,6 +25,9 @@ pub struct Facts<'a> {
     /// What the model said of where it found a setting's value: shown under
     /// that setting as its word, never as a check (`source.rs`).
     pub sources: &'a [super::source::Sourced],
+    /// The vault's secret a `vault.use` card gives to use: its own entry and what comes to read it
+    /// need no second proof (issue 54).
+    pub used: Option<&'a str>,
 }
 
 /// What a card says of text read from outside: the same words for every card
@@ -206,6 +209,7 @@ fn lines(f: &Facts<'_>) -> String {
     let sensitive: Vec<String> = f
         .settings
         .iter()
+        .filter(|s| !f.used.is_some_and(|n| super::vault_use::told::ours(s, n)))
         .filter_map(|s| {
             sensitivity::reason(&s.path)
                 .map(|why| format!("{} ({why})", super::edit::dotted(&s.path)))
@@ -265,6 +269,7 @@ mod tests {
             reason: "you said to turn the notes import off",
             wait_secs: 120,
             sources: &[],
+            used: None,
         });
         assert!(q.starts_with("Change 1 setting?\n"), "{q}");
         assert!(
@@ -298,6 +303,7 @@ mod tests {
             reason: "",
             wait_secs: 60,
             sources: &[],
+            used: None,
         });
         assert!(
             q.contains(
@@ -341,6 +347,7 @@ mod tests {
             reason: "a\nb  c",
             wait_secs: 1,
             sources: &[],
+            used: None,
         });
         assert_eq!(q.matches("\n- ").count(), LISTED, "{q}");
         assert!(q.contains("\"a b c\""), "{q}");
@@ -366,6 +373,7 @@ mod tests {
             reason: "r",
             wait_secs: 1,
             sources: &[],
+            used: None,
         });
         assert_eq!(q.matches("\n- ").count(), 1, "{q}");
         let reasons = q
@@ -385,6 +393,7 @@ mod tests {
             reason: "",
             wait_secs: 1,
             sources: &[],
+            used: None,
         });
         assert!(
             q.contains("since your last message") && !q.contains("steer"),
@@ -397,6 +406,7 @@ mod tests {
             reason: "",
             wait_secs: 1,
             sources: &[],
+            used: None,
         });
         assert!(q.contains("trying to steer it"), "{q}");
     }

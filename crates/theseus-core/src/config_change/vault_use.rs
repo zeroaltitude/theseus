@@ -36,6 +36,7 @@ use crate::toolrun::{ToolRuntime, TurnCtx};
 pub(crate) mod check;
 #[cfg(test)]
 mod tests;
+pub mod told;
 
 pub use check::Checked;
 
@@ -319,6 +320,11 @@ pub async fn run(
         Value::String(used.checked.reference.clone()),
     )];
     changes.extend(also);
+    // Only the secret's entry and what comes to read it: told, not asked (issue 54).
+    let candidate = edit::apply(&base, &changes)?;
+    if told::tells(&diff::between(&base, &candidate)?, &used.name) {
+        return told::put_told(rt, tc, correlation_id, &base, &changes, &used);
+    }
     super::put_using(
         rt,
         tc,
