@@ -327,7 +327,7 @@ fn a_piece_of_a_look_back_stores_no_words_of_its_messages() {
         Part::Code("\n".into()),
         quote_of(&said, s_at, Field::ReplyText, SAID, Form::Margin1),
     ]);
-    let t = transcript(&s, &[look.clone()]);
+    let t = transcript(&s, std::slice::from_ref(&look));
     let a = input(json!({"pieces": [{"node": look.id, "role": "objective"}]}));
     let pieces = resolve_shown(&s, &a, &t, None, &Cuts::none()).unwrap();
     assert!(
