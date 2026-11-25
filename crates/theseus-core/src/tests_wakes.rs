@@ -330,10 +330,7 @@ async fn a_wake_after_two_seconds_runs_a_turn_with_its_note_and_not_before() {
         n.created_at_ms - w.due_at_ms
     );
     let set = crate::wake::local(w.set_at_ms).hm();
-    assert_eq!(
-        node_text(n),
-        format!("⏰ wake (set {set}): {ORDER}")
-    );
+    assert_eq!(node_text(n), format!("⏰ wake (set {set}): {ORDER}"));
     until("the wake turn's reply", 10, || replies(&l.core).len() == 2).await;
     let reply = replies(&l.core).pop().unwrap();
     assert_eq!(reply["wakes"][0]["wake_id"], w.id);
