@@ -66,7 +66,9 @@ pub fn note(tasks: &[TaskRecord], project: &TaskRecord, m: &TaskRecord, overdue:
     };
     let text = format!("{lead}: {}, milestone {n}: {}", project.title, m.title);
     debug_assert!(text.starts_with(MILESTONE_MARK));
-    text.chars().take(MAX_NOTE_CHARS).collect()
+    crate::scrub::safe::head(&text, MAX_NOTE_CHARS)
+        .0
+        .to_string()
 }
 
 /// What a sync did, for the caller's row or test.

@@ -199,6 +199,7 @@ pub fn one_line(s: &str, most: usize, cuts: &Cuts) -> String {
         return flat(s).trim().to_string();
     }
     let mut at = most.saturating_sub(MORE.len()).min(keep);
+    // plain cut: a budget only; `cuts.before` below sets where the text ends
     while !s.is_char_boundary(at) {
         at -= 1;
     }

@@ -297,6 +297,7 @@ fn clip_kept(s: &str, max: usize, cuts: &Cuts) -> (String, std::ops::Range<usize
     let head = &s[..kept];
     let one = clip1(head);
     let one = one.trim();
+    // plain cut: a budget only; `cuts.before` below sets where the line ends
     match one.char_indices().nth(max) {
         Some((at, _)) => {
             let p = cuts.before(one, at);

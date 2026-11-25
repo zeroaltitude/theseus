@@ -174,9 +174,10 @@ fn one(dir: &Path, name: &str) -> Result<String, String> {
     let p = dir.join(plain_name(name)?);
     let bytes = std::fs::read(&p).map_err(|_| format!("`{name}` is not in the listing"))?;
     let text = String::from_utf8_lossy(&bytes);
-    Ok(match text.char_indices().nth(MAX_BYTES) {
-        Some((at, _)) => format!("{}\n[cut at {MAX_BYTES} characters]", &text[..at]),
-        None => text.into_owned(),
+    let (head, cut) = crate::scrub::safe::head(&text, MAX_BYTES);
+    Ok(match cut {
+        true => format!("{head}\n[cut at {MAX_BYTES} characters]"),
+        false => text.into_owned(),
     })
 }
 

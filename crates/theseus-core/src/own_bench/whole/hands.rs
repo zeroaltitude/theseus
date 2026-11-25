@@ -253,10 +253,10 @@ impl<'a> Hands<'a> {
         if text.chars().count() <= self.result_max {
             return text;
         }
-        let kept: String = text.chars().take(self.result_max).collect();
+        let (kept, _) = crate::scrub::safe::head(&text, self.result_max);
         format!(
             "{kept}\n[cut: {} characters left out of this replayed result]",
-            text.chars().count() - self.result_max
+            text.chars().count() - kept.chars().count()
         )
     }
 

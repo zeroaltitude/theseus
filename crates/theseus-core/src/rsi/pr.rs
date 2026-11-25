@@ -782,9 +782,31 @@ fn committed(p: &Place, t: &Tree, subject: &str, body: String) -> anyhow::Result
 
 /// The commit's subject: the change's first line, then the item.
 fn subject(i: &Input) -> String {
-    let first = i.why.trim().lines().next().unwrap_or("").trim();
-    let first: String = first.chars().take(64).collect();
-    format!("self: {} ({})", first.trim_end_matches('.'), i.item.trim())
+    let why = i.why.trim();
+    let first = why.lines().next().unwrap_or("").trim_end();
+    let cuts = crate::scrub::Cuts::live();
+    let (first, _) = crate::scrub::safe::head_with(&cuts, first, 64);
+    // The trimmed end is checked again on the whole text, until it rests: a
+    // known value may end in a period, or run past the first line.
+    let mut at = first.len();
+    loop {
+        let end = cuts.before(why, why[..at].trim_end_matches('.').len());
+        if end == at {
+            break;
+        }
+        at = end;
+    }
+    format!("self: {} ({})", &why[..at], i.item.trim())
+}
+
+/// [`subject`] of an input with `item` and `why`, for the core's tests.
+#[cfg(test)]
+pub(crate) fn subject_for_tests(item: &str, why: &str) -> String {
+    subject(&Input {
+        item: item.into(),
+        issue: String::new(),
+        why: why.into(),
+    })
 }
 
 /// What the attempt does with the gate's outcome: go on with the run, or end

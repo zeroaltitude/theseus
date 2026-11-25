@@ -76,12 +76,7 @@ fn clean(s: &str) -> String {
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
-    let t = one_line.trim();
-    if t.chars().count() > MAX_NAME_CHARS {
-        format!("{}…", t.chars().take(MAX_NAME_CHARS).collect::<String>())
-    } else {
-        t.to_string()
-    }
+    crate::scrub::safe::head_marked(one_line.trim(), MAX_NAME_CHARS)
 }
 
 /// `5,012 bytes` under a mebibyte, `1.2 MB` from there.
@@ -93,17 +88,10 @@ pub fn size_words(n: u64) -> String {
     }
 }
 
-/// The start of `s` that fits in `max` bytes, cut on a character boundary,
-/// and whether anything was cut.
+/// The start of `s` that fits in `max` bytes, cut on a character boundary
+/// and before any known value, and whether anything was cut.
 pub fn cut_to(s: &str, max: usize) -> (&str, bool) {
-    if s.len() <= max {
-        return (s, false);
-    }
-    let mut end = max;
-    while !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    (&s[..end], true)
+    crate::scrub::safe::head_bytes(s, max)
 }
 
 fn from_words(author: Option<&str>) -> String {

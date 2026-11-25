@@ -45,7 +45,7 @@ pub(crate) const ENDED_WHY: &str = "no longer needed: the build it belonged to h
 /// What `theseus self pipeline` says of a build parked on `what`: the answer's command first, since
 /// the view cuts a long line from its end.
 pub(super) fn waiting_words(what: &str, id: &str) -> String {
-    let what: String = what.chars().take(110).collect();
+    let what = crate::scrub::safe::head(what, 110).0;
     format!(
         "waiting on you: {what} (answer it with `theseus answer {}`)",
         crate::task::short(id)

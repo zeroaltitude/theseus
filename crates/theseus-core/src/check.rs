@@ -639,6 +639,7 @@ pub fn overlaps(sources: &[(String, String)], against: &[(&str, String)]) -> Vec
             held.entry(window(w)).or_insert(k);
         }
     }
+    let cuts = crate::scrub::Cuts::live();
     let mut out = Vec::new();
     for (name, text) in sources {
         let w = words(text);
@@ -656,10 +657,7 @@ pub fn overlaps(sources: &[(String, String)], against: &[(&str, String)]) -> Vec
             }
             let last = j + OVERLAP_WORDS - 1;
             let span = &text[w[i].start..w[last].end];
-            let mut cut: String = span.chars().take(SPAN_CHARS).collect();
-            if span.chars().count() > SPAN_CHARS {
-                cut.push('…');
-            }
+            let cut = crate::scrub::safe::head_marked_with(&cuts, span, SPAN_CHARS);
             out.push(CheckOverlap {
                 source: name.clone(),
                 node_id: against[k].0.to_string(),

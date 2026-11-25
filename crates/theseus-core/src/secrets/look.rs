@@ -228,10 +228,7 @@ pub fn clean(s: &str) -> String {
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
     let folded = one.split_whitespace().collect::<Vec<_>>().join(" ");
-    match folded.chars().count() > MAX_NAME {
-        true => format!("{}…", folded.chars().take(MAX_NAME).collect::<String>()),
-        false => folded,
-    }
+    crate::scrub::safe::head_marked(&folded, MAX_NAME)
 }
 
 fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {

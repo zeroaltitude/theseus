@@ -472,12 +472,7 @@ fn find<'n>(
     sources: &[(&'n Node, String)],
 ) -> Result<(&'n Node, String), Refused> {
     let q = normalize(quote);
-    let shown: String = q.chars().take(60).collect();
-    let shown = if q.chars().count() > 60 {
-        format!("{shown}…")
-    } else {
-        shown
-    };
+    let shown = crate::scrub::safe::head_marked(&q, 60);
     let chars = q.chars().filter(|c| !c.is_whitespace()).count();
     if chars < MIN_QUOTE_CHARS {
         let whole: Vec<String> = sources

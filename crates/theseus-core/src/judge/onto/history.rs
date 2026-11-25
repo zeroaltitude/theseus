@@ -19,6 +19,29 @@
 //!   message opened it; of those, the ones whose author no record proves (no
 //!   person, no mark) are counted apart, with how many are where `onto` does
 //!   not act now. Counts only: none of them is asked.
+//! - **His declaration** (issue 51; `include_unmarked`): no mark proves
+//!   who typed a message from before marks were recorded, so none of his
+//!   older history is proven his. A run that carries his declaration counts
+//!   as his an exchange whose opening message has no mark at all and
+//!   arrived, by the place code stored on it as it arrived
+//!   (`surface::code_of`), in one of his own places: his terminal (its ask
+//!   and its TUI), the web UI, his DM, a channel bound private. The code
+//!   `discord:dm` is written for every bound DM, so a DM counts only where
+//!   the exchange's recorded place is a DM whose person is an owner now
+//!   (`PlaceRule::owners`); one whose recorded place does not show that (the
+//!   rebuild's `unknown`, another person's DM) stays out and is counted
+//!   apart. A channel bound private admits its listed members' words too,
+//!   and nothing stored tells theirs from his: it is counted apart, and
+//!   counts. Never a shared channel, voice, a Discord place no record names,
+//!   or a message with no recorded place (from before places were), which
+//!   is counted apart; never a message whose mark proves someone else.
+//!   The exchange's stored person is not written (its words stay "author
+//!   unknown" wherever they are shown); it is asked as a private place's,
+//!   and its row's context says `declared: unmarked`, so what the
+//!   declaration filed can be found and undone: a declared answer's row is
+//!   written before any touch of it. Only a run that carries the
+//!   declaration writes a declared answer's touches again from its row; the
+//!   undo (`undo_declared`, `history_undo.rs`) ends every touch they came to.
 //! - **Touches only.** The ask goes in shadow, so the sink writes its row
 //!   and nothing else: no membership, no category minted, no card, no
 //!   `still_*` answer acted on. The job writes the touches itself, with the
@@ -99,6 +122,9 @@ use crate::store::Store;
 
 /// The `purpose` this job's judgments carry in their context.
 pub const PURPOSE: &str = "history";
+/// What a judgment's context says under `declared` when his declaration,
+/// not a mark, counted its exchange as his.
+pub const DECLARED: &str = "unmarked";
 /// The run's cap when the owner names none.
 pub const CAP_USD: f64 = 10.0;
 
@@ -111,6 +137,31 @@ pub(crate) struct Old {
     pub private: bool,
     /// The opening message's node.
     pub node: String,
+    /// Counted as his by his declaration, not by a mark.
+    pub declared: bool,
+}
+
+/// Where an unmarked opening message arrived, as his declaration reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Arrived {
+    /// His terminal (its ask, its TUI), the web UI, or a DM the stored
+    /// record shows to be his.
+    Own,
+    /// A channel bound private: its listed members' words arrive there too.
+    PrivateChannel,
+    /// A DM no stored record shows to be his.
+    UnshownDm,
+    /// No place recorded on the message.
+    Unplaced,
+    /// A shared channel, voice, MCP, a Discord place no record names.
+    Elsewhere,
+}
+
+impl Arrived {
+    /// What his declaration counts as his.
+    fn declarable(self) -> bool {
+        matches!(self, Arrived::Own | Arrived::PrivateChannel)
+    }
 }
 
 /// The ledger read once: what to ask, this job's earlier answers, and the
@@ -197,11 +248,22 @@ fn onto_touched(store: &Store) -> anyhow::Result<HashSet<String>> {
     Ok(out)
 }
 
-/// This job's answered judgments, by turn: the rows of `onto`'s scope whose
-/// context says `purpose: history`.
+/// This job's answered judgments, by turn.
 fn asked_before(store: &Store) -> anyhow::Result<HashMap<String, Judgment>> {
-    let id = ONTO_PACK.split('.').next().unwrap_or(ONTO_PACK);
     let mut out = HashMap::new();
+    for j in history_rows(store)? {
+        if let Some(turn) = j.context["turn"].as_str() {
+            out.insert(turn.to_string(), j);
+        }
+    }
+    Ok(out)
+}
+
+/// This job's answered judgments, oldest first: the rows of `onto`'s scope
+/// whose context says `purpose: history`, each one.
+pub(super) fn history_rows(store: &Store) -> anyhow::Result<Vec<Judgment>> {
+    let id = ONTO_PACK.split('.').next().unwrap_or(ONTO_PACK);
+    let mut out = Vec::new();
     for r in store.scope_after(&format!("judge:{id}"), 0)? {
         let Ok(row) = r.decode::<LedgerRow>() else {
             continue;
@@ -214,8 +276,8 @@ fn asked_before(store: &Store) -> anyhow::Result<HashMap<String, Judgment>> {
         let Ok(j) = serde_json::from_value::<Judgment>(row.data) else {
             continue;
         };
-        if let (true, Some(turn)) = (j.actionable(), j.context["turn"].as_str()) {
-            out.insert(turn.to_string(), j);
+        if j.actionable() {
+            out.push(j);
         }
     }
     Ok(out)
@@ -303,6 +365,9 @@ impl JudgeService {
             "place_kind": msg.place_kind, "on_path_ms": 0, "class": inbound::class(false),
             "purpose": PURPOSE, "event_at_ms": n.created_at_ms, "onto": answers,
         });
+        if old.declared {
+            context["declared"] = json!(DECLARED);
+        }
         // The arm is recorded; the ask is shadow whatever it says, so the
         // sink files nothing of it.
         let _ = self.ask_mode(&pack.name(), &mut context);
@@ -453,9 +518,22 @@ impl Core {
         if !self.history_drained().await {
             return Err(Busy::Writing.into());
         }
+        if p.undo_declared {
+            anyhow::ensure!(
+                !p.include_unmarked,
+                "--undo-declared undoes your declaration and --include-unmarked makes it: run one \
+                 of them. Nothing was asked or ended"
+            );
+            let core = self.clone();
+            let dry_run = p.dry_run;
+            return theseus_store::blocking(move || core.topics_undo(dry_run));
+        }
         let core = self.clone();
-        let Plan { todo, again, mut r } = theseus_store::blocking(move || core.topics_plan())?;
+        let declare = p.include_unmarked;
+        let Plan { todo, again, mut r } =
+            theseus_store::blocking(move || core.topics_plan(declare))?;
         (r.dry_run, r.cap_usd, r.to_ask) = (p.dry_run, cap_usd, todo.len() as u64);
+        r.include_unmarked = declare;
         if p.dry_run {
             r.worst_usd = micros_to_usd(self.topics_worst(&todo)?);
             return Ok(r);
@@ -490,7 +568,8 @@ impl Core {
                     Stop::Unwritten | Stop::Stopping => left - 1,
                     _ => left,
                 };
-                (r.left, r.stopped) = (left, Some(stopped(&stop, spent, cap_usd, left)));
+                let why = stopped(&stop, spent, (cap_usd, declare), left);
+                (r.left, r.stopped) = (left, Some(why));
                 break;
             }
         }
@@ -498,8 +577,29 @@ impl Core {
         Ok(r)
     }
 
+    /// Where `ex`'s unmarked opening message arrived, by the place code it
+    /// stored (`code`) and, for a DM, by the exchange's recorded place: a
+    /// DM's code is written for every bound DM, so it is his only where that
+    /// place is a DM whose person the place rule holds an owner.
+    fn arrived(&self, ex: &Exchange, code: Option<&str>) -> Arrived {
+        match code {
+            None => Arrived::Unplaced,
+            Some("terminal" | "terminal:ask" | "terminal:tui" | "cockpit") => Arrived::Own,
+            Some("discord:dm") => {
+                let owners = self.runner.place_rule.owners(&self.cfg);
+                match ex.place.strip_prefix("discord:dm:") {
+                    Some(u) if owners.contains(&format!("discord:{u}")) => Arrived::Own,
+                    _ => Arrived::UnshownDm,
+                }
+            }
+            Some(c) if c.starts_with("discord:channel:private:") => Arrived::PrivateChannel,
+            Some(_) => Arrived::Elsewhere,
+        }
+    }
+
     /// The ledger read once, oldest exchange first: see the module's doc.
-    fn topics_plan(&self) -> anyhow::Result<Plan> {
+    /// `declare`: the run carries his declaration.
+    fn topics_plan(&self, declare: bool) -> anyhow::Result<Plan> {
         let touched = onto_touched(&self.store)?;
         let mut before = asked_before(&self.store)?;
         let mut all: Vec<Exchange> = (self.store.inner())
@@ -522,11 +622,42 @@ impl Core {
                     continue;
                 };
                 p.r.not_owner += 1;
-                if ex.person.is_none() && crate::exchange::mark(&self.store, &n.id)?.is_none() {
-                    p.r.unproven += 1;
-                    if !judge.onto_acts(self, &ex.session_id) {
-                        p.r.unproven_not_acting += 1;
+                if ex.person.is_some() || crate::exchange::mark(&self.store, &n.id)?.is_some() {
+                    continue;
+                }
+                p.r.unproven += 1;
+                let acts = judge.onto_acts(self, &ex.session_id);
+                if !acts {
+                    p.r.unproven_not_acting += 1;
+                }
+                let arrived = self.arrived(&ex, n.surface.as_deref());
+                match arrived {
+                    Arrived::Own => p.r.declared += 1,
+                    Arrived::PrivateChannel => {
+                        p.r.declared += 1;
+                        p.r.private_channel += 1;
                     }
+                    Arrived::UnshownDm => p.r.unshown_dm += 1,
+                    Arrived::Unplaced => p.r.unplaced += 1,
+                    Arrived::Elsewhere => {}
+                }
+                if !declare || !arrived.declarable() {
+                    continue;
+                }
+                if let Some(j) = before.remove(&ex.turn_id) {
+                    p.r.asked_before += 1;
+                    p.again.push(j);
+                } else if acts {
+                    p.todo.push(Old {
+                        turn: ex.turn_id,
+                        session: ex.session_id,
+                        place: ex.place,
+                        private: true,
+                        node: n.id,
+                        declared: true,
+                    });
+                } else {
+                    p.r.not_acting += 1;
                 }
             } else if let Some(j) = before.remove(&ex.turn_id) {
                 p.r.asked_before += 1;
@@ -539,6 +670,7 @@ impl Core {
                         place: ex.place,
                         private: ex.private,
                         node: n.id,
+                        declared: false,
                     }),
                     false => p.r.not_acting += 1,
                 }
@@ -604,6 +736,17 @@ impl Core {
         (r.asked, *spent) = (r.asked + 1, *spent + cost);
         if j.actionable() {
             r.answered += 1;
+            // A declared answer's row is written before any touch of it: the
+            // undo finds a declared touch only through that row, so a stop
+            // between the two leaves a row with no touch (which a declared
+            // rerun replays), never a touch with no row.
+            if old.declared {
+                match self.history_written(&j.id).await {
+                    Row::Written => {}
+                    Row::Stopping => return Ok(Some(Stop::Stopping)),
+                    Row::Late => return Ok(Some(Stop::Unwritten)),
+                }
+            }
             if self.runner.judge.onto_acts(self, &old.session) && !self.topics_write(&j, r).await? {
                 return Ok(Some(Stop::Stopping));
             }
@@ -721,13 +864,16 @@ fn no_estimate(stop: &Stop) -> String {
     format!("no estimate: {why}, so a run would ask nothing. Nothing was asked")
 }
 
-/// The words of a stop before an exchange, and how to go on.
-fn stopped(stop: &Stop, spent: Micros, cap_usd: f64, left: u64) -> String {
+/// The words of a stop before an exchange, and how to go on: a run that
+/// carried his declaration (`declare`) goes on with it.
+fn stopped(stop: &Stop, spent: Micros, (cap_usd, declare): (f64, bool), left: u64) -> String {
     let go_on = "run it again to go on from where it stopped";
+    let flag = if declare { " --include-unmarked" } else { "" };
     match stop {
         Stop::Cap(worst) => format!(
             "stopped at the cap: the next exchange's worst case ({}) would pass ${cap_usd} with {} \
-             spent; {left} exchanges left. Go on with: theseus ledger topics --cap-usd <dollars>",
+             spent; {left} exchanges left. Go on with: theseus ledger topics{flag} --cap-usd \
+             <dollars>",
             crate::narrative::dollars(*worst),
             crate::narrative::dollars(spent),
         ),

@@ -152,7 +152,7 @@ impl Run<'_> {
             &self.b.item,
             &classes.join(", "),
             &lines,
-            &stat.chars().take(1_500).collect::<String>(),
+            crate::scrub::safe::head(&stat, 1_500).0,
         ));
         let why = format!(
             "it touches the keel ({}), so it waits on the owner's card",

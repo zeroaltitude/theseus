@@ -17,6 +17,7 @@ pub(crate) fn points(
 ) -> Result<Vec<RewindPoint>> {
     let transcript = store.transcript(session_id)?;
     let edits = rows(store, session_id)?;
+    let cuts = crate::scrub::Cuts::live();
     let mut out = Vec::new();
     for (i, (pos, stub)) in transcript.iter().enumerate().rev() {
         if out.len() >= limit {
@@ -35,11 +36,14 @@ pub(crate) fn points(
             node_id: stub.id.clone(),
             position: *pos,
             at_ms: stub.created_at_ms,
-            text: first_line(text),
-            message: text
-                .chars()
-                .take(theseus_protocol::rewind::MESSAGE_CAP)
-                .collect(),
+            text: first_line(text, &cuts),
+            message: crate::scrub::safe::head_with(
+                &cuts,
+                text,
+                theseus_protocol::rewind::MESSAGE_CAP,
+            )
+            .0
+            .to_string(),
             files: changed_since(&edits, *pos),
             commands: commands_since(&transcript[i + 1..]),
             fork_at: fork_at(&transcript[..i]),
@@ -48,12 +52,9 @@ pub(crate) fn points(
     Ok(out)
 }
 
-fn first_line(text: &str) -> String {
+fn first_line(text: &str, cuts: &crate::scrub::Cuts) -> String {
     let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
-    match line.char_indices().nth(100) {
-        Some((i, _)) => format!("{}…", &line[..i]),
-        None => line.to_string(),
-    }
+    crate::scrub::safe::head_marked_with(cuts, line, 100)
 }
 
 /// One entry for each file the edits after `since` changed.

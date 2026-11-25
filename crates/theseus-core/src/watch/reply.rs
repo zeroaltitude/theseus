@@ -167,12 +167,7 @@ impl Entry {
 /// `text` as a quote: one line, at most `QUOTE_CHARS`.
 pub(super) fn quote_of(text: &str) -> String {
     let one: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let q: String = one.chars().take(QUOTE_CHARS).collect();
-    if q.chars().count() < one.chars().count() {
-        format!("{q}…")
-    } else {
-        q
-    }
+    crate::scrub::safe::head_marked(&one, QUOTE_CHARS)
 }
 
 impl Core {

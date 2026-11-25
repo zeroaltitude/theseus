@@ -726,7 +726,7 @@ pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_pr
             .map(|r| r.days.iter().map(|d| d.as_str().to_string()).collect())
             .unwrap_or_default(),
         until_ms: w.repeat.as_ref().and_then(|r| r.until_ms),
-        title: Some(crate::session::title_from(&w.note, &Cuts::none())).filter(|t| !t.is_empty()),
+        title: Some(crate::session::title_from(&w.note, &Cuts::live())).filter(|t| !t.is_empty()),
         purpose: (!w.purpose.is_check()).then(|| w.purpose.as_str().to_string()),
         run: w.run.is_notice().then(|| "notice".to_string()),
         paused: w.paused_at_ms.is_some(),

@@ -83,13 +83,13 @@ impl Tool for FlowTool {
         Retry::NonRepeatable
     }
 
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+    fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
         let inputs = self.spec.resolve_inputs(input)?;
         let given: Vec<String> = inputs
             .iter()
             .map(|(k, v)| {
                 let t = v.as_str().map_or_else(|| v.to_string(), str::to_string);
-                format!("{k}={}", t.chars().take(60).collect::<String>())
+                format!("{k}={}", ctx.cut.get().head(&t, 60).0)
             })
             .collect();
         Ok(Plan {

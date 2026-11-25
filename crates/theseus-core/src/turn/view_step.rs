@@ -794,6 +794,7 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
         b["type"] == "tool_use" && b["input"].to_string().chars().count() > CALL_INPUT_CHARS
     };
     let (folds, folded) = folds(&nodes, long);
+    let cuts = crate::scrub::Cuts::live();
     let mut out = Vec::new();
     for (p, n) in nodes {
         match &n.body {
@@ -806,7 +807,8 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
                         let id = b["id"].as_str().unwrap_or_default().to_string();
                         let name = b["name"].as_str().unwrap_or_default().to_string();
                         let input = b["input"].to_string();
-                        let head: String = input.chars().take(CALL_INPUT_CHARS / 2).collect();
+                        let (head, _) =
+                            crate::scrub::safe::head_with(&cuts, &input, CALL_INPUT_CHARS / 2);
                         let result = folds.get(&(n.id.clone(), id)).cloned().unwrap_or_default();
                         *b = serde_json::json!({"type": "text", "text": format!(
                             "[earlier call: {name} {head}… ({} characters of input); {result}; open {} for \

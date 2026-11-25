@@ -255,7 +255,12 @@ fn top_file(from: &Path, name: &str, limit: usize, plan: &mut Plan) -> Result<()
         });
         return Ok(());
     }
-    let parts = split::parts(&text, limit);
+    let Some(parts) = split::parts(&text, limit) else {
+        bail!(
+            "{name} cannot be split into parts of {limit} bytes without cutting through a \
+             value the vault knows; nothing was imported"
+        );
+    };
     plan.over.push(OverLimit {
         rel: name.to_string(),
         bytes: text.len() as u64,

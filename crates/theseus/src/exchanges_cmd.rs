@@ -84,31 +84,59 @@ pub async fn gists(conn: &mut Conn, json: bool, p: ExchangeGistsParams) -> Resul
 }
 
 /// `theseus ledger topics`.
-pub async fn topics(
-    conn: &mut Conn,
-    json: bool,
-    dry_run: bool,
-    cap_usd: Option<f64>,
-) -> Result<()> {
-    let p = topics_params(dry_run, cap_usd)?;
-    let v = conn.request(method::EXCHANGE_TOPICS, p).await?;
+pub async fn topics(conn: &mut Conn, json: bool, p: ExchangeTopicsParams) -> Result<()> {
+    let v = conn
+        .request(method::EXCHANGE_TOPICS, topics_request(p.clone())?)
+        .await?;
+    let r = topics_answer(&p, v.clone())?;
     match json {
         true => println!("{}", serde_json::to_string(&v)?),
-        false => println!("{}", topics_lines(&serde_json::from_value(v)?)),
+        false => println!("{}", topics_lines(&r)),
     }
     Ok(())
 }
 
-/// The request of `theseus ledger topics`: a cap is checked before it is
-/// built (JSON has no NaN or infinity, and would send one as no cap at all).
+/// The request of a plain `theseus ledger topics`, as [`topics_request`]
+/// builds it.
+#[cfg(test)]
 pub fn topics_params(dry_run: bool, cap_usd: Option<f64>) -> Result<serde_json::Value> {
-    if let Some(usd) = cap_usd {
-        theseus_protocol::exchange::topics_cap(usd).map_err(anyhow::Error::msg)?;
-    }
-    Ok(serde_json::to_value(ExchangeTopicsParams {
+    topics_request(ExchangeTopicsParams {
         dry_run,
         cap_usd,
-    })?)
+        ..Default::default()
+    })
+}
+
+/// The request of `theseus ledger topics`: a cap is checked before it is
+/// built (JSON has no NaN or infinity, and would send one as no cap at all).
+pub fn topics_request(p: ExchangeTopicsParams) -> Result<serde_json::Value> {
+    if let Some(usd) = p.cap_usd {
+        theseus_protocol::exchange::topics_cap(usd).map_err(anyhow::Error::msg)?;
+    }
+    Ok(serde_json::to_value(p)?)
+}
+
+/// The daemon's answer to `asked`. A daemon older than the declaration, or
+/// than its undo, reads the request without it, so its answer does not say
+/// it did it: it is told to update.
+pub fn topics_answer(
+    asked: &ExchangeTopicsParams,
+    v: serde_json::Value,
+) -> Result<ExchangeTopicsResult> {
+    let r: ExchangeTopicsResult = serde_json::from_value(v)?;
+    if asked.include_unmarked && !r.include_unmarked {
+        anyhow::bail!(
+            "this daemon does not know --include-unmarked: it ran without it and counted nothing \
+             more as yours; update it, then run the command again"
+        );
+    }
+    if asked.undo_declared && !r.undo_declared {
+        anyhow::bail!(
+            "this daemon does not know --undo-declared: it ran a filing without your declaration \
+             and ended nothing; update it, then run the command again"
+        );
+    }
+    Ok(r)
 }
 
 /// `theseus ledger rebuild-exchanges`.
@@ -460,6 +488,9 @@ fn verdict(notes: &[String]) -> &'static str {
 /// A filing of the history in two lines: what the ledger holds, and what the
 /// run would ask or did. Counts and dollars, never a message's words.
 pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
+    if r.undo_declared {
+        return undo_lines(r);
+    }
     let cap = cap_dollars(r.cap_usd);
     let mut s = match r.dry_run {
         true => format!("a dry run for a cap of ${cap} a run: nothing is asked\n"),
@@ -480,6 +511,27 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
         r.no_message,
         r.not_acting
     ));
+    if r.include_unmarked || r.declared > 0 || r.unplaced > 0 || r.unshown_dm > 0 {
+        let counted = match r.include_unmarked {
+            true => "you count them as yours, their words still author unknown",
+            false => "--include-unmarked counts them as yours",
+        };
+        s.push_str(&format!(
+            "\nof the {} no record proves: {} arrived in your own places (your terminal, the web \
+             UI, your DM, a channel bound private), and {counted}; {} of these are in a channel \
+             bound private, whose listed members' old words count too, since no stored record \
+             tells theirs from yours; {} arrived in a direct message that no stored record shows \
+             to be yours, {} have no recorded place and {} arrived elsewhere (a shared channel, \
+             voice), and these stay out",
+            r.unproven,
+            r.declared,
+            r.private_channel,
+            r.unshown_dm,
+            r.unplaced,
+            r.unproven
+                .saturating_sub(r.declared + r.unshown_dm + r.unplaced)
+        ));
+    }
     match r.dry_run {
         true => s.push_str(&format!(
             "\nwould ask {n}: ${:.4} at worst for all {n} of them (it may be more than the cap); a run \
@@ -497,6 +549,23 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
         s.push_str(&format!("\nstopped: {why}"));
     }
     s
+}
+
+/// The undo of his declaration in two lines: counts only.
+fn undo_lines(r: &ExchangeTopicsResult) -> String {
+    let (rows, ended, undone) = (r.declared_rows, r.ended, r.undone);
+    match r.dry_run {
+        true => format!(
+            "a dry run of the undo of your declaration: nothing is ended\n{rows} answers your \
+             declaration filed came to {ended} touches on {undone} exchanges; a run ends them, and \
+             nothing else"
+        ),
+        false => format!(
+            "the undo of your declaration\n{rows} answers your declaration filed: {ended} touches \
+             on {undone} exchanges ended, and nothing else; their rows stay, and a run without \
+             --include-unmarked never writes their touches again"
+        ),
+    }
 }
 
 /// A cap's dollars: to the cent from a cent up, and under a cent with the
@@ -1075,10 +1144,191 @@ mod tests {
         ];
         for (cap, wire) in good {
             let T { cmd } = parse(cap).unwrap();
-            let crate::ledger_verify::LedgerCmd::Topics { dry_run, cap_usd } = cmd else {
+            let crate::ledger_verify::LedgerCmd::Topics {
+                dry_run, cap_usd, ..
+            } = cmd
+            else {
                 panic!("not topics: {cmd:?}");
             };
             assert_eq!(topics_params(dry_run, cap_usd).unwrap(), wire, "{cap:?}");
         }
+    }
+
+    /// His declaration's line (issue 51): of the exchanges no record proves,
+    /// how many arrived in his own places and whether this run counts them
+    /// as his, how many of those are in a channel bound private (whose
+    /// members' words count too), how many arrived in a DM no stored record
+    /// shows to be his, how many have no recorded place, and how many
+    /// arrived elsewhere. Counts only; shown when one of them is not zero or
+    /// he declared.
+    #[test]
+    fn the_topics_lines_say_what_his_declaration_counts() {
+        let plain = ExchangeTopicsResult {
+            dry_run: true,
+            cap_usd: 10.0,
+            exchanges: 11,
+            not_owner: 9,
+            unproven: 8,
+            declared: 3,
+            private_channel: 1,
+            unshown_dm: 2,
+            unplaced: 2,
+            ..ExchangeTopicsResult::default()
+        };
+        let line = topics_lines(&plain);
+        assert_eq!(
+            line.lines().nth(2),
+            Some(
+                "of the 8 no record proves: 3 arrived in your own places (your terminal, the web \
+                 UI, your DM, a channel bound private), and --include-unmarked counts them as \
+                 yours; 1 of these are in a channel bound private, whose listed members' old \
+                 words count too, since no stored record tells theirs from yours; 2 arrived in a \
+                 direct message that no stored record shows to be yours, 2 have no recorded \
+                 place and 1 arrived elsewhere (a shared channel, voice), and these stay out"
+            ),
+            "{line}"
+        );
+        let declared = ExchangeTopicsResult {
+            include_unmarked: true,
+            to_ask: 3,
+            worst_usd: 0.0006,
+            ..plain
+        };
+        let line = topics_lines(&declared);
+        assert_eq!(
+            line.lines().nth(2),
+            Some(
+                "of the 8 no record proves: 3 arrived in your own places (your terminal, the web \
+                 UI, your DM, a channel bound private), and you count them as yours, their words \
+                 still author unknown; 1 of these are in a channel bound private, whose listed \
+                 members' old words count too, since no stored record tells theirs from yours; 2 \
+                 arrived in a direct message that no stored record shows to be yours, 2 have no \
+                 recorded place and 1 arrived elsewhere (a shared channel, voice), and these stay \
+                 out"
+            ),
+            "{line}"
+        );
+        assert!(
+            line.ends_with(
+                "would ask 3: $0.0006 at worst for all 3 of them (it may be more \
+             than the cap); a run stops at its cap of $10.00"
+            ),
+            "{line}"
+        );
+        // A DM no record shows to be his is said even when nothing else is.
+        let dm_only = ExchangeTopicsResult {
+            dry_run: true,
+            cap_usd: 10.0,
+            unproven: 1,
+            unshown_dm: 1,
+            ..ExchangeTopicsResult::default()
+        };
+        let line = topics_lines(&dm_only);
+        assert!(
+            (line.lines().nth(2)).is_some_and(|l| l
+                .contains("1 arrived in a direct message that no stored record shows to be yours")),
+            "{line}"
+        );
+    }
+
+    /// `--include-unmarked` is a flag of `theseus ledger topics`, and reaches
+    /// the wire; a daemon whose answer does not say it counted the
+    /// declaration (one older than it) is told to update, and the plain
+    /// answer is read as before.
+    #[test]
+    fn the_declaration_reaches_the_wire_and_an_older_daemon_is_told_to_update() {
+        use clap::Parser;
+        #[derive(Parser, Debug)]
+        struct T {
+            #[command(subcommand)]
+            cmd: crate::ledger_verify::LedgerCmd,
+        }
+        assert!(T::try_parse_from(["t", "topics", "--include-unmarked", "--dry-run"]).is_ok());
+        let asked = ExchangeTopicsParams {
+            dry_run: true,
+            include_unmarked: true,
+            ..ExchangeTopicsParams::default()
+        };
+        assert_eq!(
+            topics_request(asked.clone()).unwrap(),
+            serde_json::json!({"dry_run": true, "include_unmarked": true})
+        );
+        let older = serde_json::json!({"dry_run": true, "exchanges": 3});
+        let e = topics_answer(&asked, older.clone()).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "this daemon does not know --include-unmarked: it ran without it and counted nothing \
+             more as yours; update it, then run the command again"
+        );
+        let plain = topics_answer(&ExchangeTopicsParams::default(), older).unwrap();
+        assert_eq!(plain.exchanges, 3);
+        let newer = serde_json::json!({"dry_run": true, "include_unmarked": true});
+        assert!(topics_answer(&asked, newer).unwrap().include_unmarked);
+    }
+
+    /// The undo of his declaration prints counts: a dry run what a run would
+    /// end, a run what it ended; nothing of the filing's.
+    #[test]
+    fn the_undo_lines_are_counts() {
+        let dry = ExchangeTopicsResult {
+            dry_run: true,
+            undo_declared: true,
+            declared_rows: 4,
+            undone: 3,
+            ended: 5,
+            ..ExchangeTopicsResult::default()
+        };
+        assert_eq!(
+            topics_lines(&dry),
+            "a dry run of the undo of your declaration: nothing is ended\n4 answers your \
+             declaration filed came to 5 touches on 3 exchanges; a run ends them, and nothing \
+             else"
+        );
+        let run = ExchangeTopicsResult {
+            dry_run: false,
+            ..dry
+        };
+        assert_eq!(
+            topics_lines(&run),
+            "the undo of your declaration\n4 answers your declaration filed: 5 touches on 3 \
+             exchanges ended, and nothing else; their rows stay, and a run without \
+             --include-unmarked never writes their touches again"
+        );
+    }
+
+    /// `--undo-declared` goes alone (never with the declaration or a cap)
+    /// and reaches the wire; a daemon whose answer does not say it undid (one
+    /// older than the undo) is told to update.
+    #[test]
+    fn the_undo_reaches_the_wire_alone_and_an_older_daemon_is_told_to_update() {
+        use clap::Parser;
+        #[derive(Parser, Debug)]
+        struct T {
+            #[command(subcommand)]
+            cmd: crate::ledger_verify::LedgerCmd,
+        }
+        assert!(T::try_parse_from(["t", "topics", "--undo-declared", "--dry-run"]).is_ok());
+        for with in [&["--include-unmarked"][..], &["--cap-usd", "1"][..]] {
+            let mut argv = vec!["t", "topics", "--undo-declared"];
+            argv.extend(with);
+            assert!(T::try_parse_from(argv).is_err(), "{with:?}");
+        }
+        let asked = ExchangeTopicsParams {
+            undo_declared: true,
+            ..ExchangeTopicsParams::default()
+        };
+        assert_eq!(
+            topics_request(asked.clone()).unwrap(),
+            serde_json::json!({"dry_run": false, "undo_declared": true})
+        );
+        let older = serde_json::json!({"dry_run": false, "exchanges": 3});
+        let e = topics_answer(&asked, older).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "this daemon does not know --undo-declared: it ran a filing without your declaration \
+             and ended nothing; update it, then run the command again"
+        );
+        let newer = serde_json::json!({"undo_declared": true, "ended": 2});
+        assert_eq!(topics_answer(&asked, newer).unwrap().ended, 2);
     }
 }

@@ -33,10 +33,11 @@ fn ended(state: &str) -> bool {
 
 /// The first non-empty line of `text`, cut to `LINE_CHARS`.
 pub(crate) fn first_line(text: &str) -> Option<String> {
-    let l = text.lines().map(str::trim).find(|l| !l.is_empty())?;
-    Some(match l.char_indices().nth(LINE_CHARS) {
-        Some((i, _)) => format!("{}…", &l[..i]),
-        None => l.to_string(),
+    text.lines().find(|l| !l.trim().is_empty())?;
+    let (l, cut) = crate::scrub::safe::first_line(text, LINE_CHARS, LINE_CHARS);
+    Some(match cut {
+        true => format!("{l}…"),
+        false => l.to_string(),
     })
 }
 

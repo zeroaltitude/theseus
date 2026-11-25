@@ -83,14 +83,11 @@ fn tail_of(out: &str, room: usize) -> String {
     if n <= room {
         return out.to_string();
     }
-    let cut = out
-        .char_indices()
-        .nth(n - room)
-        .map_or(out.len(), |(i, _)| i);
+    let (tail, _) = crate::scrub::safe::tail(out, room);
+    let kept = tail.chars().count();
     format!(
-        "[its first {} characters left out; its last {room} follow]\n{}",
-        n - room,
-        &out[cut..]
+        "[its first {} characters left out; its last {kept} follow]\n{tail}",
+        n - kept
     )
 }
 
@@ -306,6 +303,33 @@ fn ran_for(interrupted: bool, waited: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A step's output cut to its last `room` characters starts after a value the live board knows, and its
+    /// line counts what it really left out and kept. With no value at the edge it is the plain tail.
+    #[test]
+    fn a_steps_tail_starts_after_a_known_value_and_counts_what_it_left_out() {
+        use crate::tests_cut_sites::{whole_or_absent, V};
+        let out = format!("{}{V}{}", "a".repeat(50), "b".repeat(30));
+        assert_eq!(
+            tail_of(&out, 40),
+            format!(
+                "[its first 64 characters left out; its last 40 follow]\n{}",
+                &out[64..]
+            ),
+            "no board: the plain tail"
+        );
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        let shown = tail_of(&out, 40);
+        whole_or_absent("the step's tail", &shown, V);
+        assert_eq!(
+            shown,
+            format!(
+                "[its first 74 characters left out; its last 30 follow]\n{}",
+                "b".repeat(30)
+            )
+        );
+    }
 
     /// The words say the wait the batch had, not the configured one: steps whose limits add up to 2 s are waited
     /// for 7 s, whatever `proc_sync_secs` is.

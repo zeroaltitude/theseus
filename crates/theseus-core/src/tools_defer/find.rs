@@ -67,7 +67,7 @@ fn query_of(input: &Value) -> Result<String, String> {
         .map(str::trim)
         .filter(|q| !q.is_empty())
         .ok_or("give a query: a few words for what you need to do")?;
-    Ok(q.chars().take(200).collect())
+    Ok(crate::scrub::safe::head(q, 200).0.to_string())
 }
 
 pub(super) fn tokens(s: &str) -> Vec<String> {

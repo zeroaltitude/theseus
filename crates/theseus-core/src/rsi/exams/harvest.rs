@@ -46,12 +46,7 @@ pub fn q(s: &str) -> String {
 
 fn cut(s: &str) -> String {
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if s.chars().count() <= QUOTE {
-        return s;
-    }
-    let mut t: String = s.chars().take(QUOTE).collect();
-    t.push('…');
-    t
+    crate::scrub::safe::head_marked(&s, QUOTE)
 }
 
 fn text<'a>(d: &'a Value, k: &str) -> Option<&'a str> {

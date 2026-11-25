@@ -534,18 +534,19 @@ pub(crate) fn first_call_spec(s: &RequestSpec) -> RequestSpec {
     effective(s, crate::view::text::page::memory_page().1)
 }
 
-/// A result of the turn's own laid as its first `shown` characters, with one line saying so.
+/// A result of the turn's own laid as its first `shown` characters, ending before any known value they
+/// would split, with one line saying how many are shown.
 fn headed(n: &Stub, shown: usize) -> Stub {
     let mut node = (**n).clone();
     if let Body::ToolResult { content, .. } = &mut node.body {
         let all = content.chars().count();
         if shown < all {
-            let head: String = content.chars().take(shown).collect();
+            let (head, _) = crate::scrub::safe::head(content, shown);
             let n = crate::narrative::thousands;
             *content = format!(
                 "{head}\n[Only the first {} of {} characters of this result are shown, to fit the \
                  window; read the rest in parts with the same tool.]",
-                n(shown as u64),
+                n(head.chars().count() as u64),
                 n(all as u64)
             );
         }

@@ -1,8 +1,9 @@
 //! A loop's own line (theseus-xlias): the first line of the text it wrote
 //! before its tool calls, carried as `say` on its `loop.ended` row, so the work
 //! board can show where a task is in its work with no model call of its own.
-//! It is scrubbed first and cut after, so a secret the cut would split is never
-//! half shown; a loop with no tool call writes none (its text is the reply).
+//! The whole text is scrubbed first and its line taken and cut after, so a
+//! secret the line or the cut would split is never half shown; a loop with no
+//! tool call writes none (its text is the reply).
 
 use super::*;
 use crate::scrub::Scrubber;
@@ -10,15 +11,15 @@ use crate::scrub::Scrubber;
 /// The longest a `say` is, in characters, the ellipsis included.
 pub const SAY_CHARS: usize = 120;
 
-/// The first non-empty line of `text`, scrubbed, cut at `SAY_CHARS` at a word.
-/// None when the text has no line.
+/// The first non-empty line of `text` scrubbed whole, cut at `SAY_CHARS` at a
+/// word. None when the text has no line.
 pub fn say_of(text: &str, scrubber: &Scrubber) -> Option<String> {
-    let first = text.lines().map(str::trim).find(|l| !l.is_empty())?;
-    let (line, _) = scrubber.scrub(first);
-    let line = line.trim();
+    let (all, _) = scrubber.scrub(text);
+    let line = all.lines().map(str::trim).find(|l| !l.is_empty())?;
     if line.chars().count() <= SAY_CHARS {
         return Some(line.to_string());
     }
+    // plain cut: the scrubber has masked every known value in the whole text first
     let cut: String = line.chars().take(SAY_CHARS - 1).collect();
     // Back to the last word, unless the line is one long word.
     let at_word = cut.rfind(char::is_whitespace).filter(|&i| i > 0);
@@ -169,6 +170,19 @@ mod tests {
         let say = say_of(&format!("{pad}{t} tail"), &s).unwrap();
         assert!(!say.contains("ghp_"), "{say}");
         assert!(!say.contains("a1B2"), "{say}");
+    }
+
+    /// A value that holds a line break, its first half on the text's first
+    /// line, is masked whole before the line is taken: no half of it is in
+    /// the say.
+    #[test]
+    fn a_value_across_the_first_line_break_is_masked_before_the_line_is_taken() {
+        let v = "kelp-one-0417\nferry-two-0417";
+        let s = Scrubber::with_values(vec![(v.into(), "two_lines".into())]);
+        let say = say_of(&format!("Signing in with {v} now\nthen the rest"), &s).unwrap();
+        crate::tests_cut_sites::whole_or_absent("the say", &say, v);
+        assert!(!say.contains("kelp"), "{say}");
+        assert!(say.starts_with("Signing in with "), "{say}");
     }
 
     #[test]

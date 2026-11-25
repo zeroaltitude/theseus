@@ -42,6 +42,23 @@ first: it counts the exchanges it would ask and prices their worst case, and ask
   place, and one whose person no record proves, are counted apart and never sent: his decision was about his own
   history. A message he retracted and did not erase is kept: history shows what was said, and a touch says what the
   exchange was about.
+- **His declaration** (`--include-unmarked`, issue 51): marks began on 2026-11-21, so no record proves who typed
+  an older message. With the flag, the run counts as his an exchange whose opening message has no mark at all and
+  arrived, by the place code stored on it at arrival (`surface::code_of`), in one of his own places: `terminal`,
+  `terminal:ask`, `terminal:tui`, `cockpit`, `discord:dm`, `discord:channel:private:*`. A shared channel, voice, a
+  Discord place no record names, a message whose mark proves someone else, and a message with no recorded place
+  (before 2026-10-14; counted on its own line) stay out. `discord:dm` is written for every bound DM, so a DM counts
+  only where the exchange's recorded place is a DM whose person `PlaceRule::owners` holds an owner; the rebuild's
+  `unknown`, or another person's DM, stays out and is counted on its own. A channel bound private admits its listed
+  members' words too: no stored record tells theirs from his, so they are counted apart and counted in. A guest's
+  message stays out only where a stored person or mark proves it is not his. Some terminal messages were typed by his agents: that is
+  his to accept. The exchange's person is never written, so its words stay "author unknown" in the view; it is
+  asked as a private place's, and its row's context says `declared: unmarked`. Only a run with the flag writes a
+  declared answer's touches again from its row, and a declared answer's row is written before any touch of it, so a
+  stop between the two leaves nothing the undo cannot find. `--undo-declared` (alone; `--dry-run` counts first) ends every
+  touch of a category a declared answer chose by the exchange it was about, a touch the rebuild moved and one of a
+  topic retired since included, and nothing else (`judge::onto::history_undo`); the rows stay, as history, and
+  running it twice ends nothing more.
 - **What it asks**: the live point's `onto` question, once, about the opening message alone (no message before it,
   no reply, no attachment), through the judge's one client and its scrubber.
 - **What it writes: touches only.** The ask goes in shadow, so the sink writes its row and files nothing: no

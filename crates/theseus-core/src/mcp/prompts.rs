@@ -459,12 +459,14 @@ impl McpBoard {
 /// A prompt's messages as nodes' text and attachments: each cut to what is
 /// left of [`TEXT_MAX`], and one with nothing in it left out.
 fn messages_of(got: &theseus_mcp::types::GetPromptResult) -> Vec<PromptMessage> {
+    let cuts = crate::scrub::Cuts::live();
     let mut messages = Vec::new();
     let mut room = TEXT_MAX;
     for m in &got.messages {
         let (mut text, files) = convert(&m.role, &m.content);
-        if let Some((i, _)) = text.char_indices().nth(room) {
-            text.truncate(i);
+        if let (kept, true) = crate::scrub::safe::head_with(&cuts, &text, room) {
+            let at = kept.len();
+            text.truncate(at);
             text.push_str(" …[cut]");
         }
         room = room.saturating_sub(text.chars().count());

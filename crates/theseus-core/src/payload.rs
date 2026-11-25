@@ -173,11 +173,7 @@ impl Marked {
 /// `line` cut to [`EDGE_CHARS`] characters, with its whitespace trimmed and
 /// its quotes and newlines made safe to sit inside the marker's own quotes.
 fn edge(line: &str) -> String {
-    let t = line.trim();
-    let cut = match t.char_indices().nth(EDGE_CHARS) {
-        Some((i, _)) => format!("{}…", &t[..i]),
-        None => t.to_string(),
-    };
+    let cut = crate::scrub::safe::head_marked(line.trim(), EDGE_CHARS);
     cut.replace(['\n', '\r'], " ").replace('"', "'")
 }
 

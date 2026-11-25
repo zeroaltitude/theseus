@@ -4,8 +4,10 @@ Run: python3 -m unittest -q scripts/tests/test_line_pressure.py
 
 CALIBRATION is the script's count against clippy's own, taken on the base commit by lowering
 `too-many-lines-threshold` in a scratch copy of clippy.toml (never committed) and reading the numbers clippy
-printed ("this function has too many lines (N/T)"). The real functions are read from the working tree, so a
-function that has since changed makes its row fail: re-measure it and update the row, do not loosen the test.
+printed ("this function has too many lines (N/T)"). Each row's function text is a fixture under
+`line_pressure_fixtures/`, frozen as it stood when clippy's count was true, so a landing that edits the real function
+leaves the row alone. To add a row, measure the function with clippy, copy its text
+into a new fixture and add the row; never loosen the test.
 """
 import importlib.util
 import os
@@ -18,65 +20,44 @@ spec = importlib.util.spec_from_file_location("line_pressure", os.path.join(HERE
 lp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lp)
 
-# (path, function name, clippy's count)
+FIXTURES = os.path.join(HERE, "line_pressure_fixtures")
+
+# (fixture file, function name, clippy's count). Each fixture is the function's text (its attributes, and the `impl` line
+# that carries `#[async_trait]` where there is one) frozen as it stood when the count below was true; the tree is never
+# read, so a landing that edits the real function cannot move a row. A row says what it was measured on.
 CALIBRATION = [
     # Found by diffing the whole workspace at threshold 40 against clippy (issue 14, 4,012 functions clippy judged, base
     # b8b403b7; the script then agreed on 4,004 and missed or miscounted these): an array return type hid its function
     # (`fn faults<'a>() -> [Fault<'a>; 12]`), and `#[tokio::main]` / `#[async_trait]` async fns were counted 2 high.
-    ("crates/theseusd/tests/user_service_script.rs", "faults", 75),
-    ("crates/theseus-mcp/src/bin/theseus-mcp-fake.rs", "main", 61),
-    ("crates/theseus-mcp/examples/server.rs", "main", 55),
-    ("crates/theseus-voice/src/songbird_io.rs", "act", 51),
-    ("crates/theseus-ontology/src/compose.rs", "compose", 95),
-    ("crates/theseus-ontology/src/kind.rs", "interpreted_seeds", 96),
-    # `load` was 96 until issue 21 made it a one-line wrapper over `load_with` (and `load_lists` split out of that): the row
-    # follows the large body. Measured with `too-many-lines-threshold = 40` in a scratch clippy.toml at base 9fa595f0:
-    # clippy said 68 for `load_with` (ontology.rs:296), the script says 68, and the same run agreed on `check` 88,
-    # `check_category` 84 and `check_table` 59 in that file.
-    ("crates/theseus-ontology/src/ontology.rs", "load_with", 68),
-    ("crates/theseus-ontology/src/person.rs", "merge", 98),
-    # 93 until the function was shortened: it reads 55 now, and clippy reads 55 too (the diff of the whole workspace at
-    # threshold 40, issue 14, agreed at store.rs:1864). The stale row, not a counting bug, was the "55 against 93" that
-    # reddened this test on main and cost a round trip; the row is re-measured, not loosened.
-    # The function then changed in store.rs (its frame writing became `write_batch`, and it gained a check for a
-    # partly synced batch) and moved, unchanged, to store/batch.rs: the script reads 48 there now. Clippy was not
-    # re-run for this row, so re-measure it if it ever disagrees.
-    ("crates/theseus-store/src/store/batch.rs", "commit", 48),
-    # 96 until issue 6 shortened it (it split `read_frames` out): the script reads 95 now, and a function the script reads
-    # right on every other row is taken to be right here; clippy was not re-run for this row, so re-measure it if it ever disagrees.
-    ("crates/theseus-follow/src/lib.rs", "read_into", 95),
+    ("user_service_faults.rs", "faults", 75),
+    ("mcp_fake_main.rs", "main", 61),
+    ("mcp_example_main.rs", "main", 55),
+    ("voice_act.rs", "act", 51),
+    ("ontology_compose.rs", "compose", 95),
+    ("ontology_interpreted_seeds.rs", "interpreted_seeds", 96),
+    # Clippy said 68 for `load_with` with `too-many-lines-threshold = 40` in a scratch clippy.toml at base 9fa595f0, and
+    # the script said 68; the fixture is the text at the tree this table was frozen from, where the script reads 68 still.
+    ("ontology_load_with.rs", "load_with", 68),
+    ("person_merge.rs", "merge", 98),
+    # Clippy read 55 for the function in store.rs (the issue 14 diff at threshold 40); it then moved, unchanged but for
+    # a check for a partly synced batch, to store/batch.rs, where the script reads 48. Clippy was not re-run for the
+    # 48, so re-measure it if it ever disagrees.
+    ("store_batch_commit.rs", "commit", 48),
+    # Clippy was not re-run for this row: the script reads 95 and a function it reads right on every other row is taken
+    # to be right here; re-measure it if it ever disagrees.
+    ("follow_read_into.rs", "read_into", 95),
     # Plain `async fn`s: clippy counts 2 more than the body alone (the script adds 2). Measured at base 85697868
     # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
     # exactly 2 short before the rule. Re-measure a moved row; never loosen it.
-    ("crates/theseus-core/src/card/run.rs", "card_run", 89),
-    # 96 until the history head (issue 46) put `history.read` beside memory's two reads in one arm, which rustfmt
-    # lays on three lines: clippy, run with `too-many-lines-threshold = 40` in a scratch clippy.toml on 697b63fc9,
-    # prints 98; the script reads 98.
-    # 98 until the `narrative` key was retired (issue 46): the arm that refused the narrative's two methods while
-    # narration was off went, three lines as rustfmt lays it, and the script reads 95 there and 98 on its parent.
-    # Re-measured by that boundary rather than by a fresh clippy run, so re-measure it if clippy ever disagrees.
-    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 95),
-    # 88 until 7fd80132 ("date and git state in the messages' tail"), which added exactly one counted line to
-    # this function (`self.env_tail(t, &mut compiled).await;`) and left this row one behind the tree, which is
-    # the stale-row case the header describes and not a counting bug: the script reads 88 at 7fd80132^ and 89
-    # at 7fd80132, tracking that one line exactly. Re-measured by that boundary rather than by a fresh clippy
-    # run, so if clippy ever disagrees about a bare statement line, this is the row that will say so.
-    # 89 until the turn's closing-notes fix (issue 20, "what a request sent stays sent") added eleven counted lines to
-    # it: the script reads 100 at 7259e882, exactly the ceiling clippy holds (`too-many-lines-threshold = 100`, and
-    # clippy passed on that commit), so the row follows the function by the same rule as above. Re-pinned, not made to
-    # read the source: a row that took its number from the function it measures could never disagree with the script,
-    # which is what the table is for. clippy's own figure was not re-measured; it cannot be above 100.
-    # 100 until issue 44's batch shortened the function: clippy itself,
-    # run on the landed tree with `too-many-lines-threshold = 88` in a scratch clippy.toml, prints 93 for it (and 97
-    # for `dispatch` above, which the same batch grew from 92); the script reads 93 and 97. Both rows are clippy's figures.
-    # 93 until issue 44's hand-backs: a view that cannot be assembled soundly fails the turn plainly from here
-    # (three counted lines). clippy, run with `too-many-lines-threshold = 88` in a scratch clippy.toml on that
-    # tree, prints 96 for it; the script reads 96.
-    # 96 until issue 44's last withholding went (the personal hold and the place digest's attachment): clippy,
-    # run with `too-many-lines-threshold = 40` in a scratch clippy.toml on 5b0d10c53, prints 91; the script reads 91.
-    # 91 until landing 2 met it (the prefix library's pick, the tails' begin and the old last block gone, the one
-    # block beside the message rendered before the view): clippy, threshold 40 on 697b63fc9, prints 90; the script 90.
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 90),
+    ("core_card_run.rs", "card_run", 89),
+    # Clippy itself, `too-many-lines-threshold = 40` in a scratch clippy.toml on 697b63fc9, printed 98 for `dispatch`;
+    # the script reads 98. The fixture is that text. The function has since been shortened (the `narrative` key's arm
+    # went, then a rustfmt join) and the script reads 93 on the tree now; those readings are not clippy's, so the row
+    # does not follow them.
+    ("rpc_dispatch.rs", "dispatch", 98),
+    # Clippy, `too-many-lines-threshold = 40` in a scratch clippy.toml on 697b63fc9, printed 90; the script read 90.
+    # The fixture is that text.
+    ("core_compile_step.rs", "compile_step", 90),
 ]
 
 
@@ -195,11 +176,11 @@ class Rewritten(unittest.TestCase):
 class Calibration(unittest.TestCase):
     def test_the_count_matches_clippys_on_real_functions(self):
         self.assertGreaterEqual(len(CALIBRATION), 3)
-        for path, name, want in CALIBRATION:
-            with open(os.path.join(ROOT, path), encoding="utf-8") as f:
+        for fixture, name, want in CALIBRATION:
+            with open(os.path.join(FIXTURES, fixture), encoding="utf-8") as f:
                 src = f.read()
-                counts = [lp.clippy_lines(b) + lp.clippy_extra(src, ln) for n, ln, b in lp.functions(src) if n == name]
-            self.assertIn(want, counts, f"{path} {name}: clippy said {want}, script said {counts}")
+            counts = [lp.clippy_lines(b) + lp.clippy_extra(src, ln) for n, ln, b in lp.functions(src) if n == name]
+            self.assertIn(want, counts, f"{fixture} {name}: clippy said {want}, script said {counts}")
 
 
 if __name__ == "__main__":

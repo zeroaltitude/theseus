@@ -350,6 +350,8 @@ async fn ship_logs(aws: &HandAws<'_>, spec: &HandSpec, out: &Mutex<Output>) {
                 let mut m = m.clone();
                 if m.len() > 200_000 {
                     let mut at = 200_000;
+                    // The hand container makes no secret board; its raw output goes to CloudWatch too.
+                    // plain cut: no cut in the container can know a value
                     while !m.is_char_boundary(at) {
                         at -= 1;
                     }

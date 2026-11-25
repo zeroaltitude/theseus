@@ -742,12 +742,7 @@ impl Node {
             Body::ImportedSummary { text, .. } => format!("[imported summary] {text}"),
             Body::Erased { was, why, .. } => format!("[erased {was}: {why}]"),
         };
-        let s = s.replace('\n', " ");
-        if s.chars().count() > max {
-            format!("{}…", s.chars().take(max).collect::<String>())
-        } else {
-            s
-        }
+        crate::scrub::safe::head_marked(&s.replace('\n', " "), max)
     }
 }
 

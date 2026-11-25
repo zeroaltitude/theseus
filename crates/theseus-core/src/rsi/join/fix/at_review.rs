@@ -193,10 +193,8 @@ impl Run<'_> {
             self.b.branch,
             &self.b.head[..self.b.head.len().min(12)]
         );
-        let note: String = format!("rejected at review: {why}")
-            .chars()
-            .take(1_000)
-            .collect();
+        let note = format!("rejected at review: {why}");
+        let note = crate::scrub::safe::head(&note, 1_000).0.to_string();
         let _one = self
             .core
             .rsi

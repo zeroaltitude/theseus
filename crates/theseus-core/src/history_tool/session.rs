@@ -247,6 +247,7 @@ fn fitted_kept(
     cuts: &crate::scrub::Cuts,
 ) -> (String, std::ops::Range<usize>) {
     let keep = (max as f64 * crate::catalog::TokenRates::CLAUDE.text) as usize;
+    // plain cut: a budget only; `cuts.before` below sets where the text ends
     let mut cut: String = text.chars().take(keep).collect();
     while cut.len() > keep {
         cut.pop();

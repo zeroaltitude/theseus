@@ -213,6 +213,7 @@ fn gist_of(store: &crate::store::Store, n: &Node, cuts: &crate::scrub::Cuts) -> 
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
+    // plain cut: a budget only; `cuts.before` below sets where the gist ends
     match one.char_indices().nth(GIST_CHARS - 1) {
         Some(_) if one.chars().count() <= GIST_CHARS && !short => one,
         Some((at, _)) => format!("{}…", &one[..cuts.before(&one, at)]),
@@ -281,7 +282,8 @@ impl Core {
         let walk = reach::reach(&self.store, &node_id, Some(reach::MAX_GENERATIONS))?
             .with_context(|| format!("no node is named {node_id}"))?;
         let now = now_unix_ms();
-        let gist = gist_of(&self.store, &node, &self.tools.scrubber.cuts());
+        let cuts = self.tools.scrubber.cuts();
+        let gist = gist_of(&self.store, &node, &cuts);
         let found = self.exposures_of(&walk)?;
         let private_origin = self.sess(&node.session_id)?.is_none_or(|s| s.private);
         let (who_s, via) = (who.who(), who.via());
@@ -298,7 +300,7 @@ impl Core {
         }
         let notes = notes_for(&found, &node_id, &gist, why, now);
         let tasks: Vec<&Found> = found.iter().filter(|f| f.e.kind == kind::TASK).collect();
-        let card_text = card_text(&gist, why, &tasks);
+        let card_text = card_text(&gist, why, &tasks, &cuts);
         let dm = !tasks.is_empty() && self.runner.place_rule.owner_dm_bound();
 
         let mut frame = Vec::new();
@@ -762,8 +764,14 @@ fn merge(all: Vec<Found>) -> Vec<Found> {
     kept
 }
 
-/// The card to the owner: the tasks that used the node, to re-run.
-pub(crate) fn card_text(gist: &str, why: &str, tasks: &[&Found]) -> String {
+/// The card to the owner: the tasks that used the node, to re-run. A cut never falls inside a known value
+/// (`cuts`).
+pub(crate) fn card_text(
+    gist: &str,
+    why: &str,
+    tasks: &[&Found],
+    cuts: &crate::scrub::Cuts,
+) -> String {
     let mut t = crate::owner_note::head(
         crate::owner_note::Kind::Decision,
         "Re-run the tasks that used a retracted note?",
@@ -779,8 +787,7 @@ pub(crate) fn card_text(gist: &str, why: &str, tasks: &[&Found]) -> String {
     }
     t.push_str("\nRe-run?");
     if t.chars().count() > CARD_CHARS {
-        let cut: String = t.chars().take(CARD_CHARS - 1).collect();
-        return format!("{cut}…");
+        return format!("{}…", cuts.head(&t, CARD_CHARS - 1).0);
     }
     t
 }

@@ -44,6 +44,7 @@ use tokio::sync::oneshot;
 
 use super::{sampled, spend, JudgeService, ScrubWith};
 use crate::config::PackMode;
+use crate::scrub::safe;
 use crate::trace::Trace;
 
 /// Recall's `+rerank` arm (M6 32c).
@@ -339,7 +340,9 @@ impl JudgeService {
     ) -> Result<(super::Prepared, super::Beside), &'static str> {
         let r = &d.recalled;
         let input = RerankInput {
-            message: r.message.chars().take(MESSAGE_CHARS).collect(),
+            message: safe::head_with(&self.scrubber.cuts(), &r.message, MESSAGE_CHARS)
+                .0
+                .to_string(),
             notes: d
                 .eligible
                 .iter()

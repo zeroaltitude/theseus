@@ -76,14 +76,13 @@ fn shown(n: &Node, (start, end): (u32, u32)) -> Option<String> {
 /// length on a character's edge.
 pub fn frozen_range(source: &str, excerpt: &str) -> (u32, u32) {
     let body = excerpt.strip_suffix('…').unwrap_or(excerpt);
-    let (start, len) = match source.find(body).filter(|_| !body.is_empty()) {
-        Some(at) => (at, body.len()),
-        None => (0, body.len().min(source.len())),
+    let (start, end) = match source.find(body).filter(|_| !body.is_empty()) {
+        Some(at) => (at, at + body.len()),
+        None => (
+            0,
+            crate::scrub::safe::head_bytes(source, body.len()).0.len(),
+        ),
     };
-    let mut end = start + len;
-    while !source.is_char_boundary(end) {
-        end -= 1;
-    }
     let clamp = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     (clamp(start), clamp(end))
 }

@@ -328,7 +328,7 @@ impl Job<'_> {
             self.fault,
             self.item
         );
-        let subject: String = subject.chars().take(120).collect();
+        let subject = crate::scrub::safe::head(&subject, 120).0.to_string();
         let body = format!(
             "{}\n\nFixed {} by {model}, for: {}\nItem: {}\n\n{} {}\nCo-Authored-By: Theseus \
              (self) <noreply@anthropic.com>",

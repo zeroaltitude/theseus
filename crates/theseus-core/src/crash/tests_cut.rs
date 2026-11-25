@@ -1,7 +1,6 @@
 //! A long panic message through the real hook: a child process installs it
 //! and panics, and the crash file it writes is read back through `take` and
-//! `last`. A run of characters without whitespace that the cap falls in is
-//! not kept in part.
+//! `last`. A message over the cap is not kept, not even in part.
 
 use std::path::Path;
 
@@ -12,11 +11,16 @@ use super::{file, install, last, take, MESSAGE_MAX};
 const ACROSS: &str = "across";
 /// One word longer than the cap.
 const ONE: &str = "one";
+/// A made-up value of two words, its space before the cap and its end after
+/// it.
+const TWO: &str = "two";
+const TWO_WORDS: &str = "lopa-0417 vesk-9932";
 
 fn message(kind: &str) -> String {
     let word = "kqzv0417".repeat(225);
     match kind {
         ACROSS => format!("{}{word} and the end", "word ".repeat(480)),
+        TWO => format!("{}{TWO_WORDS} and the end", "word ".repeat(817)),
         _ => "kqzv0417".repeat(600),
     }
 }
@@ -73,7 +77,7 @@ fn written(kind: &str) -> String {
 }
 
 /// The cap falls inside a long word: the word is not in the file, not even
-/// in part; the words before it are, and a line gives the length.
+/// in part; only a line gives the length.
 #[test]
 fn a_word_the_cap_falls_in_is_not_kept_in_part() {
     let m = message(ACROSS);
@@ -84,11 +88,22 @@ fn a_word_the_cap_falls_in_is_not_kept_in_part() {
     }
     assert_eq!(
         kept,
-        format!(
-            "{} …[a panic message of {} bytes, cut between words]",
-            "word ".repeat(480).trim_end(),
-            m.len()
-        )
+        format!("[a panic message of {} bytes, not kept]", m.len())
+    );
+}
+
+/// A value of two words lies across the cap, its space before it: neither
+/// word is in the file, not even in part.
+#[test]
+fn a_two_word_value_across_the_cap_leaves_no_piece_in_the_file() {
+    let m = message(TWO);
+    let at = m.find(TWO_WORDS).unwrap();
+    assert!(at + 9 < MESSAGE_MAX && at + TWO_WORDS.len() > MESSAGE_MAX);
+    let kept = written(TWO);
+    crate::tests_cut_sites::whole_or_absent("the crash file", &kept, TWO_WORDS);
+    assert_eq!(
+        kept,
+        format!("[a panic message of {} bytes, not kept]", m.len())
     );
 }
 

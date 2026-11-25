@@ -221,7 +221,7 @@ pub fn fix_of(reply: &str) -> (bool, String) {
     if !done && !low.starts_with("none") {
         why = format!("its FIX line said neither done nor none: {rest}");
     }
-    (done, why.chars().take(500).collect())
+    (done, crate::scrub::safe::head(&why, 500).0.to_string())
 }
 
 /// Whether a `self.fix.verdict` row is an accepted fix made at review: the branch's new head.

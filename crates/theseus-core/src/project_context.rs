@@ -510,8 +510,8 @@ fn section(c: &ContextFile, p: &Plan, f: &Found) -> Option<String> {
     }
 }
 
-/// `s` cut to at most `kept` bytes at a character boundary, with the note
-/// saying how much of the file is here.
+/// `s` cut to at most `kept` bytes at a character boundary and before any
+/// known value, with the note saying how much of the file is here.
 fn cut_to(s: &mut String, kept: usize) {
     let note = |n: usize| {
         format!(
@@ -520,10 +520,7 @@ fn cut_to(s: &mut String, kept: usize) {
         )
     };
     let room = kept.saturating_sub(note(kept).len());
-    let mut at = room.min(s.len());
-    while at > 0 && !s.is_char_boundary(at) {
-        at -= 1;
-    }
+    let at = crate::scrub::safe::head_bytes(s, room).0.len();
     s.truncate(at);
     let n = at;
     s.push_str(&note(n));

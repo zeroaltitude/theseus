@@ -112,7 +112,7 @@ fn an_over_limit_file_is_split_verbatim_at_its_headings() {
             "words ".repeat(30)
         ));
     }
-    let parts = split::parts(&text, 1000);
+    let parts = split::parts(&text, 1000).unwrap();
     assert!(parts.len() > 3);
     assert_eq!(parts.concat(), text, "the parts are not the file");
     for p in &parts {
@@ -128,7 +128,7 @@ fn an_over_limit_file_is_split_verbatim_at_its_headings() {
     }
     // One line longer than the limit is cut at a character boundary.
     let long = "é".repeat(700);
-    let parts = split::parts(&long, 1000);
+    let parts = split::parts(&long, 1000).unwrap();
     assert_eq!(parts.concat(), long);
     assert!(parts.iter().all(|p| p.len() <= 1000));
 }
@@ -163,6 +163,36 @@ fn the_importer_splits_a_big_file_and_reports_it() {
         .flat_map(|f| std::fs::read(&f.path).unwrap())
         .collect();
     assert_eq!(joined, big.as_bytes());
+}
+
+/// A file that cannot be split without cutting through a value the vault
+/// knows (one longer than the limit starts it) is refused, in words that name
+/// no value, before any file of the import is written.
+#[test]
+fn an_import_that_would_split_a_known_value_is_refused_before_anything_is_written() {
+    let v = "kqzv-0417-wjxp-9932-hmfb-lopa-0417-vesk";
+    let board = crate::secrets::SecretBoard::empty();
+    board.hold("cut_test", crate::secrets::Secret::new(v.into()));
+    let state = tempfile::tempdir().unwrap();
+    let ws = tempfile::tempdir().unwrap();
+    std::fs::write(ws.path().join("AGENTS.md"), format!("{v} and the rules\n")).unwrap();
+    let p = PersonaImportParams {
+        from: ws.path().display().to_string(),
+        name: "split".into(),
+        ..Default::default()
+    };
+    let err = import(state.path(), &p, &names(), 32, 1).unwrap_err();
+    let said = format!("{err:#}");
+    assert_eq!(
+        said,
+        "AGENTS.md cannot be split into parts of 32 bytes without cutting through a value the \
+         vault knows; nothing was imported"
+    );
+    assert!(!said.contains("kqzv"), "{said}");
+    assert!(
+        !super::run::dir_of(state.path(), "split").exists(),
+        "no file of the import is written"
+    );
 }
 
 /// The draft is the identity's role line and the agents file's headings,

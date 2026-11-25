@@ -497,8 +497,7 @@ pub fn ends(part: &Said, head: u64, tail: u64, handle: &Handle) -> Said {
     if matches!(part.voice, Voice::Person | Voice::Harness) || s.len() <= h.saturating_add(t) {
         return part.clone();
     }
-    let a = floor_char(s, h);
-    let b = ceil_char(s, s.len() - t);
+    let (a, b) = crate::scrub::Cuts::live().around(s, h, s.len() - t);
     let gone = super::tokens(&s[a..b]);
     Said {
         text: format!(
@@ -510,18 +509,4 @@ pub fn ends(part: &Said, head: u64, tail: u64, handle: &Handle) -> Said {
         ),
         ..part.clone()
     }
-}
-
-fn floor_char(s: &str, mut i: usize) -> usize {
-    while !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
-}
-
-fn ceil_char(s: &str, mut i: usize) -> usize {
-    while !s.is_char_boundary(i) {
-        i += 1;
-    }
-    i
 }

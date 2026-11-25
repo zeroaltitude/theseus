@@ -44,6 +44,7 @@ pub(crate) mod class;
 pub mod decide;
 pub mod digest;
 pub mod history;
+mod history_undo;
 pub mod judged;
 pub mod mint;
 pub(crate) mod name;
@@ -55,6 +56,8 @@ pub(crate) mod words;
 
 #[cfg(test)]
 mod tests_history;
+#[cfg(test)]
+mod tests_history_declared;
 
 pub use name::NAMES;
 
@@ -165,10 +168,9 @@ fn attached(core: &Core, msg: &Inbound) -> (Vec<Picture>, Vec<OntoText>) {
             }
             AttachmentContent::Text { text, .. } => texts.push(OntoText {
                 name: a.name.clone(),
-                text: text
-                    .chars()
-                    .take(theseus_judge::builders::ONTO_EXCERPT_CHARS)
-                    .collect(),
+                text: crate::scrub::safe::head(text, theseus_judge::builders::ONTO_EXCERPT_CHARS)
+                    .0
+                    .to_string(),
             }),
             _ => {}
         }
