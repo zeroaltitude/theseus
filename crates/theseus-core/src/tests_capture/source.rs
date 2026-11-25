@@ -44,7 +44,8 @@ async fn an_agents_cli_and_web_turn_with_no_marker_is_not_heard() {
 
 /// The owner's message starts a task: its first turn (the brief its parent wrote), the wake's
 /// turn that continues it, and the parent's turn its report starts are put to Jev for nothing.
-/// Only the owner's own message is heard.
+/// Only the owner's own message is heard. (These three are the runner's own turns, never
+/// `turn.submit`'s, so no ticket is ever noted for them; this is a guard, true before issue 57.)
 #[tokio::test]
 async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
     use crate::tests_task_wakes::{exec, life_with, only_task, parent_session, until as within};
@@ -57,31 +58,13 @@ async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
         crate::tests_inbound::inbound_only(&mut p.cfg);
         p.secrets = crate::tests_judge::board();
     });
-    // The owner's DM, as the task tests bind it; her message through the producer.
+    // The owner's DM, as the task tests bind it. Her message is noted as `turn.submit` notes the
+    // owner's own (`expect_capture`), and her turn run as the task tests run it: the inbound
+    // step's ticket and its task check decide each of the four turns.
     let parent = parent_session(&l.core);
     let said = "START CHILD AGAIN 3s: check the build";
-    let res = call_on(
-        &l.core,
-        Surface::Cli,
-        "turn.submit",
-        json!({"session_id": parent, "input": said}),
-    )
-    .await;
-    assert!(res.error.is_none(), "{:?}", res.error);
-    let waits = res.result.as_ref().map(|v| v["awaiting_confirm"].clone());
-    assert!(
-        waits.as_ref().is_some_and(Value::is_null),
-        "{:?}",
-        res.result
-    );
-    let tasks = |core: &Core| {
-        let rec: crate::session::SessionRecord = core.store.get_session(&parent).unwrap().unwrap();
-        core.kernel
-            .tasks(rec.execution_id.as_deref())
-            .unwrap()
-            .len()
-    };
-    within("the task", 10, || tasks(&l.core) == 1).await;
+    l.core.runner.standing.expected.note(&parent, said);
+    crate::test_support::turn(&l.core, &parent, said).await;
     let task = only_task(&l.core, &parent);
     let pid = task.parent.clone().unwrap();
     within("the task's report and the parent's turn", 30, || {
