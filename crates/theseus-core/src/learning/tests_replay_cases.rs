@@ -89,18 +89,17 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
     let cases = out.cases.expect("a cases replay's numbers");
     assert_eq!(cases.cases.len(), 62);
     assert_eq!(cases.asked, ["model"], "the model pack grades the model");
-    // W14 is W11's message with `restricted_models = not_allowed`, labelled Sonnet where W11 is Flash.
-    // The state no longer carries that fact (issue 46), so the two are one state with two labels: a Jev
-    // that answers every state as its label answers W14 as W11, and W14, a `must` case, is the one miss.
-    assert_eq!((cases.answered, cases.model_ok), (62, 61));
+    // W14 is W11's message with `restricted_models = not_allowed`. The state no longer carries that fact
+    // (issue 46), so the two are one state, and W14 takes W11's label (Flash): every case agrees.
+    assert_eq!((cases.answered, cases.model_ok), (62, 62));
     let missed: Vec<&str> = (cases.cases.iter())
         .filter(|c| !c.model.agrees)
         .map(|c| c.id.as_str())
         .collect();
-    assert_eq!(missed, ["W14"]);
+    assert_eq!(missed, Vec::<&str>::new());
     assert_eq!(
         (cases.must_total, cases.must_ok, cases.must_under_confirm),
-        (13, 12, 0)
+        (13, 13, 0)
     );
     // Two bars, each a ratio of its own set: 50 of 62, and 11 of the 13 replayed musts.
     let bars: Vec<(&str, u32, u32, u32, bool)> = cases
@@ -110,7 +109,7 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
         .collect();
     assert_eq!(
         bars,
-        [("model", 61, 62, 50, true), ("must", 12, 13, 11, true)]
+        [("model", 62, 62, 50, true), ("must", 13, 13, 11, true)]
     );
     assert_eq!(cases.bar, Some(true));
     assert!(out.left_out.is_empty());
@@ -182,9 +181,11 @@ async fn effort_work_and_split_are_each_replayed_over_their_own_labels() {
 async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must_bar_allows_two() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
-    // W26 (CVE triage, `must`) goes to Fable at 0.71; W27 (biology) is under the confirm bar.
+    // W26 (CVE triage, `must`) goes to Fable at 0.71, and W8 (`must`, Sonnet) to Opus; W27 (biology) is
+    // under the confirm bar.
     script(&jev, "route.v12", V10, "model", &|id| match id {
         "W26" => Some(("fable", 0.71)),
+        "W8" => Some(("opus", 0.9)),
         "W27" => Some(("sonnet", 0.55)),
         _ => None,
     });
@@ -200,7 +201,7 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
         ),
         ("sonnet", "fable", 0.71)
     );
-    // W14 is the other miss, as in `a_jev_that_answers_every_label_meets_the_bar`.
+    // W8 is the other wrong must case.
     assert_eq!(
         (cases.model_ok, cases.must_ok, cases.must_total),
         (60, 11, 13)
@@ -273,15 +274,14 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let l2 = get("L2");
     assert!(!l2.model.sub_confirm && l2.model.agrees);
     // The model run: one lost (W18), one under the bar; the raw picks lose none.
-    // W14 is the other miss, as in `a_jev_that_answers_every_label_meets_the_bar`.
     assert_eq!(
         (cases.model_ok, cases.raw_model_ok, cases.under_model),
-        (60, 61, 1)
+        (61, 62, 1)
     );
     // W18 is a `must` case: its model fell, so a must case is wrong and under the bar.
     assert_eq!(
         (cases.must_ok, cases.must_total, cases.must_under_confirm),
-        (11, 13, 1)
+        (12, 13, 1)
     );
     // The effort run, from the same file by the pack that asks it.
     let out = r
