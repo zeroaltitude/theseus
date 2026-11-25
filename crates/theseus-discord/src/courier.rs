@@ -378,6 +378,9 @@ pub(crate) struct Lane {
     /// every post that waited has gone, the place writes them once more
     /// (`press.rs`, issue 56).
     came_back: bool,
+    /// The posts stopped at a card held for its call (`waits_for_its_call`):
+    /// live progress may go on, but the posts have not all gone.
+    card_held: bool,
 }
 
 impl Lane {
@@ -424,6 +427,7 @@ impl Lane {
             notices: notices::State::default(),
             presses: Vec::new(),
             came_back: false,
+            card_held: false,
         }
     }
 
@@ -474,9 +478,10 @@ impl Lane {
             }
             // The posts first, in order; then the stream.
             if self.deliver_posts().await {
-                // Back from an outage, every post that waited gone: its
-                // place writes its folds once more (issue 56).
-                if std::mem::take(&mut self.came_back) {
+                // Back from an outage, every post that waited gone (not a
+                // card held for its call, with posts behind it): its place
+                // writes its folds once more (issue 56).
+                if !self.card_held && std::mem::take(&mut self.came_back) {
                     self.shared.lane_back(&self.target);
                 }
                 self.apply_live().await;
@@ -648,11 +653,13 @@ impl Lane {
                 return false;
             }
             let Some(a) = self.next_post() else {
+                self.card_held = false;
                 return true;
             };
             // It waits, and the posts after it wait behind it; the stream
             // goes on.
             if self.waits_for_its_call(&a) {
+                self.card_held = true;
                 return true;
             }
             match self.deliver(&a).await {
