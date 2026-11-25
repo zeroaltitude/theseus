@@ -146,3 +146,41 @@ async fn the_notes_undo_through_told_undo_puts_the_settings_back_byte_for_byte()
     assert_eq!(r.file_text(), FILE);
     assert_eq!(r.rows("config.changed").len(), 2, "put back once");
 }
+
+/// Once only: a change already put back (here in words, by `config.undo`) is
+/// found by `told.undo` before anything runs, so the note's Undo writes
+/// nothing again and the note says there is nothing left to undo.
+#[tokio::test]
+async fn a_note_whose_change_was_already_put_back_writes_nothing_again() {
+    let r = rig_told();
+    let sid = r.session();
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
+    let n = r.rows("config.changed")[0]["previous_copy"]
+        .as_u64()
+        .unwrap();
+    back(&r);
+    let post = note_post(&r);
+    let sid = r.session();
+    r.turn_with("config_undo", &sid, json!({"change": n}))
+        .await;
+    assert_eq!(r.file_text(), FILE, "put back in words");
+    assert!(r.core.settings_change_undone(n as u32));
+    back(&r);
+    let owner = Answerer {
+        label: "cli".into(),
+        surface: Surface::Cli,
+        discord: None,
+        agent: None,
+    };
+    let done = r.core.told_undo(&post, &owner).await.expect("marked");
+    assert!(done.found, "{done:?}");
+    assert!(
+        done.text
+            .ends_with("\n↩️ Nothing left to undo: the settings change was already put back."),
+        "{}",
+        done.text
+    );
+    assert_eq!(r.file_text(), FILE);
+    assert_eq!(r.rows("config.changed").len(), 2, "nothing written again");
+}
