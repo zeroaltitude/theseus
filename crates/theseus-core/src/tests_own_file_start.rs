@@ -125,3 +125,75 @@ async fn a_first_start_accept_the_log_kept_is_never_written_over() {
         "{block}"
     );
 }
+
+/// A first start that could not read the file records that it happened,
+/// durably: after a real reopen of the store the record still stands, and a
+/// readable file put there since is not accepted by the second start.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unread_first_start_stands_after_the_store_is_opened_again() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    std::fs::set_permissions(r.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(
+        std::fs::read(r.path()).is_err(),
+        "this test needs a user the file's mode keeps out"
+    );
+    assert_eq!(r.core.own_file_first_start().unwrap(), None);
+    std::fs::remove_file(r.path()).unwrap();
+    r.write(&format!("{LATER}\n"));
+    let r = r.reopened().await;
+    assert_eq!(look_of(&r.core).accepted, Accepted::Unread);
+    assert_eq!(r.core.own_file_first_start().unwrap(), None);
+    assert!(crate::test_support::rows_100k(&r.core, "own_file.accepted").is_empty());
+    let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
+    assert!(!block.contains("BRINDLEWICK-9"), "{block}");
+}
+
+/// The store's barrier refused after the first start's record was
+/// appended: an earlier frame its log kept and its index did not leaves
+/// the index short, and the store refuses a checkpoint until it is opened
+/// again. The outcome is unknown: nothing is carried, the owner's accept is
+/// refused in this run, and after a real reopen the replayed records
+/// decide. `unreadable`: the record is the one of a file the start could
+/// not read; else the accept of what is on disk.
+async fn a_first_start_whose_barrier_fails(unreadable: bool) -> Rig {
+    use std::os::unix::fs::PermissionsExt as _;
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    if unreadable {
+        std::fs::set_permissions(r.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(
+            std::fs::read(r.path()).is_err(),
+            "a user the mode keeps out"
+        );
+    }
+    r.core
+        .store
+        .retain_plain_frame(|rows| rows.iter().any(|x| x.key.as_deref() == Some("t.beside")));
+    assert!(r.core.store.put_meta("t.beside", &1).is_err());
+    assert_eq!(r.core.own_file_first_start().unwrap(), None);
+    if unreadable {
+        std::fs::remove_file(r.path()).unwrap();
+    }
+    r.write(&format!("{LATER}\n"));
+    says_unconfirmed(&r).await;
+    r.reopened().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_first_start_accept_whose_barrier_fails_is_unconfirmed() {
+    let r = a_first_start_whose_barrier_fails(false).await;
+    let Accepted::Some(n) = look_of(&r.core).accepted else {
+        panic!("the reopen replays the first start's accept")
+    };
+    assert_eq!(n.seq, 1);
+    assert_eq!(version(&r, 1).unwrap().text.as_deref(), Some(KEPT));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_first_start_record_whose_barrier_fails_is_unconfirmed() {
+    let r = a_first_start_whose_barrier_fails(true).await;
+    assert_eq!(look_of(&r.core).accepted, Accepted::Unread);
+    assert_eq!(r.core.own_file_first_start().unwrap(), None);
+}

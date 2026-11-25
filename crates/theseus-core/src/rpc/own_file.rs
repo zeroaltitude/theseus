@@ -37,6 +37,10 @@ impl Core {
     /// is returned. An accept the store may hold without saying so
     /// ([`own_file::Unconfirmed`]) writes nothing more: no record that the
     /// start could not accept.
+    ///
+    /// Either record is said done only once it is durable: each passes the
+    /// store's barrier (`Store::checkpoint`) before the start answers, and
+    /// a barrier that fails is the same unknown outcome.
     pub fn own_file_first_start(&self) -> Result<Option<Version>> {
         let look = Look::of(&self.cfg, &self.store, &self.runner.context_files);
         if look.accepted == Accepted::Unreadable {
@@ -69,7 +73,7 @@ impl Core {
         else {
             return First::Not;
         };
-        match self.own_file_keep(look, &v) {
+        match self.own_file_kept(look, &v, true) {
             Ok(seq) => {
                 tracing::info!(path = %look.path.display(), bytes = v.bytes, seq,
                     present = v.digest.is_some(),
@@ -86,16 +90,20 @@ impl Core {
     }
 
     /// The first start recorded as having happened with no version
-    /// (`Look::unread_record`), under the accepts' lock. False, and nothing
-    /// written, when a pointer stands by then.
+    /// (`Look::unread_record`), under the accepts' lock, and made durable.
+    /// False, and nothing written, when a pointer stands by then; false too
+    /// when the store cannot confirm the record ([`own_file::Unconfirmed`]).
     fn own_file_unread(&self, look: &Look) -> Result<bool> {
         let _one = own_file::one_at_a_time();
         if own_file::read_now(&self.store, &look.pid) != Accepted::None {
             return Ok(false);
         }
         let at_ms = theseus_protocol::now_unix_ms();
-        self.store.append(&[look.unread_record(at_ms)?])?;
-        Ok(true)
+        match self.own_file_settle(&[look.unread_record(at_ms)?], true) {
+            Ok(()) => Ok(true),
+            Err(e) if e.is::<own_file::Unconfirmed>() => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     /// [`Core::own_file_first_start`] off the runtime's workers: it reads
@@ -110,6 +118,12 @@ impl Core {
     /// `look` read it is refused ([`own_file::CHANGED`]), so a version's key
     /// is never written twice.
     pub(crate) fn own_file_keep(&self, look: &Look, v: &Version) -> Result<u64> {
+        self.own_file_kept(look, v, false)
+    }
+
+    /// [`Core::own_file_keep`]; `durable`: the first start's, which passes
+    /// the store's barrier before it answers (`own_file_settle`).
+    fn own_file_kept(&self, look: &Look, v: &Version, durable: bool) -> Result<u64> {
         let seq = look.next_seq()?;
         let mut records = look.accept_records(v)?;
         let path = look.path.display().to_string();
@@ -132,20 +146,26 @@ impl Core {
             if own_file::seq_after(&own_file::read_now(&self.store, &look.pid)) != Some(seq) {
                 bail!(own_file::CHANGED);
             }
-            self.own_file_settle(&records)?;
+            self.own_file_settle(&records, durable)?;
         }
         rec.announce(&fact);
         Ok(seq)
     }
 
-    /// Append an accept's `records`, under the accepts' lock. A frame the
-    /// store's log kept while its index did not (`RetainedFrame`) may be
-    /// written: this run's mark is set ([`Missed::Unknown`]), one line is
-    /// logged, and the answer is [`own_file::Unconfirmed`], never "not
-    /// written". Any other error is the append's.
-    fn own_file_settle(&self, records: &[NewRecord]) -> Result<()> {
+    /// Append an accept's `records`, under the accepts' lock; `durable`:
+    /// then pass the store's barrier (`Store::checkpoint`). A frame the
+    /// store's log kept while its index did not (`RetainedFrame`), or a
+    /// barrier that failed, may be written: this run's mark is set
+    /// ([`Missed::Unknown`]), one line is logged, and the answer is
+    /// [`own_file::Unconfirmed`], never "not written". Any other error is
+    /// the append's.
+    fn own_file_settle(&self, records: &[NewRecord], durable: bool) -> Result<()> {
         let e = match self.store.append(records) {
-            Ok(_) => return Ok(()),
+            Ok(_) if !durable => return Ok(()),
+            Ok(_) => match self.store.checkpoint() {
+                Ok(_) => return Ok(()),
+                Err(e) => e,
+            },
             Err(e) if e.is::<RetainedFrame>() => e,
             Err(e) => return Err(e),
         };

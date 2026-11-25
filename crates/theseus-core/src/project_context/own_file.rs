@@ -166,8 +166,8 @@ pub enum Accepted {
 /// stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Missed {
-    /// An accept's frame the log kept and the index did not: it may be
-    /// written.
+    /// An accept's frame the log kept and the index did not, or a first
+    /// start's record whose durability barrier failed: it may be written.
     Unknown,
 }
 
