@@ -1,10 +1,9 @@
-//! The MCP server's memory tools through the whole core (theseus-02i1h): the
-//! one method `memory.lookup` on `Surface::Mcp`, answering only while
-//! `[mcp_server] memory` is on. A hit carries its citation (every place's
-//! node, and no label veils a text since 2026-11-22); `get` reads a node
-//! with its neighbours or a session in order; a page has a cursor; every
-//! other memory method and every approval stays refused; and each read is a
-//! `memory.read` row that holds a digest and no words.
+//! The MCP connection through the whole core: an error's words and the status
+//! reply carry the vault's values substituted; every memory method but
+//! `history.read` (the server's `context_history`, `tests_mcp_history`) and
+//! every approval stays refused; `memory.lookup`, which served the server's
+//! old `memory_search` and `memory_get`, is no method now (issue 46). And
+//! `rpc`, one request on a connection of a surface, which other tests share.
 
 use std::sync::Arc;
 
@@ -12,13 +11,9 @@ use serde_json::{json, Value};
 use theseus_protocol::method;
 
 use crate::approval::Surface;
-use crate::tests_imports::{episode, episodes, import, index_over, script, SHOWN};
-use crate::tests_places::{rig_scripted, session, turn, Rig, LAB};
+use crate::tests_imports::script;
+use crate::tests_places::{rig_scripted, session, Rig};
 use crate::Core;
-
-/// What the owner's own session said, and what a shared place's said.
-const NATIVE: &str = "the ferry timetable decision was the seven o'clock boat";
-const SHARED: &str = "the ferry timetable gossip from the shared channel";
 
 fn rig(memory: bool) -> Rig {
     rig_scripted(move |c| c.mcp_server.memory = memory, script)
@@ -58,16 +53,9 @@ pub(crate) async fn rpc(
     out
 }
 
+/// `history.read` on an MCP connection: the server's `context_history`, its one way to look back.
 async fn ask(core: &Arc<Core>, params: Value) -> Result<Value, theseus_protocol::RpcError> {
-    rpc(core, Surface::Mcp, method::MEMORY_LOOKUP, params).await
-}
-
-async fn search(core: &Arc<Core>, extra: Value) -> Value {
-    let mut p = json!({"op": "search", "client": "lantern-agent"});
-    for (k, v) in extra.as_object().unwrap() {
-        p[k] = v.clone();
-    }
-    ask(core, p).await.unwrap()
+    rpc(core, Surface::Mcp, method::HISTORY_READ, params).await
 }
 
 fn rows(core: &Core, kind: &str) -> Vec<Value> {
@@ -80,124 +68,6 @@ fn rows(core: &Core, kind: &str) -> Vec<Value> {
         .collect()
 }
 
-/// The owner's own session, a shared channel's session, and the imported
-/// episodes, all behind one stand-in index.
-struct Held {
-    native: String,
-    imported: Vec<String>,
-}
-
-async fn held(r: &Rig) -> Held {
-    let imported = import(&r.core, &episodes());
-    let native = session(&r.core, None);
-    turn(&r.core, &native, NATIVE).await;
-    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
-    turn(&r.core, &shared, SHARED).await;
-    let mut all = imported.clone();
-    all.extend([native.clone(), shared.clone()]);
-    r.core.runner.memory.set_ask(index_over(&r.core, all));
-    Held { native, imported }
-}
-
-fn hits(v: &Value) -> &Vec<Value> {
-    v["hits"].as_array().unwrap_or_else(|| panic!("{v}"))
-}
-
-/// A search returns a native and an imported hit, each with its citation
-/// (the node's id and WAL position, its session, its as-of minute), its
-/// origin and harness, and its sensitivity; the citation names the node as
-/// the store holds it.
-#[tokio::test]
-async fn a_search_returns_native_and_imported_hits_with_citations() {
-    let r = rig(true);
-    let h = held(&r).await;
-    let got = search(&r.core, json!({"words": "ferry parser", "limit": 25})).await;
-    let native = hits(&got)
-        .iter()
-        .find(|x| x["citation"]["session_id"] == h.native.as_str() && x["text"] == NATIVE)
-        .unwrap_or_else(|| panic!("{got}"));
-    assert_eq!(native["origin"], "native");
-    assert_eq!(native["harness"], "theseus");
-    let imported = hits(&got)
-        .iter()
-        .find(|x| x["citation"]["session_id"] == h.imported[1].as_str())
-        .unwrap_or_else(|| panic!("{got}"));
-    assert_eq!(imported["origin"], "imported");
-    assert_eq!(imported["harness"], "claude-cli");
-    assert_eq!(imported["sensitivity"], "company-confidential");
-    assert_eq!(imported["book"], "casebook");
-    assert!(
-        imported["text"].as_str().unwrap().contains(SHOWN),
-        "{imported}"
-    );
-    for hit in [native, imported] {
-        let c = &hit["citation"];
-        let (pos, node) = r
-            .core
-            .store
-            .get_node(c["node_id"].as_str().unwrap())
-            .unwrap()
-            .expect("the citation names a stored node");
-        assert_eq!(c["position"].as_u64().unwrap(), pos, "{c}");
-        assert_eq!(c["session_id"], node.session_id.as_str());
-        let day = crate::judge::spend::local_day(node.created_at_ms);
-        assert!(c["as_of"].as_str().unwrap().starts_with(&day), "{c}");
-    }
-}
-
-/// A value the vault holds is substituted in every MCP memory reply (review
-/// G-R2): no provider call is on this path, so the reply is substituted
-/// itself. Plain and in its base64 and percent encodings, in a native
-/// session's text and in an imported one's, through a search, a get by id,
-/// and a get by session.
-#[tokio::test]
-async fn a_vault_value_is_substituted_in_every_mcp_memory_reply() {
-    use base64::Engine as _;
-    let secret = "marsh-kelp-vault-value-77";
-    let b64 = base64::engine::general_purpose::STANDARD.encode(secret);
-    let enc = secret.replace('-', "%2D");
-    let said = format!("plain {secret} b64 {b64} pct {enc}");
-    let r = rig(true);
-    r.core
-        .secrets
-        .hold("marsh_vault", crate::secrets::Secret::new(secret.into()));
-    let imported = import(
-        &r.core,
-        &[episode(7, "personal", "2026-03-03T18:00:00Z", &said)],
-    );
-    let native = session(&r.core, None);
-    turn(&r.core, &native, &format!("the ferry note: {said}")).await;
-    let mut all = imported.clone();
-    all.push(native.clone());
-    r.core.runner.memory.set_ask(index_over(&r.core, all));
-    let clean = |v: &Value| {
-        let t = v.to_string();
-        for raw in [secret, b64.as_str(), enc.as_str()] {
-            assert!(!t.contains(raw), "{raw} came back: {t}");
-        }
-        assert!(t.contains("[redacted:marsh_vault]"), "{t}");
-    };
-    let got = search(&r.core, json!({"words": "ferry note", "limit": 25})).await;
-    clean(&got);
-    for sid in [&imported[0], &native] {
-        let hit = hits(&got)
-            .iter()
-            .find(|x| x["citation"]["session_id"] == sid.as_str())
-            .unwrap_or_else(|| panic!("{sid}: {got}"));
-        let id = hit["citation"]["node_id"].as_str().unwrap().to_string();
-        clean(
-            &ask(&r.core, json!({"op": "get", "id": id, "client": "c"}))
-                .await
-                .unwrap(),
-        );
-        clean(
-            &ask(&r.core, json!({"op": "get", "session": sid, "client": "c"}))
-                .await
-                .unwrap(),
-        );
-    }
-}
-
 /// An MCP error's words and `conversation_status`'s last reply carry the vault's values substituted too
 /// (review G-R2 r2): an error that echoes what was asked, and the newest reply as the status reads it
 /// (`mcp_server::mcp_last_reply` over the session's `session.history`, the MCP's own route).
@@ -208,20 +78,8 @@ async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
     r.core
         .secrets
         .hold("marsh_vault", crate::secrets::Secret::new(secret.into()));
-    // An error that echoes the asked span.
-    let e = ask(
-        &r.core,
-        json!({"op": "search", "words": "ferry", "since": secret, "client": "c"}),
-    )
-    .await
-    .unwrap_err();
-    assert!(
-        !e.message.contains(secret) && e.message.contains("[redacted:marsh_vault]"),
-        "{}",
-        e.message
-    );
-    // The RPC's own error, which echoes the op.
-    let e = ask(&r.core, json!({"op": secret, "client": "c"}))
+    // An error that echoes the asked session.
+    let e = ask(&r.core, json!({"session_id": secret, "client": "c"}))
         .await
         .unwrap_err();
     assert!(
@@ -229,10 +87,19 @@ async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
         "{}",
         e.message
     );
-    // A decode error, which echoes the value it could not read (a number given as the vault's value).
+    // An error that echoes the handle asked to be opened.
+    let e = ask(&r.core, json!({"open": secret, "client": "c"}))
+        .await
+        .unwrap_err();
+    assert!(
+        !e.message.contains(secret) && e.message.contains("[redacted:marsh_vault]"),
+        "{}",
+        e.message
+    );
+    // A decode error, which echoes the value it could not read (a cursor given as the vault's value).
     let e = ask(
         &r.core,
-        json!({"op": "search", "words": "ferry", "limit": secret, "client": "c"}),
+        json!({"place": "local", "before": secret, "client": "c"}),
     )
     .await
     .unwrap_err();
@@ -285,146 +152,6 @@ async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
     );
 }
 
-/// `get` by a citation's id returns that node, flagged, with its session's
-/// neighbours in order, a few on each side.
-#[tokio::test]
-async fn get_by_id_returns_the_node_and_its_neighbours() {
-    let r = rig(true);
-    let h = held(&r).await;
-    turn(&r.core, &h.native, "second thing the owner said").await;
-    turn(&r.core, &h.native, "third thing the owner said").await;
-    let got = search(&r.core, json!({"words": "ferry", "limit": 25})).await;
-    let id = hits(&got).iter().find(|x| x["text"] == NATIVE).unwrap()["citation"]["node_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let v = ask(
-        &r.core,
-        json!({"op": "get", "id": id, "before": 0, "after": 2}),
-    )
-    .await
-    .unwrap();
-    let texts: Vec<&str> = hits(&v)
-        .iter()
-        .map(|x| x["text"].as_str().unwrap())
-        .collect();
-    assert_eq!(texts[0], NATIVE, "{v}");
-    assert_eq!(hits(&v).len(), 3, "{v}");
-    assert_eq!(hits(&v)[0]["target"], true);
-    assert!(
-        hits(&v)[1..].iter().all(|x| x.get("target").is_none()),
-        "{v}"
-    );
-    let pos: Vec<u64> = hits(&v)
-        .iter()
-        .map(|x| x["citation"]["position"].as_u64().unwrap())
-        .collect();
-    assert!(pos.windows(2).all(|w| w[0] < w[1]), "{pos:?}");
-    // The default is two on each side, and only this session's.
-    let v = ask(&r.core, json!({"op": "get", "id": id})).await.unwrap();
-    assert!(hits(&v).len() >= 3 && hits(&v).len() <= 5, "{v}");
-    assert!(hits(&v)
-        .iter()
-        .all(|x| x["citation"]["session_id"] == h.native.as_str()));
-    // An id nothing holds, and both an id and a session.
-    let e = ask(&r.core, json!({"op": "get", "id": "nod_nothing"}))
-        .await
-        .unwrap_err();
-    assert!(e.message.contains("no remembered node"), "{e:?}");
-    let e = ask(&r.core, json!({"op": "get", "id": id, "session": h.native}))
-        .await
-        .unwrap_err();
-    assert!(e.message.contains("an id"), "{e:?}");
-}
-
-/// A page has a cursor: the next page begins where the last ended, with
-/// no hit twice; the last page has none. A session pages the same way.
-#[tokio::test]
-async fn paging_follows_the_cursor() {
-    let r = rig(true);
-    let h = held(&r).await;
-    let first = search(&r.core, json!({"words": "parser ferry", "limit": 2})).await;
-    assert_eq!(hits(&first).len(), 2, "{first}");
-    let next = first["next"].as_u64().unwrap_or_else(|| panic!("{first}"));
-    assert_eq!(next, 2);
-    let second = search(
-        &r.core,
-        json!({"words": "parser ferry", "limit": 2, "cursor": next}),
-    )
-    .await;
-    let key = |v: &Value| -> Vec<String> {
-        hits(v)
-            .iter()
-            .map(|x| x["citation"]["node_id"].as_str().unwrap().to_string())
-            .collect()
-    };
-    assert!(!hits(&second).is_empty(), "{second}");
-    assert!(key(&first).iter().all(|k| !key(&second).contains(k)));
-    let mut cursor = 0;
-    let mut seen = 0;
-    loop {
-        let page = search(
-            &r.core,
-            json!({"words": "parser ferry", "limit": 3, "cursor": cursor}),
-        )
-        .await;
-        seen += hits(&page).len();
-        match page["next"].as_u64() {
-            Some(n) => cursor = n,
-            None => break,
-        }
-    }
-    assert_eq!(seen as u64, first["total"].as_u64().unwrap());
-    // A session's messages, in order, a page at a time.
-    let p1 = ask(
-        &r.core,
-        json!({"op": "get", "session": h.native, "limit": 1}),
-    )
-    .await
-    .unwrap();
-    assert_eq!(hits(&p1).len(), 1, "{p1}");
-    assert_eq!(hits(&p1)[0]["text"], NATIVE);
-    let p2 = ask(
-        &r.core,
-        json!({"op": "get", "session": h.native, "limit": 1, "cursor": p1["next"]}),
-    )
-    .await
-    .unwrap();
-    assert_eq!(hits(&p2)[0]["text"], "Done.", "{p2}");
-}
-
-/// With `[mcp_server] memory` off, both tools answer the refusal and read
-/// nothing; any other surface is refused whatever the key says.
-#[tokio::test]
-async fn memory_off_answers_the_refusal_and_other_surfaces_are_refused() {
-    let r = rig(false);
-    held(&r).await;
-    for p in [
-        json!({"op": "search", "words": "ferry"}),
-        json!({"op": "get", "session": "ses_x"}),
-    ] {
-        let e = ask(&r.core, p).await.unwrap_err();
-        assert_eq!(
-            e.message,
-            "memory is off for MCP clients (`[mcp_server] memory`)"
-        );
-    }
-    assert!(rows(&r.core, "memory.read").is_empty());
-    let on = rig(true);
-    held(&on).await;
-    for surface in [Surface::Cli, Surface::Discord] {
-        let e = rpc(
-            &on.core,
-            surface,
-            method::MEMORY_LOOKUP,
-            json!({"op": "search", "words": "ferry"}),
-        )
-        .await
-        .unwrap_err();
-        assert!(e.message.contains("the MCP server's"), "{e:?}");
-    }
-}
-
 /// The MCP connection may call no other memory method, and none of the
 /// owner's approvals counts.
 #[tokio::test]
@@ -448,45 +175,29 @@ async fn the_mcp_connection_is_still_refused_every_other_memory_method_and_every
         .unwrap_err();
         assert!(e.message.contains("may not call"), "{m}: {e:?}");
     }
-    assert!(crate::mcp_server::allowed(method::MEMORY_LOOKUP));
+    assert!(!crate::mcp_server::allowed("memory.lookup"));
     for m in crate::mcp_server::JUDGED {
         let e = rpc(&r.core, Surface::Mcp, m, json!({})).await.expect_err(m);
         assert!(!e.message.is_empty(), "{m}");
     }
 }
 
-/// Each call that reads is one `memory.read` row: the principal `mcp`, the
-/// tool, the client, a digest of the words, how many hits: never the words.
+/// `memory.lookup` is gone with the MCP server's `memory_search` and `memory_get` (issue 46): the MCP
+/// connection's door refuses it as a method it may not call, whatever `[mcp_server] memory` says, and any other
+/// surface is told it is no method, as any unknown name is. No row is written.
 #[tokio::test]
-async fn each_read_is_a_memory_read_row_with_a_digest_and_no_words() {
+async fn memory_lookup_is_no_method_now() {
     let r = rig(true);
-    let h = held(&r).await;
-    let got = search(&r.core, json!({"words": "ferry parser", "limit": 25})).await;
-    ask(&r.core, json!({"op": "get", "session": h.native}))
+    let p = json!({"op": "get", "session": "ses_x", "client": "c"});
+    let e = rpc(&r.core, Surface::Mcp, "memory.lookup", p.clone())
         .await
-        .unwrap();
-    let written = rows(&r.core, "memory.read");
-    assert_eq!(written.len(), 2, "{written:?}");
-    assert_eq!(written[0]["principal"], "mcp");
-    assert_eq!(written[0]["tool"], "memory_search");
-    assert_eq!(written[0]["client"], "lantern-agent");
-    assert_eq!(
-        written[0]["hits"].as_u64().unwrap(),
-        hits(&got).len() as u64
-    );
-    assert_eq!(written[0]["ok"], true);
-    assert_eq!(written[1]["tool"], "memory_get");
-    assert_eq!(written[1]["hits"], 2);
-    let digest = written[0]["digest"].as_str().unwrap();
-    assert_eq!(digest.len(), 16);
-    for row in &written {
-        let all = row.to_string();
-        assert!(!all.contains("ferry") && !all.contains("parser"), "{all}");
-    }
-    // The same words, the same digest.
-    search(&r.core, json!({"words": " ferry parser "})).await;
-    let again = rows(&r.core, "memory.read");
-    assert_eq!(again[2]["digest"], digest);
+        .unwrap_err();
+    assert!(e.message.contains("may not call"), "{e:?}");
+    let e = rpc(&r.core, Surface::Cli, "memory.lookup", p)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, theseus_protocol::error_code::METHOD_NOT_FOUND, "{e:?}");
+    assert!(rows(&r.core, "memory.read").is_empty());
 }
 
 /// `wake.create` on an MCP connection (review, issue 28): it is in neither `ALLOWED` nor `JUDGED`, so the
