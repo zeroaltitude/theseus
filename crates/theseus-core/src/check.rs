@@ -159,13 +159,8 @@ pub fn prepare(
         .get_session(&e.session_id)
         .map_err(|e| format!("Not started: {e:#}"))?;
     let inherited = inherited(tc.store, rec.as_ref());
-    let checked: Vec<Node> = tc
-        .store
-        .session_nodes(&e.session_id)
-        .map_err(|e| format!("Not started: {e:#}"))?
-        .into_iter()
-        .map(|(_, n)| n)
-        .collect();
+    let checked =
+        checked_nodes(tc.store, &e.session_id).map_err(|e| format!("Not started: {e:#}"))?;
     let defines = inherited.iter().any(|p| p.role == Role::Objective);
     let own = match ask.arrangement {
         Some(a) => {
@@ -177,7 +172,8 @@ pub fn prepare(
             if a.pieces.is_empty() {
                 vec![]
             } else {
-                arr::resolve(a, nodes, holder, &tc.scrubber.cuts()).map_err(&refuse)?
+                arr::resolve_shown(tc.store, a, nodes, holder, &tc.scrubber.cuts())
+                    .map_err(&refuse)?
             }
         }
         None => vec![],
@@ -539,6 +535,17 @@ pub fn derived_from(
     Ok(out)
 }
 
+/// The checked task's session's nodes as the overlap flag and the exclusion read them: a look back's result kept
+/// by reference as its rendering (`quoted::shown`, issue 49), so the words it showed are read.
+pub(crate) fn checked_nodes(
+    store: &crate::store::Store,
+    session: &str,
+) -> anyhow::Result<Vec<Node>> {
+    Ok((store.session_nodes(session)?.into_iter())
+        .map(|(_, n)| crate::quoted::shown(store, &n))
+        .collect())
+}
+
 /// A node's words as the overlap flag reads them: a message's text, a
 /// reply's text and thinking and its calls' inputs, a call's input, a
 /// result's content, a summary's text (its range's working, 30c). None for
@@ -690,6 +697,28 @@ mod tests {
         );
         let other = profile(&profiles, "nowhere", &no).unwrap_err();
         assert!(other.contains("no profile is named `nowhere`"), "{other}");
+    }
+
+    /// A look back's result kept by reference in the checked session reads as its rendering (issue 49): the
+    /// overlap flag reads the words it showed, not an empty result.
+    #[test]
+    fn a_checked_look_back_kept_by_reference_reads_as_its_rendering() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let said = Node::user("ses_harbour", None, "cli", WORKING);
+        let at = s.append(&[said.record().unwrap()]).unwrap()[0];
+        let body: Body = serde_json::from_value(serde_json::json!({
+            "kind": "tool_result", "tool_use_id": "c1", "tool": "context.history",
+            "status": "ok", "is_error": false, "content": "",
+            "parts": [{"code": "- "}, {"quote": {"node": said.id, "position": at, "field": "text",
+                "from": 0, "to": WORKING.len(), "form": "verbatim"}}]
+        }))
+        .unwrap();
+        let look = Node::tool_result("ses_checked", Some("t1"), None, body);
+        s.append(&[look.record().unwrap()]).unwrap();
+        let nodes = checked_nodes(&s, "ses_checked").unwrap();
+        let text = nodes.iter().find_map(working_text);
+        assert_eq!(text, Some(format!("- {WORKING}")));
     }
 
     fn flags(source: &str) -> Vec<CheckOverlap> {

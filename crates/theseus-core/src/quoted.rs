@@ -106,6 +106,25 @@ pub fn shown_text(store: &Store, parts: &[Part]) -> String {
         .unwrap_or_else(|_| UNREADABLE_QUOTE.to_string())
 }
 
+/// What a reader with no store at hand reads of a result: its words, or for one kept by reference the fixed
+/// line of a quote that cannot be read now ([`UNREADABLE_QUOTE`]), never an empty text.
+pub fn words_or_line<'a>(content: &'a str, parts: &[Part]) -> &'a str {
+    match parts.is_empty() {
+        true => content,
+        false => UNREADABLE_QUOTE,
+    }
+}
+
+/// `n`'s nodes as a reader outside a conversation shows them ([`shown`]).
+pub fn shown_all(store: &Store, nodes: &[(u64, Stub)]) -> Vec<(u64, Stub)> {
+    (nodes.iter())
+        .map(|(p, n)| match holds_parts(n) {
+            true => (*p, Stub::from(shown(store, n))),
+            false => (*p, n.clone()),
+        })
+        .collect()
+}
+
 /// `n` as a reader outside a conversation shows it ([`shown_text`]); any other node as it is.
 pub fn shown(store: &Store, n: &Node) -> Node {
     match parts_of(n) {

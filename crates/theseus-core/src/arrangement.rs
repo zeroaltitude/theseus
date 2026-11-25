@@ -394,6 +394,18 @@ pub fn resolve(
     Ok(out)
 }
 
+/// [`resolve`] against `nodes` as a reader outside a conversation shows them (`quoted::shown_all`): a look back's
+/// result kept by reference reads as its rendering, so a quote of the words it showed finds it (issue 49).
+pub fn resolve_shown(
+    store: &crate::store::Store,
+    input: &Input,
+    nodes: &[(u64, crate::stub::Stub)],
+    holder: Option<&str>,
+    cuts: &Cuts,
+) -> Result<Vec<Piece>, Refused> {
+    resolve(input, &crate::quoted::shown_all(store, nodes), holder, cuts)
+}
+
 /// A piece's words as quotes of `node`'s record at `position`, cut where `toolrun::cap` cuts `text`: none for a
 /// node whose words no field of a quote reads (a tool result), which keeps its words.
 fn quoted(

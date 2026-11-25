@@ -112,11 +112,16 @@ impl Core {
                 meta,
                 content,
                 status,
+                parts,
                 ..
             } = &n.body
             {
                 let ok = !is_error && *status == crate::node::ResultStatus::Ok;
-                results.insert(tool_use_id.clone(), (ok, meta.clone(), content.clone()));
+                let text = match parts.is_empty() {
+                    true => content.clone(),
+                    false => crate::quoted::shown_text(&self.store, parts),
+                };
+                results.insert(tool_use_id.clone(), (ok, meta.clone(), text));
             }
         }
         let (mut stretch, mut tail) = (Vec::new(), Vec::new());

@@ -208,12 +208,35 @@ fn a_node_shown_outside_a_conversation_is_its_rendering() {
     assert_eq!(crate::Core::node_info(0, &shown(&s, &old)).text, "as said");
 }
 
+/// A reader with no store at hand (a node's short preview, the command-result miner) reads a result kept by
+/// reference as the fixed line of a quote that cannot be read now, never an empty text; an old result as its
+/// words.
+#[test]
+fn a_reader_with_no_store_reads_the_fixed_line() {
+    let (_d, s) = store();
+    let (id, at) = source(&s);
+    let n = page("t0", "c1", page_parts(&id, at));
+    assert_eq!(
+        n.preview(200),
+        format!("context.history [ok] {UNREADABLE_QUOTE}")
+    );
+    let Body::ToolResult { content, parts, .. } = &n.body else {
+        unreachable!()
+    };
+    assert_eq!(words_or_line(content, parts), UNREADABLE_QUOTE);
+    let old = result("t0", "c2", "as said");
+    let Body::ToolResult { content, parts, .. } = &old.body else {
+        unreachable!()
+    };
+    assert_eq!(words_or_line(content, parts), "as said");
+}
+
 /// Every reader of a stored result's words (`Body::ToolResult { .. content .. }`, in a product source outside
 /// a test module), each `<file under theseus-core/src> <count> <why it may read them>`. A new one fails here:
 /// lay the result through this module first ([`laid`], [`shown`]), or say here why it need not.
 const READERS: &[&str] = &[
-    "arrangement.rs 1 a task's quote matched to a node: to defer (pieces, R7)",
-    "check.rs 1 the check's working text: to defer",
+    "arrangement.rs 1 a task's quote matched to a node: its callers lay the nodes first (`resolve_shown`)",
+    "check.rs 1 the check's working text: its nodes laid first (`checked_nodes`)",
     "compiler/clearing.rs 3 the laid nodes, rendered before the clearing",
     "compiler/pairing.rs 1 the harness's refusal, never kept by reference",
     "compiler/render.rs 2 the laid nodes, rendered before the wire",
@@ -222,17 +245,17 @@ const READERS: &[&str] = &[
     "copies.rs 1 the old results' rule; parts ask their parts (R5)",
     "copies/since.rs 3 old results only: a parts result is read by its parts (R5)",
     "fact/tool.rs 2 the end event and its narration, at write",
-    "flow/run.rs 1 a flow step's command result: to defer",
+    "flow/run.rs 1 a flow step's result, rendered when it holds parts",
     "judge/gate.rs 1 reads of files and pages, never kept by reference",
-    "node.rs 2 the field itself, and a preview: to defer",
-    "own_bench/whole/runloop.rs 1 a replay's results: to defer (R6)",
+    "node.rs 2 the field itself, and a preview: the fixed line for parts (`words_or_line`)",
+    "own_bench/whole/runloop.rs 1 a replay's results, rendered when they hold parts",
     "quoted.rs 1 the rendering set as a laid node's words",
     "recall.rs 1 the index's text: a result kept by reference indexes nothing",
     "rpc/info.rs 1 nodes shown through `quoted::shown`",
     "rpc/inspect.rs 1 nodes shown through `quoted::shown`",
     "rpc/publish.rs 1 the node shown through `quoted::shown`",
-    "rsi/mine/read.rs 1 command results mined: to defer",
-    "rsi/mint/source.rs 1 command results mined: to defer",
+    "rsi/mine/read.rs 1 command results mined, no store: the fixed line for parts (`words_or_line`)",
+    "rsi/mint/source.rs 1 command results read, rendered when they hold parts",
     "toolrun.rs 1 the writer",
     "turn/checkpoint_step.rs 1 a failed command's error result",
     "turn/progress_step.rs 1 failed commands' results",

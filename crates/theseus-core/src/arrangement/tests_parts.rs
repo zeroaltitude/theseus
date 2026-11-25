@@ -234,3 +234,35 @@ fn a_piece_whose_words_were_not_read_shows_the_fixed_line() {
     assert!(out.ends_with(&line), "{out}");
     assert!(!out.contains("): superseded"), "{out}");
 }
+
+/// A look back's result kept by reference stores no words, so where a task's quote is matched it reads as its
+/// rendering (issue 49): a quote of the words it showed finds it, and its piece keeps those words, as a result's
+/// piece does.
+#[test]
+fn a_quote_of_a_look_back_kept_by_reference_finds_it_by_its_rendering() {
+    let (_d, s) = store();
+    let said = user(ASKED);
+    let at = put(&s, &said);
+    let mut look = result("");
+    if let Body::ToolResult { tool, parts, .. } = &mut look.body {
+        *tool = crate::view::history::HISTORY_TOOL.into();
+        *parts = vec![
+            Part::Code("- ".into()),
+            Part::Quote(Quote {
+                node: said.id,
+                position: at,
+                field: Field::Text,
+                from: 0,
+                to: ASKED.len() as u32,
+                form: Form::Flat1,
+            }),
+        ];
+    }
+    let id = look.id.clone();
+    let t = transcript(&s, &[look]);
+    let a = input(json!({"pieces": [{"quote": "signal white, two coats", "role": "objective"}]}));
+    let pieces = resolve_shown(&s, &a, &t, None, &Cuts::none()).unwrap();
+    assert_eq!(pieces[0].node, id);
+    let text = pieces[0].text.clone().expect("the piece's words");
+    assert!(text.contains("signal white, two coats"), "{text}");
+}
