@@ -63,7 +63,10 @@ fn a_replay_refuses_a_parts_result_whose_quote_was_erased() {
     let r = laid(&s, &source.id, at);
     let t1 = ["t1".to_string()];
     assert!(!erased_since(&s, &t1, &[]), "laid in its exchange");
-    assert!(!erased_since(&s, &[], std::slice::from_ref(&r.id)), "recalled");
+    assert!(
+        !erased_since(&s, &[], std::slice::from_ref(&r.id)),
+        "recalled"
+    );
     s.append(&[source.erased(2, "a test").record().unwrap()])
         .unwrap();
     assert!(erased_since(&s, &t1, &[]), "laid in its exchange");
