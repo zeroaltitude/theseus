@@ -177,7 +177,7 @@ fn an_approve_list_card_says_why() {
 #[test]
 fn a_holds_words_are_printed_whole_without_layer_one() {
     use crate::config_change::{hold_words, tests_hold::ways};
-    let state = Path::new("/home/x/.theseus");
+    let state = Path::new("/var/lib/theseus/state");
     let what = "hand another model profile a piece of work";
     for way in ways() {
         for (o, s) in [(true, false), (false, true)] {

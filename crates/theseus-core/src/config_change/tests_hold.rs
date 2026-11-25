@@ -8,7 +8,7 @@ const SESSION: &str = "ses_01a1593f784974cf92a4a4666c968b67";
 /// The ways to clear the flag a hold can name: in the owner's Discord DM, and anywhere else.
 pub(crate) fn ways() -> [String; 2] {
     [
-        flag_way_in(Some("discord:dm:1180000000000000000"), SESSION),
+        flag_way_in(Some("discord:dm:1"), SESSION),
         flag_way_in(None, SESSION),
     ]
 }
