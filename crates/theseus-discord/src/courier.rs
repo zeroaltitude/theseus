@@ -26,9 +26,10 @@ mod board;
 mod catchup;
 mod fold_note;
 mod held;
-pub(crate) use fold_note::{line as note_line, words as note_words};
 mod notices;
 mod offer;
+mod press;
+pub(crate) use press::{NotePress, Press, Told};
 mod recall;
 mod subagent;
 pub(crate) mod v2;
@@ -99,6 +100,10 @@ pub(crate) enum LaneMsg {
     /// The place's board is drawn elsewhere now (the task home stands,
     /// theseus-ysp2k): the one this lane made is removed.
     BoardMoved,
+    /// A press on a turn's fold, checked here first (`press.rs`, issue 56).
+    Press(Box<Press>),
+    /// A press on a folded note, checked and written here.
+    NotePress(Box<NotePress>),
 }
 
 /// Why a call to Discord did not go through.
@@ -370,6 +375,8 @@ pub(crate) struct Lane {
     catchup: catchup::State,
     /// The FYIs waiting on the notices place (`notices.rs`).
     notices: notices::State,
+    /// Presses on its folds, answered after the writes it holds (`press.rs`).
+    presses: Vec<press::Pending>,
 }
 
 impl Lane {
@@ -414,6 +421,7 @@ impl Lane {
             v2: v2::State::default(),
             catchup: catchup::State::default(),
             notices: notices::State::default(),
+            presses: Vec::new(),
         }
     }
 
@@ -454,6 +462,7 @@ impl Lane {
                 continue;
             }
             self.retry_at = None;
+            self.presses().await;
             self.v2_tick().await;
             self.drop_stale_board().await;
             // What the place showed before it showed a call goes before the
@@ -510,6 +519,8 @@ impl Lane {
                 self.v2.only_if_pinned = true;
             }
             LaneMsg::BoardMoved => self.board_moved(),
+            LaneMsg::Press(p) => self.pressed(press::Pending::Fold(p)),
+            LaneMsg::NotePress(n) => self.pressed(press::Pending::Note(n)),
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => {
@@ -597,6 +608,7 @@ impl Lane {
         self.live.clear();
         self.live.extend(board);
         self.release();
+        self.refuse_presses();
         self.shared.core.outbox.error("discord", e.message.clone());
         if self.attempt == 1 {
             // Once per outage in the ledger; health keeps the latest.

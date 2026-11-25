@@ -2,21 +2,28 @@
 //! (`render/fold.rs`), the page buttons move through a long one, and **Hide
 //! steps** closes it. The press's id carries all it needs, the turn and the
 //! page, `fold:o:<page>:<turn>` or `fold:c:<turn>`: nothing is kept for it.
-//! The place builds what the fold shows from its own renderer, reading the
-//! turn back from the session's nodes when it has not seen it since it
-//! started (a restart), and the pressed message is edited by its id, as a
-//! confirm's settle is, so a fold made before a restart opens after it. A
-//! turn too old to read back is said, in one line, to the presser alone.
+//!
+//! The place's lane is the one writer of a fold's message (`courier/press.rs`).
+//! A press is acknowledged at once; then the place asks its lane, which
+//! honours it only on the message it wrote that turn's fold to, and not while
+//! it waits out Discord. Only then does the place make the fold's new state,
+//! from its own renderer (reading the turn back from the session's nodes when
+//! it has not seen it since it started: a restart), and send it to the lane
+//! as any live state, after whatever the lane holds of that fold. So a fold
+//! made before a restart opens after it, and a press and the turn's own
+//! updates are written in the place's order, running or finished. What
+//! refuses a press is said, in one line, to the presser alone.
 //!
 //! A folded FYI note (`courier/fold_note.rs`) is pressed the same way, by
-//! `fold:no:<post>` and `fold:nc:<post>`: its words are read back from the
-//! post itself, only when the pressed message is the one the post was
+//! `fold:no:<post>` and `fold:nc:<post>`: its lane reads its words back from
+//! the post itself, only when the pressed message is the one the post was
 //! written to, so a button forged elsewhere shows nothing.
 //!
-//! A press only shows again what the place showed openly before: it changes
-//! nothing and asks the core nothing. So anyone the place answers may press
-//! it, as anyone who can see the conversation could read the lines before
-//! (the brief's B3); no act gate is read or touched.
+//! A press only shows again what the place showed openly before, under what
+//! it shows now: it changes nothing else and asks the core nothing. So anyone
+//! the place answers may press it, as anyone who can see the conversation
+//! could read the lines before (the brief's B3); no act gate is read or
+//! touched.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,13 +31,15 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle};
-use twilight_model::channel::message::{AllowedMentions, Component};
+use twilight_model::channel::message::Component;
 use twilight_model::http::interaction::InteractionResponseType;
 
-use super::{command_reply, LaneMsg, Place, PlaceMsg, Shared};
+use super::show::Unshown;
+use super::{LaneMsg, Place, PlaceMsg, Shared};
 use crate::bindings::Steps;
+use crate::courier::{NotePress, Press, Told};
 use crate::render::fold::{FoldButtons, SUFFIX};
-use crate::render::{Buttons, Op};
+use crate::render::Op;
 
 /// A fold's press ids begin with this.
 const PREFIX: &str = "fold:";
@@ -45,15 +54,39 @@ pub(crate) const NOTE_GONE: &str = "This note is too old to show again.";
 /// What the presser is told when the place did not answer in time.
 const BUSY: &str = "Theseus is busy here: press it again in a moment.";
 
+/// What the presser is told while the place's lane waits out Discord.
+pub(crate) const AWAY: &str =
+    "Discord is not taking this conversation's messages just now: press it again in a moment.";
+
+/// What the presser is told when the pressed message is not the turn's fold.
+pub(crate) const NOT_HERE: &str = "This button is not this message's: nothing was changed.";
+
+/// What the presser is told when the place shows no steps now.
+pub(crate) const HIDDEN: &str = "This place shows no steps now.";
+
 /// How long a press waits for its place.
 const WAIT: Duration = Duration::from_secs(10);
 
 /// A press on a fold, for its place: the turn, the page to open it at (None
-/// closes it), and where the place answers what it shows now.
+/// closes it), where it was pressed, and where its presser is answered.
 pub(crate) struct Ask {
     turn: String,
     page: Option<usize>,
-    reply: oneshot::Sender<Option<(String, Buttons)>>,
+    at: (u64, u64),
+    reply: oneshot::Sender<Told>,
+}
+
+/// What the presser is told of `t`, if anything.
+fn said(t: Told) -> Option<&'static str> {
+    match t {
+        Told::Shown => None,
+        Told::Away => Some(AWAY),
+        Told::NotHere => Some(NOT_HERE),
+        Told::TooOld => Some(TOO_OLD),
+        Told::Hidden => Some(HIDDEN),
+        Told::NoteGone => Some(NOTE_GONE),
+        Told::Busy => Some(BUSY),
+    }
 }
 
 /// The id of a press that opens `turn`'s fold at `page`, or closes it.
@@ -146,26 +179,61 @@ pub(crate) fn buttons(f: &FoldButtons) -> Vec<Component> {
     rows
 }
 
-/// A press on a fold, in the place `place`: answered in a task of its own, so
-/// the gateway's handler never waits on the place. False when the press is no
-/// fold's.
+/// A press on a fold, in the place `place`: sent to the place at once, so
+/// presses reach it in the order they came, then acknowledged, and its
+/// presser answered, in a task of its own, so the gateway's handler never
+/// waits on the place. False when the press is no fold's.
 pub(super) fn pressed(
     shared: &Arc<Shared>,
     i: &Interaction,
     place: &mpsc::UnboundedSender<PlaceMsg>,
 ) -> bool {
-    if !is_press(i) {
+    let Some(InteractionData::MessageComponent(c)) = &i.data else {
         return false;
-    }
-    let (shared, i, place) = (shared.clone(), i.clone(), place.clone());
+    };
+    let at = i
+        .channel
+        .as_ref()
+        .zip(i.message.as_ref())
+        .map(|(ch, m)| (ch.id.get(), m.id.get()));
+    let (reply, answer) = oneshot::channel();
+    let msg = match (parse(&c.custom_id), parse_note(&c.custom_id), at) {
+        (Some((turn, page)), _, Some(at)) => PlaceMsg::Fold(Box::new(Ask {
+            turn,
+            page,
+            at,
+            reply,
+        })),
+        (None, Some((post, open)), Some(at)) => PlaceMsg::Note(Box::new(NotePress {
+            post,
+            open,
+            at,
+            reply,
+        })),
+        (None, None, _) => return false,
+        // A fold's press on no message: nothing to show it on.
+        _ => return true,
+    };
+    let sent = place.send(msg).is_ok();
+    let (shared, i) = (shared.clone(), i.clone());
     tokio::spawn(async move {
-        let note = match &i.data {
-            Some(InteractionData::MessageComponent(c)) => parse_note(&c.custom_id),
-            _ => None,
+        shared
+            .respond(
+                &i,
+                InteractionResponseType::DeferredUpdateMessage,
+                None,
+                false,
+            )
+            .await;
+        if !sent {
+            return;
+        }
+        let told = match tokio::time::timeout(WAIT, answer).await {
+            Ok(Ok(t)) => t,
+            _ => Told::Busy,
         };
-        match note {
-            Some((post, open)) => shared.note_press(&i, &post, open).await,
-            None => shared.fold_press(&i, &place).await,
+        if let Some(line) = said(told) {
+            shared.followup(&i, line).await;
         }
     });
     true
@@ -186,122 +254,54 @@ impl Shared {
         let key = user.map_or_else(|| format!("channel:{channel}"), |u| format!("dm:{u}"));
         self.place_bits.get(&key).steps
     }
-
-    /// A press on a folded note: acknowledged, then the pressed message shows
-    /// the note's words, or its line again; a post that cannot be read back,
-    /// or that was not written to this message, is told to the presser.
-    async fn note_press(&self, i: &Interaction, post: &str, open: bool) {
-        self.respond(
-            i,
-            InteractionResponseType::DeferredUpdateMessage,
-            None,
-            false,
-        )
-        .await;
-        let (Some(ch), Some(m)) = (i.channel.as_ref(), i.message.as_ref()) else {
-            return;
-        };
-        let a = self.core.kernel.outbox_action(post).ok().flatten();
-        let ours = a
-            .as_ref()
-            .is_some_and(|a| a.external_op_id.as_deref() == Some(m.id.to_string().as_str()));
-        let Some(text) = a
-            .as_ref()
-            .filter(|_| ours)
-            .and_then(crate::courier::note_words)
-        else {
-            self.followup(i, NOTE_GONE).await;
-            return;
-        };
-        let content = if open {
-            command_reply::leaving(&self.core.exits, &text)
-        } else {
-            crate::courier::note_line(a.as_ref().map_or("", theseus_core::outbox::kind_of))
-        };
-        let comps = note_buttons(post, open);
-        if let Err(e) = self
-            .http
-            .update_message(ch.id, m.id)
-            .content(Some(&content))
-            .components(Some(&comps))
-            .allowed_mentions(Some(&AllowedMentions::default()))
-            .await
-        {
-            self.board.error("note press", None, e);
-        }
-    }
-
-    /// A press on a fold, in the place `place`: acknowledged at once, then
-    /// the pressed message shows what the place says the fold shows now.
-    async fn fold_press(&self, i: &Interaction, place: &mpsc::UnboundedSender<PlaceMsg>) {
-        let Some(InteractionData::MessageComponent(c)) = &i.data else {
-            return;
-        };
-        let Some((turn, page)) = parse(&c.custom_id) else {
-            return;
-        };
-        self.respond(
-            i,
-            InteractionResponseType::DeferredUpdateMessage,
-            None,
-            false,
-        )
-        .await;
-        let (reply, answer) = oneshot::channel();
-        if place
-            .send(PlaceMsg::Fold(Box::new(Ask { turn, page, reply })))
-            .is_err()
-        {
-            return;
-        }
-        let shown = match tokio::time::timeout(WAIT, answer).await {
-            Ok(Ok(shown)) => shown,
-            _ => {
-                self.followup(i, BUSY).await;
-                return;
-            }
-        };
-        let (Some((content, Buttons::Fold(f))), Some(ch), Some(m)) =
-            (shown, i.channel.as_ref(), i.message.as_ref())
-        else {
-            self.followup(i, TOO_OLD).await;
-            return;
-        };
-        let content = command_reply::leaving(&self.core.exits, &content);
-        let comps = buttons(&f);
-        if let Err(e) = self
-            .http
-            .update_message(ch.id, m.id)
-            .content(Some(&content))
-            .components(Some(&comps))
-            .allowed_mentions(Some(&AllowedMentions::default()))
-            .await
-        {
-            self.board.error("fold press", None, e);
-        }
-    }
 }
 
 impl Place {
-    /// A press on one of this place's folds: what it shows now, from the
-    /// renderer, which reads the session's turns back once when it does not
-    /// hold the turn. While the turn runs, the same goes to the lane too,
-    /// after any edit of the fold it holds, so a live edit never closes it.
+    /// A press on one of this place's folds: its lane checks it first, and
+    /// only when the lane will write the fold does the place show it
+    /// (`fold_show`), in this actor's order with every other update of it.
     pub(super) fn fold_asked(&mut self, ask: Ask) {
+        let tx = self.tx.clone();
+        let press = Press {
+            key: format!("{}{SUFFIX}", ask.turn),
+            at: ask.at,
+            then: Box::new(move |checked| match checked {
+                Ok(()) => {
+                    let _ = tx.send(PlaceMsg::FoldShow(Box::new(ask)));
+                }
+                Err(why) => {
+                    let _ = ask.reply.send(why);
+                }
+            }),
+        };
+        let _ = self.lane.send(LaneMsg::Press(Box::new(press)));
+    }
+
+    /// A press its lane will write: the fold as it shows now, from the
+    /// renderer, which reads the session's turns back once when it does not
+    /// hold the turn, sent to the lane as the fold's latest state.
+    pub(super) fn fold_show(&mut self, ask: Ask) {
         if !self.renderer.knows(&ask.turn) && !self.renderer.was_rebuilt() {
             self.read_back();
         }
-        let shown = self.view.press(&ask.turn, ask.page, &self.renderer);
-        if let Some((content, buttons)) = &shown {
-            if self.renderer.running_turn().as_deref() == Some(ask.turn.as_str()) {
+        let told = match self.view.press(&ask.turn, ask.page, &self.renderer) {
+            Ok((content, buttons)) => {
                 let _ = self.lane.send(LaneMsg::Live(Op::Upsert {
                     key: format!("{}{SUFFIX}", ask.turn),
-                    content: content.clone(),
-                    buttons: buttons.clone(),
+                    content,
+                    buttons,
                 }));
+                Told::Shown
             }
-        }
-        let _ = ask.reply.send(shown);
+            Err(Unshown::Hidden) => Told::Hidden,
+            Err(Unshown::TooOld) => Told::TooOld,
+        };
+        let _ = ask.reply.send(told);
+    }
+
+    /// A press on a folded note: its lane checks and writes it.
+    pub(super) fn note_asked(&self, n: Box<NotePress>) {
+        let _ = self.lane.send(LaneMsg::NotePress(n));
     }
 }
 

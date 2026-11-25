@@ -758,8 +758,12 @@ enum PlaceMsg {
     /// Someone is typing here: the core is told, with this session's id
     /// (theseus-tnky).
     Typing(DiscordOrigin),
-    /// A press on a turn's fold (issue 56, `runtime/fold.rs`).
+    /// A press on a turn's fold (issue 56, `runtime/fold.rs`), for its lane
+    /// to check; then, checked, for the place to show.
     Fold(Box<fold::Ask>),
+    FoldShow(Box<fold::Ask>),
+    /// A press on a folded note, for the place's lane.
+    Note(Box<crate::courier::NotePress>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2070,7 +2074,7 @@ impl Place {
                 self.task_msg(m).await
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind | PlaceMsg::Fold(_) => {}
+            PlaceMsg::Unbind | PlaceMsg::Fold(_) | PlaceMsg::FoldShow(_) | PlaceMsg::Note(_) => {}
             PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
