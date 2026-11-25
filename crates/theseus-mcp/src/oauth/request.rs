@@ -212,8 +212,7 @@ impl Loopback {
                         return Ok(code);
                     }
                     Err(RedirectError::StateMismatch) => {
-                        respond(&mut stream, 400, "That redirect is not for this sign-in.")
-                            .await;
+                        respond(&mut stream, 400, "That redirect is not for this sign-in.").await;
                     }
                     Err(e) => {
                         respond(&mut stream, 200, "Not signed in. You can close this tab.").await;
@@ -312,8 +311,14 @@ mod tests {
             "/callback?code=abc&state={}&iss=https%3A%2F%2Fas.example.invalid%2F",
             p.state
         );
-        assert_eq!(parse_redirect(&same, &p.state, iss).unwrap().expose(), "abc");
-        let denied = format!("?error=access_denied&error_description=no+way&state={}", p.state);
+        assert_eq!(
+            parse_redirect(&same, &p.state, iss).unwrap().expose(),
+            "abc"
+        );
+        let denied = format!(
+            "?error=access_denied&error_description=no+way&state={}",
+            p.state
+        );
         assert_eq!(
             parse_redirect(&denied, &p.state, iss).unwrap_err(),
             RedirectError::Denied("access_denied".into())

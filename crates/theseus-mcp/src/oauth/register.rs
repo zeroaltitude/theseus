@@ -67,8 +67,8 @@ pub async fn register(
         .as_str()
         .filter(|s| !s.is_empty())
         .map(|s| Zeroizing::new(s.to_string()));
-    let basic = secret.is_some()
-        && v["token_endpoint_auth_method"].as_str() == Some("client_secret_basic");
+    let basic =
+        secret.is_some() && v["token_endpoint_auth_method"].as_str() == Some("client_secret_basic");
     Ok(ClientId {
         id: id.to_string(),
         secret,

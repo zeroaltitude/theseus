@@ -641,8 +641,13 @@ impl Fake {
             let path = head.path.split('?').next().unwrap_or("");
             if let Some(doc) = auth.resource_metadata(path, &me) {
                 let body = doc.to_string();
-                return respond(&mut w, 200, &[("content-type", "application/json".into())], &body)
-                    .await;
+                return respond(
+                    &mut w,
+                    200,
+                    &[("content-type", "application/json".into())],
+                    &body,
+                )
+                .await;
             }
             if path == "/mcp" {
                 let ok = head
@@ -653,8 +658,13 @@ impl Fake {
                 if !ok {
                     self.record(|s| s.unauthorized += 1);
                     let body = r#"{"error":"invalid_token","error_description":"the harbour portal wants you"}"#;
-                    return respond(&mut w, 401, &[("www-authenticate", auth.challenge(&me))], body)
-                        .await;
+                    return respond(
+                        &mut w,
+                        401,
+                        &[("www-authenticate", auth.challenge(&me))],
+                        body,
+                    )
+                    .await;
                 }
             }
         }

@@ -44,7 +44,9 @@ pub fn challenge(header: &str) -> Option<Challenge> {
             let (value, left) = match value_part.strip_prefix('"') {
                 Some(q) => quoted(q),
                 None => {
-                    let e = value_part.find([',', ' ', '\t']).unwrap_or(value_part.len());
+                    let e = value_part
+                        .find([',', ' ', '\t'])
+                        .unwrap_or(value_part.len());
                     (value_part[..e].to_string(), &value_part[e..])
                 }
             };
@@ -148,11 +150,15 @@ pub async fn protected_resource(
     let doc = match challenge.and_then(|c| c.resource_metadata.as_deref()) {
         Some(at) => {
             let url = endpoint(at, "resource metadata address")?;
-            Some(get_json(http, &url, WHAT).await?.ok_or(OauthError::Status {
-                what: WHAT,
-                status: 404,
-                code: None,
-            })?)
+            Some(
+                get_json(http, &url, WHAT)
+                    .await?
+                    .ok_or(OauthError::Status {
+                        what: WHAT,
+                        status: 404,
+                        code: None,
+                    })?,
+            )
         }
         None => {
             let mut doc = None;
@@ -262,7 +268,10 @@ pub async fn authorization_server(
             ))
         }));
     };
-    if !doc["issuer"].as_str().is_some_and(|i| same_issuer(i, issuer)) {
+    if !doc["issuer"]
+        .as_str()
+        .is_some_and(|i| same_issuer(i, issuer))
+    {
         return Err(OauthError::Refused(
             "the authorization server's metadata names another issuer: refused".into(),
         ));
@@ -369,7 +378,10 @@ mod tests {
     #[test]
     fn the_well_known_addresses_insert_the_path_first() {
         let u = Url::parse("https://h.invalid/tenant/mcp").unwrap();
-        let got: Vec<String> = resource_metadata_urls(&u).iter().map(Url::to_string).collect();
+        let got: Vec<String> = resource_metadata_urls(&u)
+            .iter()
+            .map(Url::to_string)
+            .collect();
         assert_eq!(
             got,
             [

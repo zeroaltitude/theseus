@@ -129,7 +129,9 @@ pub struct FakeAuth {
 
 impl std::fmt::Debug for FakeAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FakeAuth").field("addr", &self.addr.get()).finish()
+        f.debug_struct("FakeAuth")
+            .field("addr", &self.addr.get())
+            .finish()
     }
 }
 
@@ -262,7 +264,11 @@ impl FakeAuth {
             .no_proxy()
             .build()
             .unwrap();
-        let resp = http.get(authorize_url).send().await.expect("the fake answers");
+        let resp = http
+            .get(authorize_url)
+            .send()
+            .await
+            .expect("the fake answers");
         let to = resp
             .headers()
             .get("location")
@@ -370,15 +376,16 @@ impl FakeAuth {
 
     fn register(&self, body: &[u8]) -> (u16, Vec<(String, String)>, Option<Value>) {
         let Ok(v) = serde_json::from_slice::<Value>(body) else {
-            return (400, vec![], Some(json!({"error": "invalid_client_metadata"})));
+            return (
+                400,
+                vec![],
+                Some(json!({"error": "invalid_client_metadata"})),
+            );
         };
         if v["redirect_uris"].as_array().is_none_or(Vec::is_empty) {
             return (400, vec![], Some(json!({"error": "invalid_redirect_uri"})));
         }
-        let id = format!(
-            "fake-client-{}",
-            self.next.fetch_add(1, Ordering::SeqCst)
-        );
+        let id = format!("fake-client-{}", self.next.fetch_add(1, Ordering::SeqCst));
         lock(&self.tokens).clients.insert(id.clone());
         lock(&self.seen).registrations += 1;
         (
@@ -392,8 +399,8 @@ impl FakeAuth {
         let q = form(query.as_bytes());
         let get = |k: &str| q.get(k).cloned().unwrap_or_default();
         let client = get("client_id");
-        let known = lock(&self.tokens).clients.contains(&client)
-            || client == self.config().client_id;
+        let known =
+            lock(&self.tokens).clients.contains(&client) || client == self.config().client_id;
         if !known || get("code_challenge_method") != "S256" {
             return (400, vec![], Some(json!({"error": "invalid_request"})));
         }
@@ -420,7 +427,13 @@ impl FakeAuth {
         f: &HashMap<String, String>,
         headers: &HashMap<String, String>,
     ) -> (u16, Vec<(String, String)>, Option<Value>) {
-        let refused = |code: &str| (400, vec![], Some(json!({"error": code, "error_description": "the fake says no"})));
+        let refused = |code: &str| {
+            (
+                400,
+                vec![],
+                Some(json!({"error": code, "error_description": "the fake says no"})),
+            )
+        };
         let get = |k: &str| f.get(k).cloned().unwrap_or_default();
         let _ = headers;
         lock(&self.seen).resources.push(get("resource"));

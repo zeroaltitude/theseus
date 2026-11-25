@@ -169,11 +169,22 @@ async fn the_whole_path_from_the_401_to_a_tool_call() {
     assert_eq!(d.resource, url, "the resource is the server itself");
     assert_eq!(auth.seen().registrations, 1);
     let c = connect_with(&url, kept(d, client, &tokens)).await.unwrap();
-    let r = c.call_tool("echo", json!({"text": "signed"})).await.unwrap();
+    let r = c
+        .call_tool("echo", json!({"text": "signed"}))
+        .await
+        .unwrap();
     assert_eq!(r.text_for_model(), "signed");
     // The resource rode the authorization and the exchange.
-    assert!(auth.seen().resources.iter().all(|r| *r == url), "{:?}", auth.seen().resources);
-    assert_eq!(auth.seen().bearers_seen, 0, "no token went to the authorization server");
+    assert!(
+        auth.seen().resources.iter().all(|r| *r == url),
+        "{:?}",
+        auth.seen().resources
+    );
+    assert_eq!(
+        auth.seen().bearers_seen,
+        0,
+        "no token went to the authorization server"
+    );
     assert!(fake.seen().unauthorized >= 1);
 }
 
@@ -193,11 +204,18 @@ async fn discovery_by_the_header_and_by_each_fallback() {
         .await;
         let (_fake, url) = mcp_at(&auth).await;
         let c = refused_challenge(&url).await.expect("a Bearer challenge");
-        assert_eq!(c.resource_metadata.is_some(), at == MetadataAt::Header, "{at:?}");
+        assert_eq!(
+            c.resource_metadata.is_some(),
+            at == MetadataAt::Header,
+            "{at:?}"
+        );
         let d = discover::discover(&oauth::http(true), &Url::parse(&url).unwrap(), Some(&c))
             .await
             .unwrap_or_else(|e| panic!("{at:?}: {e}"));
-        assert_eq!(d.server.token_endpoint.as_str(), format!("{}/token", auth.base()));
+        assert_eq!(
+            d.server.token_endpoint.as_str(),
+            format!("{}/token", auth.base())
+        );
     }
     // No resource metadata: the server's own origin is asked.
     let auth = FakeAuth::start(AuthConfig::default()).await;
@@ -250,18 +268,33 @@ async fn a_wrong_verifier_is_refused_by_the_server() {
         .unwrap();
     let lo = Loopback::bind().await.unwrap();
     let redirect = lo.redirect();
-    let client = register::register(&http, d.server.registration_endpoint.as_ref().unwrap(), &redirect)
-        .await
-        .unwrap();
+    let client = register::register(
+        &http,
+        d.server.registration_endpoint.as_ref().unwrap(),
+        &redirect,
+    )
+    .await
+    .unwrap();
     let pkce = Pkce::new();
     let at = request::authorize_url(&d.server, &client.id, &redirect, &pkce, &d.resource, None);
     let sent_to = auth.browse(&at, false).await;
     let code = request::parse_redirect(&sent_to, &pkce.state, &d.server.issuer).unwrap();
     let other = Pkce::new();
-    let e = exchange::redeem(&http, &d.server.token_endpoint, &client, &code, other.verifier(), &redirect, &d.resource)
-        .await
-        .unwrap_err();
-    assert_eq!(e.to_string(), "the token endpoint answered HTTP 400 (invalid_grant)");
+    let e = exchange::redeem(
+        &http,
+        &d.server.token_endpoint,
+        &client,
+        &code,
+        other.verifier(),
+        &redirect,
+        &d.resource,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "the token endpoint answered HTTP 400 (invalid_grant)"
+    );
     assert_eq!(auth.seen().wrong_verifiers, 1);
     // And a redirect with another sign-in's state gives no code.
     assert!(request::parse_redirect(&sent_to, &other.state, &d.server.issuer).is_err());
@@ -321,15 +354,29 @@ async fn a_refresh_rotates_and_a_spent_or_refused_one_is_for_good() {
     let (d, client, tokens) = sign_in(&auth, &url, None).await;
     let http = oauth::http(true);
     let first = tokens.refresh.unwrap().to_string();
-    let Renewal::Renewed(t) =
-        exchange::refresh(&http, &d.server.token_endpoint, &client, &first, &d.resource).await
+    let Renewal::Renewed(t) = exchange::refresh(
+        &http,
+        &d.server.token_endpoint,
+        &client,
+        &first,
+        &d.resource,
+    )
+    .await
     else {
         panic!("not renewed")
     };
     let second = t.refresh.expect("a rotated refresh token").to_string();
     assert_ne!(first, second);
     // The spent one is refused for good, in the daemon's words.
-    match exchange::refresh(&http, &d.server.token_endpoint, &client, &first, &d.resource).await {
+    match exchange::refresh(
+        &http,
+        &d.server.token_endpoint,
+        &client,
+        &first,
+        &d.resource,
+    )
+    .await
+    {
         Renewal::ForGood(why) => {
             assert_eq!(why, "the token endpoint answered HTTP 400 (invalid_grant)")
         }
@@ -337,7 +384,14 @@ async fn a_refresh_rotates_and_a_spent_or_refused_one_is_for_good() {
     }
     auth.set(|c| c.refuse_refresh = true);
     assert!(matches!(
-        exchange::refresh(&http, &d.server.token_endpoint, &client, &second, &d.resource).await,
+        exchange::refresh(
+            &http,
+            &d.server.token_endpoint,
+            &client,
+            &second,
+            &d.resource
+        )
+        .await,
         Renewal::ForGood(_)
     ));
     // No answer at all may pass.
@@ -362,7 +416,10 @@ async fn a_401_renews_the_token_once_and_the_call_goes_again() {
     assert_eq!(auth.seen().refreshes, 1);
     // A refresh refused for good: the call fails with the 401, once.
     auth.revoke_all();
-    let e = c.call_tool("echo", json!({"text": "no"})).await.unwrap_err();
+    let e = c
+        .call_tool("echo", json!({"text": "no"}))
+        .await
+        .unwrap_err();
     assert!(matches!(e, Error::Http { status: 401, .. }), "{e:?}");
     assert_eq!(source.renewals.load(Ordering::SeqCst), 2);
     assert_eq!(auth.seen().refused_refreshes, 1, "one refresh, no loop");
@@ -379,7 +436,9 @@ async fn the_token_never_goes_to_another_origin() {
     tokio::spawn(async move {
         while let Ok((mut s, _)) = other.accept().await {
             r.fetch_add(1, Ordering::SeqCst);
-            let _ = s.write_all(b"HTTP/1.1 500 X\r\ncontent-length: 0\r\n\r\n").await;
+            let _ = s
+                .write_all(b"HTTP/1.1 500 X\r\ncontent-length: 0\r\n\r\n")
+                .await;
         }
     });
     let mover = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -405,10 +464,17 @@ async fn the_token_never_goes_to_another_origin() {
     }
     let mut t = HttpTarget::new(format!("http://{mover_addr}/mcp"));
     t.token = Some(Arc::new(Fixed));
-    let e = Client::connect(Transport::Http(t), opts()).await.err().unwrap();
+    let e = Client::connect(Transport::Http(t), opts())
+        .await
+        .err()
+        .unwrap();
     assert!(matches!(e, Error::Http { status: 307, .. }), "{e:?}");
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(reached.load(Ordering::SeqCst), 0, "the other origin was never reached");
+    assert_eq!(
+        reached.load(Ordering::SeqCst),
+        0,
+        "the other origin was never reached"
+    );
 }
 
 /// Every value the fake issued or was sent (codes, tokens, the verifier) is
@@ -422,11 +488,25 @@ async fn no_value_is_in_any_errors_words() {
     let c = connect_with(&url, source.clone()).await.unwrap();
     let mut words = Vec::new();
     auth.revoke_all();
-    words.push(c.call_tool("echo", json!({"text": "x"})).await.unwrap_err().to_string());
-    words.push(format!("{:?}", c.call_tool("echo", json!({"text": "x"})).await.unwrap_err()));
+    words.push(
+        c.call_tool("echo", json!({"text": "x"}))
+            .await
+            .unwrap_err()
+            .to_string(),
+    );
+    words.push(format!(
+        "{:?}",
+        c.call_tool("echo", json!({"text": "x"})).await.unwrap_err()
+    ));
     let r = tokens.refresh.as_ref().unwrap().to_string();
-    if let Renewal::ForGood(w) =
-        exchange::refresh(&oauth::http(true), &d.server.token_endpoint, &client, &r, &d.resource).await
+    if let Renewal::ForGood(w) = exchange::refresh(
+        &oauth::http(true),
+        &d.server.token_endpoint,
+        &client,
+        &r,
+        &d.resource,
+    )
+    .await
     {
         words.push(w);
     }

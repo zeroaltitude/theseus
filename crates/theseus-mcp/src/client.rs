@@ -1308,8 +1308,10 @@ impl Http {
 
     fn set_last_sent(&self, sent: Option<String>) {
         if sent.is_some() {
-            *self.last_sent.lock().unwrap_or_else(PoisonError::into_inner) =
-                sent.map(zeroize::Zeroizing::new);
+            *self
+                .last_sent
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = sent.map(zeroize::Zeroizing::new);
         }
     }
 
@@ -1376,7 +1378,9 @@ async fn exchange(shared: Arc<Shared>, msg: Value, carries: Option<i64>) {
                     };
                     match carries {
                         Some(id) => shared.fail(id, e),
-                        None => tracing::warn!(error = %e, "mcp: a message to the server was not delivered"),
+                        None => {
+                            tracing::warn!(error = %e, "mcp: a message to the server was not delivered")
+                        }
                     }
                     return;
                 }

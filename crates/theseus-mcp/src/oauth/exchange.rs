@@ -159,13 +159,10 @@ pub async fn revoke(
     ];
     let req = authorize(http.post(endpoint.clone()), client, &mut form).form(&form);
     forget(&mut form);
-    let resp = req
-        .send()
-        .await
-        .map_err(|_| OauthError::Unreachable {
-            what: "the revocation endpoint",
-            why: "the request failed".into(),
-        })?;
+    let resp = req.send().await.map_err(|_| OauthError::Unreachable {
+        what: "the revocation endpoint",
+        why: "the request failed".into(),
+    })?;
     match resp.status().as_u16() {
         200..=299 => Ok(()),
         status => Err(OauthError::Status {
