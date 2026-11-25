@@ -94,7 +94,7 @@ pub fn stage(
         b => format!("{b}\n{undo_line}"),
     };
     let text = note(Kind::Fyi, title, by, &body);
-    outbox.stage_to_operator(session, json!({"kind": KIND, "text": text, "undo": undo}))
+    outbox.stage_to_operator(session, json!({"kind": "told", "text": text, "undo": undo}))
 }
 
 /// A note's text and its undo, by its post's id: none for any other post.

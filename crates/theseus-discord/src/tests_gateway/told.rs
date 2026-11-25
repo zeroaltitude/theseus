@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use serde_json::json;
+use theseus_core::approval::Answerer;
 use theseus_core::owner_note::told::{self, Undo};
 use theseus_core::provider::{FakeProvider, Provider};
 use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
@@ -45,7 +46,12 @@ fn ordered(r: &Rig) -> (String, String) {
                 scope: StandingScope::Surface("terminal".into()),
                 ..Default::default()
             },
-            "the CLI",
+            Answerer {
+                label: "the CLI".into(),
+                surface: theseus_core::approval::Surface::Cli,
+                discord: None,
+                agent: None,
+            },
         )
         .unwrap()
         .record
