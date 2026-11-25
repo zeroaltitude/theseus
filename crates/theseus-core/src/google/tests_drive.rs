@@ -1,7 +1,7 @@
 //! `drive.*` through the whole core, against the loopback fake's Drive
 //! (`theseus_google::fake::drive`): what compiles to Drive's `q`, a Doc read
-//! and written as markdown, who is outside text, and that a share or a trash
-//! asks at every posture.
+//! and written as markdown, who is outside text, and that a share asks at
+//! every posture (a trash follows the tool's own, issue 57).
 
 use std::sync::Arc;
 
@@ -69,7 +69,7 @@ fn plan_of(r: &Rig, name: &str, input: Value) -> Result<theseus_tools::Plan, Str
 }
 
 #[tokio::test]
-async fn share_and_trash_always_ask_whatever_the_posture() {
+async fn share_always_asks_whatever_the_posture_and_trash_follows_the_tools_own() {
     // Every posture open, in the config and on each tool: only a plan's own
     // authority can still make the call wait.
     let open = |c: &mut crate::Config| {
@@ -86,6 +86,7 @@ async fn share_and_trash_always_ask_whatever_the_posture() {
         vec![
             call_of("c1", "drive_share", share.clone()),
             call_of("c2", "drive_share", trash.clone()),
+            crate::provider::Scripted::text("Trashed."),
         ],
         open,
     )
@@ -93,15 +94,22 @@ async fn share_and_trash_always_ask_whatever_the_posture() {
     let drive = Drive::install(&r.fake);
     drive.add(File::doc("doc1", "Plan", "# Plan\n"));
     let t = tool(&r, "drive.share");
-    for input in [&share, &trash] {
-        let plan = plan_of(&r, "drive.share", input.clone()).unwrap();
-        assert!(plan.authority.is_some(), "{plan:?}");
-        let d = r.core.tools.policy.decide(t.as_ref(), &plan);
-        assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
-        // A mode and a routine's grant loosen only a call the posture
-        // alone makes wait: this one is not.
-        assert!(!r.core.tools.policy.posture_only(t.as_ref(), &plan));
-    }
+    let plan = plan_of(&r, "drive.share", share.clone()).unwrap();
+    assert!(plan.authority.is_some(), "{plan:?}");
+    let d = r.core.tools.policy.decide(t.as_ref(), &plan);
+    assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
+    // A mode and a routine's grant loosen only a call the posture
+    // alone makes wait: this one is not.
+    assert!(!r.core.tools.policy.posture_only(t.as_ref(), &plan));
+    // A trash the owner can restore is the tool's own posture's (issue 57):
+    // open here, so it runs, and he is told.
+    let plan = plan_of(&r, "drive.share", trash.clone()).unwrap();
+    assert!(plan.authority.is_none(), "{plan:?}");
+    assert!(r.core.tools.policy.posture_only(t.as_ref(), &plan));
+    assert_eq!(
+        r.core.tools.policy.decide(t.as_ref(), &plan).posture,
+        Posture::Open
+    );
     // The writes and the reads at the same posture are decided by it, open.
     for (name, input) in [
         ("drive.write", json!({"id": "doc1", "rename": "Plan B"})),
@@ -121,24 +129,56 @@ async fn share_and_trash_always_ask_whatever_the_posture() {
             "{name}"
         );
     }
-    // Through whole turns: the share waits, then the trash waits, and nothing went out.
-    for what in ["share it", "trash it"] {
-        let res = crate::test_support::turn(&r.core, &session(&r.core), what).await;
-        assert!(res.awaiting_confirm.is_some(), "{what}: {res:?}");
-    }
-    let sent = r.fake.log().into_iter().any(|l| {
-        l.path.ends_with("/permissions") || (l.verb == "PATCH" && l.path == "/drive/v3/files/doc1")
-    });
-    assert!(!sent, "nothing was shared or trashed");
-    assert!(!drive.file("doc1").unwrap().trashed);
+    // Through whole turns: the share waits and nothing was shared; the trash runs.
+    let res = crate::test_support::turn(&r.core, &session(&r.core), "share it").await;
+    assert!(res.awaiting_confirm.is_some(), "share it: {res:?}");
+    let res = crate::test_support::turn(&r.core, &session(&r.core), "trash it").await;
+    assert!(res.awaiting_confirm.is_none(), "trash it: {res:?}");
+    let shared = r.fake.log().into_iter().any(|l| l.path.ends_with("/permissions"));
+    assert!(!shared, "nothing was shared");
+    assert!(drive.file("doc1").unwrap().trashed);
     let asked = ledgered(&r.core, "tool.confirm_requested");
-    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert_eq!(asked.len(), 1, "{asked:?}");
     assert!(
         asked
             .iter()
             .all(|a| a["reason"].as_str().unwrap().contains("every time")),
         "{asked:?}"
     );
+}
+
+/// The trash half of the test above, as it stood before issue 57, under the
+/// owner's explicit per-tool setting: `drive.share = "approve"` makes the
+/// trash wait, and nothing is trashed.
+#[tokio::test]
+async fn a_trash_asks_when_the_owner_sets_its_tool_to_approve() {
+    let trash = json!({"id": "doc1", "trash": true});
+    let r = rig_with(
+        Some(theseus_google::fake::REFRESH_TOKEN),
+        |_| "file:/tmp/unused-google-refresh-token".into(),
+        vec![call_of("c2", "drive_share", trash.clone())],
+        |c| {
+            c.policy.enforcement = Posture::Open;
+            c.policy.tools.insert("drive.share".into(), Posture::Approve);
+        },
+    )
+    .await;
+    let drive = Drive::install(&r.fake);
+    drive.add(File::doc("doc1", "Plan", "# Plan\n"));
+    let t = tool(&r, "drive.share");
+    let plan = plan_of(&r, "drive.share", trash.clone()).unwrap();
+    let d = r.core.tools.policy.decide(t.as_ref(), &plan);
+    assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
+    let res = crate::test_support::turn(&r.core, &session(&r.core), "trash it").await;
+    assert!(res.awaiting_confirm.is_some(), "trash it: {res:?}");
+    let sent = r
+        .fake
+        .log()
+        .into_iter()
+        .any(|l| l.verb == "PATCH" && l.path == "/drive/v3/files/doc1");
+    assert!(!sent, "nothing was trashed");
+    assert!(!drive.file("doc1").unwrap().trashed);
+    assert_eq!(ledgered(&r.core, "tool.confirm_requested").len(), 1);
 }
 
 #[tokio::test]

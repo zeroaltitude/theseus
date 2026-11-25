@@ -1,10 +1,13 @@
 //! The class of a `google.call` (Google design §3.2, and the owner's decision
 //! that every send asks): a read, a write, or **authority**. Authority is what
-//! reaches other people or cannot be undone: a send, a delete or trash, a
-//! permission or ACL change, an invitation. `Plan.authority` asks at every
-//! posture, so no `[policy.tools]` line, grant, trust or judgment loosens it.
-//! It is judged on the resolved verb and path as well as on the method's name,
-//! so a call by path is classified like one by id.
+//! reaches other people or cannot be undone: a send, a delete, a permission or
+//! ACL change, an invitation, a cleared calendar. `Plan.authority` asks at
+//! every posture, so no `[policy.tools]` line, grant, trust or judgment
+//! loosens it. A **tidy** write is one the owner can take back himself (a
+//! trash or untrash, a message put into the mailbox, a calendar made): it runs
+//! at the tool's own posture and the owner is told of it (issue 57). It is
+//! judged on the resolved verb and path as well as on the method's name, so a
+//! call by path is classified like one by id.
 
 use crate::retry::Repeat;
 
@@ -22,6 +25,8 @@ pub struct Classified {
     pub repeat: Repeat,
     /// Why it is authority, in the card's words.
     pub why: Option<&'static str>,
+    /// A tidy write (never authority): what it does, in the note's words.
+    pub tidy: Option<&'static str>,
     /// It sends mail (`messages.send`, `drafts.send`): the daily cap counts it.
     pub send: bool,
 }
@@ -51,26 +56,14 @@ fn authority(
     if verb == "DELETE" || id.is_some_and(|i| i.ends_with(".delete")) {
         return Some("deletes");
     }
-    if mutating && ends(&["trash", "untrash"]) {
-        return Some("moves to or from the trash");
-    }
-    if mutating && ends(&["import"]) && segments.contains(&"messages") {
-        return Some("puts a message into the mailbox");
-    }
-    if verb == "POST" && last == "messages" {
-        return Some("puts a message into the mailbox");
-    }
     if mutating && ends(&["batchDelete"]) {
         return Some("deletes");
     }
     if mutating && segments.iter().any(|s| matches!(*s, "permissions" | "acl")) {
         return Some("changes who can see or edit");
     }
-    if mutating
-        && segments.contains(&"calendars")
-        && (ends(&["clear"]) || (verb == "POST" && last == "calendars"))
-    {
-        return Some("changes or clears a calendar");
+    if mutating && segments.contains(&"calendars") && ends(&["clear"]) {
+        return Some("clears a calendar");
     }
     if mutating && segments.contains(&"events") {
         let loud = |k: &str| {
@@ -81,6 +74,28 @@ fn authority(
         if loud("sendUpdates") || loud("sendNotifications") {
             return Some("sends invitations or updates to attendees");
         }
+    }
+    None
+}
+
+/// A tidy write, judged only once [`authority`] found none: one the owner can
+/// take back himself, so it runs at the tool's posture and is told.
+fn tidy(verb: &str, path: &str) -> Option<&'static str> {
+    let segments: Vec<&str> = path.split('/').collect();
+    let (last, action) = last_segment(path);
+    let mutating = verb != "GET";
+    let ends = |names: &[&str]| names.contains(&last) || action.is_some_and(|a| names.contains(&a));
+    if mutating && ends(&["trash", "untrash"]) {
+        return Some("moves to or from the trash");
+    }
+    if mutating && ends(&["import"]) && segments.contains(&"messages") {
+        return Some("puts a message into the mailbox");
+    }
+    if verb == "POST" && last == "messages" {
+        return Some("puts a message into the mailbox");
+    }
+    if verb == "POST" && last == "calendars" {
+        return Some("makes a calendar");
     }
     None
 }
@@ -101,7 +116,17 @@ pub fn classify(
             class: Class::Authority,
             repeat: Repeat::NonRepeatable,
             why: Some(why),
+            tidy: None,
             send,
+        };
+    }
+    if let Some(tidy) = tidy(&verb, path) {
+        return Classified {
+            class: Class::Write,
+            repeat: Repeat::NonRepeatable,
+            why: None,
+            tidy: Some(tidy),
+            send: false,
         };
     }
     let class = if verb == "GET" {
@@ -117,6 +142,7 @@ pub fn classify(
             Repeat::NonRepeatable
         },
         why: None,
+        tidy: None,
         send: false,
     }
 }
@@ -136,10 +162,6 @@ mod tests {
         for id in [
             "gmail.users.messages.send",
             "gmail.users.drafts.send",
-            "gmail.users.messages.import",
-            "gmail.users.messages.insert",
-            "gmail.users.messages.trash",
-            "gmail.users.threads.untrash",
             "gmail.users.messages.delete",
             "gmail.users.messages.batchDelete",
             "drive.files.delete",
@@ -149,7 +171,6 @@ mod tests {
             "drive.permissions.delete",
             "calendar.acl.insert",
             "calendar.acl.delete",
-            "calendar.calendars.insert",
             "calendar.calendars.delete",
             "calendar.calendars.clear",
             "calendar.events.delete",
@@ -157,6 +178,24 @@ mod tests {
         ] {
             let c = of(id);
             assert_eq!(c.class, Class::Authority, "{id}");
+            assert_eq!(c.repeat, Repeat::NonRepeatable, "{id}");
+            assert_eq!(c.tidy, None, "{id}");
+        }
+        // What the owner can take back himself is a tidy write: it is told,
+        // and does not ask (issue 57).
+        for (id, tidy) in [
+            ("gmail.users.messages.import", "puts a message into the mailbox"),
+            ("gmail.users.messages.insert", "puts a message into the mailbox"),
+            ("gmail.users.messages.trash", "moves to or from the trash"),
+            ("gmail.users.messages.untrash", "moves to or from the trash"),
+            ("gmail.users.threads.trash", "moves to or from the trash"),
+            ("gmail.users.threads.untrash", "moves to or from the trash"),
+            ("calendar.calendars.insert", "makes a calendar"),
+        ] {
+            let c = of(id);
+            assert_eq!(c.class, Class::Write, "{id}");
+            assert_eq!(c.why, None, "{id}");
+            assert_eq!(c.tidy, Some(tidy), "{id}");
             assert_eq!(c.repeat, Repeat::NonRepeatable, "{id}");
         }
         // Reads and ordinary writes are not.
@@ -188,7 +227,7 @@ mod tests {
             c("POST", "/gmail/v1/users/me/drafts/send"),
             Class::Authority
         );
-        assert_eq!(c("POST", "/gmail/v1/users/me/messages"), Class::Authority);
+        assert_eq!(c("POST", "/gmail/v1/users/me/messages"), Class::Write);
         assert_eq!(c("DELETE", "/drive/v3/files/abc"), Class::Authority);
         assert_eq!(
             c("POST", "/drive/v3/files/abc/permissions"),
@@ -200,8 +239,30 @@ mod tests {
         );
         assert_eq!(
             c("POST", "/gmail/v1/users/me/messages/abc/trash"),
+            Class::Write
+        );
+        let tidy = |v: &str, p: &str| classify(v, p, None, &[]).tidy;
+        assert_eq!(
+            tidy("POST", "/gmail/v1/users/me/messages/abc/trash"),
+            Some("moves to or from the trash")
+        );
+        assert_eq!(
+            tidy("POST", "/gmail/v1/users/me/messages"),
+            Some("puts a message into the mailbox")
+        );
+        assert_eq!(
+            tidy("POST", "/calendar/v3/calendars"),
+            Some("makes a calendar")
+        );
+        // A KEEP reason is judged first: a trash under a permission, a clear,
+        // a delete, are authority whatever they end in.
+        assert_eq!(
+            c("POST", "/drive/v3/files/abc/permissions/p1:trash"),
             Class::Authority
         );
+        assert_eq!(c("DELETE", "/gmail/v1/users/me/messages/abc/trash"), Class::Authority);
+        assert_eq!(c("POST", "/calendar/v3/calendars/c1/clear"), Class::Authority);
+        assert_eq!(tidy("POST", "/calendar/v3/calendars/c1/clear"), None);
         assert_eq!(c("GET", "/gmail/v1/users/me/messages"), Class::Read);
         assert_eq!(c("POST", "/gmail/v1/users/me/labels"), Class::Write);
         assert_eq!(c("POST", "/v4/spreadsheets/s1:batchUpdate"), Class::Write);

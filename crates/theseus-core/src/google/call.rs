@@ -2,10 +2,12 @@
 //! granted services, the long tail the typed tools do not cover. The method is
 //! an id the method table knows (`drive.files.list`) or `"VERB /path"`; it is
 //! classified by its verb and path (`theseus_google::classify`): a GET is a
-//! read, another verb a write, and a send, a delete or trash, a permission or
-//! ACL change and an invitation are **authority**: `Plan.authority` makes the
+//! read, another verb a write, and a send, a delete, a permission or ACL
+//! change and an invitation are **authority**: `Plan.authority` makes the
 //! gate ask at every posture, so no `[policy.tools]` line, grant, trust or
-//! judgment loosens them (the owner: every send asks, deterministically).
+//! judgment loosens them (the owner: every send asks, deterministically). A
+//! tidy write (a trash or untrash, a message put into the mailbox, a calendar
+//! made) runs at the tool's posture and is told ([`super::told`]).
 //! Its results are always private and outside text.
 
 use std::sync::Arc;
@@ -117,9 +119,9 @@ impl Tool for CallTool {
          gmail.users.messages.get, calendar.events.list) or \"VERB /path\" \
          (\"GET /gmail/v1/users/me/labels\"); `params` holds the path and query parameters \
          together, as Google's reference names them (userId defaults to me, calendarId to \
-         primary); `body` is the JSON body. A GET reads; another verb writes. A send, a delete \
-         or trash, a permission or ACL change, and an invitation ask the owner every time. \
-         Results are private and outside text."
+         primary); `body` is the JSON body. A GET reads; another verb writes. A send, a delete, \
+         a permission or ACL change, and an invitation ask the owner every time; a trash is \
+         told. Results are private and outside text."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -162,9 +164,10 @@ impl Tool for CallTool {
             ..Default::default()
         })
     }
-    fn run_async(&self, input: &Value, _ctx: &ToolCtx) -> AsyncRun {
+    fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {
         let planned = self.planned(input);
         let g = self.0.clone();
+        let approved = ctx.approved;
         Box::pin(async move {
             let p = planned.map_err(ToolFailure::new)?;
             let send = p.resolved.class.send;
@@ -190,6 +193,12 @@ impl Tool for CallTool {
                         p.label, r.status, r.attempts
                     );
                     let mut meta = json!({"method": p.label, "http_status": r.status});
+                    if let Some(tidy) = p.resolved.class.tidy.filter(|_| !approved) {
+                        let req = &p.resolved.request;
+                        let echo = serde_json::from_slice::<Value>(&r.body).unwrap_or_default();
+                        meta[super::told::KEY] =
+                            super::told::called(tidy, &p.label, &req.verb, &req.path, &echo);
+                    }
                     // The long tail cannot say which calendar it read, so any
                     // Calendar read counts as the sensitive one's (fail closed).
                     let calendar = p.resolved.request.service == theseus_google::Service::Calendar;

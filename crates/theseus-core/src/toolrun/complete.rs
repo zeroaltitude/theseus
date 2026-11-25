@@ -40,13 +40,44 @@ impl ToolRuntime {
         let sid = tc.session_id;
         let mut frame = vec![super::parts::record(node)?];
         frame.extend(extra);
+        let told = Self::tell_google(tc, node, &mut frame)?;
         let accepted = tc.kernel.accept_completion_with(c, frame)?;
+        if let Some(post) = told {
+            tc.outbox.posted(&post);
+        }
         // A Google result raises its label where it is written
         // (theseus-gyjyo.5), after the frame, since landing takes the
         // session's lock.
         self.label_google(sid, node);
         self.queue_content(sid, std::slice::from_ref(node));
         Ok(accepted)
+    }
+
+    /// A tidy Google act the owner did not approve is told to him once, in
+    /// its result's frame (issue 57, `google::told`): never to the session's
+    /// own place, which may be shared.
+    fn tell_google(
+        tc: &TurnCtx<'_>,
+        node: &Node,
+        frame: &mut Vec<theseus_store::NewRecord>,
+    ) -> Result<Option<theseus_kernel::Action>> {
+        let crate::node::Body::ToolResult { meta, status, .. } = &node.body else {
+            return Ok(None);
+        };
+        let told = &meta[crate::google::told::KEY];
+        if *status != crate::node::ResultStatus::Ok || !crate::google::private::marked(meta) {
+            return Ok(None);
+        }
+        let session: Option<crate::session::SessionRecord> =
+            tc.store.get_session(tc.session_id).ok().flatten();
+        let title = session.and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
+        let Some(text) = crate::google::told::text(told, tc.session_id, title.as_deref()) else {
+            return Ok(None);
+        };
+        let body = serde_json::json!({"kind": "notice", "text": text, "announce": true});
+        let (post, more) = tc.outbox.stage_to_operator(None, body)?;
+        frame.extend(more);
+        Ok(Some(post))
     }
 
     /// A Google result raises its label where it is written (theseus-gyjyo.5):

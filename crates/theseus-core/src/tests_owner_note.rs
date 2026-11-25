@@ -145,6 +145,11 @@ fn spend_families() -> Vec<(&'static str, String)> {
         at_ms: 0,
     });
     let google = crate::google::tend::lapse_text("wren@example.com");
+    let told = |t: serde_json::Value| {
+        crate::google::told::text(&t, "ses_1", Some("tidy the inbox")).unwrap()
+    };
+    let google_trash = told(crate::google::told::mail_trashed(&[("threads", "t1")]));
+    let google_revoke = told(crate::google::told::drive_revoked("doc1", "a@example.test", "reader"));
     let persona = crate::turn::persona_step::missing_text("wren", "/p/SOUL.md", "denied");
     vec![
         ("day ceiling", ceiling),
@@ -154,6 +159,8 @@ fn spend_families() -> Vec<(&'static str, String)> {
         ("AWS hands hour alert", hands_hour),
         ("AWS hands runaway", hands_runaway),
         ("Google lapse", google),
+        ("Google tidy act told", google_trash),
+        ("Google access removed told", google_revoke),
         ("persona file missing", persona),
     ]
 }

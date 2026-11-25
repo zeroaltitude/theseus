@@ -1289,7 +1289,7 @@ impl Tool for LabelTool {
     fn description(&self) -> &str {
         "Change labels on Gmail threads (ids from gmail_search): add or remove INBOX (archive), \
          UNREAD (mark read), STARRED, or a user label by name. trash moves them to Trash \
-         (recoverable) and asks the owner every time. In a session that read outside text, \
+         (recoverable), and the owner is told. In a session that read outside text, \
          this asks."
     }
     fn input_schema(&self) -> Value {
@@ -1319,20 +1319,17 @@ impl Tool for LabelTool {
                 a.ids.len()
             ),
             class: Some(ToolClass::Write),
-            authority: a.trash.then(|| {
-                "moves mail to Trash, so the owner decides it, every time, at every posture".into()
-            }),
             ..Default::default()
         })
     }
-    fn run_async(&self, input: &Value, _ctx: &ToolCtx) -> AsyncRun {
+    fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {
         let args: Result<LabelArgs, String> = parse(input);
         let m = self.0.clone();
+        let approved = ctx.approved;
         Box::pin(async move {
             let a = args.map_err(ToolFailure::new)?;
             a.checked().map_err(ToolFailure::new)?;
             let mut rows = Vec::new();
-            let class = if a.trash { "authority" } else { "write" };
             let add = m.label_ids(&mut rows, &a.add).await?;
             let remove = m.label_ids(&mut rows, &a.remove).await?;
             let (what, body) = if a.trash {
@@ -1344,11 +1341,14 @@ impl Tool for LabelTool {
                 )
             };
             let mut done = Vec::new();
+            let mut kinds = Vec::new();
             for id in &a.ids {
-                m.act(&mut rows, class, id, what, &body)
+                let kind = m
+                    .act(&mut rows, "write", id, what, &body)
                     .await
                     .map_err(|f| failure(f, &rows))?;
                 done.push(id.as_str());
+                kinds.push((kind, id.as_str()));
             }
             let text = format!(
                 "{} {} thread(s): {}\n",
@@ -1356,7 +1356,10 @@ impl Tool for LabelTool {
                 done.len(),
                 done.join(", ")
             );
-            let meta = json!({"ids": done, "trash": a.trash});
+            let mut meta = json!({"ids": done, "trash": a.trash});
+            if a.trash && !approved {
+                meta[super::told::KEY] = super::told::mail_trashed(&kinds);
+            }
             Ok(finished(m.g.account(), text, meta, &rows, Source::None))
         })
     }
@@ -1364,7 +1367,7 @@ impl Tool for LabelTool {
 
 impl Mail {
     /// A thread's `modify` or `trash`, else (an id that is no thread's first
-    /// message) the message's own.
+    /// message) the message's own: the kind that took it.
     async fn act(
         &self,
         rows: &mut Vec<Value>,
@@ -1372,7 +1375,7 @@ impl Mail {
         id: &str,
         what: &str,
         body: &Value,
-    ) -> Result<(), CallFailed> {
+    ) -> Result<&'static str, CallFailed> {
         let mut first = None;
         for kind in ["threads", "messages"] {
             let method = format!("gmail.users.{kind}.{what}");
@@ -1385,7 +1388,7 @@ impl Mail {
                 .rest(rows, (LABEL, &method, class), Some(id.into()), req)
                 .await
             {
-                Ok(_) => return Ok(()),
+                Ok(_) => return Ok(kind),
                 Err(f) if first.is_none() && rows.last().is_some_and(|r| r["status"] == 404) => {
                     first = Some(f)
                 }

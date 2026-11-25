@@ -47,6 +47,7 @@ pub mod send_cap;
 pub mod sheets;
 pub mod slides;
 pub mod tend;
+pub mod told;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -74,6 +75,8 @@ mod tests_morning;
 mod tests_sensitive;
 #[cfg(test)]
 mod tests_sheets_slides;
+#[cfg(test)]
+mod tests_told;
 #[cfg(test)]
 mod tests_write_hold;
 

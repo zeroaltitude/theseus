@@ -386,7 +386,6 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
             "calendar.acl.delete",
             json!({"ruleId": "user:x@example.test"}),
         ),
-        ("calendar.calendars.insert", json!({})),
         (
             "calendar.calendars.delete",
             json!({"calendarId": "team@example.test"}),
@@ -408,6 +407,8 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
         ("calendar.events.list", json!({})),
         ("calendar.events.insert", json!({})),
         ("calendar.events.insert", json!({"sendUpdates": "none"})),
+        // A calendar made is told, not asked (issue 57).
+        ("calendar.calendars.insert", json!({})),
     ] {
         assert!(!authority(m, p), "{m} is not authority");
     }

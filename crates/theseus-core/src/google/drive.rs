@@ -410,7 +410,8 @@ impl Tool for DriveTool {
             }
             Op::Share => {
                 "Share a Drive file with `email` or `anyone_with_link` as `role`, `remove` that \
-                 access, or `trash` the file. Asks the owner every time."
+                 access, or `trash` the file. A share asks the owner every time; a remove or \
+                 a trash is told."
             }
         }
     }
@@ -535,14 +536,19 @@ impl Tool for DriveTool {
             }
             Op::Share => {
                 let s = Sharing::of(input)?;
+                // A grant reaches other people, so it asks; a revoke and a
+                // trash or restore the owner can take back are told (issue 57).
+                let asks = matches!(s.change, Change::Grant { .. });
                 Ok(Plan {
                     summary: s.summary(),
                     class: Some(ToolClass::Write),
-                    authority: Some(format!(
-                        "{}, which reaches other people or removes a file, so the owner decides \
-                         it, every time, at every posture",
-                        s.summary()
-                    )),
+                    authority: asks.then(|| {
+                        format!(
+                            "{}, which reaches other people, so the owner decides it, every \
+                             time, at every posture",
+                            s.summary()
+                        )
+                    }),
                     ..Default::default()
                 })
             }
@@ -552,6 +558,7 @@ impl Tool for DriveTool {
     fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {
         let g = self.0.clone();
         let umask = ctx.umask;
+        let approved = ctx.approved;
         let work: Result<Work, String> = match self.1 {
             Op::Find => Find::of(input).map(Work::Find),
             Op::Read => Reading::of(input, ctx).map(Work::Read),
@@ -563,7 +570,7 @@ impl Tool for DriveTool {
                 Work::Find(f) => f.run(&g).await,
                 Work::Read(r) => r.run(&g, umask).await,
                 Work::Write(w) => w.run(&g).await,
-                Work::Share(s) => s.run(&g).await,
+                Work::Share(s) => s.run(&g, approved).await,
             }
         })
     }
@@ -1371,6 +1378,16 @@ enum Change {
     Revoke(Who),
 }
 
+/// The roles a Drive permission can hold.
+const ROLES: [&str; 6] = [
+    "owner",
+    "organizer",
+    "fileOrganizer",
+    "writer",
+    "commenter",
+    "reader",
+];
+
 enum Who {
     User(String),
     Anyone,
@@ -1456,11 +1473,12 @@ impl Sharing {
         }
     }
 
-    async fn run(self, g: &Google) -> Result<Finished, ToolFailure> {
+    /// The change, and what it tells the owner unless he `approved` it.
+    async fn run(self, g: &Google, approved: bool) -> Result<Finished, ToolFailure> {
         let id = self.id.as_str();
         let files = format!("/drive/v3/files/{id}");
         let mut rows = Vec::new();
-        match &self.change {
+        let told = match &self.change {
             Change::Trash(t) => {
                 let req = sent(
                     Service::Drive,
@@ -1473,10 +1491,11 @@ impl Sharing {
                 call(
                     g,
                     &mut rows,
-                    meta(SHARE, "drive.files.update", Some(id), "authority"),
+                    meta(SHARE, "drive.files.update", Some(id), "write"),
                     req,
                 )
                 .await?;
+                Some(super::told::drive_trashed(id, *t))
             }
             Change::Grant { who, role, notify } => {
                 let body = match who {
@@ -1502,6 +1521,7 @@ impl Sharing {
                     req,
                 )
                 .await?;
+                None
             }
             Change::Revoke(who) => {
                 let list = call(
@@ -1527,9 +1547,16 @@ impl Sharing {
                                     .as_str()
                                     .is_some_and(|x| x.eq_ignore_ascii_case(e)),
                             })
-                            .and_then(|p| p["id"].as_str().map(String::from))
+                            .and_then(|p| {
+                                // Google's own role word, never other text.
+                                let role = p["role"]
+                                    .as_str()
+                                    .filter(|r| ROLES.contains(r))
+                                    .unwrap_or("access");
+                                Some((p["id"].as_str()?.to_string(), role.to_string()))
+                            })
                     });
-                let Some(pid) = found else {
+                let Some((pid, role)) = found else {
                     let said = format!("{}: no such access to remove", self.summary());
                     return Err(refused(said, rows));
                 };
@@ -1545,14 +1572,23 @@ impl Sharing {
                 call(
                     g,
                     &mut rows,
-                    meta(SHARE, "drive.permissions.delete", Some(id), "authority"),
+                    meta(SHARE, "drive.permissions.delete", Some(id), "write"),
                     req,
                 )
                 .await?;
+                let who = match who {
+                    Who::User(e) => e.as_str(),
+                    Who::Anyone => "anyone with the link",
+                };
+                Some(super::told::drive_revoked(id, who, &role))
             }
-        }
+        };
         let text = format!("done: {}\n", self.summary());
-        let (m, row) = with_rows(json!({"id": id}), rows);
+        let mut m = json!({"id": id});
+        if let Some(t) = told.filter(|_| !approved) {
+            m[super::told::KEY] = t;
+        }
+        let (m, row) = with_rows(m, rows);
         Ok(finish(g.account(), text, m, row, Source::None))
     }
 }
