@@ -16,10 +16,10 @@
 //!   reading of English in a person's message). A span's page holds exactly its exchanges, newest first,
 //!   paged by `before`; an empty span says so; beside `words`, `place` or `label` it narrows them, and a
 //!   `place` beside a `label` keeps that place's exchanges of the label's timeline.
-//! - **Every place, when a call narrows and names none, or names `"*"`**: only a bare look-back stays here. A
-//!   span or words with no place and no label, or the place `"*"` (`page::EVERY`), read every place's timeline
-//!   as one (`page::Walks::EveryPlace`), newest first, each line naming its place (history whose place was
-//!   never recorded says so); a session the self loop opened keeps to its own place.
+//! - **Every place, when a call narrows and names none**: only a bare look-back stays here. A span or words
+//!   with no place and no label read every place's timeline as one (`page::Walks::EveryPlace`), newest first,
+//!   each line naming its place (history whose place was never recorded says so); a session the self loop
+//!   opened keeps to its own place.
 //! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
 //!   keeps an exchange off a page or out of an open.
 //! - **Retraction corrects; it does not hide**: a retracted statement still appears in history as said, and its
@@ -141,7 +141,7 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "Earlier history, 100 exchanges a page. Bare: this place, before what you see; before pages back. With when (or from/to), label or words and no place: every place, newest first; place narrows to one. place \"*\": every place, newest first, before pages back. label: a topic (topic:...), a thing (file:...), or personal, secret, confidential, injection. open reads a line whole, or a ses_ session by its id. place \"import\" (or \"import:<book>\") with words searches the imported conversations."
+        "Earlier history, 100 exchanges a page. Bare: this place, before what you see; before pages back. With when (or from/to), label or words and no place: every place, newest first; place narrows to one. label: a topic (topic:...), a thing (file:...), or personal, secret, confidential, injection. open reads a line whole, or a ses_ session by its id. place \"import\" (or \"import:<book>\") with words searches the imported conversations."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -278,8 +278,7 @@ fn heading_of(a: &HistoryArgs, here: &str, every: bool, cuts: &crate::scrub::Cut
             .filter(|s| !s.is_empty())
             .map(str::to_string)
     };
-    let place = some(&a.place).filter(|_| !page::asks_every(a));
-    let label = some(&a.label);
+    let (place, label) = (some(&a.place), some(&a.label));
     let read = match (&place, &label) {
         (Some(p), _) => p.as_str(),
         (None, Some(_)) => page::EVERY_PLACE,
@@ -291,8 +290,7 @@ fn heading_of(a: &HistoryArgs, here: &str, every: bool, cuts: &crate::scrub::Cut
 
 fn read_of<'a>(a: &'a HistoryArgs, here: &'a str) -> &'a str {
     let some = |s: &'a Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let place = some(&a.place).filter(|_| !page::asks_every(a));
-    place.or(some(&a.label)).unwrap_or(here)
+    some(&a.place).or(some(&a.label)).unwrap_or(here)
 }
 
 /// The `outside` of a result's meta: what it read, when it shows another person's words.
