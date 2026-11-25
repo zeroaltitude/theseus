@@ -151,7 +151,13 @@ impl Runner {
             return;
         };
         let look = conn.call(c.method, c.params, |_, _| {});
-        let _ = tokio::time::timeout(Duration::from_millis(500), look).await;
+        if let Ok(Ok(v)) = tokio::time::timeout(Duration::from_millis(500), look).await {
+            for e in self.chat.look_said(&v) {
+                if let Effect::StoreLook(path, look) = e {
+                    let _ = theseus_client::seen::record_store_look(&path, look);
+                }
+            }
+        }
     }
 
     /// The first frame, then the first questions to the daemon.
@@ -369,6 +375,11 @@ impl Runner {
                 Effect::ForgetOldLook(path) => {
                     drop(tokio::task::spawn_blocking(move || {
                         let _ = theseus_client::seen::forget_old_look(&path);
+                    }));
+                }
+                Effect::StoreLook(path, look) => {
+                    drop(tokio::task::spawn_blocking(move || {
+                        let _ = theseus_client::seen::record_store_look(&path, look);
                     }));
                 }
                 Effect::SaveHistory(messages) => self.save_history(messages),

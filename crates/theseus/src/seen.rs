@@ -21,7 +21,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use theseus_protocol::{ExecutionView, Level};
+use theseus_protocol::{ExecutionView, Level, Looked};
 
 /// The file's format.
 const VERSION: u32 = 1;
@@ -53,6 +53,11 @@ struct File {
     #[serde(default = "yes")]
     board_read: bool,
     executions: HashMap<String, Mark>,
+    /// The store's look as this machine last read or wrote it (issue 46): a
+    /// store whose look is another is another history, and the marks start
+    /// again (`Seen::store_looked`). Two writers keep the later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    store_look: Option<Looked>,
     /// Executions to drop from the file (the TUI's board no longer holds
     /// them). Never written to disk.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -159,6 +164,7 @@ fn update(
             version: VERSION,
             board_read: false,
             executions: HashMap::new(),
+            store_look: None,
             forget: Vec::new(),
         });
         change(&mut file);
@@ -175,12 +181,27 @@ pub fn write_merged(path: &Path, text: &str) -> io::Result<HashMap<String, Mark>
     let mine: File = serde_json::from_str(text).map_err(io::Error::other)?;
     let file = update(path, &|a, b| std::fs::rename(a, b), |cur| {
         cur.board_read |= mine.board_read;
+        cur.store_look = later(cur.store_look, mine.store_look);
         for id in &mine.forget {
             cur.executions.remove(id);
         }
         merge_into(&mut cur.executions, mine.executions);
     })?;
     Ok(file.executions)
+}
+
+/// The later of two looks, by the time the daemon was told of each.
+fn later(a: Option<Looked>, b: Option<Looked>) -> Option<Looked> {
+    a.into_iter().chain(b).max_by_key(|l| (l.at_ms, l.position))
+}
+
+/// A look this machine wrote (`work.look`'s answer), for the TUI's next start
+/// to know the store by (issue 46).
+pub fn record_store_look(path: &Path, look: Looked) -> io::Result<()> {
+    update(path, &|a, b| std::fs::rename(a, b), |cur| {
+        cur.store_look = later(cur.store_look, Some(look));
+    })
+    .map(|_| ())
 }
 
 /// The time of the last look an older build kept in this file (issue 46), to
@@ -285,6 +306,10 @@ pub struct Seen {
     /// No file was read: the first board the TUI reads counts as seen, so a
     /// first start shows nothing done.
     fresh: bool,
+    /// The store's look as this machine last read or wrote it (issue 46).
+    store_look: Option<Looked>,
+    /// The marks of another history, dropped from the file at the next write.
+    dropped: Vec<String>,
     /// Changed since the file was last written.
     pub dirty: bool,
 }
@@ -306,12 +331,16 @@ impl Seen {
                 path,
                 marks: f.executions,
                 fresh: !f.board_read,
+                store_look: f.store_look,
+                dropped: Vec::new(),
                 dirty: false,
             },
             None => Self {
                 path,
                 marks: HashMap::new(),
                 fresh: true,
+                store_look: None,
+                dropped: Vec::new(),
                 dirty: false,
             },
         }
@@ -331,6 +360,33 @@ impl Seen {
 
     pub fn path(&self) -> Option<&PathBuf> {
         self.path.as_ref()
+    }
+
+    /// The store's look as the daemon tells it now (issue 46). When this
+    /// machine knew another, the board is of another history (a restore,
+    /// another store, a copy, or a look taken on another machine): the marks
+    /// start again as a first start's, so nothing reads as finished that this
+    /// machine never saw working. True when they did.
+    pub fn store_looked(&mut self, look: Option<Looked>) -> bool {
+        if look == self.store_look {
+            return false;
+        }
+        let other = self.store_look.is_some();
+        self.store_look = look;
+        self.dirty = true;
+        if other {
+            self.dropped.extend(self.marks.drain().map(|(id, _)| id));
+            self.fresh = true;
+        }
+        other
+    }
+
+    /// A look this machine wrote: the store's look it knows.
+    pub fn wrote_look(&mut self, look: Looked) {
+        if self.store_look != Some(look) {
+            self.store_look = Some(look);
+            self.dirty = true;
+        }
     }
 
     /// Done until seen: it finished after it was last displayed, and is
@@ -407,6 +463,7 @@ impl Seen {
     /// What another client recorded, as the file holds it after a write: the
     /// greater positions are taken up.
     pub fn adopt(&mut self, marks: HashMap<String, Mark>) {
+        self.dropped.clear();
         merge_into(&mut self.marks, marks);
     }
 
@@ -429,11 +486,18 @@ impl Seen {
             .filter(|(id, _)| keep(id))
             .map(|(id, m)| (id.clone(), *m))
             .collect();
-        let forget = self.marks.keys().filter(|id| !keep(id)).cloned().collect();
+        let forget = self
+            .marks
+            .keys()
+            .filter(|id| !keep(id))
+            .chain(&self.dropped)
+            .cloned()
+            .collect();
         serde_json::to_string(&File {
             version: VERSION,
             board_read: !self.fresh,
             executions,
+            store_look: self.store_look,
             forget,
         })
         .unwrap_or_default()

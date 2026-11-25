@@ -334,10 +334,10 @@ impl<B: Backend> Runner<B> {
                 // On the way out, what was seen is written (design §2.9).
                 Effect::Quit => {
                     self.quit = true;
+                    self.last_look().await;
                     if let Some(Effect::Save(path, text)) = self.app.save() {
                         self.save(&path, &text);
                     }
-                    self.last_look().await;
                 }
                 Effect::Notice { title, line, sound } => {
                     // `--notify` first, else the config's, else `auto`.
@@ -376,12 +376,13 @@ impl<B: Backend> Runner<B> {
     /// The look on the way out (issue 46), waited for a moment so it reaches
     /// the daemon before the connection closes.
     async fn last_look(&mut self) {
-        let (Some(Effect::Call(c)), Some(conn)) = (self.app.last_look(), self.conn.as_mut())
-        else {
+        let (Some(Effect::Call(c)), Some(conn)) = (self.app.last_look(), self.conn.as_mut()) else {
             return;
         };
         let look = conn.call(c.method, c.params, |_, _| {});
-        let _ = tokio::time::timeout(Duration::from_millis(500), look).await;
+        if let Ok(Ok(v)) = tokio::time::timeout(Duration::from_millis(500), look).await {
+            self.app.look_said(v);
+        }
     }
 
     /// Write the seen file whole: a temporary file beside it, then a rename,

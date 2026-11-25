@@ -259,8 +259,12 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
   kept in the seen file, carried over once, else from now: a first start is told nothing) and shows the summary as the
   footer's notice line, then sends `work.look` at the digest's end. It sends one again on blur, on quit, and at most once
   a minute (`LOOK_EVERY_MS`) while the terminal has focus and the board moved; never one per view. A connect forgets the
-  positions it held (a restarted daemon may serve a restored store). A daemon that does not know the methods is not
-  complained of. Tests: `src/tests_digest.rs`.
+  positions it held (a restarted daemon may serve a restored store). The seen file keeps the store's look as this
+  machine last read or wrote it (`store_look`, written by the TUI, the chat and `theseus digest`); a digest that finds
+  another (a restore, another store, a copy, or a look taken on another machine) starts the done marks again from the
+  board as it stands, as a first start does (`Seen::store_looked`), so a switch and back marks nothing done. A daemon
+  that does not know the methods is not complained of. Tests: `src/tests_digest.rs`, the seen file's
+  `seen/tests.rs`.
 
 ## Invariants
 

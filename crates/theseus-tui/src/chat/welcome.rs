@@ -97,12 +97,18 @@ impl Chat {
         self.look(self.board.position)
     }
 
-    /// The store's look as `work.look` left it.
+    /// The store's look as `work.look` left it, which the seen file keeps.
     pub(super) fn look_said(&mut self, v: &Value) -> Vec<Effect> {
-        if let Ok(r) = serde_json::from_value::<WorkLookResult>(v.clone()) {
-            self.looked_ms = self.looked_ms.max(r.look.at_ms);
-        }
-        Vec::new()
+        let Ok(r) = serde_json::from_value::<WorkLookResult>(v.clone()) else {
+            return Vec::new();
+        };
+        self.looked_ms = self.looked_ms.max(r.look.at_ms);
+        self.cfg
+            .seen_path
+            .clone()
+            .map(|p| Effect::StoreLook(p, r.look))
+            .into_iter()
+            .collect()
     }
 
     /// The board position this chat last applied.

@@ -194,6 +194,7 @@ fn the_older_tui_file_is_read_when_the_new_one_is_absent() {
         version: VERSION,
         board_read: true,
         executions: HashMap::from([("a".to_string(), mark(3, 9, 9))]),
+        store_look: None,
         forget: Vec::new(),
     })
     .unwrap();
@@ -307,4 +308,83 @@ fn old_file_with_a_look() -> String {
         "looked": {"position": 500, "at_ms": 9_000},
     })
     .to_string()
+}
+
+fn looked(position: u64, at_ms: u64) -> Looked {
+    Looked { position, at_ms }
+}
+
+/// The TUI on one store: its board read, the store's look as it found it, and
+/// the views it then took; the file written as the TUI writes it.
+fn on_store(path: &Path, look: Looked, views: &[ExecutionView]) -> Seen {
+    let mut s = Seen::open(Some(path.to_path_buf()));
+    s.store_looked(Some(look));
+    for v in views {
+        s.applied(v, false);
+    }
+    s.first_board_read();
+    let ids: Vec<String> = views.iter().map(|v| v.execution_id.clone()).collect();
+    write_merged(path, &s.text(&|id| ids.iter().any(|i| i == id))).unwrap();
+    s
+}
+
+/// Store A, then store B (whose board holds none of A's, so A's marks are
+/// forgotten), then A again: A's idle conversations are not every one
+/// finished (issue 46).
+#[test]
+fn a_switch_and_back_does_not_mark_every_conversation_done() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seen.json");
+    let a = [view("a1", 40, "idle", 3), view("a2", 41, "ready", 1)];
+    on_store(&path, looked(41, 1_000), &a);
+    on_store(&path, looked(7, 2_000), &[view("b1", 7, "working", 1)]);
+    let back = on_store(&path, looked(41, 1_000), &a);
+    for v in &a {
+        assert!(!back.done(v), "{} reads as done", v.execution_id);
+    }
+}
+
+/// A restored backup's look is older than the one this machine last knew:
+/// another history, and the marks start as a first start's.
+#[test]
+fn a_restore_starts_the_marks_fresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seen.json");
+    on_store(&path, looked(900, 5_000), &[view("a", 900, "ready", 2)]);
+    let mut s = Seen::open(Some(path));
+    assert!(s.store_looked(Some(looked(600, 3_000))), "another history");
+    // A conversation this machine never knew, already at rest in the restored history.
+    s.applied(&view("r", 610, "idle", 4), false);
+    s.first_board_read();
+    assert!(!s.done(&view("r", 610, "idle", 4)));
+}
+
+/// The same store's look: the marks are kept, and a real finish is still told.
+#[test]
+fn the_same_store_keeps_its_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seen.json");
+    on_store(&path, looked(50, 5_000), &[view("a", 50, "working", 1)]);
+    let mut s = Seen::open(Some(path));
+    assert!(!s.store_looked(Some(looked(50, 5_000))));
+    s.first_board_read();
+    assert!(s.applied(&view("a", 60, "ready", 1), false), "it finished");
+    assert!(s.done(&view("a", 60, "ready", 1)));
+}
+
+/// A look this machine wrote is the store's look it knows: the next start on
+/// the same store keeps its marks.
+#[test]
+fn a_look_written_here_is_the_one_the_next_start_knows() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seen.json");
+    on_store(&path, looked(50, 5_000), &[view("a", 50, "working", 1)]);
+    record_store_look(&path, looked(70, 6_000)).unwrap();
+    let mut s = Seen::open(Some(path.clone()));
+    assert!(!s.store_looked(Some(looked(70, 6_000))), "the same history");
+    let mut s = Seen::open(Some(path));
+    assert!(
+        s.store_looked(Some(looked(50, 5_000))),
+        "the look it knew before is another now"
+    );
 }

@@ -279,6 +279,8 @@ pub struct App {
     position: u64,
     /// The position of the last `work.look` sent, and when (issue 46).
     look_sent: (u64, u64),
+    /// The board was read since this connection came up.
+    board_read: bool,
 }
 
 /// How long after a change of focus the seen file is written.
@@ -323,6 +325,7 @@ impl App {
             save_at: None,
             position: 0,
             look_sent: (0, 0),
+            board_read: false,
             sync_warn: None,
             notify_pinned: false,
             tui_notify: None,
@@ -422,6 +425,7 @@ impl App {
         let Ok(r) = serde_json::from_value::<theseus_protocol::WorkDigestResult>(v) else {
             return Vec::new();
         };
+        self.store_looked(r.look);
         let old = self.old_look();
         let since = r.look.map(|l| l.at_ms).or(old).unwrap_or(0);
         if let Some(line) = theseus_protocol::digest_summary(&r.lines, since, &self.hm) {
@@ -434,6 +438,29 @@ impl App {
         }
         self.position = self.position.max(r.to);
         self.look_at(r.to).into_iter().collect()
+    }
+
+    /// The store's look as the daemon told it: another than this machine knew
+    /// is another history, and the done marks start again from the board as it
+    /// stands (or from the board this connection reads next).
+    fn store_looked(&mut self, look: Option<theseus_protocol::Looked>) {
+        if !self.seen.store_looked(look) || !self.board_read {
+            return;
+        }
+        let views: Vec<ExecutionView> = self.board.views().cloned().collect();
+        for v in &views {
+            self.seen.applied(v, false);
+        }
+        self.seen.first_board_read();
+    }
+
+    /// `work.look`'s answer: the store's look this machine wrote, which the
+    /// seen file keeps for the next start.
+    pub fn look_said(&mut self, v: Value) {
+        if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkLookResult>(v) {
+            self.seen.wrote_look(r.look);
+            self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
+        }
     }
 
     /// The time of the look an older build kept in the seen file, carried over
@@ -632,6 +659,7 @@ impl App {
         // store's (`digest_said` sends it).
         self.position = 0;
         self.look_sent = (0, self.now_ms);
+        self.board_read = false;
         out.push(self.digest_call());
         out
     }
@@ -800,6 +828,7 @@ impl App {
                     self.took(&v, None);
                 }
                 self.seen.first_board_read();
+                self.board_read = true;
                 self.follow_up()
             }
             Err(e) => {
@@ -917,7 +946,8 @@ impl App {
             }
             Purpose::Digest => return self.digest_said(v),
             Purpose::Mode(sid) => self.mode_read(&sid, v),
-            Purpose::Watch | Purpose::Typing | Purpose::SelfLog | Purpose::Look => {}
+            Purpose::Look => self.look_said(v),
+            Purpose::Watch | Purpose::Typing | Purpose::SelfLog => {}
             Purpose::FollowStart(..) | Purpose::Unfollow => {}
         }
         Vec::new()

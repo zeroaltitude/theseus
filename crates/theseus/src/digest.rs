@@ -19,7 +19,7 @@ use theseus_client::{seen, Conn};
 use theseus_protocol::work::Question;
 use theseus_protocol::{
     digest_more, digest_summary, method, now_unix_ms, WorkDigestParams, WorkDigestResult,
-    WorkLookParams,
+    WorkLookParams, WorkLookResult,
 };
 
 use crate::{postmortem, status::local_hm};
@@ -80,9 +80,12 @@ pub async fn run(conn: &mut Conn, json: bool, a: DigestArgs) -> Result<()> {
         let look = WorkLookParams { position: res.to };
         match conn.request(method::WORK_LOOK, look).await {
             Err(e) => eprintln!("could not record that you looked: {e}"),
-            Ok(_) => {
-                if let (Some(p), Some(_)) = (path, old) {
-                    let _ = seen::forget_old_look(&p);
+            Ok(v) => {
+                // The terminal's next start knows this store by it (issue 46);
+                // the write drops an older build's look too.
+                let r = serde_json::from_value::<WorkLookResult>(v);
+                if let (Some(p), Ok(r)) = (path, r) {
+                    let _ = seen::record_store_look(&p, r.look);
                 }
             }
         }

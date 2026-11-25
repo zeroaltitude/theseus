@@ -167,6 +167,9 @@ pub enum Effect {
     /// The look an older build kept in this seen file was carried over (issue
     /// 46): the file is written again without it, off the loop's thread.
     ForgetOldLook(PathBuf),
+    /// A look this chat wrote: the seen file keeps it, for the terminal's next
+    /// start to know the store by (issue 46).
+    StoreLook(PathBuf, theseus_protocol::Looked),
     Quit,
 }
 
