@@ -592,7 +592,7 @@ async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
     submit(&core, owner(), said, Some(&first.session_id)).await;
     let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     assert_eq!(
-        (now.version, now.objective.clone()),
+        (now.version, now.objective),
         (3, format!("{new}; {said}")),
         "his words applied once, and the second was told"
     );
@@ -733,7 +733,12 @@ fn ladder_row(store: &crate::store::Store, mode: &str) -> u64 {
 #[tokio::test]
 async fn a_rollback_or_off_after_a_live_judgment_keeps_the_card() {
     for after in [None, Some("rolled_back"), Some("off")] {
-        let (_dir, core, model) = judging_core();
+        // The owner set `task.update` to ask where the card is the point.
+        let (_dir, core, model) = judging_core_with(|c| {
+            if after.is_some() {
+                asking(c);
+            }
+        });
         let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
         let first = submit(&core, owner(), "hello", None).await;
         assert!(!acts_now(&core.store, &first.session_id), "no row: shadow");

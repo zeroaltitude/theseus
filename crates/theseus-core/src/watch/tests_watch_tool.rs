@@ -344,7 +344,6 @@ async fn a_reply_watch_asks_only_where_watch_is_set_to() {
     let res = turn(&r.core, &sid, "WATCH REPLY").await;
     assert!(res.awaiting_confirm.is_none(), "nothing is asked");
     assert_eq!(pending_watches(&r.core), 1);
-    let id = exec_of(&r.core, &sid).wakes[0].id.clone();
     let told = crate::tests_tell_tasks::notes(&r.core);
     assert_eq!(told.len(), 1, "told once: {told:?}");
     assert!(told[0].0.contains("reads each new message in discord:channel:777"), "{}", told[0].0);
