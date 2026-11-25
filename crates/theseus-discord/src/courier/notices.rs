@@ -24,8 +24,9 @@ use super::{Lane, SendErr, Write, BACKOFF_MAX};
 
 /// The post kinds whose producers write an FYI that answers no conversation:
 /// the ontology's mint, Jev's pause, a daemon notice, a restart, the disk
-/// coming back, an MCP change, the self notes of a join, and a note of an
-/// act done unasked with its Undo (issue 57). A post of any
+/// coming back, an MCP change, the self notes of a join, a note of an
+/// act done unasked with its Undo (issue 57), and the injection flag's
+/// notice under `notify`, which refuses nothing (issue 54). A post of any
 /// other kind keeps the DM whatever its words say.
 pub(super) const INFORMING: &[&str] = &[
     "onto_card",
@@ -37,6 +38,7 @@ pub(super) const INFORMING: &[&str] = &[
     "mcp_prompt_changed",
     "self_join",
     "told",
+    "content_flag",
 ];
 
 /// Whether a post of `kind` whose finished words are `content` only informs

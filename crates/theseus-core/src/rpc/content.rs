@@ -65,6 +65,10 @@ fn what_raised(l: &Label) -> String {
     format!("{what} from `{}`", l.source)
 }
 
+/// The post kind of the injection flag's notice under `notify`: an FYI the
+/// owner's notices place takes (issue 54).
+pub const FLAG_FYI: &str = "content_flag";
+
 /// The one message in the session's place when a label is raised (design
 /// §6.3). `injection` says the session is holding, and what stops until the
 /// operator clears it (under `notify`, **the default since 1.0.6**, it says
@@ -132,12 +136,26 @@ impl Core {
             })),
             None,
         );
-        let body = json!({
+        let mode = self.cfg.content_based_security.injection;
+        let mut body = json!({
             "kind": "content_label",
             "session_id": session_id,
             "flag": l.flag.as_str(),
-            "text": label_notice(l, self.cfg.content_based_security.injection),
+            "text": label_notice(l, mode),
         });
+        // Under `notify` the injection flag refuses nothing, so its notice only informs: an FYI
+        // of its own kind, which goes to the owner's notices place when one is bound, with its
+        // Remove button. Under `refuse` it needs him and keeps the session's place.
+        if (l.flag, mode) == (Flag::Injection, InjectionMode::Notify) {
+            let title = rec.label.clone().filter(|t| !t.is_empty()).or(rec.title.clone());
+            body["kind"] = json!(FLAG_FYI);
+            body["text"] = json!(crate::owner_note::note(
+                crate::owner_note::Kind::Fyi,
+                "Theseus flagged what it read as trying to steer it",
+                &crate::judge::onto::words::in_conversation(title.as_deref()),
+                &label_notice(l, mode),
+            ));
+        }
         let post =
             self.outbox
                 .post_for(session_id, rec.execution_id.as_deref().unwrap_or(""), body)?;
