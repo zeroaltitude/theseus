@@ -12,17 +12,83 @@
 //! - **Detach** unloads a server that was loaded this way. A server the
 //!   board started from the file stops at the next restart, and the card
 //!   says so beforehand.
+//! - **A server that fails** is told to the conversation that attached it
+//!   (issue 54): one note its next turn reads, once per failure, saying how
+//!   it refused in the daemon's words (the HTTP status and a standard code,
+//!   never the server's own) and what the owner can do. A server from the
+//!   file that no conversation attached tells none; health says it.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, PoisonError};
+use std::sync::{Arc, PoisonError, Weak};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::{McpBoard, Server, StoredList};
+use super::{McpBoard, Server, StoredList, CRASHES_TO_FAIL};
 use crate::config::McpServerConfig;
+use crate::node::{Node, Origin};
 
 /// The META key of the record of who attached which server.
 pub const META_KEY: &str = "mcp.attached";
+
+/// The author of the note a failed server's conversation reads.
+pub const NOTE_AUTHOR: &str = "mcp";
+
+/// The OAuth error codes (RFC 6749 section 5.2, RFC 6750 section 3.1): the
+/// only words of a refusal's body a note repeats.
+const CODES: [&str; 11] = [
+    "invalid_request",
+    "invalid_token",
+    "insufficient_scope",
+    "invalid_client",
+    "invalid_grant",
+    "unauthorized_client",
+    "unsupported_grant_type",
+    "invalid_scope",
+    "access_denied",
+    "server_error",
+    "temporarily_unavailable",
+];
+
+/// How a server refused, in the daemon's words, from the client's error
+/// (`theseus_mcp::Error`): the HTTP status and a standard code from its body,
+/// or a JSON-RPC error's number. None for any other failure.
+fn refusal(why: &str) -> Option<String> {
+    if let Some(rest) = why.strip_prefix("HTTP ") {
+        let (status, body) = rest.split_once(": ").unwrap_or((rest, ""));
+        let status: u16 = status.parse().ok()?;
+        let body: Value = serde_json::from_str(body).unwrap_or_default();
+        let code = match &body["error"] {
+            Value::String(c) => CODES.iter().find(|k| **k == c.as_str()).map(|k| k.to_string()),
+            e => e["code"].as_i64().map(|n| n.to_string()),
+        };
+        return Some(match code {
+            Some(c) => format!("HTTP {status} ({c})"),
+            None => format!("HTTP {status}"),
+        });
+    }
+    let rest = why.strip_prefix("the server answered error ")?;
+    let n: i64 = rest.split(':').next()?.parse().ok()?;
+    Some(format!("JSON-RPC error {n}"))
+}
+
+/// The one line a conversation that attached `server` reads when it fails.
+pub(crate) fn failed_note(server: &str, why: &str) -> String {
+    let refused = refusal(why);
+    let how = match &refused {
+        Some(r) => format!("it refused the connection with {r}"),
+        None => "its connection did not come up".to_string(),
+    };
+    let sign_in = match refused.as_deref().is_some_and(|r| r.starts_with("HTTP 401")) {
+        true => "; a server that wants a sign-in in a browser cannot be used yet",
+        false => "",
+    };
+    format!(
+        "The MCP server `{server}` this conversation attached is attached but not connected: \
+         {how}, and after {CRASHES_TO_FAIL} tries Theseus stopped trying. The owner can start it \
+         again with `theseus mcp restart {server}`{sign_in}."
+    )
+}
 
 /// The most trials' lists kept at once.
 const MAX_KEPT: usize = 16;
@@ -111,6 +177,36 @@ impl McpBoard {
     /// Who attached which server, replacing what the board knew.
     pub fn note_attached(&self, set: AttachedSet) {
         *self.attached.lock().unwrap_or_else(PoisonError::into_inner) = set;
+    }
+
+    /// Tell the conversation that attached `server` that it failed, with
+    /// `why` in the daemon's words ([`failed_note`]): a note in that session,
+    /// as a keep card's end is told (`vault_keep::told`), written off the
+    /// runtime's workers. A server no conversation attached tells none.
+    pub(super) fn tell_failed(&self, server: &str, why: &str) {
+        let session = {
+            let set = self.attached.lock().unwrap_or_else(PoisonError::into_inner);
+            set.get(server).map(|a| a.session_id.clone())
+        };
+        let Some(session) = session.filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let Some(core) = self.core.get().and_then(Weak::upgrade) else {
+            return;
+        };
+        let text = failed_note(server, why);
+        let node = Node::relayed(&session, None, Origin::Harness, NOTE_AUTHOR, &text);
+        let write = move || {
+            if let Err(e) = node.record().and_then(|r| core.store.append(&[r])) {
+                tracing::warn!(error = %format!("{e:#}"), "the note of a failed MCP server was not written");
+            }
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn_blocking(write);
+            }
+            Err(_) => write(),
+        }
     }
 
     /// Health's and `theseus mcp`'s words for who attached `status`'s server.
