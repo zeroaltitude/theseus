@@ -35,6 +35,20 @@ use crate::rpc::Core;
 use crate::rsi::join::{rows_of, unproven_accept};
 use crate::rsi::tree::{self, Place};
 
+/// How long a finding filed from chat waits before its first build (issue 57). The tender ticks
+/// at least every two minutes, so it starts at the first tick after.
+pub(crate) const CHAT_HOLD: Duration = Duration::from_secs(60);
+
+/// Whether `t` was filed from chat (`self.file`: its evidence `filed:<the owner>`) less than
+/// [`CHAT_HOLD`] before `now`. An item built and rejected since is not held again.
+pub(crate) fn chat_held(t: &TaskRecord, now: u64) -> bool {
+    let chat = format!("filed:{}", crate::rsi::backlog::tool::OWNER);
+    let hold = CHAT_HOLD.as_millis() as u64;
+    t.evidence
+        .iter()
+        .any(|e| e.identity == chat && now < e.at_ms.saturating_add(hold))
+}
+
 /// One item, where it stands.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Entry {
@@ -570,6 +584,11 @@ impl Core {
                 continue;
             };
             if t.state != TaskState::Proposed {
+                continue;
+            }
+            // A finding filed from chat waits before its first build (issue 57): its note,
+            // written with it, is the owner's to read, and its Undo his to press, first.
+            if chat_held(t, now) {
                 continue;
             }
             let (n, findings, at) = rejections(t);

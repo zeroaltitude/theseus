@@ -235,3 +235,34 @@ async fn the_filings_undo_puts_the_backlog_back() {
     assert!(mine.error.is_none(), "{:?}", mine.error);
     assert_eq!(open(&r.core), before, "the backlog is as it was");
 }
+
+/// KEY (issue 57): a filing whose note cannot be written is not made (the filing and its note
+/// are one frame), and the call says so: no item, no note. The retry, the same call past the
+/// gate, files once, with its one note.
+#[tokio::test]
+async fn a_filing_whose_note_cannot_be_written_files_nothing_and_a_retry_files_once() {
+    use crate::rsi::backlog::tool::{fail, filed, Args};
+    let r = filing_rig(false);
+    fail::NEXT.store(true, std::sync::atomic::Ordering::SeqCst);
+    let res = turn(&r.core, None, "file what I just found").await;
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs.len(), 1, "{rs:?}");
+    assert_eq!(rs[0].0, ResultStatus::Error, "{rs:?}");
+    assert!(rs[0].1.contains("nothing was filed"), "{}", rs[0].1);
+    let all = |core: &Core| {
+        core.self_backlog(&SelfBacklogParams { all: true })
+            .unwrap()
+            .items
+    };
+    assert!(all(&r.core).is_empty(), "no item without its note");
+    assert!(notes(&r.core).is_empty());
+    let a = Args::parse(&json!({"finding": "The digest folds two kinds into one line.",
+                                "title": "digest folds two kinds"}))
+    .unwrap();
+    filed(&r.core, true, &res.session_id, a).unwrap();
+    let items = all(&r.core);
+    assert_eq!(items.len(), 1, "{items:?}");
+    let n = notes(&r.core);
+    assert_eq!(n.len(), 1, "{n:?}");
+    assert_eq!(n[0]["undo"]["id"], json!(items[0].id));
+}

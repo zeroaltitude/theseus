@@ -50,6 +50,7 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
+use theseus_protocol::rsi::SelfFileResult;
 use theseus_protocol::Plan;
 use theseus_tools::{
     AsyncMediaRun, Backend, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
@@ -70,14 +71,14 @@ pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
 }
 
 #[derive(Debug, Deserialize)]
-struct Args {
+pub(crate) struct Args {
     finding: String,
     #[serde(default)]
     title: Option<String>,
 }
 
 impl Args {
-    fn parse(input: &Value) -> Result<Self, String> {
+    pub(crate) fn parse(input: &Value) -> Result<Self, String> {
         let a: Self = serde_json::from_value(input.clone())
             .map_err(|e| format!("self.file takes {{ finding, title? }}: {e}"))?;
         // The same reading the CLI and the RPC get, so a refusal reads the
@@ -187,25 +188,33 @@ impl Board {
 
 /// The wall, then the filing. One function so a test reaches both past the
 /// gate, as `card::tool::call` does.
-fn filed(core: &Core, private: bool, session: &str, a: Args) -> Result<ToolOutput, String> {
+pub(crate) fn filed(
+    core: &Core,
+    private: bool,
+    session: &str,
+    a: Args,
+) -> Result<ToolOutput, String> {
     if let Some(why) = refusal(core, private, session) {
         return Err(why.to_string());
     }
+    // The filing and the owner's note are one frame (issue 57): never filed and not told. The
+    // finding's words are the model's, so the note names the item, not them.
+    let note = |f: &SelfFileResult| {
+        staged(
+            core,
+            session,
+            "A finding was filed for the self loop",
+            "Theseus put a finding on its own self-improvement backlog from this chat",
+            &format!(
+                "Item {} is on the backlog at rank {}. The self loop picks it up on its next pass.",
+                f.item, f.rank
+            ),
+            &Undo::SelfDrop(f.item.clone()),
+        )
+    };
     let f = core
-        .self_file_in_chat(&a.finding, a.title.as_deref(), OWNER)
-        .map_err(|e| format!("the filing could not be written: {e:#}"))?;
-    // The finding's words are the model's, so the note names the item, not them.
-    told(
-        core,
-        session,
-        "A finding was filed for the self loop",
-        "Theseus put a finding on its own self-improvement backlog from this chat",
-        &format!(
-            "Item {} is on the backlog at rank {}. The self loop picks it up on its next pass.",
-            f.item, f.rank
-        ),
-        &Undo::SelfDrop(f.item.clone()),
-    );
+        .self_file_in_chat_told(&a.finding, a.title.as_deref(), OWNER, &note)
+        .map_err(|e| format!("nothing was filed: the filing and its note could not be written: {e:#}"))?;
     Ok(ToolOutput {
         text: format!(
             "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and the loop picks it up on its next pass. `theseus self move {} 1` puts it first.",
@@ -223,42 +232,78 @@ fn by(core: &Core, session: &str, did: &str) -> String {
     format!("{here}, {did}")
 }
 
-/// The owner told once of what a chat tool did on his behalf (issue 57), with
-/// its undo: the shared note (`owner_note::told`), whose Undo is `undo`'s own
-/// method as the presser. `did` and `body` are the tool's own words: no word
-/// the model wrote, and no secret. A note that cannot be posted is logged;
-/// the act stands.
-pub(crate) fn told(core: &Core, session: &str, title: &str, did: &str, body: &str, undo: &Undo) {
+/// The owner's note of what a chat tool did on his behalf (issue 57), with its undo, staged for
+/// the act's own frame: the shared note (`owner_note::told`). `did` and `body` are the tool's own
+/// words: no word the model wrote, and no secret.
+pub(crate) fn staged(
+    core: &Core,
+    session: &str,
+    title: &str,
+    did: &str,
+    body: &str,
+    undo: &Undo,
+) -> anyhow::Result<(theseus_kernel::Action, Vec<theseus_store::NewRecord>)> {
+    #[cfg(test)]
+    fail::injected()?;
     let by = by(core, session, did);
-    let staged =
-        crate::owner_note::told::stage(&core.outbox, Some(session), title, &by, body, undo)
-            .and_then(|(post, records)| {
-                core.store.append(&records)?;
-                core.outbox.posted(&post);
-                Ok(())
-            });
-    if let Err(e) = staged {
-        tracing::warn!(session, error = %format!("{e:#}"), "self: the owner's note was not posted");
-    }
+    crate::owner_note::told::stage(&core.outbox, Some(session), title, &by, body, undo)
 }
 
-/// The owner told once of what a chat tool did on his behalf that has no undo
-/// (issue 57: a pause, which only does less): an FYI note to the operator,
-/// where announcements go when a place for them is bound. `did` and `body`
-/// are the tool's own words. A note that cannot be posted is logged.
-pub(crate) fn tell(core: &Core, session: &str, title: &str, did: &str, body: &str) {
+/// `staged`, written now, alone: for an act with no frame of its own (an unpause, whose caller
+/// applies it only once this is written).
+pub(crate) fn told(
+    core: &Core,
+    session: &str,
+    title: &str,
+    did: &str,
+    body: &str,
+    undo: &Undo,
+) -> anyhow::Result<()> {
+    let (post, records) = staged(core, session, title, did, body, undo)?;
+    core.store.append(&records)?;
+    core.outbox.posted(&post);
+    Ok(())
+}
+
+/// The owner told of what a chat tool did on his behalf that has no undo (issue 57: a pause,
+/// which only does less): an FYI note to the operator, where announcements go when a place for
+/// them is bound, written now. `did` and `body` are the tool's own words. The caller applies the
+/// act only once this is written.
+pub(crate) fn tell(
+    core: &Core,
+    session: &str,
+    title: &str,
+    did: &str,
+    body: &str,
+) -> anyhow::Result<()> {
+    #[cfg(test)]
+    fail::injected()?;
     let text = crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
         title,
         &by(core, session, did),
         body,
     );
-    let posted = core.outbox.to_operator(
+    core.outbox.to_operator(
         Some(session),
         json!({"kind": "notice", "text": text, crate::outbox::ANNOUNCE_KEY: true}),
-    );
-    if let Err(e) = posted {
-        tracing::warn!(session, error = %format!("{e:#}"), "self: the owner's note was not posted");
+    )?;
+    Ok(())
+}
+
+/// A test's word that the next note cannot be staged (issue 57: an act whose note cannot be
+/// written is not done). A process-wide flag: nextest runs each test in a process of its own.
+#[cfg(test)]
+pub(crate) mod fail {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    pub(crate) static NEXT: AtomicBool = AtomicBool::new(false);
+
+    pub(crate) fn injected() -> anyhow::Result<()> {
+        if NEXT.swap(false, Ordering::SeqCst) {
+            anyhow::bail!("an injected failure to stage the owner's note");
+        }
+        Ok(())
     }
 }
 

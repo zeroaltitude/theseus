@@ -248,7 +248,22 @@ impl Core {
     ) -> Result<SelfFileResult> {
         let finding = filed::finding_of(finding).map_err(BadItem)?.to_string();
         let title = filed::title_of(&finding, title);
-        self.file_on_backlog(&finding, &title, by)
+        self.file_on_backlog(&finding, &title, by, None)
+    }
+
+    /// `self_file_in_chat`, with the owner's note (issue 57): `note` stages it from the filing,
+    /// and the filing and its note are one frame, so neither is written without the other. The
+    /// pipeline is woken once the frame is written.
+    pub(crate) fn self_file_in_chat_told(
+        &self,
+        finding: &str,
+        title: Option<&str>,
+        by: &str,
+        note: &Note<'_>,
+    ) -> Result<SelfFileResult> {
+        let finding = filed::finding_of(finding).map_err(BadItem)?.to_string();
+        let title = filed::title_of(&finding, title);
+        self.file_on_backlog(&finding, &title, by, Some(note))
     }
 
     /// Move an open item to a rank: the owner's word. It keeps the rank.
@@ -495,7 +510,7 @@ impl Core {
                 from_job,
             },
         )?;
-        self.file_on_backlog(&finding, &title, &who.who())
+        self.file_on_backlog(&finding, &title, &who.who(), None)
     }
 
     /// The write both filing routes share: one frame with the item, the
@@ -505,6 +520,7 @@ impl Core {
         finding: &str,
         title: &str,
         filed_by: &str,
+        note: Option<&Note<'_>>,
     ) -> Result<SelfFileResult> {
         let _one = self
             .rsi
@@ -531,17 +547,28 @@ impl Core {
             .position(|o| *o == id)
             .map_or(0, |i| i as u32 + 1);
         let cause = filed::cause_of(&id);
-        self.backlog_write(&mut w)?;
-        self.rsi.pipeline.kick();
-        Ok(SelfFileResult {
+        let res = SelfFileResult {
             item: id,
             title: title.to_string(),
             cause,
             rank,
             filed_by: filed_by.to_string(),
-        })
+        };
+        // A note that cannot be staged files nothing: nothing has been written yet.
+        let staged = note.map(|n| n(&res)).transpose()?;
+        let more = staged.as_ref().map_or_else(Vec::new, |(_, r)| r.clone());
+        self.backlog_write_with(&mut w, more)?;
+        if let Some((post, _)) = &staged {
+            self.outbox.posted(post);
+        }
+        self.rsi.pipeline.kick();
+        Ok(res)
     }
 }
+
+/// A chat filing's note, staged from the filing for its frame (issue 57).
+pub(crate) type Note<'a> =
+    dyn Fn(&SelfFileResult) -> Result<(theseus_kernel::Action, Vec<theseus_store::NewRecord>)> + 'a;
 
 /// The task a name means among the backlog's: its id or the end of it.
 fn task_graph_resolve(

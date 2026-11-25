@@ -193,3 +193,29 @@ async fn a_call_that_changes_nothing_tells_nothing() {
     assert_eq!(text, "Nothing was paused.");
     assert!(notes(&r.core).is_empty());
 }
+
+/// KEY (issue 57): a pause or an unpause whose note cannot be written is not made (the note is
+/// written first, and the change only after it), and the call says so. The retry, the same call
+/// past the gate, makes it once, with its one note; a third call changes nothing and tells nothing.
+#[tokio::test]
+async fn a_change_whose_note_cannot_be_written_is_not_made_and_a_retry_makes_it_once() {
+    use crate::rsi::backlog::tool::fail;
+    use crate::rsi::pause_tool::{paused, Args};
+    for (action, before) in [("pause", false), ("unpause", true)] {
+        let r = pause_rig(action, before, false);
+        fail::NEXT.store(true, std::sync::atomic::Ordering::SeqCst);
+        let res = turn(&r.core, None, "the self builds").await;
+        let rs = results(&r.core, &res.session_id);
+        assert_eq!(rs.len(), 1, "{action}: {rs:?}");
+        assert_eq!(rs[0].0, ResultStatus::Error, "{action}: {rs:?}");
+        assert!(rs[0].1.contains("nothing changed"), "{action}: {}", rs[0].1);
+        assert_eq!(r.core.self_paused().is_some(), before, "{action}: as it was");
+        assert!(notes(&r.core).is_empty(), "{action}");
+        let a = Args::parse(&json!({"action": action})).unwrap();
+        paused(&r.core, true, &res.session_id, &a).unwrap();
+        assert_eq!(r.core.self_paused().is_some(), !before, "{action}: made");
+        assert_eq!(notes(&r.core).len(), 1, "{action}");
+        paused(&r.core, true, &res.session_id, &a).unwrap();
+        assert_eq!(notes(&r.core).len(), 1, "{action}: not told again");
+    }
+}

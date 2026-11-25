@@ -89,6 +89,8 @@ mod tests_brief;
 #[cfg(test)]
 mod tests_cap;
 #[cfg(test)]
+mod tests_chat_hold;
+#[cfg(test)]
 mod tests_fetch;
 #[cfg(test)]
 mod tests_held_long;

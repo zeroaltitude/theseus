@@ -178,10 +178,11 @@ pub(crate) fn paused(
         }
         .to_string());
     }
-    let r = core.self_pause_apply(a.clears(), a.why.as_deref(), OWNER);
-    // Told once, when it changed anything; the reason is the model's words, so it is not quoted.
-    match (a.clears(), r.changed) {
-        (false, true) => tell(
+    // Told once, when it changes anything, and the note is written before the change is
+    // applied: a note that cannot be written leaves the pause as it was (issue 57). The reason
+    // is the model's words, so it is not quoted.
+    let note = || match a.clears() {
+        false => tell(
             core,
             session,
             "New self builds are paused",
@@ -189,7 +190,7 @@ pub(crate) fn paused(
             "No new self build starts until they are unpaused or Theseus restarts. Builds already \
              running finish.",
         ),
-        (true, true) => told(
+        true => told(
             core,
             session,
             "New self builds may start again",
@@ -197,8 +198,12 @@ pub(crate) fn paused(
             "The pause is cleared: the self loop may start new builds.",
             &Undo::SelfPause(AGAIN.into()),
         ),
-        _ => {}
-    }
+    };
+    let r = core
+        .self_pause_told(a.clears(), a.why.as_deref(), OWNER, note)
+        .map_err(|e| {
+            format!("nothing changed: the owner's note of it could not be written: {e:#}")
+        })?;
     let text = match (a.clears(), r.changed, &r.words) {
         (false, true, Some(w)) => format!("New self builds are {w}. Unpause lets them start."),
         (false, false, Some(w)) => format!("Already {w}."),
