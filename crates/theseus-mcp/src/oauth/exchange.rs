@@ -117,6 +117,14 @@ pub enum Renewal {
 /// The codes that end a sign-in.
 const FOR_GOOD: [&str; 3] = ["invalid_grant", "invalid_client", "unauthorized_client"];
 
+/// Whether a refused refresh ends the sign-in: one of [`FOR_GOOD`]'s codes,
+/// or a 400 or 401 that names no standard code (a server that says no other
+/// way is taken at its word). Any other status may pass.
+fn for_good(status: u16, code: Option<&str>) -> bool {
+    code.is_some_and(|c| FOR_GOOD.contains(&c))
+        || (code.is_none() && (status == 400 || status == 401))
+}
+
 /// A refresh with `refresh`.
 pub async fn refresh(
     http: &reqwest::Client,
@@ -133,9 +141,7 @@ pub async fn refresh(
     match token_request(http, token_endpoint, client, form).await {
         Ok(t) => Renewal::Renewed(t),
         Err(e @ OauthError::Status { status, code, .. }) => {
-            let for_good = code.is_some_and(|c| FOR_GOOD.contains(&c))
-                || (code.is_none() && (status == 400 || status == 401));
-            match for_good {
+            match for_good(status, code) {
                 true => Renewal::ForGood(e.to_string()),
                 false => Renewal::Passing(e),
             }
@@ -178,6 +184,20 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// The readings of a refused refresh: for good, or one that may pass.
+    #[test]
+    fn a_refused_refresh_is_for_good_only_when_it_says_so() {
+        assert!(for_good(400, Some("invalid_grant")));
+        assert!(for_good(401, Some("invalid_client")));
+        assert!(for_good(400, Some("unauthorized_client")));
+        assert!(for_good(400, None), "a 400 with no standard code");
+        assert!(for_good(401, None));
+        assert!(!for_good(400, Some("temporarily_unavailable")));
+        assert!(!for_good(503, None));
+        assert!(!for_good(429, None));
+        assert!(!for_good(500, Some("server_error")));
+    }
 
     #[test]
     fn only_a_bearer_token_is_taken() {

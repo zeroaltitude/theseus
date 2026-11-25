@@ -62,6 +62,9 @@ pub struct AuthConfig {
     /// The resource's metadata names this `resource` instead of the server.
     pub resource: Option<String>,
     pub metadata_at: MetadataAt,
+    /// Keys left out of its metadata and the resource's, to test what a
+    /// server may leave out.
+    pub omit: Vec<String>,
 }
 
 impl Default for AuthConfig {
@@ -78,6 +81,7 @@ impl Default for AuthConfig {
             refuse_refresh: false,
             resource: None,
             metadata_at: MetadataAt::Header,
+            omit: Vec::new(),
         }
     }
 }
@@ -230,11 +234,17 @@ impl FakeAuth {
             MetadataAt::Nowhere => false,
         };
         serves.then(|| {
-            json!({
+            let mut doc = json!({
                 "resource": cfg.resource.clone().unwrap_or(format!("{mcp}/mcp")),
                 "authorization_servers": [self.base()],
                 "scopes_supported": ["tools"],
-            })
+            });
+            if let Some(o) = doc.as_object_mut() {
+                for k in &cfg.omit {
+                    o.remove(k);
+                }
+            }
+            doc
         })
     }
 
@@ -251,6 +261,11 @@ impl FakeAuth {
         });
         if cfg.register {
             m["registration_endpoint"] = json!(format!("{base}/register"));
+        }
+        if let Some(o) = m.as_object_mut() {
+            for k in &cfg.omit {
+                o.remove(k);
+            }
         }
         m
     }

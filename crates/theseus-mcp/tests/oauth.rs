@@ -520,3 +520,29 @@ async fn no_value_is_in_any_errors_words() {
         assert!(!w.contains("harbour portal"), "a body is in {w:?}");
     }
 }
+
+/// The tolerant readings accepted where the specification is not sure, each
+/// tested: an authorization server that lists no PKCE methods (taken as
+/// offering S256, which the code exchange then proves), a resource's metadata
+/// with no `resource` (taken as naming this server), and an issuer that
+/// differs from the one asked by a trailing `/` alone.
+#[tokio::test]
+async fn the_tolerant_readings_are_accepted() {
+    let auth = FakeAuth::start(AuthConfig {
+        omit: vec!["code_challenge_methods_supported".into(), "resource".into()],
+        ..AuthConfig::default()
+    })
+    .await;
+    let (_fake, url) = mcp_at(&auth).await;
+    let (d, client, tokens) = sign_in(&auth, &url, None).await;
+    assert_eq!(d.resource, url, "no `resource`: this server");
+    let c = connect_with(&url, kept(d, client, &tokens)).await.unwrap();
+    c.ping().await.unwrap();
+    let auth = FakeAuth::start(AuthConfig::default()).await;
+    let slash = format!("{}/", auth.base());
+    auth.set(|c| c.issuer = Some(slash));
+    let as_ = discover::authorization_server(&oauth::http(true), &auth.base())
+        .await
+        .expect("an issuer with a trailing slash is the one asked");
+    assert_eq!(as_.issuer, auth.base());
+}
