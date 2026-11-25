@@ -63,6 +63,15 @@ pub(crate) fn ignored_with_cases(p: &JudgeReplayParams) -> Option<String> {
     ))
 }
 
+/// The `model` option a case's turn is already on, which `parent` keeps (`routing::model::decide`
+/// stays on the turn's own model): its `current_model` through the one option table. `None` for a
+/// case on no model.
+pub(crate) fn stays(c: &route_cases::Case) -> Option<&'static str> {
+    let on = crate::routing::model::OPTIONS.iter();
+    on.find(|(_, model)| *model == c.state.current_model)
+        .map(|(option, _)| *option)
+}
+
 fn check(c: &Check) -> ReplayCheck {
     ReplayCheck {
         want: c.want.clone(),
@@ -254,7 +263,7 @@ impl Core {
             .cases
             .iter()
             .enumerate()
-            .map(|(i, c)| route_cases::grade(&pack, c, judgments.get(i)))
+            .map(|(i, c)| route_cases::grade(&pack, c, judgments.get(i), stays(c)))
             .collect();
         let result = JudgeReplayResult {
             id,

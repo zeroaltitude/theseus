@@ -38,11 +38,21 @@ fn effort_pack() -> Arc<Pack> {
     by_name("effort.v1").expect("effort.v1 is embedded")
 }
 
+/// The option a case's turn is already on, which `parent` keeps. The core resolves it from the
+/// catalog (`learning::replay_cases`, held to the file there); the file's warm models are these two.
+fn stays(case: &crate::route_cases::Case) -> Option<&'static str> {
+    match case.state.current_model.as_str() {
+        "claude-sonnet-5-5" => Some("sonnet"),
+        "claude-haiku-5-5" => Some("haiku"),
+        _ => None,
+    }
+}
+
 /// One judgment graded by the two packs that answer the model file's two labels: `route.v10` for
 /// the model, `effort.v1` for the effort (a replay of each over the same file does the same).
 fn both(model: &Pack, effort: &Pack, case: &crate::route_cases::Case, j: &Judgment) -> Graded {
-    let mut g = grade(model, case, Some(j));
-    g.effort = grade(effort, case, Some(j)).effort;
+    let mut g = grade(model, case, Some(j), stays(case));
+    g.effort = grade(effort, case, Some(j), stays(case)).effort;
     g
 }
 
@@ -606,9 +616,9 @@ fn a_judgment_is_graded_on_model_and_effort_apart() {
         ("opus", "parent")
     );
     // No judgment, no answer: every question a miss.
-    let g = grade(&p, case("W18"), None);
+    let g = grade(&p, case("W18"), None, Some("sonnet"));
     assert!(!g.answered && !g.model.agrees);
-    let g = grade(&e, case("W18"), None);
+    let g = grade(&e, case("W18"), None, Some("sonnet"));
     assert!(!g.answered && !g.effort.close);
 }
 
@@ -770,16 +780,13 @@ fn graded_q(g: &Graded, q: &str) -> (String, bool, String, bool) {
 /// and since 2026-11-07 that is `parent` — the model the turn is already on
 /// (theseus-ig13o). At or above the bar nothing changes.
 ///
-/// **What that costs the grade, said here rather than discovered later.** No
-/// case in `route.v10.cases.toml` is labelled `parent`, so **every under-bar
-/// answer is now a miss**, where a `no_match` of `sonnet` made it a hit for
-/// each of the many cases that want sonnet. Neither grade is exact: the
-/// daemon stays on the case's own `current_model` (the set's default
-/// `last_reply_model` is `claude-sonnet-5-5`), so the old one was right by
-/// coincidence for those cases and this one is pessimistic for them. Grading
-/// `parent` as the case's current model needs an option id for a catalog
-/// model name, which this crate cannot resolve by design (`route_cases`'s
-/// head), so it is a decision of its own and not this row's.
+/// **How `parent` is graded.** No case in `route.v10.cases.toml` is labelled
+/// `parent`: the daemon stays on the case's own `current_model` (the set's
+/// default `last_reply_model` is `claude-sonnet-5-5`), so `got` stays
+/// `parent` and it AGREES when the option that model is (the core resolves
+/// it from the catalog, which this crate cannot see) is the label. That
+/// follows the owner's decision of 2026-11-24. A stay on another model, or
+/// a case with no model in use, is a miss.
 #[test]
 fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
     let (p, e, s) = (pack(), effort_pack(), set());
@@ -812,24 +819,72 @@ fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
         graded_q(&g, "model"),
         ("sonnet".into(), false, "sonnet".into(), false)
     );
-    // L3 wants sonnet. Under the bar the daemon stays, so the grade is
-    // `parent` whatever Jev picked and whatever the label is: a miss for a
-    // haiku pick and for a sonnet one alike. With `sonnet` declared, the
-    // first was a hit the raw grade called a miss and the second a hit; both
-    // were the coincidence this comment's test doc describes.
+    // L3 wants sonnet and is warm on Sonnet. Under the bar the daemon stays,
+    // so `got` is `parent` whatever Jev picked, and the stay is on the label:
+    // a hit for a haiku pick and for a sonnet one alike.
     assert_eq!(by_id(&s, "L3").want.model, "sonnet");
     let g = ask("L3", "haiku", 0.35);
     assert_eq!(
         graded_q(&g, "model"),
-        ("parent".into(), true, "haiku".into(), false)
+        ("parent".into(), true, "haiku".into(), true)
     );
     assert!(!g.model.raw_agrees);
-    assert!(!ask("L3", "sonnet", 0.35).model.agrees);
+    assert!(ask("L3", "sonnet", 0.35).model.agrees);
     assert!(ask("L3", "sonnet", 0.40).model.agrees, "at the bar it acts");
     // The grade is the bar's: a case whose model fell, effort at 0.9, grades
     // the effort as asked.
     let g = ask("W18", "opus", 0.35);
     assert!(g.effort.agrees);
+}
+
+/// A model answer that became `parent` (under the bar, or Jev's own answer to
+/// stay) agrees when the case's turn is already on the label: the daemon
+/// stays, and the stay is the label's model. `got` still says `parent`.
+#[test]
+fn a_stay_on_the_labelled_model_is_the_label() {
+    let (p, s) = (pack(), set());
+    let l3 = by_id(&s, "L3");
+    assert_eq!(
+        (l3.want.model.as_str(), l3.state.current_model.as_str()),
+        ("sonnet", "claude-sonnet-5-5")
+    );
+    let g = grade(&p, l3, Some(&judged(l3, &[("model", "haiku", 0.35)])), Some("sonnet"));
+    assert_eq!(
+        graded_q(&g, "model"),
+        ("parent".into(), true, "haiku".into(), true)
+    );
+    assert!(g.model.close && !g.model.raw_agrees);
+    // Jev's own `parent` above the bar is the same stay.
+    let g = grade(&p, l3, Some(&judged(l3, &[("model", "parent", 0.9)])), Some("sonnet"));
+    assert_eq!(
+        graded_q(&g, "model"),
+        ("parent".into(), false, "parent".into(), true)
+    );
+}
+
+/// A stay on a model the label does not name is still a miss: W18 wants Opus,
+/// and a right `opus` under the bar leaves it on Sonnet.
+#[test]
+fn a_stay_on_another_model_is_still_a_miss() {
+    let (p, s) = (pack(), set());
+    let w18 = by_id(&s, "W18");
+    let j = judged(w18, &[("model", "opus", 0.35)]);
+    let g = grade(&p, w18, Some(&j), Some("sonnet"));
+    assert_eq!(g.model.got, "parent");
+    assert!(!g.model.agrees && !g.model.close && g.model.raw_agrees);
+}
+
+/// A case with no model in use (a job's first turn) has nothing to stay on:
+/// `parent` is a miss there, whatever the label.
+#[test]
+fn a_stay_with_no_model_in_use_is_a_miss() {
+    let (p, s) = (pack(), set());
+    let w34 = by_id(&s, "W34");
+    assert_eq!(w34.state.current_model, "");
+    let j = judged(w34, &[("model", &w34.want.model, 0.35)]);
+    let g = grade(&p, w34, Some(&j), None);
+    assert_eq!(g.model.got, "parent");
+    assert!(!g.model.agrees && g.model.raw_agrees);
 }
 
 /// `effort`: under its bar the answer is the question's `no_match`, `high`

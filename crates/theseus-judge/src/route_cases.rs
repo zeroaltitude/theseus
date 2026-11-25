@@ -23,7 +23,10 @@
 //!   deciding questions to the label: Jev's top option when its band reached
 //!   the question's `confirm` bar, else the question's `no_match`, both read
 //!   from the pack replayed (theseus-mir9c; before it the raw top option was
-//!   graded, which over-credited `model`). The
+//!   graded, which over-credited `model`). A `model` answer of `parent`, the
+//!   stay, is graded as the option the case's turn is already on (its
+//!   `current_model`, which the core resolves): right when that is the label,
+//!   a miss on another model or on none. The
 //!   raw option and its grade stay beside it. `effort` is graded to the exact
 //!   rung and to within one rung (`low`, `medium`, `high`, `xhigh`, `max` in
 //!   order). The
@@ -52,8 +55,9 @@
 //!   a pack passed `must` only when every must was ok AND no must sat under the confirm bar
 //!   (`must_under_confirm == 0`). The owner replaced "every must" with a ratio, and the second
 //!   clause went with it: a must graded ok by the `no_match` (an answer under the bar, run as the
-//!   no-match option, which is the must's label) now counts, as the same answer counts for every
-//!   other case, because the grade models what the daemon would run. The count of musts under the
+//!   no-match option, `parent`, which stays on the must's label when the turn is already on it)
+//!   now counts, as the same answer counts for every other case, because the grade models what the
+//!   daemon would run. The count of musts under the
 //!   bar is still counted (`must_under_confirm`) and printed beside the bar, so a "met" that leans
 //!   on under-bar musts shows it; putting the clause back is one subtraction in `Bar::new("must", ..)`,
 //!   and the owner's to ask for.
@@ -630,7 +634,11 @@ fn agrees_close(q: &str, want: &str, got: &str) -> (bool, bool) {
 /// a declared default is read, over the answer rebanded onto the replayed
 /// pack. The grade and the daemon's act cannot part again, because the grade
 /// calls what the daemon calls.
-fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
+///
+/// A `model` answer of `parent` (under the bar, or Jev's own) keeps the turn on
+/// the model it is on, so it agrees when `stays`, that model's option, is the
+/// label; `got` still says `parent`.
+fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str, stays: Option<&str>) -> Check {
     let answer = j.and_then(|j| j.answer(q));
     let top = answer.and_then(|a| match &a.answer {
         Answer::Choice {
@@ -649,7 +657,11 @@ fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
         .map(|a| crate::replay::reband(std::slice::from_ref(a), pack))
         .and_then(|onto| onto.first().and_then(|a| a.ran().map(str::to_string)))
         .unwrap_or_else(|| raw.clone());
-    let (agrees, close) = agrees_close(q, want, &got);
+    let ran = match stays {
+        Some(on) if q == "model" && got == "parent" => on,
+        _ => &got,
+    };
+    let (agrees, close) = agrees_close(q, want, ran);
     let (raw_agrees, raw_close) = agrees_close(q, want, &raw);
     Check {
         want: want.to_string(),
@@ -667,11 +679,14 @@ fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
 
 /// A case graded by the judgment that answered it (none, or one that did not
 /// answer, grades every question a miss). Only the questions `pack` decides are graded.
-pub fn grade(pack: &Pack, case: &Case, j: Option<&Judgment>) -> Graded {
+///
+/// `stays` is the `model` option the case's turn is already on (the caller resolves the case's
+/// `current_model` from the catalog, which this crate cannot see); `None` when it is on none.
+pub fn grade(pack: &Pack, case: &Case, j: Option<&Judgment>, stays: Option<&str>) -> Graded {
     let j = j.filter(|j| j.actionable());
     let asked = graded_questions(pack);
     let one = |q: &str| match asked.contains(&q) {
-        true => check(case.want.of(q), j, pack, q),
+        true => check(case.want.of(q), j, pack, q, stays),
         false => Check::default(),
     };
     let model = one("model");
