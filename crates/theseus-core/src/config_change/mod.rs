@@ -665,7 +665,14 @@ pub(crate) fn put_using(
             return done;
         }
     }
-    let said = ask_card(rt, tc, correlation_id, args, (&question, base, &settings), needs)?;
+    let said = ask_card(
+        rt,
+        tc,
+        correlation_id,
+        args,
+        (&question, base, &settings),
+        needs,
+    )?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),
@@ -727,7 +734,13 @@ fn change_told(
         setting: &setting,
         records,
     };
-    Some(write_change_told(rt, tc, t, (tool, base, settings), outside_text))
+    Some(write_change_told(
+        rt,
+        tc,
+        t,
+        (tool, base, settings),
+        outside_text,
+    ))
 }
 
 /// [`change_told`]'s write and its words.

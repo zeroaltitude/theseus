@@ -311,11 +311,7 @@ async fn a_restart_runs_with_no_card_once_per_message_of_the_owners() {
         "{}",
         told[0]
     );
-    assert!(
-        told[0].contains("there is nothing to undo"),
-        "{}",
-        told[0]
-    );
+    assert!(told[0].contains("there is nothing to undo"), "{}", told[0]);
     assert!(!told[0].contains("it feels stuck"), "{}", told[0]);
     let marker = super::restart::marker_path(&r.state);
     assert!(super::restart::load(&marker).unwrap().restart_only);
