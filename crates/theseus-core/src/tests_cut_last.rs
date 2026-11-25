@@ -95,3 +95,56 @@ fn a_digests_line_end_inside_a_known_value_is_no_place_to_cut() {
     );
     whole_or_absent("the capped digest", &post, lines);
 }
+
+#[test]
+fn a_short_turns_context_word_start_inside_a_known_value_is_no_place_to_cut() {
+    use crate::node::{Body, Node};
+    let spaced = "alpha-0417 beta-9932";
+    let board = SecretBoard::empty();
+    board.hold("spaced", Secret::new(spaced.into()));
+    // The reply's one line is longer than the short context; its safe tail
+    // keeps the value whole, and that tail's first space is inside it.
+    let reply = format!("{}{spaced}{}", "x".repeat(40), "z".repeat(100));
+    let mut answer = Node::user("s", Some("turn_0"), "cli", "x");
+    answer.body = Body::AssistantMessage {
+        blocks: vec![serde_json::json!({"type": "text", "text": reply})],
+        model: "m".into(),
+        provider: "anthropic".into(),
+        stop_reason: None,
+        usage: Default::default(),
+        cost_usd: None,
+        catalog_version: None,
+        request_id: None,
+        correlation_id: None,
+        compilation_id: None,
+        request_digest: None,
+        effort: None,
+    };
+    let yes = Node::user("s", Some("turn_1"), "cli", "yes");
+    let nodes: crate::store::Transcript = vec![
+        (0, crate::stub::Stub::from(answer)),
+        (1, crate::stub::Stub::from(yes)),
+    ];
+    let (q, _) = crate::recall::query_of(&nodes, "turn_1").expect("a query");
+    let vector = q.vector.expect("a short turn embeds the reply's end");
+    assert_eq!(vector, format!("yes\n{spaced}{}", "z".repeat(100)));
+    whole_or_absent("the vector query", &vector, spaced);
+}
+
+#[test]
+fn a_subject_trimmed_inside_a_known_value_keeps_it_whole_or_not_at_all() {
+    let dotted = "kelp-0417-ferry.";
+    let lines = "kelp-one-0417\nferry-two-0417";
+    let board = SecretBoard::empty();
+    board.hold("dotted", Secret::new(dotted.into()));
+    board.hold("lines", Secret::new(lines.into()));
+    // The period the subject trims ends the value.
+    let subject = crate::rsi::pr::subject_for_tests("x1", dotted);
+    assert_eq!(subject, "self:  (x1)");
+    whole_or_absent("the subject", &subject, dotted);
+    // The first line ends inside a value that runs past it.
+    let subject = crate::rsi::pr::subject_for_tests("x1", &format!("Sign in with {lines} now"));
+    assert_eq!(subject, "self: Sign in with  (x1)");
+    whole_or_absent("the subject", &subject, lines);
+}
+

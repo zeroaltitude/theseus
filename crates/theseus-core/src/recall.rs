@@ -1083,12 +1083,19 @@ pub fn short_context(reply: &str) -> String {
         let n = line.chars().count();
         if chars + n > SHORT_CONTEXT_CHARS {
             if kept.is_empty() {
-                let end = crate::scrub::safe::tail(line, SHORT_CONTEXT_CHARS)
-                    .0
-                    .to_string();
+                // The word's start is checked again on the whole line: a known
+                // value the tail kept whole may hold that space.
+                let cuts = crate::scrub::Cuts::live();
+                let (end, _) = crate::scrub::safe::tail_with(&cuts, line, SHORT_CONTEXT_CHARS);
                 return match end.split_once(char::is_whitespace) {
-                    Some((_, rest)) if !rest.trim().is_empty() => rest.trim().to_string(),
-                    _ => end,
+                    Some((_, rest)) if !rest.trim().is_empty() => {
+                        let at = cuts.after(line, line.len() - rest.len());
+                        match line[at..].trim() {
+                            "" => end.to_string(),
+                            rest => rest.to_string(),
+                        }
+                    }
+                    _ => end.to_string(),
                 };
             }
             break;
