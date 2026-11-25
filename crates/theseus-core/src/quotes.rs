@@ -218,6 +218,7 @@ pub(crate) fn edges_hold_with(
         Part::Quote(q) => match read(q) {
             Read::Field(f) => [q.from, q.to].into_iter().all(|at| {
                 let at = at as usize;
+                // plain cut: a check of a stored edge, which cuts nothing; `cuts.before` places it
                 at <= f.len() && f.is_char_boundary(at) && cuts.before(&f, at) == at
             }),
             Read::Erased | Read::Unreadable => false,
