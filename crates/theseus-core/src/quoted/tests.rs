@@ -257,6 +257,7 @@ const READERS: &[&str] = &[
     "rsi/mine/read.rs 1 command results mined, no store: the fixed line for parts (`words_or_line`)",
     "rsi/mint/source.rs 1 command results read, rendered when they hold parts",
     "toolrun.rs 1 the writer",
+    "toolrun/parts.rs 2 the writer: the stored record's words cleared when it holds parts",
     "turn/checkpoint_step.rs 1 a failed command's error result",
     "turn/progress_step.rs 1 failed commands' results",
     "turn/view_step.rs 1 the window's nodes, rendered before the labels",
