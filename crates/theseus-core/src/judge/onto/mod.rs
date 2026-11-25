@@ -44,6 +44,7 @@ pub(crate) mod class;
 pub mod decide;
 pub mod digest;
 pub mod history;
+mod history_undo;
 pub mod judged;
 pub mod mint;
 pub(crate) mod name;
@@ -55,6 +56,8 @@ pub(crate) mod words;
 
 #[cfg(test)]
 mod tests_history;
+#[cfg(test)]
+mod tests_history_declared;
 
 pub use name::NAMES;
 
