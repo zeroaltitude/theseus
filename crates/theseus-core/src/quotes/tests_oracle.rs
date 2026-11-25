@@ -145,3 +145,36 @@ fn a_page_cuts_kept_bytes_never_cut_an_encoded_known_value() {
     }
     assert!(checked > 5_000, "{checked}");
 }
+
+/// The check a producer asks before it stores a range (`quotes::edges_hold`): a quote of a field holding each value
+/// in each encoding, ending at every character, passes exactly when the scrubber's own finder sees no value it ends
+/// inside; a quote that cannot be read never passes.
+#[test]
+fn a_range_is_stored_only_when_neither_edge_is_inside_an_encoded_value() {
+    use crate::quotes::{edges_hold_with, Field, Form, Part, Quote, Read};
+    let (mut held, mut refused) = (0, 0);
+    for value in VALUES {
+        let cuts = knowing(&[value]).cuts();
+        for e in encodings(value) {
+            let field = format!("tide weir {e} mill");
+            let spans = spans_of(&field, &[value]);
+            for (to, _) in field.char_indices().chain([(field.len(), ' ')]) {
+                let q = Quote {
+                    node: "msg_1".into(),
+                    position: 1,
+                    field: Field::Text,
+                    from: 0,
+                    to: to as u32,
+                    form: Form::Verbatim,
+                };
+                let parts = [Part::Quote(q)];
+                let ok = edges_hold_with(&parts, |_| Read::Field(field.clone()), &cuts);
+                assert_eq!(ok, inside(&spans, to).is_none(), "{e:?} to {to}");
+                held += usize::from(ok);
+                refused += usize::from(!ok);
+                assert!(!edges_hold_with(&parts, |_| Read::Erased, &cuts));
+            }
+        }
+    }
+    assert!(held > 0 && refused > 0, "{held} {refused}");
+}

@@ -12,6 +12,8 @@ use crate::session::{SessionRecord, TaskOf};
 
 mod cut;
 mod kinds;
+mod parts;
+mod stored;
 
 /// Why the line said is retracted.
 const WHY: &str = "the heron nests by the south weir";
@@ -29,6 +31,20 @@ fn retract(core: &Core, node: &str) -> FactRetractResult {
 }
 
 /// The correction notes stored in `sid`.
+/// The look back `copy` as a build before results were kept by reference stored it (an old record, written here
+/// by hand under the same id): `text`, the words its parts show, in `content`, and no parts. The tests of the
+/// rule for results stored with their words read this (issue 49).
+fn old_shape(core: &Core, copy: &str, text: &str) {
+    let (_, mut old) = core.store.get_node(copy).unwrap().expect("the result");
+    let Body::ToolResult { content, parts, .. } = &mut old.body else {
+        panic!("not a result: {old:?}")
+    };
+    assert!(!parts.is_empty(), "written by reference: {old:?}");
+    *content = text.to_string();
+    parts.clear();
+    core.store.append(&[old.record().unwrap()]).unwrap();
+}
+
 fn notes_in(core: &Core, sid: &str) -> usize {
     (core.store.session_nodes(sid).unwrap().into_iter())
         .filter(|(_, n)| n.author.as_deref() == Some(crate::retract::NOTE_AUTHOR))
@@ -301,7 +317,8 @@ async fn two_turns_with_nothing_said_between_lay_the_same_bytes() {
     assert_eq!(first, second);
 }
 
-/// An import erased after a history result showed it: the result is laid as one line, none of its words.
+/// An import erased after a history result showed it: the result's quotes of it are laid as one line each, none
+/// of its words.
 #[tokio::test]
 async fn a_window_lays_no_words_of_an_erased_source() {
     use crate::tests_imports::{episode, import};
@@ -316,8 +333,7 @@ async fn a_window_lays_no_words_of_an_erased_source() {
     turn(&r.core, &other, "and the weir?").await;
     let (_, laid) = laid_result(&r);
     assert!(
-        laid.to_string()
-            .contains(crate::copies::since::ERASED_RESULT),
+        laid.to_string().contains(crate::quotes::ERASED_QUOTE),
         "{laid}"
     );
     let last = r.requests().pop().expect("a request");
@@ -470,6 +486,7 @@ impl CutPage {
 #[tokio::test]
 async fn a_message_the_runtime_cut_out_of_a_page_is_seen_and_no_note_is_delivered() {
     let p = cut_page().await;
+    old_shape(&p.r.core, &p.copy, &p.text);
     let node = p.cut_out().to_string();
     let linked = (reach(&p.r.core, &node).descendants.iter()).any(|d| d.node_id == p.copy);
     assert!(linked, "the link is kept: {}", p.text);

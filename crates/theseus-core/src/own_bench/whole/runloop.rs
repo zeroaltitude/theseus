@@ -122,6 +122,7 @@ fn whole_row(
 
 /// Each call's result by its id: whether it succeeded, its meta and its text.
 fn results_by_id(
+    store: &crate::store::Store,
     transcript: &crate::store::Transcript,
 ) -> std::collections::HashMap<String, (bool, Value, String)> {
     let mut results = std::collections::HashMap::new();
@@ -132,11 +133,16 @@ fn results_by_id(
             meta,
             content,
             status,
+            parts,
             ..
         } = &n.body
         {
             let ok = !is_error && *status == crate::node::ResultStatus::Ok;
-            results.insert(tool_use_id.clone(), (ok, meta.clone(), content.clone()));
+            let text = match parts.is_empty() {
+                true => content.clone(),
+                false => crate::quoted::shown_text(store, parts),
+            };
+            results.insert(tool_use_id.clone(), (ok, meta.clone(), text));
         }
     }
     results
@@ -158,7 +164,7 @@ impl Core {
     /// recorded results, and the calls from its start on.
     fn read_turn(&self, session: &str, turn: &str, first: &Said) -> anyhow::Result<Turn> {
         let transcript = self.store.transcript(session)?;
-        let results = results_by_id(&transcript);
+        let results = results_by_id(&self.store, &transcript);
         let start = transcript
             .iter()
             .position(|(_, n)| n.turn_id.as_deref() == Some(turn))

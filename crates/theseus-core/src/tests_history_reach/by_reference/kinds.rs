@@ -1,13 +1,15 @@
 //! Every kind of page the history tool reads across every place ties its result to the messages its lines
 //! show, as a page of one place does: by a span of days, by a label, and by words. Once a message such a page
 //! showed is marked wrong, the reader is told once and its window lays the result with the line saying what
-//! was said since; once the message is erased, the result is laid as one line with none of its words. The
-//! stored result is never written again.
+//! was said since; once the message is erased, the result is laid with its quote of the message as one line,
+//! none of its words (a result stored with its words, before results were kept by reference: the whole result
+//! as one line). The stored result is never written again.
 
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 
 use super::*;
 use crate::copies::since::ERASED_RESULT;
+use crate::quotes::ERASED_QUOTE;
 use crate::recall::{Ask, AskFuture};
 
 /// The words a page by words searches for: in the line said, and not the word the tests look for.
@@ -127,8 +129,27 @@ async fn read_by(page: Page) -> Read {
     }
 }
 
-/// The stored result `copy` holds `text`, as it was written.
+/// The stored result `copy` renders as `text`, as it was written, through the one renderer (its quotes read at
+/// their positions), and its `content` holds none of the message's words: a look back keeps references to what
+/// it showed, not a second copy of its words (issue 49).
 fn stored_as(core: &Core, copy: &str, text: &str) {
+    let (_, n) = core.store.get_node(copy).unwrap().expect("the result");
+    let Body::ToolResult { content, parts, .. } = &n.body else {
+        panic!("not a result: {n:?}")
+    };
+    let written =
+        crate::quotes::render_with(parts, |q| crate::quotes::read_as_written(&core.store, q));
+    assert_eq!(written, text, "the stored result renders as written: {n:?}");
+    for word in SAID.split(' ').filter(|w| w.len() > 3) {
+        assert!(
+            !content.contains(word),
+            "the stored result holds {word:?}: {n:?}"
+        );
+    }
+}
+
+/// The stored result `copy` holds `text`, as it was written: the statement for a result stored with its words.
+fn stored_as_words(core: &Core, copy: &str, text: &str) {
     let (_, n) = core.store.get_node(copy).unwrap().expect("the result");
     assert!(
         matches!(&n.body, Body::ToolResult { content, .. } if content == text),
@@ -161,7 +182,8 @@ async fn marked_wrong(page: Page) {
     stored_as(&r.core, &copy, &text);
 }
 
-/// The line said is erased: the reader's next request lays the result as one line, none of its words.
+/// The line said is erased: the reader's next request lays the result's quote of it as one line, none of its
+/// words.
 async fn erased(page: Page) {
     let Read {
         r,
@@ -176,7 +198,7 @@ async fn erased(page: Page) {
     turn(&r.core, &reader, "and the weir?").await;
     let (_, laid) = laid_result(&r);
     let laid = laid.to_string();
-    assert!(laid.contains(ERASED_RESULT), "{page:?}: {laid}");
+    assert!(laid.contains(ERASED_QUOTE), "{page:?}: {laid}");
     assert!(!laid.contains(WORD), "{page:?}: {laid}");
     stored_as(&r.core, &copy, &text);
 }
@@ -209,4 +231,28 @@ async fn a_page_by_words_lays_the_line_said_since_once_a_message_it_showed_is_ma
 #[tokio::test]
 async fn a_page_by_words_lays_no_words_once_a_message_it_showed_is_erased() {
     erased(Page::Words).await;
+}
+
+/// A result stored with its words, as a build before results were kept by reference wrote it (an old record,
+/// written here by hand), is never written again once a message it showed is erased: it still holds its words as
+/// written, and is laid as one line with none of them.
+#[tokio::test]
+async fn a_page_stored_as_words_is_as_written_once_a_message_it_showed_is_erased() {
+    let Read {
+        r,
+        said,
+        reader,
+        copy,
+        text,
+    } = read_by(Page::Date).await;
+    old_shape(&r.core, &copy, &text);
+    let (_, n) = r.core.store.get_node(&said.node).unwrap().unwrap();
+    let gone = n.erased(n.created_at_ms + 1, "a test");
+    r.core.store.append(&[gone.record().unwrap()]).unwrap();
+    turn(&r.core, &reader, "and the weir?").await;
+    let (_, laid) = laid_result(&r);
+    let laid = laid.to_string();
+    assert!(laid.contains(ERASED_RESULT), "{laid}");
+    assert!(!laid.contains(WORD), "{laid}");
+    stored_as_words(&r.core, &copy, &text);
 }

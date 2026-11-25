@@ -199,13 +199,20 @@ fn seed(r: &super::tests::Rig, sid: &str, texts: &[String]) -> Vec<String> {
     nodes.into_iter().map(|n| n.id).collect()
 }
 
-/// The look's result in `sid`: its node id and the words it shows.
+/// The look's result in `sid`: its node id and the words it shows (its parts rendered, as it is kept by
+/// reference).
 fn look_result(r: &super::tests::Rig, sid: &str) -> (String, String) {
     (r.core.store.session_nodes(sid).unwrap().into_iter())
         .find_map(|(_, n)| match &n.body {
-            crate::node::Body::ToolResult { content, tool, .. } if tool == crate::look::WORK => {
-                Some((n.id.clone(), content.clone()))
-            }
+            crate::node::Body::ToolResult {
+                content,
+                tool,
+                parts,
+                ..
+            } if tool == crate::look::WORK => Some((
+                n.id.clone(),
+                crate::tests_places::kept_text(&r.core, content.clone(), parts),
+            )),
             _ => None,
         })
         .expect("the look's result")

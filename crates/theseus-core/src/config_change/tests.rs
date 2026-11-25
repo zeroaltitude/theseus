@@ -631,8 +631,12 @@ impl Rig {
                     tool_use_id,
                     status,
                     content,
+                    parts,
                     ..
-                } if tool_use_id == call => Some((*status, content.clone())),
+                } if tool_use_id == call => Some((
+                    *status,
+                    crate::tests_places::kept_text(&self.core, content.clone(), parts),
+                )),
                 _ => None,
             })
             .expect("the proposal's result")

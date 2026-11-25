@@ -130,6 +130,9 @@ impl ToolRuntime {
         let keep = r.status == ResultStatus::Background;
         if let Some(note) = self.fit_notes.get(r.tool_use_id, keep) {
             r.text = format!("{}{}", super::noted(&note), r.text);
+            if let Some(b) = &mut r.by_ref {
+                b.parts = crate::quotes::cap::noted(Some(&*note), std::mem::take(&mut b.parts));
+            }
         }
         r
     }

@@ -124,6 +124,7 @@ pub mod project_context;
 pub mod project_tool;
 pub mod provider;
 pub mod push;
+pub mod quoted;
 pub mod quotes;
 pub mod reach;
 pub mod recall;

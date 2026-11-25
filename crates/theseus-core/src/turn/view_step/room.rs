@@ -170,6 +170,10 @@ impl TurnRunner {
         let room = room.or(was.as_ref().map(|f| f.room)).unwrap_or_default();
         let fit = was.as_ref().map(|f| f.fit).unwrap_or_default();
         let cut = was.as_ref().map(|f| f.cut.clone()).unwrap_or_default();
+        // The turn's renderings hold for the turn, but one that read a node erased since (issue 49).
+        let quoted = (was.as_ref())
+            .map(|f| crate::quoted::carried(store, f.quoted.clone()))
+            .unwrap_or_default();
         let (stripped, mut laid) = was.map(|f| (f.stripped, f.recalled)).unwrap_or_default();
         if laid.is_empty() {
             laid = recalled(t);
@@ -211,6 +215,7 @@ impl TurnRunner {
         let mut f = frozen_of(built, (room, fit), laid);
         f.stripped.extend(stripped);
         f.cut = cut;
+        f.quoted = quoted;
         // A turn no message opened: its empty "now", and beside it one line saying what woke it (issue 44).
         if let Some(o) = t.exchange.occasion() {
             f.beside = super::occasion::beside_with(f.beside, o, (sid, turn));
@@ -310,7 +315,9 @@ fn cut_newest(t: &mut Turn<'_>, nodes: &[(u64, crate::stub::Stub)], c: &Compiled
         .filter_map(|n| match &n.body {
             crate::node::Body::ToolResult { content, .. } => {
                 let shown = f.cut.get(&n.id).copied().unwrap_or(usize::MAX);
-                let len = content.chars().count().min(shown);
+                // A result kept by reference is as long as the turn's rendering of it (issue 49).
+                let text = (f.quoted.get(&n.id)).map_or(content.as_str(), |r| r.text.as_str());
+                let len = text.chars().count().min(shown);
                 (len > HEAD_MIN_CHARS).then(|| (len, n.id.clone()))
             }
             _ => None,

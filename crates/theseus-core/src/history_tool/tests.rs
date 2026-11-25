@@ -20,11 +20,13 @@ use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Handle, PointOfView, Present};
 
+mod edges;
 mod every;
 mod handles;
 mod kept;
 mod keys;
 mod labels;
+mod parts;
 mod unread_tags;
 
 const HERE: &str = "local";
@@ -2081,6 +2083,7 @@ fn a_pages_place_person_and_span_stop_before_a_known_value() {
             reply_begins: None,
             outside: true,
             labels: None,
+            quotes: Default::default(),
         }],
         next: None,
         end: PageEnd::HistoryExhausted,

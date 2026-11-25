@@ -63,8 +63,9 @@ async fn read_in(core: &Arc<Core>, sid: &str, args: Value) -> String {
             Body::ToolResult {
                 tool_use_id,
                 content,
+                parts,
                 ..
-            } if tool_use_id == "h1" => Some(content),
+            } if tool_use_id == "h1" => Some(crate::tests_places::kept_text(core, content, &parts)),
             _ => None,
         })
         .expect("the call's result")

@@ -89,6 +89,11 @@ impl TurnRunner {
             Self::view_reset(t, input.nodes);
         }
         self.view_freeze(t, input.spec)?;
+        // The turn's own results kept by reference, each rendered once for the turn (issue 49).
+        let store = t.tc.store;
+        if let Some(f) = t.view.as_mut() {
+            crate::quoted::freeze(store, f, input.nodes, || self.memory.labeled(store))?;
+        }
         // A refused image under the turn's thinking, or a block the provider dropped: the same view, a new
         // chain.
         if input.strip.is_some() || input.force {
@@ -177,6 +182,11 @@ impl TurnRunner {
         let recalled: Vec<String> = (f.recalled.iter()).map(|r| r.node_id.clone()).collect();
         kept::held_now(self, t.tc.session_id, (&[], &f.exchanges, &recalled))
             || !self.now_stale(t).is_empty()
+            // A node a result kept by reference showed was erased since (issue 49).
+            || crate::quoted::erased_since(
+                t.tc.store,
+                (f.window_read.iter()).chain(f.quoted.values().flat_map(|r| &r.read)),
+            )
     }
 
     /// A new chain for the turn: its next call makes a new compilation, and the
@@ -258,10 +268,9 @@ impl TurnRunner {
         let store_ladder = fork.ladder(store);
         let resolved = ResolvedLadder::new(&store_ladder, store);
         let ladder = OnceLadder::new(&resolved);
-        // What has been said since about the nodes it lays: beside the message the mark alone, in the window
-        // the mark and its reason.
+        // What has been said since about the nodes it lays: beside the message the mark alone; the window
+        // makes its own from the same set, the mark and its reason (`window_of`).
         let wrong = self.memory.labeled(store)?;
-        let said = crate::copies::since::Since::new(store, &wrong);
         let marked = crate::copies::since::Since::beside(store, &wrong);
         let moving = self.moving(store, (&permit, &pov), &items, (&read, &marked))?;
         let cards = StoreCards {
@@ -292,8 +301,8 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, mut sessions) =
-            window_of((store, &read, sid), &a, &pov, (turn, &said), renderer.zone)?;
+        let (window, mut sessions, window_read) =
+            window_of((store, &read, sid), &a, &pov, (turn, &wrong), renderer.zone)?;
         sessions.extend(resolved.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -311,6 +320,7 @@ impl TurnRunner {
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view.clone()),
+            window_read,
             ..Frozen::default()
         };
         Ok(Built {
@@ -714,14 +724,18 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
 /// made now from the window alone (`compiler::view::receipted`); an exchange laid whole with what has been
 /// said about its nodes since (`copies::since`, in memory); and every session the view lays, those a
-/// card, a waiting line or a fact was read from (`Sessions::depends`) among them, for source tracking.
+/// card, a waiting line or a fact was read from (`Sessions::depends`) among them, for source tracking. A
+/// result kept by reference is laid as the one renderer renders it now, before anything reads its words
+/// (`quoted`); the nodes those renderings read words of come last.
 fn window_of(
     (store, read, sid): (&Store, &Sessions, &str),
     a: &Assembled,
     pov: &PointOfView,
-    (turn, said): (&str, &crate::copies::since::Since<'_>),
+    (turn, wrong): (&str, &std::collections::BTreeSet<String>),
     zone: crate::recall::stamp::ZoneAt<'_>,
-) -> anyhow::Result<(Transcript, Vec<String>)> {
+) -> anyhow::Result<(Transcript, Vec<String>, Vec<String>)> {
+    // What has been said since, read once for the whole window: every node is laid through it.
+    let said = &crate::copies::since::Since::new(store, wrong);
     let here: HashMap<&str, Form> = (a.view.shown.iter())
         .filter(|s| s.piece.slot == Slot::Here)
         .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
@@ -729,7 +743,7 @@ fn window_of(
         .collect();
     // A task's opening heads its window (`task::window_head`); any other place's window opens empty.
     let (mut window, mut spoken) = (task::window_head(store, sid, pov)?, HashSet::new());
-    let mut laid = Vec::new();
+    let (mut laid, mut quoted) = (Vec::new(), Vec::new());
     for e in a.ladder.window.iter().filter(|e| e.turn_id != turn) {
         let Some(form) = here.get(e.turn_id.as_str()) else {
             continue;
@@ -748,6 +762,7 @@ fn window_of(
             at_ms: e.at_ms,
             id: e.turn_id.clone(),
         };
+        let nodes = crate::quoted::lay_window(store, nodes, said, &mut quoted)?;
         let nodes = labelled(store, nodes, pov, at, zone);
         let handle = Handle(e.turn_id.clone());
         window.extend(match form {
@@ -786,7 +801,10 @@ fn window_of(
     sessions.extend(read.depends.borrow().iter().cloned());
     sessions.sort();
     sessions.dedup();
-    Ok((crate::compiler::view::receipted(window, &spoken), sessions))
+    quoted.sort();
+    quoted.dedup();
+    let window = crate::compiler::view::receipted(window, &spoken);
+    Ok((window, sessions, quoted))
 }
 
 /// The most of a call's input a `Spoken` exchange sends, in characters; past it, a bounded receipt.

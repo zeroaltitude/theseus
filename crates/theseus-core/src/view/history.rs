@@ -71,6 +71,25 @@ pub struct HistoryLine {
     /// On a content label's page: what the label was on, and whether the owner removed it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<String>,
+    /// Where the words it shows are read from, for a page kept by reference (issue 49). Never sent.
+    #[serde(skip)]
+    pub quotes: LineQuotes,
+}
+
+/// The quotes a line's texts begin with: his words, the `did` line, the reply's beginning; none for a text
+/// that shows no node's words.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LineQuotes {
+    pub words: Option<Quoted>,
+    pub did: Option<Quoted>,
+    pub reply: Option<Quoted>,
+}
+
+/// A quote a text begins with, and the whole text of its field, as it was read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Quoted {
+    pub quote: crate::quotes::Quote,
+    pub field: String,
 }
 
 /// How a page ends: told apart, so the model knows whether it may ask or should offer to go on.

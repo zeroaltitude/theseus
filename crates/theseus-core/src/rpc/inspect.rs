@@ -228,7 +228,8 @@ impl Core {
         for r in &got.records {
             let n: Node = r.decode()?;
             if n.turn_id.as_deref() == Some(tid) {
-                nodes.push((r.position, n));
+                // A result kept by reference shows its rendering (issue 49).
+                nodes.push((r.position, crate::quoted::shown(&self.store, &n)));
             }
         }
         Ok(nodes)
