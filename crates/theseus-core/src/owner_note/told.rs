@@ -39,6 +39,10 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
+    /// `self.pause`, not cleared: new self builds wait again. The id is the
+    /// pause's reason, a phrase of the caller's own, never the model's words.
+    #[serde(rename = "self.pause")]
+    SelfPause(String),
 }
 
 impl Undo {
@@ -50,6 +54,7 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
+            Undo::SelfPause(_) => method::SELF_PAUSE,
         }
     }
 
@@ -62,6 +67,9 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
+            Undo::SelfPause(why) => {
+                json!({"clear": false, "why": why, "author": author, "discord": discord})
+            }
         }
     }
 
@@ -72,6 +80,7 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
+            Undo::SelfPause(why) => format!("theseus self pause {why}"),
         }
     }
 }
@@ -179,6 +188,12 @@ mod tests {
                 method::SELF_DROP,
                 "item",
                 "theseus self drop rtn_1",
+            ),
+            (
+                Undo::SelfPause(id.clone()),
+                method::SELF_PAUSE,
+                "why",
+                "theseus self pause rtn_1",
             ),
         ];
         for (u, m, field, cmd) in cases {

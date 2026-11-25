@@ -8,10 +8,9 @@
 //! reaches it. (A tool of the wrong backend, or one matched by a name it never has, is told "not a
 //! tool the harness runs" or "does not run async", and nothing is filed.)
 
-use theseus_protocol::rsi::{SelfBacklogParams, SelfDropParams, SelfMode};
+use theseus_protocol::rsi::{SelfBacklogParams, SelfMode};
 
 use super::*;
-use crate::approval::Answerer;
 
 /// A rig whose model calls `self.file` once in a fresh conversation (the owner's alone: no
 /// binding, a private place); `approve` sets the tool's own posture to "approve", and without it
@@ -77,16 +76,39 @@ async fn chat_filing() -> (Rig, String) {
     (r, rs[0].1.clone())
 }
 
-/// The FYI notes staged to the operator.
-pub(super) fn notes(core: &Core) -> Vec<String> {
+/// The FYI notes staged to the operator: an announcement told only (`notice`), or one with its
+/// undo (`told`, `owner_note::told`), as bodies.
+pub(super) fn notes(core: &Core) -> Vec<Value> {
     core.outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
         .map(|a| crate::outbox::body_of(a).clone())
-        .filter(|b| b["kind"] == "notice" && b[crate::outbox::ANNOUNCE_KEY] == true)
-        .filter_map(|b| b["text"].as_str().map(str::to_string))
-        .filter(|t| t.starts_with("ℹ️ FYI · "))
+        .filter(|b| {
+            (b["kind"] == "notice" && b[crate::outbox::ANNOUNCE_KEY] == true)
+                || b["kind"] == crate::owner_note::told::KIND
+        })
+        .filter(|b| b["text"].as_str().is_some_and(|t| t.starts_with("ℹ️ FYI · ")))
         .collect()
+}
+
+/// A press of a note's Undo, as `undo`'s own method with the presser's params, through the RPC
+/// on `surface` (as the Discord binding's press calls it).
+pub(super) async fn press(
+    core: &Arc<Core>,
+    note: &Value,
+    surface: crate::approval::Surface,
+    who: &str,
+    discord: Option<Value>,
+) -> theseus_protocol::Response {
+    let undo: crate::owner_note::told::Undo = serde_json::from_value(note["undo"].clone()).unwrap();
+    let discord = discord.map(|d| serde_json::from_value(d).unwrap());
+    crate::tests_capture::call_on(core, surface, undo.method(), undo.params(who, discord)).await
+}
+
+/// Where someone else presses from: a guild channel nobody bound private.
+pub(super) fn shared_place() -> Option<Value> {
+    Some(json!({"user_id": "7", "channel_id": "900000000000000123",
+                "guild_id": "900000000000000001"}))
 }
 
 /// KEY: an approved `self.file` is run by the tool, not refused by the dispatch, and the item is on the
@@ -132,7 +154,12 @@ async fn a_chat_filing_runs_unasked_and_tells_the_owner_once() {
     assert!(items[0].cause.starts_with("person:"), "{}", items[0].cause);
     let notes = notes(&r.core);
     assert_eq!(notes.len(), 1, "{notes:?}");
-    let n = &notes[0];
+    assert_eq!(
+        notes[0]["undo"],
+        json!({"method": "self.drop", "id": items[0].id}),
+        "its Undo drops the item"
+    );
+    let n = notes[0]["text"].as_str().unwrap();
     assert!(
         n.starts_with("ℹ️ FYI · A finding was filed for the self loop\n"),
         "{n}"
@@ -148,8 +175,8 @@ async fn a_chat_filing_runs_unasked_and_tells_the_owner_once() {
     );
 }
 
-/// The undo (`self.drop`, the owner's word) puts the open backlog back as it was before the
-/// filing: the same items at the same ranks. Someone else's drop, from a shared channel, is
+/// The note's Undo (`self.drop`, the owner's word) puts the open backlog back as it was before
+/// the filing: the same items at the same ranks. Someone else's press, from a shared channel, is
 /// refused and undoes nothing.
 #[tokio::test]
 async fn the_filings_undo_puts_the_backlog_back() {
@@ -178,25 +205,19 @@ async fn the_filings_undo_puts_the_backlog_back() {
         .expect("filed")
         .0
         .clone();
-    let theirs = crate::tests_capture::call_on(
+    let note = notes(&r.core).pop().expect("the filing's note");
+    assert_eq!(note["undo"]["id"], json!(filed));
+    let theirs = press(
         &r.core,
+        &note,
         crate::approval::Surface::Discord,
-        "self.drop",
-        json!({"item": filed, "author": "someone",
-               "discord": {"user_id": "7", "channel_id": "900000000000000123",
-                           "guild_id": "900000000000000001"}}),
+        "someone",
+        shared_place(),
     )
     .await;
     assert!(theirs.error.is_some(), "{:?}", theirs.result);
     assert_eq!(open(&r.core), after, "nothing was undone");
-    r.core
-        .self_drop(
-            &SelfDropParams {
-                item: filed,
-                ..Default::default()
-            },
-            &Answerer::from("the CLI"),
-        )
-        .unwrap();
+    let mine = press(&r.core, &note, crate::approval::Surface::Cli, "the owner", None).await;
+    assert!(mine.error.is_none(), "{:?}", mine.error);
     assert_eq!(open(&r.core), before, "the backlog is as it was");
 }

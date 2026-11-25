@@ -55,6 +55,7 @@ use theseus_tools::{
     AsyncMediaRun, Backend, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
 };
 
+use crate::owner_note::told::Undo;
 use crate::rpc::Core;
 
 pub const FILE: &str = "self.file";
@@ -194,16 +195,16 @@ fn filed(core: &Core, private: bool, session: &str, a: Args) -> Result<ToolOutpu
         .self_file_in_chat(&a.finding, a.title.as_deref(), OWNER)
         .map_err(|e| format!("the filing could not be written: {e:#}"))?;
     // The finding's words are the model's, so the note names the item, not them.
-    tell(
+    told(
         core,
         session,
         "A finding was filed for the self loop",
         "Theseus put a finding on its own self-improvement backlog from this chat",
         &format!(
-            "Item {} is on the backlog at rank {}. The self loop picks it up on its next pass.\n\
-             Undo: `theseus self drop {}`",
-            f.item, f.rank, f.item
+            "Item {} is on the backlog at rank {}. The self loop picks it up on its next pass.",
+            f.item, f.rank
         ),
+        &Undo::SelfDrop(f.item.clone()),
     );
     Ok(ToolOutput {
         text: format!(
@@ -214,19 +215,41 @@ fn filed(core: &Core, private: bool, session: &str, a: Args) -> Result<ToolOutpu
     })
 }
 
-/// The owner told once of what a chat tool did on his behalf (issue 57): an
-/// FYI note to the operator, where announcements go when a place for them is
-/// bound, naming the conversation and what it did. `did` and `body` are the
-/// tool's own words: no word the model wrote, and no secret. A note that
-/// cannot be posted is logged; the act stands.
-pub(crate) fn tell(core: &Core, session: &str, title: &str, did: &str, body: &str) {
+/// The note's second line: which conversation did it, and what it did.
+fn by(core: &Core, session: &str, did: &str) -> String {
     let rec: Option<crate::session::SessionRecord> = core.store.get_session(session).ok().flatten();
     let named = rec.and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
     let here = crate::judge::onto::words::in_conversation(named.as_deref());
+    format!("{here}, {did}")
+}
+
+/// The owner told once of what a chat tool did on his behalf (issue 57), with
+/// its undo: the shared note (`owner_note::told`), whose Undo is `undo`'s own
+/// method as the presser. `did` and `body` are the tool's own words: no word
+/// the model wrote, and no secret. A note that cannot be posted is logged;
+/// the act stands.
+pub(crate) fn told(core: &Core, session: &str, title: &str, did: &str, body: &str, undo: &Undo) {
+    let by = by(core, session, did);
+    let staged = crate::owner_note::told::stage(&core.outbox, Some(session), title, &by, body, undo)
+        .and_then(|(post, records)| {
+            core.store.append(&records)?;
+            core.outbox.posted(&post);
+            Ok(())
+        });
+    if let Err(e) = staged {
+        tracing::warn!(session, error = %format!("{e:#}"), "self: the owner's note was not posted");
+    }
+}
+
+/// The owner told once of what a chat tool did on his behalf that has no undo
+/// (issue 57: a pause, which only does less): an FYI note to the operator,
+/// where announcements go when a place for them is bound. `did` and `body`
+/// are the tool's own words. A note that cannot be posted is logged.
+pub(crate) fn tell(core: &Core, session: &str, title: &str, did: &str, body: &str) {
     let text = crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
         title,
-        &format!("{here}, {did}"),
+        &by(core, session, did),
         body,
     );
     let posted = core.outbox.to_operator(

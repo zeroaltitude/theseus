@@ -19,13 +19,17 @@ use theseus_tools::{
     AsyncMediaRun, Backend, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
 };
 
-use super::backlog::tool::{tell, wall, Wall};
+use super::backlog::tool::{tell, told, wall, Wall};
+use crate::owner_note::told::Undo;
 use crate::rpc::Core;
 
 pub const PAUSE: &str = "self.pause";
 
 /// Who a chat pause is by: a constant, not a name the model wrote (the wall leaves only the owner).
 const OWNER: &str = "the owner";
+
+/// The reason an unpause's undo pauses again with: words of the tool's own, never the model's.
+const AGAIN: &str = "paused again from its note";
 
 /// Register `self.pause`, only while `[self] mode = "act"`: the rule `self.file` is registered under.
 pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
@@ -185,12 +189,13 @@ pub(crate) fn paused(
             "No new self build starts until they are unpaused or Theseus restarts. Builds already \
              running finish.",
         ),
-        (true, true) => tell(
+        (true, true) => told(
             core,
             session,
             "New self builds may start again",
             "Theseus unpaused its self-improvement builds from this chat",
-            "The pause is cleared: the self loop may start new builds.\nUndo: `theseus self pause`",
+            "The pause is cleared: the self loop may start new builds.",
+            &Undo::SelfPause(AGAIN.into()),
         ),
         _ => {}
     }

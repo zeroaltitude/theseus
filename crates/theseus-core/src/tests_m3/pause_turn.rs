@@ -9,7 +9,7 @@
 
 use theseus_protocol::rsi::SelfMode;
 
-use super::self_file_turn::notes;
+use super::self_file_turn::{notes, press, shared_place};
 use super::*;
 
 /// A rig whose model calls `self.pause` once with `action` in a fresh conversation (the owner's
@@ -109,7 +109,8 @@ async fn a_chat_pause_runs_unasked_and_is_told_once() {
     assert!(r.core.self_paused().is_some());
     let notes = notes(&r.core);
     assert_eq!(notes.len(), 1, "{notes:?}");
-    let n = &notes[0];
+    assert!(notes[0].get("undo").is_none(), "told only: {:?}", notes[0]);
+    let n = notes[0]["text"].as_str().unwrap();
     assert!(
         n.starts_with("ℹ️ FYI · New self builds are paused\n"),
         "{n}"
@@ -120,7 +121,8 @@ async fn a_chat_pause_runs_unasked_and_is_told_once() {
 }
 
 /// KEY (issue 57): by default an unpause runs with no question put, the owner is told once with its
-/// undo, and the undo (a pause again) puts the builds back on hold.
+/// Undo, and the press (a pause again, `self.pause`'s own rule: anyone may pause) puts the builds
+/// back on hold. Someone else's press from a shared channel pauses too, as a pause only does less.
 #[tokio::test]
 async fn a_chat_unpause_runs_unasked_and_its_undo_pauses_again() {
     let (r, text) = unasked("unpause", true).await;
@@ -128,14 +130,36 @@ async fn a_chat_unpause_runs_unasked_and_its_undo_pauses_again() {
     assert!(r.core.self_paused().is_none());
     let notes = notes(&r.core);
     assert_eq!(notes.len(), 1, "{notes:?}");
-    let n = &notes[0];
+    assert_eq!(
+        notes[0]["undo"],
+        json!({"method": "self.pause", "id": "paused again from its note"})
+    );
+    let n = notes[0]["text"].as_str().unwrap();
     assert!(
         n.starts_with("ℹ️ FYI · New self builds may start again\n"),
         "{n}"
     );
-    assert!(n.ends_with("Undo: `theseus self pause`"), "{n}");
-    r.core.self_pause_apply(false, None, "the owner");
-    assert!(r.core.self_paused().is_some(), "paused again");
+    assert!(
+        n.ends_with("Undo: `theseus self pause paused again from its note`"),
+        "{n}"
+    );
+    let mine = press(&r.core, &notes[0], crate::approval::Surface::Cli, "the owner", None).await;
+    assert!(mine.error.is_none(), "{:?}", mine.error);
+    let p = r.core.self_paused().expect("paused again");
+    assert!(p.words().contains("paused again from its note"), "{}", p.words());
+    // Cleared once more, someone else's press from a shared channel pauses as well: a pause is
+    // anyone's, and only does less.
+    r.core.self_pause_apply(true, None, "test");
+    let theirs = press(
+        &r.core,
+        &notes[0],
+        crate::approval::Surface::Discord,
+        "someone",
+        shared_place(),
+    )
+    .await;
+    assert!(theirs.error.is_none(), "{:?}", theirs.error);
+    assert!(r.core.self_paused().is_some());
 }
 
 /// A call that changes nothing (an unpause with nothing paused) is no act, and tells nothing.
