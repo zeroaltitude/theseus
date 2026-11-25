@@ -528,8 +528,14 @@ fn at_the_ask_posture_a_changed_file_is_named_and_not_read() {
         "the changed file is named, and why it is not read:\n{text}"
     );
     assert!(
-        text.contains("`theseus project untrust`, then `theseus project trust`"),
+        text.contains(
+            "he accepts what is there with `theseus project trust` naming this session's directory"
+        ),
         "with the owner's accept named:\n{text}"
+    );
+    assert!(
+        !text.contains("untrust"),
+        "and it is one command, not an untrust and a trust:\n{text}"
     );
 }
 
@@ -575,7 +581,9 @@ fn a_labelled_session_holds_a_changed_file_whatever_the_posture_says() {
         "the changed file is named, and why it is not read:\n{held}"
     );
     assert!(
-        held.contains("`theseus project untrust`, then `theseus project trust`"),
+        held.contains(
+            "he accepts what is there with `theseus project trust` naming this session's directory"
+        ),
         "with the owner's accept named, which is the yes it waits for:\n{held}"
     );
 
