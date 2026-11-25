@@ -75,12 +75,15 @@ from a caller's `Arrival`, may only narrow it, and a view anchored elsewhere tha
 `Admitted::code` admits only a piece with no source place and no seal, veil or outside mark.
 
 What stands today beside anything goes is one scope rule of the self loop, not a withholding rule
-(`view_gate::Verified::own_place_only`). A session the self loop opened to JUDGE (a reviewer, the approver of a
-fix, or a fork of one: its role, `rsi::roles`) lays its own place only: its own exchanges there and the run it
-was handed; its history tool pages, opens and searches nothing else, imports included. Its independence from the
-builder's words and everyone else's is its job. The self loop's BUILDING sessions (a builder, whose session has
-no role, and a fixer) read at the widest, as any turn does. A self session whose execution or role cannot be read
-is `Unread`: its view is not assembled, never laid at the widest by default.
+(`view_gate::Verified::own_place_only`), decided by the role the loop records for each session it opens
+(`rsi::roles`). The BUILDING sessions, the builder of a backlog item (role `builder`, written in the frame that
+opens it) and a fixer, read at the widest, as any turn does. Every other self session lays its own place only:
+its own exchanges there and the run it was handed, and its history tool pages, opens and searches nothing else,
+imports included. That is a reviewer and the approver of a fix, whose independence from the builder's words and
+everyone else's is their job; a mint's writer (no role), from whom the instances that check its tool are held
+back; and any self session whose role is not recorded. A fork is given its source's role in the frame that opens
+it. A self session whose execution or role cannot be read is `Unread`: its view is not assembled, never laid at
+the widest by default.
 
 ## What stays, and the registry
 

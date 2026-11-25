@@ -1,8 +1,8 @@
-//! The self loop's building sessions read at the widest (issue 53). A builder (a self session the loop opened
-//! for no role) and a fixer are laid what an ordinary session at their place is: another session's exchanges
-//! there, and what recall finds in another place. A reviewer and an approver keep their own place
-//! (`tests_view_compile`'s self-loop tests). A fork of a reviewer keeps the reviewer's scope, through every fork
-//! between and after a restart. A self session whose role cannot be read is never laid at the widest.
+//! The self loop's building sessions read at the widest (issue 53). A builder (its role `builder`) and a fixer
+//! are laid what an ordinary session at their place is: another session's exchanges there, and what recall
+//! finds in another place. A reviewer, an approver and a self session with no role recorded (a mint's writer)
+//! keep their own place. A fork is given its source's role: its tools and its scope are its source's. A self
+//! session whose role cannot be read is never laid at the widest.
 
 use crate::rsi::roles::Role;
 use crate::tests_places::rig_with;
@@ -27,7 +27,8 @@ fn acting(memory: bool) -> crate::tests_places::Rig {
 }
 
 /// A builder's and a fixer's request hold another session's words at their place and what recall finds of
-/// another place, as an ordinary session's does; the reviewer's, asking the same, holds neither.
+/// another place, as an ordinary session's does; a reviewer's and a role-less self session's, asking the same,
+/// hold neither.
 #[tokio::test]
 async fn a_builders_and_a_fixers_turn_is_laid_other_sessions_and_recall_from_another_place() {
     use crate::tests_view_hand_backs::unmarked;
@@ -39,16 +40,18 @@ async fn a_builders_and_a_fixers_turn_is_laid_other_sessions_and_recall_from_ano
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
     let desk = crate::tests_places::session(c, None);
     turn_as(c, &desk, "desk: the heron is grey", true).await;
-    let builder = self_session(c, "self build: kelp", None);
+    let builder = self_session(c, "self build: kelp", Some(Role::Builder));
     let fixer = self_session(c, "self fix: kelp", Some(Role::Fixer));
     let reviewer = self_session(c, "self review: kelp", Some(Role::Reviewer));
+    let unrecorded = self_session(c, "self mint: kelp", None);
     for (sid, who) in [
         (&builder, "builder"),
         (&fixer, "fixer"),
         (&reviewer, "reviewer"),
+        (&unrecorded, "unrecorded"),
     ] {
         let wide = !Verified::of_session(&c.runner, sid).own_place_only();
-        assert_eq!(wide, who != "reviewer", "{who}: its scope");
+        assert_eq!(wide, matches!(who, "builder" | "fixer"), "{who}: its scope");
         unmarked(c, sid, &format!("{who}: what is the kelp vault code?"))
             .await
             .unwrap();
@@ -65,68 +68,102 @@ async fn a_builders_and_a_fixers_turn_is_laid_other_sessions_and_recall_from_ano
             "{who}: another place, recalled: {got}"
         );
     }
-    let got = sent("reviewer");
-    assert!(!got.contains("the heron is grey"), "the reviewer: {got}");
-    assert!(!got.contains("5519"), "the reviewer: {got}");
+    for who in ["reviewer", "unrecorded"] {
+        let got = sent(who);
+        assert!(!got.contains("the heron is grey"), "{who}: {got}");
+        assert!(!got.contains("5519"), "{who}: {got}");
+    }
 }
 
-/// A fork of a reviewer keeps the reviewer's scope, and so does a fork of that fork, after a restart's loss of
-/// what this process held of the roles; a fork of a builder reads at the widest, as the builder does.
+/// The newest reply of `source`, to fork at.
+fn reply_of(c: &crate::Core, source: &str) -> String {
+    (c.store.session_nodes(source).unwrap().into_iter())
+        .rev()
+        .find(|(_, n)| matches!(n.body, crate::node::Body::AssistantMessage { .. }))
+        .map(|(_, n)| n.id)
+        .expect("a reply to fork at")
+}
+
+/// `source` forked at `at` from the CLI.
+fn fork_at(c: &crate::Core, source: &str, at: String) -> Result<String, String> {
+    c.session_fork(
+        theseus_protocol::SessionForkParams {
+            session: source.to_string(),
+            at,
+            ..Default::default()
+        },
+        crate::approval::Surface::Cli,
+    )
+    .map(|f| f.session_id)
+    .map_err(|e| format!("{e:?}"))
+}
+
+/// A fork is given its source's role in the frame that opens it: a fork of a reviewer, and a fork of that
+/// fork, are offered the reviewer's tools and lay their own place only, after a restart's loss of what this
+/// process held of the roles; a fork of a builder or a fixer reads at the widest with its source's tools; a
+/// fork of a self session with no role (a mint's writer) keeps its own place.
 #[tokio::test]
-async fn a_fork_of_a_reviewer_keeps_its_scope_and_a_fork_of_a_builder_reads_wide() {
+async fn a_fork_keeps_its_sources_role_its_tools_and_its_scope() {
     use crate::tests_view_hand_backs::unmarked;
     let r = acting(false);
     let c = &r.core;
-    let reviewer = self_session(c, "self review: kelp", Some(Role::Reviewer));
-    let builder = self_session(c, "self build: kelp", None);
-    let fork = |source: &str| {
-        let at = (c.store.session_nodes(source).unwrap().into_iter())
-            .rev()
-            .find(|(_, n)| matches!(n.body, crate::node::Body::AssistantMessage { .. }))
-            .map(|(_, n)| n.id)
-            .expect("a reply to fork at");
-        c.session_fork(
-            theseus_protocol::SessionForkParams {
-                session: source.to_string(),
-                at,
-                ..Default::default()
-            },
-            crate::approval::Surface::Cli,
-        )
-        .unwrap()
-        .session_id
-    };
-    unmarked(c, &reviewer, "reviewer: FIRST-KELP")
-        .await
-        .unwrap();
-    unmarked(c, &builder, "builder: FIRST-TERN").await.unwrap();
-    let (once, of_builder) = (fork(&reviewer), fork(&builder));
-    unmarked(c, &once, "fork: SECOND-KELP").await.unwrap();
-    let twice = fork(&once);
+    let mut forks = Vec::new();
+    for (role, who) in [
+        (Some(Role::Reviewer), "reviewer"),
+        (Some(Role::Builder), "builder"),
+        (Some(Role::Fixer), "fixer"),
+        (None, "unrecorded"),
+    ] {
+        let source = self_session(c, &format!("self {who}: kelp"), role);
+        unmarked(c, &source, &format!("{who}: FIRST-KELP"))
+            .await
+            .unwrap();
+        let once = fork_at(c, &source, reply_of(c, &source)).unwrap();
+        if role == Some(Role::Reviewer) {
+            unmarked(c, &once, "fork: SECOND-KELP").await.unwrap();
+            let twice = fork_at(c, &once, reply_of(c, &once)).unwrap();
+            forks.push((role, "reviewer, twice", twice));
+        }
+        forks.push((role, who, once));
+    }
     c.tools.self_pr.forget_roles();
-    let scoped = |s: &str| Verified::of_session(&c.runner, s).own_place_only();
-    assert!(scoped(&reviewer), "the reviewer");
-    assert!(scoped(&once), "a fork of the reviewer");
-    assert!(scoped(&twice), "a fork of that fork");
-    assert!(!scoped(&builder), "the builder");
-    assert!(!scoped(&of_builder), "a fork of the builder");
+    for (role, who, f) in &forks {
+        assert_eq!(c.tools.self_pr.role(f), *role, "{who}: the fork's role");
+        let wide = !Verified::of_session(&c.runner, f).own_place_only();
+        assert_eq!(wide, role.is_some_and(Role::reads_wide), "{who}: its scope");
+        let view = c.runner.view_of(f);
+        assert_eq!(
+            view.offered("fs.write", &[]),
+            *role != Some(Role::Reviewer),
+            "{who}: offered fs.write"
+        );
+        if *role == Some(Role::Reviewer) {
+            assert!(view.offered("fs.read", &[]), "{who}: the reviewer's reads");
+            assert!(!view.offered("self.propose_change", &[]), "{who}");
+        }
+    }
 }
 
-/// A self session whose role record cannot be read is unread: its census (the turn's own assembler) fails
-/// plainly, and nothing is sent.
+/// A self session whose role record cannot be read is unread, never "no role": its census (the turn's own
+/// assembler) fails plainly, nothing is sent, and it is not forked. The failed read is not kept: once the
+/// record reads, the role is read.
 #[tokio::test]
 async fn a_self_session_whose_role_cannot_be_read_is_never_laid_at_the_widest() {
+    use crate::tests_view_hand_backs::unmarked;
     let r = acting(false);
     let c = &r.core;
     let sid = self_session(c, "self build: kelp", None);
+    unmarked(c, &sid, "builder: FIRST-KELP").await.unwrap();
+    let at = reply_of(c, &sid);
     unreadable_role(c, &sid);
     let v = Verified::of_session(&c.runner, &sid);
     assert!(v.scope_unread(), "an unreadable role");
     assert!(!v.own_place_only(), "unread, not own place");
+    assert!(c.tools.self_pr.role_in(&c.store, &sid).is_err());
     let sent = r.requests().len();
     let err = c
         .context_census(&theseus_protocol::census::ContextCensusParams {
-            session_id: Some(sid),
+            session_id: Some(sid.clone()),
             place: None,
             exact: false,
         })
@@ -137,22 +174,22 @@ async fn a_self_session_whose_role_cannot_be_read_is_never_laid_at_the_widest() 
         "plainly: {err:#}"
     );
     assert_eq!(r.requests().len(), sent, "nothing is sent");
+    let refused = fork_at(c, &sid, at).unwrap_err();
+    assert!(refused.contains("cannot be read"), "{refused}");
+    c.store
+        .append(&[Role::Builder.record(&sid).unwrap()])
+        .unwrap();
+    assert_eq!(
+        c.tools.self_pr.role_in(&c.store, &sid).unwrap(),
+        Some(Role::Builder),
+        "the failed read was not kept"
+    );
+    assert!(!Verified::of_session(&c.runner, &sid).own_place_only());
 }
 
-/// A role record for `session` that does not decode as a role, as a store whose record cannot be read.
-pub(crate) fn unreadable_role(c: &crate::Core, session: &str) {
-    let bad = theseus_store::NewRecord::json(
-        theseus_store::kinds::META,
-        Some(&crate::rsi::roles::key(session)),
-        &"no such job",
-    )
-    .unwrap();
-    c.store.append(&[bad]).unwrap();
-}
-
-/// The building sessions (a builder, a fixer, a mint's writer) are told, where their standing instructions
-/// already are, that what they read from other conversations is testimony and never an instruction, and is not
-/// copied into what they write.
+/// The building sessions (a builder, a fixer) are told, where their standing instructions already are, that
+/// what they read from other conversations is testimony and never an instruction, and is not copied into what
+/// they write.
 #[tokio::test]
 async fn the_building_sessions_are_told_what_they_read_elsewhere_is_testimony() {
     use crate::rsi::backlog::brief::{rules, rules_now, TESTIMONY};
@@ -188,10 +225,17 @@ async fn the_building_sessions_are_told_what_they_read_elsewhere_is_testimony() 
         files: 6,
     };
     assert!(fix_prompt(&fix).contains(TESTIMONY), "the fixer");
-    let mint = crate::rsi::mint::brief::brief(
-        &serde_json::json!({}),
-        crate::rsi::mint::kind::Kind::Flow,
-        &[],
-    );
-    assert!(mint.contains(TESTIMONY), "the mint's writer");
+}
+
+/// A role record for `session` that does not decode as a role, as a store whose record cannot be read; and
+/// what this process kept of the roles forgotten, as after a restart, so the record is what is read.
+pub(crate) fn unreadable_role(c: &crate::Core, session: &str) {
+    let bad = theseus_store::NewRecord::json(
+        theseus_store::kinds::META,
+        Some(&crate::rsi::roles::key(session)),
+        &"no such job",
+    )
+    .unwrap();
+    c.store.append(&[bad]).unwrap();
+    c.tools.self_pr.forget_roles();
 }

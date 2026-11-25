@@ -1587,7 +1587,7 @@ fn a_session_open_is_bounded_and_cuts_an_oversized_message_in_words() {
     assert!(text.contains("That is its beginning."), "{text}");
 }
 
-/// XS2's fixture: a session the self loop opened (principal `self`) for `role`'s job, none for a builder's,
+/// XS2's fixture: a session the self loop opened (principal `self`) for `role`'s job (none: a mint writer's),
 /// which ran two real turns at its verified anchor ("OWN-HERON", then "LATER-OWN-TERN"); another session's
 /// exchange at that same place (`turn_0002`, "SAMEPLACE-KELP"); another place's (`turn_0003`,
 /// "FOREIGN-LAMP"); all of them in the words index. A builder and a fixer are offered the history tool; a
@@ -1620,13 +1620,13 @@ async fn xs2_as(role: Option<Role>) -> Xs2 {
     .unwrap();
     let me = self_session(&c, role);
     let verified = crate::view_gate::Verified::of_session(&c.runner, &me);
-    let judging = matches!(role, Some(Role::Reviewer | Role::Approver));
-    assert_eq!(verified.own_place_only(), judging, "{role:?}: its scope");
+    let wide = role.is_some_and(Role::reads_wide);
+    assert_eq!(verified.own_place_only(), !wide, "{role:?}: its scope");
     let at = verified.pov().anchor.clone();
     let offered = c.runner.view_of(&me);
     assert_eq!(
         offered.offered(crate::view::history::HISTORY_TOOL, &[]),
-        !judging,
+        !matches!(role, Some(Role::Reviewer | Role::Approver)),
         "{role:?}: offered the history tool"
     );
     unmarked(&c, &me, "OWN-HERON").await.unwrap();

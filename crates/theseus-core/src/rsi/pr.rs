@@ -130,46 +130,37 @@ impl Board {
     }
 
     /// `session`'s role, if the self loop opened it for one: what memory holds, else the store's
-    /// record, kept once read.
+    /// record, kept once read. A role that cannot be read is none here, and is not kept
+    /// ([`Self::role_in`] says it).
     pub(crate) fn role(&self, session: &str) -> Option<super::roles::Role> {
+        let core = self.core()?;
+        self.role_in(&core.store, session).ok().flatten()
+    }
+
+    /// `session`'s role in `store`: what memory holds, else the store's record, kept once read. An
+    /// error, kept nowhere, when the record cannot be read: a failed read is never "no role".
+    pub(crate) fn role_in(
+        &self,
+        store: &crate::store::Store,
+        session: &str,
+    ) -> anyhow::Result<Option<super::roles::Role>> {
         if let Some(r) = self
             .roles
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(session)
         {
-            return *r;
+            return Ok(*r);
         }
+        let read = store.get_meta::<super::roles::Role>(&super::roles::key(session))?;
         // What is kept stays small: the sessions with no role are forgotten past a bound (each is
         // read again from the store if it asks again).
-        {
-            let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
-            if kept.len() >= ROLES_KEPT {
-                kept.retain(|_, r| r.is_some());
-            }
+        let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.len() >= ROLES_KEPT {
+            kept.retain(|_, r| r.is_some());
         }
-        let read = self.core().and_then(|c| {
-            c.store
-                .get_meta::<super::roles::Role>(&super::roles::key(session))
-                .ok()
-                .flatten()
-        });
-        self.roles
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(session.to_string(), read);
-        read
-    }
-
-    /// `session`'s role as this process holds it, set or read: none when it holds none, or holds that the
-    /// session has none (a read that may have failed is not trusted here: `TurnRunner::role_read`).
-    pub(crate) fn role_kept(&self, session: &str) -> Option<super::roles::Role> {
-        self.roles
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(session)
-            .copied()
-            .flatten()
+        kept.insert(session.to_string(), read);
+        Ok(read)
     }
 
     pub(crate) fn failed_keel_hold(&self, item: &str) -> bool {

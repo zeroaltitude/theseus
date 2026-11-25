@@ -1,7 +1,7 @@
-//! The self loop's building sessions read history at the widest (issue 53): a builder (a self session with no
-//! role) and a fixer page every place, open another place's exchange, and search the imported conversations,
-//! as any session does. The judging sessions keep to their own place: an approver's call reads nothing of
-//! another place and no import. A self session whose role cannot be read reads nothing.
+//! The self loop's building sessions read history at the widest (issue 53): a builder and a fixer page every
+//! place, open another place's exchange, and search the imported conversations, as any session does. Every
+//! other self session keeps to its own place: an approver's call, and a role-less one's (a mint writer's),
+//! reads nothing of another place and no import. A self session whose role cannot be read reads nothing.
 
 use serde_json::{json, Value};
 
@@ -18,7 +18,7 @@ fn text(r: Result<String, String>) -> String {
 #[tokio::test]
 async fn a_builders_and_a_fixers_history_reads_every_place_and_the_imports() {
     use crate::tests_imports::{episode, import, index_over};
-    for role in [None, Some(Role::Fixer)] {
+    for role in [Some(Role::Builder), Some(Role::Fixer)] {
         let x = xs2_as(role).await;
         let c = &x.r.core;
         let ask = |a: Value| xs2_ask(c, &x.me, a);
@@ -68,10 +68,17 @@ async fn a_builders_and_a_fixers_history_reads_every_place_and_the_imports() {
     }
 }
 
-/// An approver, the other judging role: no other place, by page or by handle, and no import search.
+/// An approver, and a self session with no role recorded (a mint writer's): no other place, by page or by
+/// handle, and no import search.
 #[tokio::test]
-async fn an_approvers_history_keeps_to_its_own_place_and_searches_no_import() {
-    let x = xs2_as(Some(Role::Approver)).await;
+async fn an_approvers_and_a_role_less_history_keep_to_their_own_place_and_search_no_import() {
+    for role in [Some(Role::Approver), None] {
+        own_place_only(role).await;
+    }
+}
+
+async fn own_place_only(role: Option<Role>) {
+    let x = xs2_as(role).await;
     let c = &x.r.core;
     let ask = |a: Value| xs2_ask(c, &x.me, a);
     let own = text(ask(json!({})).await);

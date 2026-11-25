@@ -240,7 +240,7 @@ pub struct Lens<'a> {
     /// The asking session's cut, when it is a fork (`fork::cut`): an exchange the fork point falls in, or one
     /// an ancestor began after it, is not in the fork's history, by position. Empty for any other session.
     pub cut: crate::fork::cut::Cut,
-    /// The self loop's scope, for a session it opened to judge ([`SelfScope`]); none for every other asker
+    /// The self loop's scope, for a self-loop session that does not build ([`SelfScope`]); none for every other asker
     /// (a builder and a fixer among them), which reads every place.
     pub scope: Option<SelfScope>,
     /// Where a line's words may be cut.
@@ -250,8 +250,8 @@ pub struct Lens<'a> {
     pub page: usize,
 }
 
-/// What a session the self loop opened to judge reads of history (`view_gate::Verified::own_place_only`), as its view
-/// lays it: the exchanges it ran itself at its verified anchor (`view_gate::own_exchange`), and the run it was
+/// What a self-loop session that does not build reads of history (`view_gate::Verified::own_place_only`), as
+/// its view lays it: the exchanges it ran itself at its verified anchor (`view_gate::own_exchange`), and the run it was
 /// handed as a fork (`fork::window::inherited`, by turn id). Nothing else: no other place, and no other
 /// session at its own place.
 #[derive(Debug, Clone, Default)]

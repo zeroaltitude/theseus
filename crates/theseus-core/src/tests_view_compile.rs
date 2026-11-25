@@ -1169,15 +1169,21 @@ async fn a_scope_that_cannot_be_read_fails_the_assembly_and_widens_nothing() {
 }
 
 /// Round 3: a self-principal task's census is assembled under the scope its live turn gets
-/// (`Verified::of_task` and `Verified::of_turn` read one discriminator): a reviewer's own place only, a
-/// builder's (no role) the widest, as an operator task's.
+/// (`Verified::of_task` and `Verified::of_turn` read one discriminator): a self task with no role recorded and
+/// a reviewer's, their own place only; a builder's the widest, as an operator task's.
 #[tokio::test]
 async fn a_self_principal_tasks_census_has_its_live_turns_scope() {
     let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
     let c = &r.core;
     let parent = crate::tests_places::session(c, None);
-    let worker = self_session(c, "self build: census", None);
+    let worker = self_session(c, "self fix: census", None);
     crate::tests_self_budget::make_task(c, &worker, &parent, crate::rsi::SELF_PRINCIPAL, None);
+    let builder = self_session(
+        c,
+        "self build: census",
+        Some(crate::rsi::roles::Role::Builder),
+    );
+    crate::tests_self_budget::make_task(c, &builder, &parent, crate::rsi::SELF_PRINCIPAL, None);
     let judge = self_session(
         c,
         "self review: census",
@@ -1185,7 +1191,12 @@ async fn a_self_principal_tasks_census_has_its_live_turns_scope() {
     );
     crate::tests_self_budget::make_task(c, &judge, &parent, crate::rsi::SELF_PRINCIPAL, None);
     let (ordinary, _) = crate::tests_self_budget::principal_session(c, &parent, "operator", None);
-    for (sid, scoped) in [(&worker, false), (&judge, true), (&ordinary, false)] {
+    for (sid, scoped) in [
+        (&worker, true),
+        (&builder, false),
+        (&judge, true),
+        (&ordinary, false),
+    ] {
         let census = crate::view_gate::Verified::of_task(&c.runner, sid).expect("a task's");
         let live = crate::view_gate::Verified::of_turn(&c.runner, sid, None);
         assert_eq!(census.own_place_only(), scoped, "{sid}: the census");

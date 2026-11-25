@@ -345,7 +345,7 @@ impl Run<'_> {
     }
 
     /// Why this head may not be reviewed: a fixer's commit in it that no other model approved
-    /// (`fix::unapproved`), or a build by a session the loop opened for another job
+    /// (`fix::unapproved`), or a build by a session the loop opened for another job than a build
     /// (`rsi::roles`). None when it may.
     async fn not_a_builders(&self) -> Option<String> {
         if let Some(role) = self
@@ -353,6 +353,7 @@ impl Run<'_> {
             .session
             .as_deref()
             .and_then(|s| self.core.tools.self_pr.role(s))
+            .filter(|r| *r != crate::rsi::roles::Role::Builder)
         {
             return Some(format!(
                 "it was built by a session the self loop opened as {}, not by a builder",

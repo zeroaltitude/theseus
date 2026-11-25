@@ -11,10 +11,10 @@
 //! search says it may be incomplete. A volatile value carries its as-of mark, and the result links each
 //! imported message it shows (`copies`).
 //!
-//! - **The self loop's scope** (`Lens::scope`): a session the self loop opened to judge (a reviewer, an
-//!   approver, a fork of one) reads its own place only, so it may not search imported conversations at all; a
-//!   builder and a fixer search them as any session does. A fork's cut names no import, and a hit it named
-//!   would not be shown.
+//! - **The self loop's scope** (`Lens::scope`): a self-loop session that does not build (a reviewer, an
+//!   approver, a mint's writer, a fork of one) reads its own place only, so it may not search imported
+//!   conversations at all; a builder and a fixer search them as any session does. A fork's cut names no
+//!   import, and a hit it named would not be shown.
 //! - **The names `import` and `import:<book>` are reserved** for this search: a place bound under either
 //!   literal name is shadowed here.
 
@@ -75,7 +75,7 @@ pub(super) async fn read(
     before: Option<&Cursor>,
     looks: u32,
 ) -> Result<(HistoryPage, Found), String> {
-    // A judging self-loop session reads its own place only: no import is its own (the refusal an open of
+    // A self-loop session that does not build reads its own place only: no import is its own (the refusal an open of
     // another session has, `session::open`).
     if lens.scope.is_some() {
         return Err("no imported conversation can be searched here".into());

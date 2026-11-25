@@ -88,6 +88,17 @@ impl Core {
 
         let (profile, limit) = self.fork_target(&p, &source)?;
         let authority = src_exec.map(|e| e.authority).unwrap_or_default();
+        // A fork of a session the self loop opened is given its source's role (`rsi::roles`), so it is offered
+        // what its source is and its view reads what its source's does. A role that cannot be read refuses it.
+        let role = match authority.principal == crate::rsi::SELF_PRINCIPAL {
+            true => self.runner.role_read(&source.session_id).map_err(|e| {
+                refused(format!(
+                    "the job the self loop opened {} for cannot be read, so it is not forked: {e:#}",
+                    source.session_id
+                ))
+            })?,
+            false => None,
+        };
 
         let title = p.title.unwrap_or_else(|| {
             crate::fork::default_title(source.title.as_deref(), source.label.as_deref())
@@ -115,7 +126,7 @@ impl Core {
             &c,
             (&source, &at_node),
             base.as_ref(),
-            (authority, limit),
+            (authority, limit, role),
         )?;
         // Reconcile after publishing the fork edge: a concurrent landing either
         // sees this edge or is already present in the item records read here.
@@ -201,14 +212,19 @@ impl Core {
 
     /// The fork's one frame: its execution, its session record, its first
     /// compilation, the reverse entry into the source's session, the fork
-    /// edge, and its row. Returns the execution and the frame's bytes.
+    /// edge, its row, and its source's self-loop role, if it has one. Returns
+    /// the execution and the frame's bytes.
     fn fork_frame(
         &self,
         rec: &mut SessionRecord,
         c: &Compilation,
         (source, at): (&SessionRecord, &Node),
         base: Option<&Compilation>,
-        (authority, limit): (theseus_kernel::Authority, Option<theseus_kernel::Micros>),
+        (authority, limit, role): (
+            theseus_kernel::Authority,
+            Option<theseus_kernel::Micros>,
+            Option<crate::rsi::roles::Role>,
+        ),
     ) -> Result<(theseus_kernel::Execution, u64), RpcFailure> {
         let mut bytes = 0u64;
         let exec = self.kernel.frame(&[], |k| {
@@ -224,6 +240,9 @@ impl Core {
             ];
             if let Some(from) = base {
                 frame.push(Edge::new(EdgeKind::DerivedFrom, &c.id, &from.id, VIA_FORK).record()?);
+            }
+            if let Some(role) = role {
+                frame.push(role.record(&rec.session_id)?);
             }
             let row = LedgerRow::new(
                 LedgerKind::SessionForked,

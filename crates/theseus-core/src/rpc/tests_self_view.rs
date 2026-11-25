@@ -161,6 +161,11 @@ async fn a_builders_second_turn_after_a_restart_holds_its_objective_and_first_an
     let item = night.started[0].item.clone();
     let rec = crate::task_graph::get(&c.store, &item).unwrap().unwrap();
     let session = rec.session.clone().unwrap();
+    assert_eq!(
+        c.tools.self_pr.role(&session),
+        Some(crate::rsi::roles::Role::Builder),
+        "the night's start records its builder's role"
+    );
     let objective = rec.objective.clone();
     let head: String = objective.chars().take(40).collect();
     self_turn(&c, &session, &objective).await;
