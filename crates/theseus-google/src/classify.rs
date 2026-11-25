@@ -291,7 +291,10 @@ mod tests {
     fn the_told_acts_are_exactly_their_verb_path_query_and_body() {
         let t = |m: &str, p: Value, b: Option<Value>| resolved(m, p, b);
         let told = |c: Classified| {
-            assert_eq!((c.class, c.why, c.repeat), (Class::Write, None, Repeat::NonRepeatable));
+            assert_eq!(
+                (c.class, c.why, c.repeat),
+                (Class::Write, None, Repeat::NonRepeatable)
+            );
             c.tidy
         };
         assert_eq!(
@@ -299,7 +302,11 @@ mod tests {
             Some(Tidy::GmailTrash("m1".into()))
         );
         assert_eq!(
-            told(t("gmail.users.messages.untrash", json!({"id": "m1"}), Some(json!({})))),
+            told(t(
+                "gmail.users.messages.untrash",
+                json!({"id": "m1"}),
+                Some(json!({}))
+            )),
             Some(Tidy::GmailUntrash("m1".into()))
         );
         assert_eq!(
@@ -308,7 +315,10 @@ mod tests {
                 json!({"fileId": "f1", "supportsAllDrives": true}),
                 Some(json!({"trashed": true}))
             )),
-            Some(Tidy::DriveTrash { id: "f1".into(), trashed: true })
+            Some(Tidy::DriveTrash {
+                id: "f1".into(),
+                trashed: true
+            })
         );
         assert_eq!(
             told(t(
@@ -316,7 +326,10 @@ mod tests {
                 json!({}),
                 Some(json!({"trashed": false}))
             )),
-            Some(Tidy::DriveTrash { id: "f1".into(), trashed: false })
+            Some(Tidy::DriveTrash {
+                id: "f1".into(),
+                trashed: false
+            })
         );
         assert_eq!(
             told(t(
@@ -328,7 +341,11 @@ mod tests {
         );
         // One normal form: a trailing slash is the same path.
         assert_eq!(
-            told(t("POST /gmail/v1/users/me/messages/m1/trash/", json!({}), None)),
+            told(t(
+                "POST /gmail/v1/users/me/messages/m1/trash/",
+                json!({}),
+                None
+            )),
             Some(Tidy::GmailTrash("m1".into()))
         );
         assert_eq!(normal("/a/b//"), "/a/b");
@@ -415,7 +432,10 @@ mod tests {
         // Every settings write: filters, forwarding, vacation, send-as,
         // delegates, IMAP and POP.
         for (m, b) in [
-            ("POST /gmail/v1/users/me/settings/filters", json!({"action": {}})),
+            (
+                "POST /gmail/v1/users/me/settings/filters",
+                json!({"action": {}}),
+            ),
             (
                 "POST /gmail/v1/users/me/settings/forwardingAddresses",
                 json!({"forwardingEmail": "x@example.test"}),
@@ -459,7 +479,11 @@ mod tests {
             json!({}),
             Some(json!({"summary": "x", "conferenceProperties": {}})),
         );
-        asks("calendar.calendars.insert", json!({}), Some(json!({"description": "x"})));
+        asks(
+            "calendar.calendars.insert",
+            json!({}),
+            Some(json!({"description": "x"})),
+        );
         asks(
             "calendar.calendars.insert",
             json!({"x": "y"}),
@@ -467,7 +491,11 @@ mod tests {
         );
         // An unknown write.
         asks("POST /drive/v3/files/f1/watch", json!({}), Some(json!({})));
-        asks("POST /v4/spreadsheets/s1:batchUpdate", json!({}), Some(json!({})));
+        asks(
+            "POST /v4/spreadsheets/s1:batchUpdate",
+            json!({}),
+            Some(json!({})),
+        );
     }
 
     #[test]
@@ -520,7 +548,10 @@ mod tests {
             c("POST", "/v4/spreadsheets/s1:batchUpdate"),
             Class::Authority
         );
-        assert_eq!(why("POST", "/v4/spreadsheets/s1:batchUpdate"), Some(UNLISTED));
+        assert_eq!(
+            why("POST", "/v4/spreadsheets/s1:batchUpdate"),
+            Some(UNLISTED)
+        );
     }
 
     #[test]

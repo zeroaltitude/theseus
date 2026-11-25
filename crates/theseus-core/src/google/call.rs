@@ -95,7 +95,11 @@ pub struct CallTool(Arc<Google>);
 /// What a told act's target was before it: a Gmail message's labels, or
 /// whether a Drive file was in the Trash. One Google no longer has, or a read
 /// that fails, stops the act before it is made.
-async fn read_before(g: &Google, rows: &mut Vec<Value>, t: &Tidy) -> Result<Option<Value>, ToolFailure> {
+async fn read_before(
+    g: &Google,
+    rows: &mut Vec<Value>,
+    t: &Tidy,
+) -> Result<Option<Value>, ToolFailure> {
     use super::take_back;
     let refuse = |message: String, rows: &[Value]| {
         let mut meta = json!({"private": true});

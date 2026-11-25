@@ -27,7 +27,13 @@ pub fn drive_before(id: &str, trashed: bool) -> Value {
     json!({"drive": id, "trashed": trashed})
 }
 
-fn request(service: Service, verb: &str, path: String, query: &[(&str, &str)], body: Body) -> Request {
+fn request(
+    service: Service,
+    verb: &str,
+    path: String,
+    query: &[(&str, &str)],
+    body: Body,
+) -> Request {
     Request {
         service,
         verb: verb.into(),
@@ -251,7 +257,10 @@ async fn gmail(
     let was = before.iter().any(|l| l == TRASH);
     if was != now.iter().any(|l| l == TRASH) {
         let op = if was { "trash" } else { "untrash" };
-        if gmail_post(g, rows, tool, id, op, json!({})).await?.is_none() {
+        if gmail_post(g, rows, tool, id, op, json!({}))
+            .await?
+            .is_none()
+        {
             return Ok(false);
         }
         match gmail_labels(g, rows, tool, id).await? {
@@ -268,7 +277,10 @@ async fn gmail(
     let (add, remove) = (less(before, &now), less(&now, before));
     if !add.is_empty() || !remove.is_empty() {
         let body = json!({"addLabelIds": add, "removeLabelIds": remove});
-        if gmail_post(g, rows, tool, id, "modify", body).await?.is_none() {
+        if gmail_post(g, rows, tool, id, "modify", body)
+            .await?
+            .is_none()
+        {
             return Ok(false);
         }
     }

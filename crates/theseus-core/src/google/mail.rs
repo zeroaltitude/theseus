@@ -1370,7 +1370,10 @@ impl Mail {
                 Ok(None) => match take_back::gmail_labels(&self.g, &mut rows, LABEL, id).await {
                     Ok(Some(labels)) => vec![(id.clone(), labels)],
                     Ok(None) => {
-                        return Err(refusal(format!("no Gmail thread or message is {id}"), &rows))
+                        return Err(refusal(
+                            format!("no Gmail thread or message is {id}"),
+                            &rows,
+                        ))
                     }
                     Err(f) => return Err(failure(f, &rows)),
                 },

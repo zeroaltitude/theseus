@@ -126,11 +126,7 @@ fn not_counted() -> [crate::approval::Answerer; 3] {
         }),
         agent: None,
     };
-    [
-        at("777", Some("7")),
-        at("777", None),
-        at(OWNER, Some("7")),
-    ]
+    [at("777", Some("7")), at("777", None), at(OWNER, Some("7"))]
 }
 
 /// The one note a turn staged, its words, and its Undo pressed through the
@@ -184,7 +180,11 @@ fn trashed_doc(id: &str) -> File {
 #[tokio::test]
 async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
     let trash = json!({"id": "doc1", "trash": true});
-    let r = rig_of(vec![share("c1", trash.clone()), Scripted::text("Done.")], |_| {}).await;
+    let r = rig_of(
+        vec![share("c1", trash.clone()), Scripted::text("Done.")],
+        |_| {},
+    )
+    .await;
     let drive = Drive::install(&r.fake);
     drive.add(File::doc("doc1", "Plan", "# Plan\n"));
     assert!(plan(&r, "drive.share", trash).authority.is_none());
@@ -208,7 +208,13 @@ async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
             after.shared,
             after.permissions.len()
         ),
-        (false, "Plan".to_string(), vec!["root".to_string()], false, 0)
+        (
+            false,
+            "Plan".to_string(),
+            vec!["root".to_string()],
+            false,
+            0
+        )
     );
 }
 
@@ -374,7 +380,11 @@ fn mixed_thread(r: &Rig) {
 #[tokio::test]
 async fn a_mail_trash_is_told_and_its_undo_restores_each_message_exactly() {
     let trash = json!({"ids": ["t1"], "trash": true});
-    let r = rig_of(vec![label("c1", trash.clone()), Scripted::text("Done.")], |_| {}).await;
+    let r = rig_of(
+        vec![label("c1", trash.clone()), Scripted::text("Done.")],
+        |_| {},
+    )
+    .await;
     mixed_thread(&r);
     let before: Vec<_> = ["m1", "m2", "m3"].iter().map(|m| sorted(&r, m)).collect();
     assert!(plan(&r, "gmail.label", trash).authority.is_none());
@@ -388,13 +398,21 @@ async fn a_mail_trash_is_told_and_its_undo_restores_each_message_exactly() {
     r.fake
         .mail()
         .deliver("t1", MsgSpec::new("m4", "Sam <sam@example.test>", "D", "d"));
-    let trashed: Vec<_> = ["m1", "m2", "m3", "m4"].iter().map(|m| sorted(&r, m)).collect();
+    let trashed: Vec<_> = ["m1", "m2", "m3", "m4"]
+        .iter()
+        .map(|m| sorted(&r, m))
+        .collect();
     let words = format!(
         "ℹ️ FYI · Moved mail to the Trash\n{}\nMoved 3 Gmail messages to the Trash.\n\
          Undo puts each one back exactly as it was.",
         by(&sid)
     );
-    let now = || -> Vec<_> { ["m1", "m2", "m3", "m4"].iter().map(|m| sorted(&r, m)).collect() };
+    let now = || -> Vec<_> {
+        ["m1", "m2", "m3", "m4"]
+            .iter()
+            .map(|m| sorted(&r, m))
+            .collect()
+    };
     press(&r, &words, || now() == trashed).await;
     // Each back as it was: the unread one in the inbox, the archived one
     // still archived, the one already in the Trash still there.
@@ -412,7 +430,11 @@ async fn a_mail_trash_is_told_and_its_undo_restores_each_message_exactly() {
 #[tokio::test]
 async fn a_mail_trash_that_fails_partway_is_told_for_what_moved() {
     let trash = json!({"ids": ["t1"], "trash": true});
-    let r = rig_of(vec![label("c1", trash), Scripted::text("It failed.")], |_| {}).await;
+    let r = rig_of(
+        vec![label("c1", trash), Scripted::text("It failed.")],
+        |_| {},
+    )
+    .await;
     r.fake.mail().thread(
         "t1",
         ["m1", "m2", "m3"]
@@ -477,15 +499,16 @@ async fn an_undo_that_restores_part_says_partly_restored() {
         "Partly restored: 1 of 2. 1 of them no longer exist in Google (deleted for good, or \
          emptied from the Trash), so they cannot come back."
     );
-    assert_eq!(
-        e.data["partly"],
-        json!({"restored": 1, "of": 2, "gone": 1})
-    );
+    assert_eq!(e.data["partly"], json!({"restored": 1, "of": 2, "gone": 1}));
     assert!(!e.message.contains("not made"));
     assert_eq!(sorted(&r, "m1"), vec!["INBOX".to_string()]);
     // Not marked undone: a press again tries again, and puts back no more.
     let again = r.core.told_undo(&post, &owner()).await.unwrap_err();
-    assert!(again.message.starts_with("Partly restored: 1 of 2."), "{}", again.message);
+    assert!(
+        again.message.starts_with("Partly restored: 1 of 2."),
+        "{}",
+        again.message
+    );
 }
 
 /// The owner's explicit "approve" makes a Gmail trash ask, typed or through
@@ -493,7 +516,10 @@ async fn an_undo_that_restores_part_says_partly_restored() {
 #[tokio::test]
 async fn an_explicit_approve_still_asks_for_a_mail_trash_typed_or_generic() {
     for (tool_name, script) in [
-        ("gmail.label", label("c1", json!({"ids": ["t1"], "trash": true}))),
+        (
+            "gmail.label",
+            label("c1", json!({"ids": ["t1"], "trash": true})),
+        ),
         (
             "google.call",
             call(
@@ -520,7 +546,11 @@ async fn an_explicit_approve_still_asks_for_a_mail_trash_typed_or_generic() {
 #[tokio::test]
 async fn a_google_call_message_trash_is_told_and_its_undo_keeps_it_archived() {
     let trash = json!({"method": "gmail.users.messages.trash", "params": {"id": "m2"}});
-    let r = rig_of(vec![call("c1", trash.clone()), Scripted::text("Done.")], |_| {}).await;
+    let r = rig_of(
+        vec![call("c1", trash.clone()), Scripted::text("Done.")],
+        |_| {},
+    )
+    .await;
     mixed_thread(&r);
     let p = plan(&r, "google.call", trash);
     assert!(p.authority.is_none(), "{p:?}");
@@ -533,7 +563,10 @@ async fn a_google_call_message_trash_is_told_and_its_undo_keeps_it_archived() {
          Undo puts each one back exactly as it was.",
         by(&sid)
     );
-    press(&r, &words, || sorted(&r, "m2").contains(&"TRASH".to_string())).await;
+    press(&r, &words, || {
+        sorted(&r, "m2").contains(&"TRASH".to_string())
+    })
+    .await;
     assert_eq!(sorted(&r, "m2"), vec!["Label_7".to_string()]);
     // The undo's own calls are in the ledger, as any Google call is.
     let called = ledgered(&r.core, "google.called");
@@ -593,7 +626,16 @@ async fn a_note_names_no_title_subject_address_or_id() {
     assert!(n[0].0.contains(&by(&sid)), "{}", n[0].0);
     // Its own words, the conversation's short id aside.
     let words = n[0].0.replace(&by(&sid), "");
-    for bad in ["Secret", "merger", "alice", "Alice", "example.test", "t1", "m1", "Re:"] {
+    for bad in [
+        "Secret",
+        "merger",
+        "alice",
+        "Alice",
+        "example.test",
+        "t1",
+        "m1",
+        "Re:",
+    ] {
         assert!(!words.contains(bad), "{bad:?} in {}", n[0].0);
     }
 }
@@ -603,7 +645,11 @@ async fn a_note_names_no_title_subject_address_or_id() {
 #[tokio::test]
 async fn a_calendar_made_through_a_turn_is_told_once_with_no_name_and_no_undo() {
     let made = json!({"method": "calendar.calendars.insert", "body": {"summary": "Trip with Sam"}});
-    let r = rig_of(vec![call("c1", made.clone()), Scripted::text("Made.")], |_| {}).await;
+    let r = rig_of(
+        vec![call("c1", made.clone()), Scripted::text("Made.")],
+        |_| {},
+    )
+    .await;
     r.fake.json(
         "POST",
         "/calendar/v3/calendars",
@@ -615,7 +661,10 @@ async fn a_calendar_made_through_a_turn_is_told_once_with_no_name_and_no_undo() 
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
     let n = notes(&r);
     assert_eq!(n.len(), 1, "{n:?}");
-    assert_eq!(n[0].1, None, "no Undo: taking it back is a delete, which asks");
+    assert_eq!(
+        n[0].1, None,
+        "no Undo: taking it back is a delete, which asks"
+    );
     let head = format!(
         "ℹ️ FYI · Made a calendar\n{}\nMade 1 Google calendar.\nTo take it back, delete it: \
          that asks you first.\nAct: ",
@@ -624,7 +673,10 @@ async fn a_calendar_made_through_a_turn_is_told_once_with_no_name_and_no_undo() 
     assert!(n[0].0.starts_with(&head), "{}", n[0].0);
     // The act is named by its result's id, and the calendar not at all.
     let act = &n[0].0[head.len()..];
-    assert!(!act.is_empty() && !act.contains(char::is_whitespace), "{act}");
+    assert!(
+        !act.is_empty() && !act.contains(char::is_whitespace),
+        "{act}"
+    );
     for bad in ["Trip", "Sam", "cal9", "example.test"] {
         assert!(!n[0].0[..head.len()].contains(bad), "{bad:?} in {}", n[0].0);
         assert!(!act.contains(bad), "{bad:?} in {act}");
@@ -639,7 +691,11 @@ async fn a_message_put_into_the_mailbox_still_asks_and_nothing_is_put_or_told() 
     // and a note that names an id cannot warn him well enough: it asks.
     let insert = json!({"method": "gmail.users.messages.insert", "body": {"raw": "eA"}});
     let import = json!({"method": "gmail.users.messages.import", "body": {"raw": "eA"}});
-    let r = rig_of(vec![call("c1", insert.clone()), Scripted::text("Done.")], |_| {}).await;
+    let r = rig_of(
+        vec![call("c1", insert.clone()), Scripted::text("Done.")],
+        |_| {},
+    )
+    .await;
     let t = tool(&r, "google.call");
     for input in [&insert, &import] {
         let p = plan(&r, "google.call", input.clone());
@@ -681,7 +737,11 @@ async fn the_keep_calls_and_the_unlisted_writes_still_ask_at_every_posture() {
     let t = tool(&r, "google.call");
     let attendees = json!({"summary": "x", "attendees": [{"email": "a@example.test"}]});
     for (m, params, body) in [
-        ("calendar.calendars.delete", json!({"calendarId": "cal9"}), None),
+        (
+            "calendar.calendars.delete",
+            json!({"calendarId": "cal9"}),
+            None,
+        ),
         ("calendar.calendars.clear", json!({}), None),
         ("gmail.users.messages.send", json!({}), None),
         ("gmail.users.messages.insert", json!({}), None),
@@ -691,7 +751,11 @@ async fn the_keep_calls_and_the_unlisted_writes_still_ask_at_every_posture() {
         ("drive.files.delete", json!({"fileId": "f1"}), None),
         ("drive.permissions.create", json!({"fileId": "f1"}), None),
         ("calendar.acl.insert", json!({}), None),
-        ("calendar.events.insert", json!({"sendUpdates": "all"}), None),
+        (
+            "calendar.events.insert",
+            json!({"sendUpdates": "all"}),
+            None,
+        ),
         // Off the allow list (issue 57).
         (
             "drive.files.create",
