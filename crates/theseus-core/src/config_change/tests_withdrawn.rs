@@ -26,7 +26,7 @@ fn input_node(core: &Core, sid: &str) -> String {
         .expect("the turn wrote its input")
 }
 
-/// What Jev heard, sure of it: kept, an order too (issue 57).
+/// What Jev heard, sure of it: an order is always asked, the rest kept.
 fn verdict(heard: Heard) -> Verdict {
     Verdict {
         heard,
@@ -51,25 +51,6 @@ fn hear(core: &Core, sid: &str, node: &str, text: &str, heard: Heard) -> Done {
     core.capture_now(&m, &verdict(heard)).unwrap()
 }
 
-/// A correction said twice, each below the band, the second as `node`: the
-/// one question capture still puts (issue 57).
-fn hear_twice(core: &Core, sid: &str, node: &str, text: &str) -> Done {
-    let m = |node: &str| Message {
-        session: sid.into(),
-        node: node.into(),
-        text: text.into(),
-        place_kind: "cli (private)".into(),
-    };
-    let v = Verdict {
-        band: Band::Escalate,
-        confidence: 0.4,
-        p_correction: 0.4,
-        ..verdict(Heard::Correction)
-    };
-    core.capture_now(&m(&format!("{node}_first")), &v).unwrap();
-    core.capture_now(&m(node), &v).unwrap()
-}
-
 /// The live words capture holds: asks open, and records kept and not ended.
 fn held(r: &Rig) -> (Vec<String>, Vec<String>) {
     let asks = r.core.capture_asks(true).unwrap();
@@ -87,7 +68,7 @@ fn held(r: &Rig) -> (Vec<String>, Vec<String>) {
 /// The turn's input is the words capture asked about: the card that asks the
 /// change is the only question, the other is withdrawn, and the ledger says so.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_settings_question_withdraws_the_standing_question_for_the_same_message() {
+async fn a_settings_question_withdraws_the_standing_order_question_for_the_same_message() {
     let r = rig();
     let sid = r.session();
     let core = r.core.clone();
@@ -95,7 +76,7 @@ async fn a_settings_question_withdraws_the_standing_question_for_the_same_messag
     r.when_the_turn_asks_the_model(move || {
         let node = input_node(&core, &id);
         assert!(matches!(
-            hear_twice(&core, &id, &node, SETTING),
+            hear(&core, &id, &node, SETTING, Heard::Order),
             Done::Asked(_)
         ));
     });
@@ -145,30 +126,6 @@ async fn a_settings_question_ends_the_record_kept_from_the_same_message() {
         .is_empty());
 }
 
-/// The same words kept as a standing order (issue 57: an order is kept with
-/// its undo, not asked): the turn's settings question ends the record.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_settings_question_ends_the_standing_order_kept_from_the_same_message() {
-    let r = rig();
-    let sid = r.session();
-    let core = r.core.clone();
-    let id = sid.clone();
-    r.when_the_turn_asks_the_model(move || {
-        let node = input_node(&core, &id);
-        assert!(matches!(
-            hear(&core, &id, &node, SETTING, Heard::Order),
-            Done::Kept(_)
-        ));
-    });
-    r.turn(&sid, change("import.notes.enabled", json!(false)))
-        .await;
-    assert_eq!(r.asked().len(), 1, "the settings question is asked");
-    assert_eq!(held(&r), (vec![], vec![]));
-    let rows = r.rows("standing.revoked");
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0]["who"], "theseus");
-}
-
 /// The judge answers after the turn has asked: its verdict on those words
 /// makes no ask and no record, and the same verdict on another message does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -198,7 +155,13 @@ async fn what_capture_made_of_another_message_is_left_alone() {
     let r = rig();
     let sid = r.session();
     let other = r.session();
-    hear_twice(&r.core, &sid, "msg_earlier", "never run it on a Friday");
+    hear(
+        &r.core,
+        &sid,
+        "msg_earlier",
+        "never run it on a Friday",
+        Heard::Order,
+    );
     hear(
         &r.core,
         &sid,
@@ -206,7 +169,13 @@ async fn what_capture_made_of_another_message_is_left_alone() {
         "answers short, please",
         Heard::Preference,
     );
-    hear_twice(&r.core, &other, "msg_elsewhere", "only on weekdays");
+    hear(
+        &r.core,
+        &other,
+        "msg_elsewhere",
+        "only on weekdays",
+        Heard::Order,
+    );
     let (core, id) = (r.core.clone(), sid.clone());
     r.when_the_turn_asks_the_model(move || {
         let node = input_node(&core, &id);
@@ -226,7 +195,7 @@ async fn what_capture_made_of_another_message_is_left_alone() {
 }
 
 /// A turn that asks no settings question leaves what capture made of its words:
-/// a real question is still asked, a real preference still kept.
+/// a real standing order is still asked, a real preference still kept.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_that_proposes_nothing_leaves_the_capture_of_its_words() {
     let r = rig();
@@ -236,7 +205,7 @@ async fn a_turn_that_proposes_nothing_leaves_the_capture_of_its_words() {
         let node = input_node(&core, &id);
         let order = "from now on set my reminders for 9am";
         assert!(matches!(
-            hear_twice(&core, &id, &node, order),
+            hear(&core, &id, &node, order, Heard::Order),
             Done::Asked(_)
         ));
         let ask = "always ask before you restart yourself";

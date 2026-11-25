@@ -81,23 +81,20 @@ fn at_the_act_band_a_preference_a_fact_and_a_correction_are_kept() {
     }
 }
 
-/// An order is kept at every confidence from a half up, with the notice and
-/// the undo a preference gets (issue 57): it is only heard in the owner's own
-/// words, and `standing.revoke` ends it.
 #[test]
-fn an_order_is_kept_at_every_confidence_with_its_undo() {
+fn an_order_is_asked_at_every_confidence_and_never_kept() {
     let st = State::default();
     for (band, c) in [(Band::Act, 0.99), (Band::Act, 0.8), (Band::Confirm, 0.6)] {
         let v = verdict(Heard::Order, band, c);
         assert_eq!(
             plan(&v, "never push to main", &[], &st),
-            Plan::Keep(StandingKind::Order),
+            Plan::Ask {
+                kind: StandingKind::Order,
+                why: "order"
+            },
             "{band:?} {c}"
         );
     }
-    // Below a half it is nothing, as anything is.
-    let faint = verdict(Heard::Order, Band::Escalate, 0.4);
-    assert_eq!(plan(&faint, "never push to main", &[], &st), Plan::Nothing);
 }
 
 /// Between a half and four fifths it is kept, with its notice and its undo,

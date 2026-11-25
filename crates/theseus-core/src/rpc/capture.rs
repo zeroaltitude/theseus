@@ -3,6 +3,7 @@
 //! (`standing.list`) show the open asks and the week's repeats.
 
 use crate::approval::Surface;
+use crate::peer_proc::Behind;
 use anyhow::{anyhow, bail};
 use serde_json::json;
 use theseus_protocol::learning::JudgeLabelParams;
@@ -204,8 +205,9 @@ impl Core {
 impl Core {
     /// `turn.submit`'s part: the message noted as the owner's own, when it is
     /// one and capture is on. A message a job sent (`opened_from`), one
-    /// through the MCP server or an unnamed surface, a prompt's, or one with
-    /// files is never noted, so the pack is not asked about it: the rule the
+    /// through the MCP server or an unnamed surface, one an agent's process
+    /// sent on the CLI or the web (issue 57), a prompt's, or one with files
+    /// is never noted, so the pack is not asked about it: the rule the
     /// owner's route corrections follow (`rpc/route_correct.rs`).
     pub(super) fn expect_capture(&self, p: &TurnSubmitParams, conn: Conn<'_>, session: &str) {
         if self.capture_wanted(p, conn) {
@@ -231,6 +233,20 @@ impl Core {
     /// message: the owner's 2026-10-15 "I think that sounds right" to asking
     /// `directive.v2` in the routing call each message already makes).
     pub(super) fn capture_wanted(&self, p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
-        self.cfg.standing.capture && self.cfg.judge.enabled && Self::owner_message(p, conn)
+        self.cfg.standing.capture
+            && self.cfg.judge.enabled
+            && Self::owner_message(p, conn)
+            && !Self::agents(conn)
+    }
+
+    /// Whether an agent's process holds this CLI or web connection, as its answers are read
+    /// (`Conn::answerer`, theseus-5rvss): its turn is no message of the owner's own, though it
+    /// carries no job's marker, so capture hears nothing of it (issue 57). Asked last: the walk
+    /// of the peer's processes is paid once a connection, by the first turn that gets this far.
+    fn agents(conn: Conn<'_>) -> bool {
+        matches!(
+            (conn.surface, conn.peer.behind()),
+            (Surface::Cli | Surface::Web, Behind::Agent(_))
+        )
     }
 }

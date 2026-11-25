@@ -52,3 +52,48 @@ pub fn call_text(sock: &Path, method: &str, params: Value) -> Result<Value, Stri
     }
     Err("the connection closed".into())
 }
+
+/// The one request `call_at_a_terminal`'s process sends, printing its answer on one line.
+const AT_A_TERMINAL: &str = "import json, socket, sys\n\
+    s = socket.socket(socket.AF_UNIX)\n\
+    s.connect(sys.argv[1])\n\
+    req = {'jsonrpc': '2.0', 'id': 1, 'method': sys.argv[2], 'params': json.loads(sys.argv[3])}\n\
+    s.sendall((json.dumps(req) + '\\n').encode())\n\
+    for line in s.makefile('rb'):\n\
+    \x20   v = json.loads(line)\n\
+    \x20   if v.get('id') == 1:\n\
+    \x20       print(json.dumps(v))\n\
+    \x20       break\n";
+
+/// `call`, sent by a process at a terminal of its own, as the owner's shell is: the daemon reads
+/// a CLI peer with none as an agent's (theseus-5rvss), and an agent's turn is not the owner's own
+/// message, so capture hears nothing of it (issue 57).
+pub fn call_at_a_terminal(sock: &Path, method: &str, params: Value) -> Result<Value, Value> {
+    let python = std::env::var_os("PATH")
+        .and_then(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join("python3"))
+                .find(|f| f.is_file())
+        })
+        .expect("python3 on the PATH");
+    let argv: Vec<String> = vec![
+        python.display().to_string(),
+        "-I".into(),
+        "-c".into(),
+        AT_A_TERMINAL.into(),
+        sock.display().to_string(),
+        method.into(),
+        params.to_string(),
+    ];
+    let (code, out) = super::terminal::on_a_terminal(&argv, &[]);
+    let line = out
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with('{'))
+        .ok_or_else(|| json!(format!("no answer (exit {code}): {out}")))?;
+    let v: Value = serde_json::from_str(line).map_err(|e| json!(e.to_string()))?;
+    match v.get("error") {
+        Some(e) if !e.is_null() => Err(e.clone()),
+        _ => Ok(v["result"].clone()),
+    }
+}

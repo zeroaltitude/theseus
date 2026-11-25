@@ -8,8 +8,7 @@
 //!   `wrong capture`;
 //! - said again, with the record live, writes `standing.repeated`, no second
 //!   record, and `standing.list` counts it for the week;
-//! - an order is kept as a preference is, asked nothing (issue 57), and its
-//!   undo ends it;
+//! - an order is asked, never kept; the answer keeps it;
 //! - `[standing] capture = false` asks Jev nothing.
 //!
 //! The capture is judged beside the turn and written off its path.
@@ -105,8 +104,11 @@ impl Rig {
             .unwrap_or_default()
     }
 
+    /// The owner's message, typed at a terminal: a CLI peer with none is an agent's, whose words
+    /// capture never hears (issue 57).
     fn ask(&self, prompt: &str) -> Value {
-        self.call(
+        common::rpc::call_at_a_terminal(
+            &self.path("sock"),
             "turn.submit",
             json!({"input": prompt, "author": "test", "attachments": []}),
         )
@@ -310,30 +312,29 @@ fn a_rephrased_preference_is_kept_with_its_own_notice_not_counted_as_a_repeat() 
     r.stop(d);
 }
 
-/// An order is kept as a preference is, with its notice, and nothing is asked
-/// (issue 57); its undo (`standing.revoke`) ends it.
+/// An order is asked, never kept on confidence; the owner's answer keeps it.
 #[test]
-fn an_order_is_kept_and_its_undo_ends_it() {
+fn an_order_is_asked_and_the_answer_keeps_it() {
     let jev = FakeJev::start().unwrap();
     hears(&jev, "order", 0.99);
     let r = Rig::new(Some(&jev.base()), true);
     let d = r.spawn();
     r.ask("never push to main");
-    let live = r.wait("the record", || {
-        let l = r.live();
-        (!l.is_empty()).then_some(l)
+    let asks = r.wait("the ask", || {
+        let a = r.standing()["asks"].as_array().cloned().unwrap_or_default();
+        (!a.is_empty()).then_some(a)
     });
-    assert_eq!(live[0]["kind"], "order");
-    assert_eq!(live[0]["text"], "never push to main");
-    assert!(
-        r.standing()["asks"].as_array().unwrap().is_empty(),
-        "nothing is asked"
-    );
-    let ended = r
-        .call("standing.revoke", json!({"id": live[0]["id"]}))
+    assert_eq!(asks[0]["why"], "order");
+    assert!(r.live().is_empty(), "nothing is kept unasked");
+    let kept = r
+        .call(
+            "standing.answer",
+            json!({"id": asks[0]["id"], "answer": "keep"}),
+        )
         .unwrap();
-    assert_eq!(ended["ended"], live[0]["id"]);
-    assert!(r.live().is_empty());
+    assert_eq!(kept["record"]["kind"], "order");
+    assert_eq!(r.live().len(), 1);
+    assert!(r.standing()["asks"].as_array().unwrap().is_empty());
     r.stop(d);
 }
 
@@ -354,5 +355,49 @@ fn capture_off_asks_jev_nothing() {
     assert!(!asked, "directive.v2 was asked with capture off");
     assert!(r.live().is_empty());
     assert!(r.rows("standing.captured").is_empty());
+    r.stop(d);
+}
+
+/// Whether `directive.v2` was put to Jev.
+fn directive_asked(jev: &FakeJev) -> usize {
+    jev.seen()
+        .into_iter()
+        .filter(|s| {
+            s.body["questions"]
+                .as_object()
+                .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v2/")))
+        })
+        .count()
+}
+
+/// A turn sent on the socket by a process with no terminal, and no job's marker, is an agent's,
+/// as the daemon reads a CLI peer (theseus-5rvss): capture hears nothing of it, so no record is
+/// kept and nothing is asked, though the same words from the owner's terminal are kept (issue 57).
+#[test]
+fn an_agents_turn_on_the_socket_with_no_marker_is_not_heard() {
+    let jev = FakeJev::start().unwrap();
+    hears(&jev, "preference", 0.97);
+    let r = Rig::new(Some(&jev.base()), true);
+    let d = r.spawn();
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"input": "no tables with me", "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
+    std::thread::sleep(Duration::from_millis(800));
+    assert_eq!(directive_asked(&jev), 0, "an agent's words were put to Jev");
+    assert!(r.live().is_empty());
+    assert!(r.rows("standing.captured").is_empty());
+    assert!(r.standing()["asks"].as_array().unwrap().is_empty());
+    // The owner, at a terminal: heard and kept.
+    r.ask("no tables with me");
+    let live = r.wait("the record", || {
+        let l = r.live();
+        (!l.is_empty()).then_some(l)
+    });
+    assert_eq!(live[0]["text"], "no tables with me");
+    assert_eq!(directive_asked(&jev), 1);
     r.stop(d);
 }

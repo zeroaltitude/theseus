@@ -569,10 +569,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
   outstanding card is open (`docs/design/abandon-said-in-words.md`). `judge_inbound` hands its judgment to
   `Core::capture_directive` once the batch settles, off the turn's path. The bands are the pack's own (`act` 0.80, `confirm`
-  0.50): `capture::decide` (pure) keeps at the act and the confirm band, an order too (issue 57: told with its undo,
-  `standing.revoke`, not asked), and below them only notes a correction (`standing.candidate`) to propose it when its words
-  overlap one noted in the last week (`capture::words::same`), the one ask left; a message of the same kind as a live
-  record of its scope and sharing its words is `standing.repeated` and no record. The words kept are the message's own on
+  0.50): `capture::decide` (pure) keeps at the act and the confirm band (issue 57: told with its undo,
+  `standing.revoke`, not asked), asks an order at either, and below them only notes a correction (`standing.candidate`) to
+  propose it when its words overlap one noted in the last week (`capture::words::same`); a message of the same kind as a
+  live record of its scope and sharing its words is `standing.repeated` and no record. A turn an agent's process sent on
+  the CLI or the web (`Conn::answerer`'s reading of the peer) is never noted, marker or none. The words kept are the message's own on
   one line (Jev answers choices, not text; over 240 characters
   nothing is captured). A kept record's source is `capture:<node>`, its scope Jev's when its `scope` answer reached the act
   band, else where it was said (a Discord place, else the session). One frame each (`capture/act.rs`): the record, its

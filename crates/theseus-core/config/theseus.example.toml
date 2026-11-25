@@ -1339,9 +1339,9 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # What the owner's words become (theseus-slvl.5). `directive.v2` reads the
 # owner's own messages in a private place (the CLI, the web UI, a DM), in the
 # request the other inbound packs ride: what it hears from its confirm band up
-# (a preference, a fact, a correction, an order) is kept as a standing record
-# with a notice and an undo; a correction said twice below that is asked; and
-# a message that says a live record again is counted (`theseus standing` shows the week's count).
+# (a preference, a fact, a correction) is kept as a standing record with a
+# notice and an undo; every order, and a correction said twice below that, is
+# asked; and a message that says a live record again is counted (`theseus standing` shows the week's count).
 # `theseus packs rollback directive.v2` puts the pack back in shadow.
 # [standing]
 # capture = true                          # false: nothing is captured, asked or counted

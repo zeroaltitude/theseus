@@ -284,7 +284,7 @@ pub(crate) fn exec(core: &Core, id: &str) -> Execution {
 }
 
 /// The one task of the parent session `parent`.
-fn only_task(core: &Core, parent: &str) -> Execution {
+pub(crate) fn only_task(core: &Core, parent: &str) -> Execution {
     let rec: SessionRecord = core.store.get_session(parent).unwrap().unwrap();
     let tasks = core.kernel.tasks(rec.execution_id.as_deref()).unwrap();
     assert_eq!(tasks.len(), 1, "{tasks:?}");
