@@ -1024,7 +1024,7 @@ impl Lane {
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "retraction"
             | "self_keel" | "seal_card" | "self_join" | "self_narrow" | "self_narrow_red"
             | "initiative" | "standing_card" | "digest" | "privacy_warning" | "onto_card"
-            | "home_size" | "link_card" | "persona_soul" | "card_question" => {
+            | "home_size" | "link_card" | "persona_soul" | "card_question" | "told" => {
                 self.jev_post(a, &body).await
             }
             // The self-build halt's note, to the owner's DM alone, pinging (theseus-6s7ll).
@@ -1694,6 +1694,12 @@ impl Lane {
                     None => Buttons::Keep,
                 },
             ),
+            // An act done unasked, with its Undo (issue 57).
+            "told" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("told:{}", a.correlation_id),
+                Buttons::Told(a.correlation_id.clone()),
+            ),
             // A persona added without a soul asks for it (theseus-utfnl).
             "persona_soul" => (
                 body["text"].as_str().unwrap_or("").to_string(),
@@ -2014,6 +2020,7 @@ impl Lane {
             Buttons::Reminder(wake) => crate::runtime::remind_buttons(wake),
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
+            Buttons::Told(post) => crate::runtime::told_buttons(post),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
             Buttons::SelfResume => crate::runtime::self_note::resume_buttons(),
@@ -2090,6 +2097,7 @@ impl Lane {
             Buttons::Reminder(wake) => Some(crate::runtime::remind_buttons(wake)),
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
+            Buttons::Told(post) => Some(crate::runtime::told_buttons(post)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),
             Buttons::SelfResume => Some(crate::runtime::self_note::resume_buttons()),
