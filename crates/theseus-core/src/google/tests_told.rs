@@ -1,9 +1,9 @@
 //! The tidy Google acts run at their tool's posture and tell the owner once
 //! (issue 57): moving mail or a Drive file to the Trash or back, removing
-//! someone's access to a file, and `google.call`'s trash, untrash, a message
-//! put into the mailbox and a calendar made. Each beside the act that still
-//! asks: a share, a send, a delete, a clear, an ACL change. Against the
-//! loopback fake only.
+//! someone's access to a file, and `google.call`'s trash, untrash and a
+//! calendar made. Each beside the act that still asks: a share, a send, a
+//! message put into the mailbox, a delete, a clear, an ACL change. Against
+//! the loopback fake only.
 
 use serde_json::{json, Value};
 use theseus_google::fake::drive::{Drive, File};
@@ -371,26 +371,47 @@ async fn a_google_call_trash_runs_unasked_and_its_undo_is_the_untrash() {
 }
 
 #[tokio::test]
-async fn a_message_put_in_or_a_calendar_made_is_told_with_how_to_take_it_back() {
+async fn a_message_put_into_the_mailbox_still_asks_and_nothing_is_put_or_told() {
+    // A forged sender and subject in the owner's own inbox could deceive him,
+    // and a note that names an id cannot warn him well enough: it asks.
+    let insert = json!({"method": "gmail.users.messages.insert", "body": {"raw": "eA"}});
+    let import = json!({"method": "gmail.users.messages.import", "body": {"raw": "eA"}});
+    let r = rig(vec![call("c1", insert.clone()), Scripted::text("Done.")]).await;
+    let t = tool(&r, "google.call");
+    for input in [&insert, &import] {
+        let p = plan(&r, "google.call", input.clone());
+        let why = p.authority.unwrap_or_default();
+        assert!(
+            why.starts_with("puts a message into the mailbox, so the owner decides it"),
+            "{why}"
+        );
+        let p = plan(&r, "google.call", input.clone());
+        assert!(!r.core.tools.policy.posture_only(t.as_ref(), &p), "{input}");
+        assert_eq!(
+            r.core.tools.policy.decide(t.as_ref(), &p).posture,
+            Posture::Approve,
+            "{input}"
+        );
+    }
+    let res = turn(&r.core, &session(&r.core), "file this note in my inbox").await;
+    assert!(res.awaiting_confirm.is_some(), "{res:?}");
+    let put = r
+        .fake
+        .log()
+        .into_iter()
+        .any(|l| l.verb == "POST" && l.path.starts_with("/gmail/v1/users/me/messages"));
+    assert!(!put, "nothing was put into the mailbox");
+    assert_eq!(ledgered(&r.core, "tool.confirm_requested").len(), 1);
+    assert!(notes(&r).is_empty());
+}
+
+#[tokio::test]
+async fn a_calendar_made_is_told_with_how_to_take_it_back_and_the_keep_calls_still_ask() {
     let r = rig(vec![]).await;
-    r.fake.json(
-        "POST",
-        "/gmail/v1/users/me/messages",
-        json!({"id": "m77", "threadId": "t77"}),
-    );
     r.fake.json(
         "POST",
         "/calendar/v3/calendars",
         json!({"id": "cal9@group.example.test", "summary": "x"}),
-    );
-    let insert = json!({"method": "gmail.users.messages.insert", "body": {"raw": "eA"}});
-    assert!(plan(&r, "google.call", insert.clone()).authority.is_none());
-    let out = ok(&r, "google.call", insert).await;
-    let told = &out.meta[super::told::KEY];
-    assert_eq!(told["undo"], json!([]));
-    assert_eq!(
-        told["back"],
-        "To take it back, move message m77 to the Trash."
     );
     let made = json!({"method": "calendar.calendars.insert", "body": {"summary": "Trips"}});
     assert!(plan(&r, "google.call", made.clone()).authority.is_none());
@@ -407,6 +428,8 @@ async fn a_message_put_in_or_a_calendar_made_is_told_with_how_to_take_it_back() 
         ("calendar.calendars.delete", json!({"calendarId": "cal9"})),
         ("calendar.calendars.clear", json!({})),
         ("gmail.users.messages.send", json!({})),
+        ("gmail.users.messages.insert", json!({})),
+        ("gmail.users.messages.import", json!({})),
         ("gmail.users.messages.delete", json!({"id": "m77"})),
         ("gmail.users.messages.batchDelete", json!({})),
         ("drive.files.delete", json!({"fileId": "f1"})),

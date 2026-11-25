@@ -2,12 +2,12 @@
 //! granted services, the long tail the typed tools do not cover. The method is
 //! an id the method table knows (`drive.files.list`) or `"VERB /path"`; it is
 //! classified by its verb and path (`theseus_google::classify`): a GET is a
-//! read, another verb a write, and a send, a delete, a permission or ACL
-//! change and an invitation are **authority**: `Plan.authority` makes the
-//! gate ask at every posture, so no `[policy.tools]` line, grant, trust or
-//! judgment loosens them (the owner: every send asks, deterministically). A
-//! tidy write (a trash or untrash, a message put into the mailbox, a calendar
-//! made) runs at the tool's posture and is told ([`super::told`]).
+//! read, another verb a write, and a send, a delete, a message put into the
+//! mailbox, a permission or ACL change and an invitation are **authority**:
+//! `Plan.authority` makes the gate ask at every posture, so no
+//! `[policy.tools]` line, grant, trust or judgment loosens them (the owner:
+//! every send asks, deterministically). A tidy write (a trash or untrash, a
+//! calendar made) runs at the tool's posture and is told ([`super::told`]).
 //! Its results are always private and outside text.
 
 use std::sync::Arc;

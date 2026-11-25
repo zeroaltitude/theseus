@@ -1,7 +1,6 @@
 //! A tidy Google act tells the owner (issue 57): moving mail or a file to the
 //! Trash or back, removing someone's access to a file, and through
-//! `google.call` a trash or untrash, a message put into the mailbox or a
-//! calendar made. None of them reaches anyone or loses anything the owner
+//! `google.call` a trash or untrash or a calendar made. None of them reaches anyone or loses anything the owner
 //! cannot take back, so they run at the tool's own posture rather than asking
 //! every time; the result carries what to tell him under [`KEY`], and
 //! `toolrun/complete.rs` posts it to the operator once, beside the result.
@@ -91,8 +90,7 @@ pub fn drive_revoked(id: &str, who: &str, role: &str) -> Value {
 
 /// A `google.call` tidy act: `tidy` is its class's words, `label` the
 /// method as the call named it, `verb` and `path` the resolved request, and
-/// `echo` Google's answer to it (an inserted message's or a made calendar's
-/// `id`).
+/// `echo` Google's answer to it (a made calendar's `id`).
 pub fn called(tidy: &str, label: &str, verb: &str, path: &str, echo: &Value) -> Value {
     let did = format!("{label}: {verb} {path} ({tidy}).");
     let made = echo
@@ -106,11 +104,7 @@ pub fn called(tidy: &str, label: &str, verb: &str, path: &str, echo: &Value) -> 
             format!("To take it back, delete calendar {id}: that asks you first."),
             vec![],
         ),
-        (None, Some(id)) => (
-            format!("To take it back, move message {id} to the Trash."),
-            vec![],
-        ),
-        (None, None) => ("Google gave no id to take it back by.".to_string(), vec![]),
+        (None, _) => ("Google gave no id to take it back by.".to_string(), vec![]),
     };
     told("A Google call was made", did, back, undo)
 }

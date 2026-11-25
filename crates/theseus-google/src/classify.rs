@@ -1,13 +1,13 @@
 //! The class of a `google.call` (Google design §3.2, and the owner's decision
 //! that every send asks): a read, a write, or **authority**. Authority is what
-//! reaches other people or cannot be undone: a send, a delete, a permission or
-//! ACL change, an invitation, a cleared calendar. `Plan.authority` asks at
-//! every posture, so no `[policy.tools]` line, grant, trust or judgment
-//! loosens it. A **tidy** write is one the owner can take back himself (a
-//! trash or untrash, a message put into the mailbox, a calendar made): it runs
-//! at the tool's own posture and the owner is told of it (issue 57). It is
-//! judged on the resolved verb and path as well as on the method's name, so a
-//! call by path is classified like one by id.
+//! reaches other people, cannot be undone or could deceive the owner: a send,
+//! a delete, a message put into the mailbox, a permission or ACL change, an
+//! invitation, a cleared calendar. `Plan.authority` asks at every posture, so
+//! no `[policy.tools]` line, grant, trust or judgment loosens it. A **tidy**
+//! write is one the owner can take back himself (a trash or untrash, a
+//! calendar made): it runs at the tool's own posture and the owner is told of
+//! it (issue 57). It is judged on the resolved verb and path as well as on the
+//! method's name, so a call by path is classified like one by id.
 
 use crate::retry::Repeat;
 
@@ -56,6 +56,12 @@ fn authority(
     if verb == "DELETE" || id.is_some_and(|i| i.ends_with(".delete")) {
         return Some("deletes");
     }
+    if mutating && ends(&["import"]) && segments.contains(&"messages") {
+        return Some("puts a message into the mailbox");
+    }
+    if verb == "POST" && last == "messages" {
+        return Some("puts a message into the mailbox");
+    }
     if mutating && ends(&["batchDelete"]) {
         return Some("deletes");
     }
@@ -81,18 +87,11 @@ fn authority(
 /// A tidy write, judged only once [`authority`] found none: one the owner can
 /// take back himself, so it runs at the tool's posture and is told.
 fn tidy(verb: &str, path: &str) -> Option<&'static str> {
-    let segments: Vec<&str> = path.split('/').collect();
     let (last, action) = last_segment(path);
     let mutating = verb != "GET";
     let ends = |names: &[&str]| names.contains(&last) || action.is_some_and(|a| names.contains(&a));
     if mutating && ends(&["trash", "untrash"]) {
         return Some("moves to or from the trash");
-    }
-    if mutating && ends(&["import"]) && segments.contains(&"messages") {
-        return Some("puts a message into the mailbox");
-    }
-    if verb == "POST" && last == "messages" {
-        return Some("puts a message into the mailbox");
     }
     if verb == "POST" && last == "calendars" {
         return Some("makes a calendar");
@@ -162,6 +161,8 @@ mod tests {
         for id in [
             "gmail.users.messages.send",
             "gmail.users.drafts.send",
+            "gmail.users.messages.import",
+            "gmail.users.messages.insert",
             "gmail.users.messages.delete",
             "gmail.users.messages.batchDelete",
             "drive.files.delete",
@@ -184,14 +185,6 @@ mod tests {
         // What the owner can take back himself is a tidy write: it is told,
         // and does not ask (issue 57).
         for (id, tidy) in [
-            (
-                "gmail.users.messages.import",
-                "puts a message into the mailbox",
-            ),
-            (
-                "gmail.users.messages.insert",
-                "puts a message into the mailbox",
-            ),
             ("gmail.users.messages.trash", "moves to or from the trash"),
             ("gmail.users.messages.untrash", "moves to or from the trash"),
             ("gmail.users.threads.trash", "moves to or from the trash"),
@@ -233,7 +226,7 @@ mod tests {
             c("POST", "/gmail/v1/users/me/drafts/send"),
             Class::Authority
         );
-        assert_eq!(c("POST", "/gmail/v1/users/me/messages"), Class::Write);
+        assert_eq!(c("POST", "/gmail/v1/users/me/messages"), Class::Authority);
         assert_eq!(c("DELETE", "/drive/v3/files/abc"), Class::Authority);
         assert_eq!(
             c("POST", "/drive/v3/files/abc/permissions"),
@@ -252,8 +245,11 @@ mod tests {
             tidy("POST", "/gmail/v1/users/me/messages/abc/trash"),
             Some("moves to or from the trash")
         );
+        // A message put into the mailbox could deceive the owner, so it asks
+        // as a KEEP act does, by path as by id.
+        assert_eq!(tidy("POST", "/gmail/v1/users/me/messages"), None);
         assert_eq!(
-            tidy("POST", "/gmail/v1/users/me/messages"),
+            classify("POST", "/gmail/v1/users/me/messages/import", None, &[]).why,
             Some("puts a message into the mailbox")
         );
         assert_eq!(
