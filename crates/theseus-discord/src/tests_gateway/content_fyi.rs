@@ -55,6 +55,9 @@ async fn dm_session(r: &Rig) -> String {
             .any(|m| m.content.contains("Hello."))
     })
     .await;
+    // The turn writes its session record as it ends: a label raised before that is overwritten.
+    r.until("the turn to end", || r.core.tools.admission.load().0 == 0)
+        .await;
     r.core
         .outbox
         .place_session(&format!("dm:{ANA}"))
@@ -138,6 +141,7 @@ async fn under_notify_the_flag_is_an_fyi_in_the_notices_place_and_its_remove_cou
         format!("content:remove:{sid}:injection")
     );
     assert!(notices(&r, ANA_DM).is_empty(), "not also in the DM");
+    assert!(carrying(&r, &sid), "the label holds before any press");
 
     let p = r.press(&m.id, "Remove", (BEN, "ben"));
     r.until(
