@@ -731,10 +731,7 @@ impl Lane {
         let Some(mut notices) = self.take_notices_dm(a) else {
             return Ok(());
         };
-        // An FYI that stays here is one closed line, in a folded place (issue 56).
-        if notices.is_none() {
-            self.fold_notes(a, &mut plan.writes);
-        }
+        self.fold_notes(a, notices.is_none(), &mut plan.writes);
         if plan.writes.is_empty() {
             // Nothing to send (`Plan::nothing`): the post ends well and
             // reached no channel.

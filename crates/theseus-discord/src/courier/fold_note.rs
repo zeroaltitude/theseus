@@ -67,10 +67,11 @@ fn met(body: &Value) -> bool {
 
 impl Lane {
     /// Post `a`'s writes, each FYI note that stays in a folded place as its
-    /// closed line with Show note. Its ping is as it was.
-    pub(super) fn fold_notes(&self, a: &Action, writes: &mut [Write]) {
+    /// closed line with Show note; `stays` is false when the notices place
+    /// takes it, and it is not folded there. Its ping is as it was.
+    pub(super) fn fold_notes(&self, a: &Action, stays: bool, writes: &mut [Write]) {
         let kind = post_kind(a);
-        if met(body_of(a)) {
+        if !stays || met(body_of(a)) {
             return;
         }
         for w in writes.iter_mut() {
