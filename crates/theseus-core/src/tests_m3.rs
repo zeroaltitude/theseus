@@ -7417,8 +7417,10 @@ mod web {
             .all(|n| n["summary"].as_str().unwrap().starts_with("fetch http://")));
     }
 
-    /// A fetch of a loopback address waits for approval at every posture,
-    /// `open` included, and says why. Declined, it never connects.
+    /// A fetch of a loopback address waits for approval where the owner's
+    /// settings ask, and says why. Declined, it never connects. Since issue 57
+    /// it does not wait at `open` or `notify`
+    /// ([`a_fetch_of_a_loopback_address_runs_and_is_told_at_open`]).
     #[tokio::test]
     async fn a_fetch_of_a_loopback_address_waits_and_a_decline_never_connects() {
         let s = serve().await;
@@ -7429,18 +7431,19 @@ mod web {
                 Scripted::text("Not fetched: you declined it."),
             ],
             s.port,
-            Posture::Open,
+            Posture::Approve,
         );
         let res = turn(&r.core, None, "fetch it").await;
         let corr = res.awaiting_confirm.clone().expect("it waits for approval");
         let asked = ledgered(&r, "tool.confirm_requested");
         assert_eq!(asked.len(), 1);
-        assert_eq!(
-            asked[0]["reason"],
-            json!(format!(
-                "fetch {url}: http.fetch — approve (127.0.0.1 is a loopback address, and a \
-                 private address waits for approval)"
-            ))
+        assert!(
+            asked[0]["reason"]
+                .as_str()
+                .unwrap()
+                .starts_with(&format!("fetch {url}: http.fetch — approve (")),
+            "{}",
+            asked[0]["reason"]
         );
         r.core
             .confirm_action(&corr, false, Some("not that one"), "test")
@@ -7455,6 +7458,31 @@ mod web {
             got,
             vec![("http.fetch".to_string(), ResultStatus::Declined, None)]
         );
+    }
+
+    /// Issue 57: at `open`, a fetch of a literal loopback address runs, raised
+    /// to a notice, and connects, and the owner is told once.
+    #[tokio::test]
+    async fn a_fetch_of_a_loopback_address_runs_and_is_told_at_open() {
+        let s = serve().await;
+        let url = format!("http://127.0.0.1:{}/plain.txt", s.port);
+        let r = web_rig(
+            vec![
+                Scripted::tools("", &[("f1", "http_fetch", json!({ "url": url }))]),
+                Scripted::text("Fetched."),
+            ],
+            s.port,
+            Posture::Open,
+        );
+        let res = turn(&r.core, None, "fetch it").await;
+        assert!(res.awaiting_confirm.is_none(), "it did not wait");
+        assert!(ledgered(&r, "tool.confirm_requested").is_empty());
+        assert_eq!(s.paths(), vec!["/plain.txt"]);
+        let notices = ledgered(&r, "tool.notified");
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        let told = crate::tests_places::told_notes(&r.core);
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(told[0].contains("127.0.0.1 is a loopback address."), "{}", told[0]);
     }
 
     /// web.search runs at no looser a posture than its key's: `open` by the

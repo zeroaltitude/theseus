@@ -812,6 +812,23 @@ fn a_private_address_in_a_shared_place_says_so_on_its_card() {
             }
         }
     }
+    // Where the tool's own line asks, a shared place's card for a told address
+    // is still that same card, word for word.
+    let mut asking = open_policy();
+    asking.tools.insert("http.fetch".into(), Posture::Approve);
+    let url = "http://10.0.0.1/";
+    let plan = fetch.plan(&json!({ "url": url }), &c).unwrap();
+    let d = private_fetch(PlaceClass::Shared, &plan, asking.decide(&fetch, &plan));
+    let d = crate::toolrun::told::in_shared(&asking, PlaceClass::Shared, "http.fetch", &plan, d);
+    assert_eq!(d.posture, Posture::Approve);
+    assert_eq!(
+        d.reason,
+        format!(
+            "fetch {url}: http.fetch — approve (10.0.0.1 is a private address, and a private \
+             address waits for approval; this is a shared place, so the page joins a conversation \
+             others can read)"
+        )
+    );
     let public = "https://doc.rust-lang.org/std/";
     let alone = policy.decide(&fetch, &fetch.plan(&json!({ "url": public }), &c).unwrap());
     let shared = decided(PlaceClass::Shared, public);

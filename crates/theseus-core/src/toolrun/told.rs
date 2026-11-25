@@ -24,10 +24,11 @@ use super::{Gated, ToolRuntime, TurnCtx};
 use crate::owner_note::{note, Kind};
 use crate::policy::{Decision, Posture};
 
-/// A told address in a shared place waits for approval as every private address did, with the
-/// card's words unchanged: the policy's reason, then the shared place's clause. Read after every
-/// layer that may lower a decision (a routine's grant among them), so none lowers it. Any other
-/// decision is returned as it is.
+/// A told address in a shared place waits for approval as every private address did, and its card
+/// says what it said: the private address's reason, which came before the tool's posture, then the
+/// shared place's clause. So it is the same decision whatever the posture, an asking one too. Read
+/// after every layer that may lower a decision (a routine's grant among them), so none lowers it.
+/// Any other decision is returned as it is.
 pub(crate) fn in_shared(
     policy: &crate::policy::ToolPolicy,
     class: PlaceClass,
@@ -35,7 +36,7 @@ pub(crate) fn in_shared(
     plan: &Plan,
     d: Decision,
 ) -> Decision {
-    if class == PlaceClass::Private || d.posture == Posture::Approve {
+    if class == PlaceClass::Private {
         return d;
     }
     let Some(why) = policy.told_address(plan) else {
@@ -98,8 +99,10 @@ impl ToolRuntime {
         let Some(text) = words(self, tc.session_id, tool, input, g) else {
             return;
         };
-        let body = json!({"kind": "notice", "text": text});
-        if let Err(e) = tc.outbox.to_operator(Some(tc.session_id), body) {
+        let posted = tc
+            .outbox
+            .to_operator(Some(tc.session_id), json!({"kind": "notice", "text": text}));
+        if let Err(e) = posted {
             tracing::warn!(tool = tool.name(), error = %format!("{e:#}"), "the owner's note of a told call was not written");
         }
     }
