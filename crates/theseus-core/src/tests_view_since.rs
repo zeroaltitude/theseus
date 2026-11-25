@@ -44,7 +44,7 @@ fn ask_of(store: &crate::store::Store, turn: &str) -> String {
 /// His exchange at another place saying [`WORDS`], then a conversation at the desk: the desk's session and
 /// the other exchange's turn.
 async fn his_words_elsewhere(c: &std::sync::Arc<crate::Core>) -> (String, String) {
-    let far = session(c, Some("local:/home/far"));
+    let far = session(c, Some("local:/far"));
     let t = turn_as(c, &far, WORDS, true).await;
     (session(c, None), t.turn_id)
 }

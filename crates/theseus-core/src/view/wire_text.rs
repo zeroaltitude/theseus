@@ -85,16 +85,17 @@ impl TextRenderer<'_> {
         Ok(did::did(self.store, turn)?.map(|d| did::shown_line(self.store, &d)))
     }
 
+    /// Exchange `turn`'s nodes, in order, each as its newest record ([`newest`]).
     fn exchange_stubs(&self, turn: &str) -> anyhow::Result<Vec<(u64, Stub)>> {
         let Some(ex) = exchange::exchange(self.store, turn)? else {
             return Ok(Vec::new());
         };
-        Ok(match self.sessions {
+        Ok(newest(match self.sessions {
             Some(s) => s.exchange(self.store, &ex.session_id, turn)?,
             None => (self.store.transcript(&ex.session_id)?.into_iter())
                 .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
                 .collect(),
-        })
+        }))
     }
 
     /// A piece's marked blocks: an exchange's parts each labelled by its own provenance
@@ -243,6 +244,24 @@ impl TextRenderer<'_> {
         }
         Ok(out)
     }
+}
+
+/// A session's records of an exchange, each node once, in its place, as its newest record: a transcript holds
+/// every record of a node, and one written again (its tombstone, when it was erased) reads as the history tool
+/// reads it (`Store::get_node`), so an erased message lays none of its words.
+fn newest(nodes: Vec<(u64, Stub)>) -> Vec<(u64, Stub)> {
+    let mut at = std::collections::HashMap::new();
+    let mut out: Vec<(u64, Stub)> = Vec::new();
+    for (p, n) in nodes {
+        match at.get(&n.id) {
+            Some(&i) => out[i].1 = n,
+            None => {
+                at.insert(n.id.clone(), out.len());
+                out.push((p, n));
+            }
+        }
+    }
+    out
 }
 
 /// An exchange in the line form, as parts: the person's words exactly, then the `did` line (or "reply not
