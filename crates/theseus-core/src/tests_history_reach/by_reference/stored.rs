@@ -182,3 +182,26 @@ async fn a_history_page_cut_at_a_value_stores_only_ranges_outside_it() {
     assert!(cut_through(&parts, read, &[V]).is_empty(), "{parts:#?}");
     whole_or_absent("the page as kept", &kept, V);
 }
+
+/// A look back's result kept by reference, retracted itself: the gist the retraction states and stores is made
+/// from its rendering, not from its stored words, which are none.
+#[tokio::test]
+async fn a_retracted_look_backs_gist_is_its_rendering() {
+    let r = rig();
+    let said = say(&r.core).await;
+    let reader = session(&r.core, Some("channel:lab"));
+    let (copy, kept) = read_in(&r.core, &reader, json!({ "open": said.turn })).await;
+    let (content, parts) = stored(&r.core, &copy);
+    assert!(content.is_empty() && !parts.is_empty(), "kept by reference");
+    let first = kept
+        .split_whitespace()
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let out = retract(&r.core, &copy);
+    let gist = out.gist.expect("a gist");
+    assert!(gist.starts_with(&first), "{gist:?} from {kept:?}");
+    // Asked again, the retraction is read back as it was stored.
+    let again = retract(&r.core, &copy);
+    assert_eq!(again.gist.as_deref(), Some(gist.as_str()));
+}

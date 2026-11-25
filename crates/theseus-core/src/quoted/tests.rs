@@ -250,7 +250,7 @@ const READERS: &[&str] = &[
     "node.rs 2 the field itself, and a preview: the fixed line for parts (`words_or_line`)",
     "own_bench/whole/runloop.rs 1 a replay's results, rendered when they hold parts",
     "quoted.rs 1 the rendering set as a laid node's words",
-    "recall.rs 1 the index's text: a result kept by reference indexes nothing",
+    "recall.rs 1 `text_of`: the index's text (a result kept by reference indexes nothing); retract's gist renders first",
     "rpc/info.rs 1 nodes shown through `quoted::shown`",
     "rpc/inspect.rs 1 nodes shown through `quoted::shown`",
     "rpc/publish.rs 1 the node shown through `quoted::shown`",

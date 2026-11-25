@@ -203,9 +203,10 @@ struct Stored {
 
 /// The first words of a node, on one line, an ellipsis marking a cut. The cut never falls inside a known value
 /// (`cuts`), and a value the joining of whitespace would change is cut away first, on the raw text, as a
-/// page's line is (`history_tool::page`).
-fn gist_of(n: &Node, cuts: &crate::scrub::Cuts) -> String {
-    let text = crate::recall::text_of(n);
+/// page's line is (`history_tool::page`). A result kept by reference holds no words of its own: its gist is made
+/// from its rendering (`quoted::shown`).
+fn gist_of(store: &crate::store::Store, n: &Node, cuts: &crate::scrub::Cuts) -> String {
+    let text = crate::recall::text_of(&crate::quoted::shown(store, n));
     let kept = cuts.unchanged(&text, char::is_whitespace);
     let short = kept < text.len();
     let one: String = text[..kept]
@@ -280,7 +281,7 @@ impl Core {
         let walk = reach::reach(&self.store, &node_id, Some(reach::MAX_GENERATIONS))?
             .with_context(|| format!("no node is named {node_id}"))?;
         let now = now_unix_ms();
-        let gist = gist_of(&node, &self.tools.scrubber.cuts());
+        let gist = gist_of(&self.store, &node, &self.tools.scrubber.cuts());
         let found = self.exposures_of(&walk)?;
         let private_origin = self.sess(&node.session_id)?.is_none_or(|s| s.private);
         let (who_s, via) = (who.who(), who.via());
