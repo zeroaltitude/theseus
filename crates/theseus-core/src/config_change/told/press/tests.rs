@@ -29,7 +29,7 @@ async fn a_change_then_its_undo_pressed_leaves_the_settings_byte_for_byte() {
     let notes = crate::tests_day_ceiling::posts(&r.core, "notice").len();
     let said = r
         .core
-        .undo_change_pressed(n as u32, "owner", "discord", &sid)
+        .undo_change_pressed(n as u32, "owner", "discord")
         .expect("put back");
     assert!(
         said.starts_with(&format!("Put back settings change #{n}")),
@@ -57,7 +57,7 @@ async fn a_change_then_its_undo_pressed_leaves_the_settings_byte_for_byte() {
     back(&r);
     let again = r
         .core
-        .undo_change_pressed(n as u32, "owner", "discord", &sid)
+        .undo_change_pressed(n as u32, "owner", "discord")
         .unwrap_err();
     assert!(again.contains("already undone"), "{again}");
     assert_eq!(r.file_text(), FILE);
@@ -70,7 +70,7 @@ async fn a_press_for_a_change_not_in_the_history_writes_nothing() {
     let sid = r.session();
     let why = r
         .core
-        .undo_change_pressed(7, "owner", "discord", &sid)
+        .undo_change_pressed(7, "owner", "discord")
         .unwrap_err();
     assert!(why.contains("no change #7"), "{why}");
     assert_eq!(r.file_text(), FILE);

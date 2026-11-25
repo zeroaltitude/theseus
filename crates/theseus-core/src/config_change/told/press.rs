@@ -9,6 +9,7 @@
 //! is the owner's own, so the bound on a turn's restarts does not apply.
 
 use serde_json::json;
+use theseus_protocol::LedgerKind;
 
 use super::{going_live, Told};
 use crate::config::sensitivity;
@@ -17,14 +18,13 @@ use crate::rpc::Core;
 
 impl Core {
     /// Put back settings change `number` for an Undo pressed on its note, by
-    /// `by` through `via`, in the note's conversation `session`: what was done,
-    /// or why nothing was.
+    /// `by` through `via`, in the conversation that made the change: what was
+    /// done, or why nothing was.
     pub(crate) fn undo_change_pressed(
         &self,
         number: u32,
         by: &str,
         via: &str,
-        session: &str,
     ) -> Result<String, String> {
         let ask =
             format!("ask Theseus in a conversation to undo change #{number}, and it asks you");
@@ -32,6 +32,14 @@ impl Core {
         let base = read_base(&self.tools)?;
         let rows = history::rows(&self.store);
         let list = history::entries(&rows, &w.state, w.file.as_deref(), history::SHOWN);
+        let session = rows
+            .iter()
+            .find(|r| {
+                r.kind == LedgerKind::ConfigChanged.as_str()
+                    && r.data["previous_copy"].as_u64() == Some(u64::from(number))
+            })
+            .and_then(|r| r.session_id.clone())
+            .unwrap_or_default();
         if undo::target(&list, Some(number))?.file.is_some() {
             return Err(format!("change #{number} changed a prompt file: {ask}"));
         }
@@ -57,14 +65,14 @@ impl Core {
             "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
             "undoes": planned.undoes.args(),
             "asked_by": {
-                "session_id": session,
+                "session_id": &session,
                 "place": format!("the Undo on change #{number}'s note"),
             },
         });
         let id = format!("told.undo.{number}.{}", theseus_protocol::now_unix_ms());
         let t = Told {
             id: &id,
-            session_id: session,
+            session_id: &session,
             args: &args,
             by,
             setting: via,
