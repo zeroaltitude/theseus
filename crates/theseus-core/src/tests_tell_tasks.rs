@@ -57,7 +57,11 @@ fn told(r: &Rig, kind: &str) -> Vec<Value> {
 pub(crate) fn notes(core: &crate::Core) -> Vec<(String, Undo)> {
     crate::tests_tasks::posts(core, crate::owner_note::told::KIND)
         .iter()
-        .map(|a| crate::owner_note::told::of(&core.kernel, &a.correlation_id).unwrap().unwrap())
+        .map(|a| {
+            crate::owner_note::told::of(&core.kernel, &a.correlation_id)
+                .unwrap()
+                .unwrap()
+        })
         .collect()
 }
 
@@ -142,15 +146,26 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
     assert_eq!(told.len(), 1, "told once: {told:?}");
     let (text, how) = &told[0];
     assert!(
-        text.starts_with("ℹ️ FYI · Your task's objective and acceptance were changed\nIn conversation "),
+        text.starts_with(
+            "ℹ️ FYI · Your task's objective and acceptance were changed\nIn conversation "
+        ),
         "{text}"
     );
-    assert!(text.contains("without asking you") && text.contains(&t.id), "{text}");
     assert!(
-        text.contains(&format!("Undo: `theseus task undo {} {}`", t.id, changed.version)),
+        text.contains("without asking you") && text.contains(&t.id),
         "{text}"
     );
-    assert!(!text.contains("inner"), "it quotes nothing the change wrote: {text}");
+    assert!(
+        text.contains(&format!(
+            "Undo: `theseus task undo {} {}`",
+            t.id, changed.version
+        )),
+        "{text}"
+    );
+    assert!(
+        !text.contains("inner"),
+        "it quotes nothing the change wrote: {text}"
+    );
     assert_eq!(
         *how,
         Undo::TaskUndo {
@@ -248,7 +263,9 @@ async fn his_task_abandoned_runs_unasked_and_his_undo_reopens_it_exactly() {
 #[tokio::test]
 async fn his_approve_on_task_close_still_asks_to_abandon() {
     let (r, s, t) = with_his_task(|cfg| {
-        cfg.policy.tools.insert("task.close".into(), Posture::Approve);
+        cfg.policy
+            .tools
+            .insert("task.close".into(), Posture::Approve);
     })
     .await;
     r.calls(&[(
@@ -258,7 +275,11 @@ async fn his_approve_on_task_close_still_asks_to_abandon() {
     turn(&r.core, &s, "drop it").await;
     let asked = r.core.confirm_list().unwrap();
     assert_eq!(asked.len(), 1, "{asked:?}");
-    assert!(asked[0].reason.contains("abandoning"), "{}", asked[0].reason);
+    assert!(
+        asked[0].reason.contains("abandoning"),
+        "{}",
+        asked[0].reason
+    );
     assert_ne!(r.task(&t.id).state, TaskState::Abandoned);
     stop_holding(&r);
 }
@@ -297,7 +318,11 @@ async fn abandoning_a_self_loop_item_keeps_its_card() {
     turn(&r.core, &s, "drop the parser item").await;
     let asked = r.core.confirm_list().unwrap();
     assert_eq!(asked.len(), 1, "{asked:?}");
-    assert!(asked[0].reason.contains("abandoning"), "{}", asked[0].reason);
+    assert!(
+        asked[0].reason.contains("abandoning"),
+        "{}",
+        asked[0].reason
+    );
     assert_eq!(r.task(&item.id).state, TaskState::Proposed);
     assert!(notes(&r.core).is_empty());
 }

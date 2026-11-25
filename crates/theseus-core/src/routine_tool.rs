@@ -205,7 +205,11 @@ pub fn run(
     let mut new = i.new_routine();
     new.grant = crate::routine::grant::check(&new.grant, known)?;
     let prepared = prepare(tc.kernel, &book.cfg, &new, &by, Some(tc.session_id))?;
-    let hold_ms = if told { crate::routine::TOLD_HOLD_MS } else { 0 };
+    let hold_ms = if told {
+        crate::routine::TOLD_HOLD_MS
+    } else {
+        0
+    };
     let prepared = crate::routine::held(tc.kernel, prepared, hold_ms)?;
     let (first_ms, zone) = (prepared.first_ms, tc.kernel.config().zone.clone());
     let mut post = None;
@@ -214,7 +218,8 @@ pub fn run(
             return Ok(vec![]);
         }
         let title = "A routine was set up";
-        let (a, records) = crate::routine::told(tc.outbox, tc.session_id, title, spec, first_ms, &zone)?;
+        let (a, records) =
+            crate::routine::told(tc.outbox, tc.session_id, title, spec, first_ms, &zone)?;
         post = Some(a);
         Ok(records)
     })

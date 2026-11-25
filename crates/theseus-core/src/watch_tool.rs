@@ -206,10 +206,15 @@ pub fn set(
     }
     let s = crate::task::short(&w.id);
     let spec = Spec::of(w).map_err(|e| format!("Not set: {e}"))?;
-    let asked_before = !matches!(spec.check, spec::Check::Fetch { .. } | spec::Check::File { .. });
+    let asked_before = !matches!(
+        spec.check,
+        spec::Check::Fetch { .. } | spec::Check::File { .. }
+    );
     if told && set.set && asked_before {
         if let Err(e) = tell(tc, &spec, &w.id, now) {
-            let _ = tc.kernel.cancel_wake(tc.execution_id, &w.id, "watch: untold");
+            let _ = tc
+                .kernel
+                .cancel_wake(tc.execution_id, &w.id, "watch: untold");
             return Err(format!(
                 "Not set: the owner could not be told of it ({e:#}), so it was cancelled"
             ));

@@ -190,7 +190,11 @@ impl Long {
             }
             let new = super::review::request(cfg, (&rec.id, &rec.title), item.review, None);
             let by = format!("model:{}", tc.session_id);
-            let told = (by.as_str(), Some(tc.session_id), item.told.then_some(tc.outbox));
+            let told = (
+                by.as_str(),
+                Some(tc.session_id),
+                item.told.then_some(tc.outbox),
+            );
             let (spec, post) = super::review::make(tc.kernel, tc.store, book, &new, told)?;
             if let Some(a) = &post {
                 tc.outbox.posted(a);

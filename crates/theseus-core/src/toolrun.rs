@@ -1239,8 +1239,9 @@ impl ToolRuntime {
         // Layer 1 guards only the owner's tasks (theseus-ext.10), and what can
         // be undone asks only where its tool is set to (issue 57).
         let asks = (self.set_to_ask(tool.name()), self.abandon_follows_posture());
-        let planned = planned
-            .map(|p| crate::task_graph::tools::authority_for(tc, tool.name(), &call.input, p, asks));
+        let planned = planned.map(|p| {
+            crate::task_graph::tools::authority_for(tc, tool.name(), &call.input, p, asks)
+        });
         // A read of Theseus's own settings is asked when the turn read outside text.
         let planned =
             planned.map(|p| crate::config_change::show::ask_if_outside(tc, tool.name(), p));

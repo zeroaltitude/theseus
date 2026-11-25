@@ -313,8 +313,14 @@ async fn a_command_watch_runs_unasked_and_its_cancel_ends_it() {
     let told = crate::tests_tell_tasks::notes(&r.core);
     assert_eq!(told.len(), 1, "told once: {told:?}");
     let (text, how) = &told[0];
-    assert!(text.starts_with("ℹ️ FYI · A watch was set\nIn conversation "), "{text}");
-    assert!(text.contains("runs a command in the sandbox every 5m"), "{text}");
+    assert!(
+        text.starts_with("ℹ️ FYI · A watch was set\nIn conversation "),
+        "{text}"
+    );
+    assert!(
+        text.contains("runs a command in the sandbox every 5m"),
+        "{text}"
+    );
     assert!(!text.contains("gh pr"), "it quotes no command: {text}");
     assert_eq!(*how, crate::owner_note::told::Undo::WakeCancel(id.clone()));
     crate::tests_tell_tasks::press(&r.core, how).await.unwrap();
@@ -346,7 +352,15 @@ async fn a_reply_watch_asks_only_where_watch_is_set_to() {
     assert_eq!(pending_watches(&r.core), 1);
     let told = crate::tests_tell_tasks::notes(&r.core);
     assert_eq!(told.len(), 1, "told once: {told:?}");
-    assert!(told[0].0.contains("reads each new message in discord:channel:777"), "{}", told[0].0);
-    crate::tests_tell_tasks::press(&r.core, &told[0].1).await.unwrap();
+    assert!(
+        told[0]
+            .0
+            .contains("reads each new message in discord:channel:777"),
+        "{}",
+        told[0].0
+    );
+    crate::tests_tell_tasks::press(&r.core, &told[0].1)
+        .await
+        .unwrap();
     assert_eq!(pending_watches(&r.core), 0, "its cancel ends it");
 }

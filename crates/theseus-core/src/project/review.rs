@@ -73,7 +73,11 @@ pub fn make(
     (by, created_in, told): (&str, Option<&str>, Option<&crate::outbox::Outbox>),
 ) -> Result<(RoutineSpec, Option<theseus_kernel::Action>), String> {
     let prepared = routine::prepare(kernel, &book.cfg, new, by, created_in)?;
-    let hold_ms = if told.is_some() { routine::TOLD_HOLD_MS } else { 0 };
+    let hold_ms = if told.is_some() {
+        routine::TOLD_HOLD_MS
+    } else {
+        0
+    };
     let prepared = routine::held(kernel, prepared, hold_ms)?;
     let (first_ms, zone) = (prepared.first_ms, kernel.config().zone.clone());
     let mut post = None;

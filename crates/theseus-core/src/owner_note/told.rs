@@ -218,7 +218,10 @@ mod tests {
             json!({"method": "task.undo", "id": {"task": "tsk_1", "version": 4}})
         );
         let p = u.params("ana", None);
-        assert_eq!((p["id"].clone(), p["version"].clone()), (json!("tsk_1"), json!(4)));
+        assert_eq!(
+            (p["id"].clone(), p["version"].clone()),
+            (json!("tsk_1"), json!(4))
+        );
         assert_eq!(u.command(), "theseus task undo tsk_1 4");
     }
 

@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+use crate::owner_note::told::Undo;
 use crate::policy::Posture;
 use crate::provider::{ProviderRequest, Scripted};
-use crate::owner_note::told::Undo;
 use crate::tests_tasks::{answers_a_call, rig, turn, until, Rig};
 use crate::tests_tell_tasks::{notes, press};
 use crate::{Config, Core};
@@ -84,7 +84,10 @@ async fn a_routine_is_made_unasked_its_first_run_waits_and_its_delete_ends_it() 
     let s = dm(&r.core);
     let t0 = r.core.kernel.now_ms();
     turn(&r.core, &s, "check the tide every minute").await;
-    assert!(r.core.confirm_list().unwrap().is_empty(), "nothing is asked");
+    assert!(
+        r.core.confirm_list().unwrap().is_empty(),
+        "nothing is asked"
+    );
     let made = routines(&r);
     assert_eq!(made.len(), 1, "{made:?}");
     assert!(
@@ -94,12 +97,20 @@ async fn a_routine_is_made_unasked_its_first_run_waits_and_its_delete_ends_it() 
     let told = notes(&r.core);
     assert_eq!(told.len(), 1, "told once: {told:?}");
     let (text, how) = &told[0];
-    assert!(text.starts_with("ℹ️ FYI · A routine was set up\nIn conversation "), "{text}");
     assert!(
-        text.contains("without asking you") && text.contains("runs every 1m") && text.contains("$0.50"),
+        text.starts_with("ℹ️ FYI · A routine was set up\nIn conversation "),
         "{text}"
     );
-    assert!(!text.contains("Tide check") && !text.contains("tide table"), "{text}");
+    assert!(
+        text.contains("without asking you")
+            && text.contains("runs every 1m")
+            && text.contains("$0.50"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("Tide check") && !text.contains("tide table"),
+        "{text}"
+    );
     assert_eq!(*how, Undo::RoutineDelete(made[0].session_id.clone()));
     let gone = press(&r.core, how).await;
     assert!(gone.is_ok(), "{gone:?}");
@@ -153,7 +164,10 @@ async fn a_projects_review_is_made_unasked_and_its_first_run_waits() {
     let s = dm(&r.core);
     let t0 = r.core.kernel.now_ms();
     turn(&r.core, &s, "start a harbour survey project").await;
-    assert!(r.core.confirm_list().unwrap().is_empty(), "nothing is asked");
+    assert!(
+        r.core.confirm_list().unwrap().is_empty(),
+        "nothing is asked"
+    );
     let made = routines(&r);
     assert_eq!(made.len(), 1, "{made:?}");
     assert!(
@@ -163,7 +177,9 @@ async fn a_projects_review_is_made_unasked_and_its_first_run_waits() {
     let told = notes(&r.core);
     assert_eq!(told.len(), 1, "told once: {told:?}");
     assert!(
-        told[0].0.starts_with("ℹ️ FYI · A project's weekly review was set up\n"),
+        told[0]
+            .0
+            .starts_with("ℹ️ FYI · A project's weekly review was set up\n"),
         "{}",
         told[0].0
     );
