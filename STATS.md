@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at commit df937fb7, over every file git tracks:
+Counted at commit de0b2608, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -13,7 +13,7 @@ Counted at commit df937fb7, over every file git tracks:
 | Where | Code | Test code | Comments |
 |---|---:|---:|---:|
 | bench/ | 68,934 | 58,761 | 16,607 |
-| cockpit/ | 46,997 | 14,892 | 20,996 |
+| cockpit/ | 46,998 | 14,892 | 20,996 |
 | crates/ (in no crate) | 93 | 62 | 159 |
 | crates/theseus | 35,646 | 29,710 | 7,529 |
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
@@ -43,7 +43,7 @@ Counted at commit df937fb7, over every file git tracks:
 | crates/theseusd | 5,348 | 33,216 | 5,700 |
 | infra/ | 554 | 1,432 | 193 |
 | scripts/ | 10,150 | 9,198 | 3,682 |
-| **Total** | **619,171** | **599,771** | **205,595** |
+| **Total** | **619,172** | **599,771** | **205,595** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes
