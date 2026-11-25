@@ -336,7 +336,8 @@ pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
 /// the session's flag.
 fn held(name: &str, outside: bool, steered: bool, way: &str, mut plan: Plan) -> Plan {
     if name == SHOW {
-        if let Some(said) = super::hold_words("read Theseus's own settings", outside, steered, way) {
+        if let Some(said) = super::hold_words("read Theseus's own settings", outside, steered, way)
+        {
             plan.authority = Some(said);
         }
     }

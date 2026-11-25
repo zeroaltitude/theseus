@@ -189,7 +189,10 @@ fn a_holds_words_are_printed_whole_without_layer_one() {
                 ..Default::default()
             };
             let p = plain(&req, &gloss(state, None));
-            assert_eq!((p.why.as_str(), p.held.as_str()), (said.as_str(), said.as_str()));
+            assert_eq!(
+                (p.why.as_str(), p.held.as_str()),
+                (said.as_str(), said.as_str())
+            );
         }
     }
     let task = "change task: task.update — approve (layer 1: the task's objective is yours)";
