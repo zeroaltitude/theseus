@@ -737,21 +737,8 @@ async fn attempt(
     }
     let mut after = String::new();
     if let Some(remote) = core.cfg.self_improve.remote.clone() {
-        let (p, t, b) = (place.clone(), a.tree.clone(), a.tree.branch.clone());
-        let scrubber = core.tools.scrubber.clone();
-        let (store, item, session) = (
-            core.store.clone(),
-            a.i.item.trim().to_string(),
-            tc.session_id.to_string(),
-        );
-        let pushed = blocking(move || {
-            let heard = super::outgoing::Heard::of(&store, &item, &[&session]);
-            let heard = heard.as_ref().map_err(|e| format!("{e:#}"));
-            Ok(tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1, heard)
-                .map(|spec| format!("{remote} {spec}")))
-        })
-        .await?;
-        match pushed {
+        let (t, item) = (a.tree.clone(), a.i.item.trim().to_string());
+        match push_branch(core, place, t, (item, tc.session_id.to_string()), remote).await? {
             Ok(to) => {
                 after = format!("Pushed to {to}. ");
                 a.pushed = Some(to);
@@ -780,6 +767,28 @@ async fn attempt(
         Err(_) => "The tree could not be closed.",
     });
     Ok(said(a, &after))
+}
+
+/// Push tree `t`'s branch to `remote` (`tree::push`), with what the sessions working on `item` read, `session`
+/// among them, for the outgoing check: where it went, or why it was refused.
+async fn push_branch(
+    core: &Arc<Core>,
+    place: &Place,
+    t: Tree,
+    (item, session): (String, String),
+    remote: String,
+) -> Result<Result<String, tree::Refused>, String> {
+    let (p, b) = (place.clone(), t.branch.clone());
+    let (store, scrubber) = (core.store.clone(), core.tools.scrubber.clone());
+    blocking(move || {
+        let heard = super::outgoing::Heard::of(&store, &item, &[&session]);
+        let heard = heard.as_ref().map_err(|e| format!("{e:#}"));
+        Ok(
+            tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1, heard)
+                .map(|spec| format!("{remote} {spec}")),
+        )
+    })
+    .await
 }
 
 /// What the attempt's commit leaves: its head (none when nothing was left to commit), the
