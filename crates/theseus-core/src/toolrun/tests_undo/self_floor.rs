@@ -16,9 +16,7 @@
 //! the real producers of a task, a routine's run and a fork, is `tests_owner_move`. The sessions
 //! here are conversations opened with the principal a test names.
 
-use super::self_own::{
-    base, builder, drive, drive_launched, drive_says, jobs_of, nothing, tree,
-};
+use super::self_own::{base, builder, drive, drive_launched, drive_says, jobs_of, nothing, tree};
 use super::*;
 
 /// The owner's conversation (the operator principal's), on a host where L1 ran its probe.

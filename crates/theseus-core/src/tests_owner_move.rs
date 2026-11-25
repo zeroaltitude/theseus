@@ -19,7 +19,9 @@ use crate::provider::{ProviderRequest, Scripted};
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::test_support::session_rows_1k;
-use crate::tests_tasks::{answers_a_call, arranged, last_user, rig, turn, until, ASK};
+use crate::tests_tasks::{
+    answers_a_call, arranged, first_user, last_user, rig, turn, until, ASK,
+};
 
 const CHILD: &str = "CHILD: run the daemon crate's tests";
 const ROUTINE: &str = "ROUTINE: run the daemon crate's tests";
@@ -36,11 +38,16 @@ fn call() -> Scripted {
     )
 }
 
-/// The owner's `START:` starts a task; every other turn makes the call, and a result ends it.
+/// The owner's `START:` starts a task; a task's or a run's brief, and every other turn, makes the
+/// call; a result ends it.
 fn model() -> impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static {
     |req| {
         if answers_a_call(req) {
             return Scripted::text("Done.");
+        }
+        // A task's brief comes first in its own transcript and in a fork of it.
+        if first_user(req).contains("CHILD:") || first_user(req).contains("ROUTINE:") {
+            return call();
         }
         if last_user(req).contains("START:") {
             return Scripted::tools(
@@ -80,7 +87,12 @@ fn moved(core: &Core, sid: &str, what: &str) {
 
 /// Asked as before: one floor question, no job, no note.
 fn asked(core: &Core, sid: &str, what: &str) {
-    assert_eq!(met(core, sid), (1, vec![], 0), "{what}");
+    assert_eq!(
+        met(core, sid),
+        (1, vec![], 0),
+        "{what}: {:#?}",
+        held(core, sid)
+    );
 }
 
 /// A conversation the owner opens, as the CLI does: not bound to any place.
@@ -111,6 +123,40 @@ fn fork(core: &Core, session: &str) -> String {
     )
     .unwrap()
     .session_id
+}
+
+/// Wait until `sid`'s one call was asked, started a job, or has its result; then, if it was not
+/// asked, what the session holds, to say why.
+async fn settled(core: &Arc<Core>, sid: &str) {
+    let done = || {
+        !session_rows_1k(core, sid, "tool.confirm_requested").is_empty()
+            || !session_rows_1k(core, sid, "tool.job_started").is_empty()
+            || results(core, sid) > 0
+    };
+    until("the call to be asked, started or answered", done).await;
+}
+
+/// How many tool results `sid` holds.
+fn results(core: &Core, sid: &str) -> usize {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .iter()
+        .filter(|(_, n)| matches!(n.body, crate::node::Body::ToolResult { .. }))
+        .count()
+}
+
+/// What `sid` holds, for a failure's words: each node's kind and its first words.
+fn held(core: &Core, sid: &str) -> Vec<String> {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .iter()
+        .map(|(_, n)| {
+            let all = serde_json::to_string(&n.body).unwrap_or_default();
+            all.chars().take(300).collect()
+        })
+        .collect()
 }
 
 /// The session whose question names it, once one is asked: the first new session of `kind` with a
@@ -152,18 +198,9 @@ async fn his_conversation_and_its_fork_are_moved_and_his_task_and_its_fork_ask()
 
     let starter = conversation(&r.core);
     turn(&r.core, &starter, ASK).await;
-    let task = asked_in(&r.core, SessionKind::Task, &[]).await;
-    let exec = crate::tests_tasks::exec(
-        &r.core,
-        r.core
-            .store
-            .get_session::<SessionRecord>(&task)
-            .unwrap()
-            .unwrap()
-            .execution_id
-            .as_deref()
-            .unwrap(),
-    );
+    let exec = crate::tests_tasks::only_task(&r.core, &starter);
+    let task = exec.session_id.clone();
+    settled(&r.core, &task).await;
     assert_eq!(
         exec.authority.principal,
         crate::turn::OPERATOR,
@@ -173,6 +210,7 @@ async fn his_conversation_and_its_fork_are_moved_and_his_task_and_its_fork_ask()
 
     let task_fork = fork(&r.core, &task);
     turn(&r.core, &task_fork, "RUN: again").await;
+    settled(&r.core, &task_fork).await;
     asked(&r.core, &task_fork, "a fork of his task");
 }
 
@@ -204,6 +242,7 @@ async fn a_routines_fired_run_and_its_fork_ask() {
 
     let run_fork = fork(&r.core, &run);
     turn(&r.core, &run_fork, "RUN: again").await;
+    settled(&r.core, &run_fork).await;
     asked(&r.core, &run_fork, "a fork of a routine's run");
 
     let spec = r.core.runner.tools.routines.all(&r.core.store).unwrap()[0].clone();
@@ -229,7 +268,10 @@ async fn a_session_whose_records_are_missing_is_not_his() {
     let mut gone = SessionRecord::new(SessionKind::Conversation, None);
     gone.execution_id = Some("exe_gone".into());
     r.core.store.put_session(&gone.session_id, &gone).unwrap();
-    assert!(!crate::rsi::own_tree::owners_conversation(rt, &gone.session_id));
+    assert!(!crate::rsi::own_tree::owners_conversation(
+        rt,
+        &gone.session_id
+    ));
 
     let none = conversation(&r.core);
     assert!(!crate::rsi::own_tree::owners_conversation(rt, &none));
