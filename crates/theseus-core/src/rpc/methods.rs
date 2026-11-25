@@ -1983,6 +1983,13 @@ impl Core {
         self.shutdown.notify_waiters();
     }
 
+    /// A `--stdio` daemon's one client went away (issue 51): the same stop
+    /// as a signal's, the row saying its client left.
+    pub fn stopping_as_the_client_left(&self) {
+        self.stop_record(json!({ "client_left": true }));
+        self.shutdown.notify_waiters();
+    }
+
     /// The stop's row, then the checkpoint. From here no post is dispatched,
     /// and the posts already sent have until the stop's grace ends to settle
     /// (`Core::finish_stop`, theseus-pfv). The checkpoint is durable by

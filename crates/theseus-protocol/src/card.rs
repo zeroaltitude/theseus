@@ -281,6 +281,12 @@ pub struct CardProposeResult {
     #[serde(default)]
     #[cfg_attr(test, ts(type = "number"))]
     pub one_task: u64,
+    /// Records under the import's tags' prefix that could not be read as a
+    /// tag's counts: their sessions were not read as evidence, and the
+    /// records are left as they are. Absent when none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub tags_unread: Option<u64>,
     /// Clusters of near-duplicate lines, and those worth a call (mostly new).
     #[cfg_attr(test, ts(type = "number"))]
     pub clusters: u64,

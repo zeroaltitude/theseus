@@ -27,6 +27,7 @@ mod kept;
 mod keys;
 mod labels;
 mod parts;
+mod unread_tags;
 
 const HERE: &str = "local";
 const DM: &str = "discord:dm:42";

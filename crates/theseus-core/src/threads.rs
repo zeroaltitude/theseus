@@ -166,8 +166,7 @@ impl Threads {
         for r in store.inner().latest_with_prefix(kinds::META, PREFIX)? {
             match r.decode::<ThreadInfo>() {
                 Ok(t) => records.push(t),
-                Err(e) => tracing::warn!(key = ?r.key, error = %e,
-                    "a thread record does not read: left out"),
+                Err(_) => tracing::warn!(key = ?r.key, "a thread record does not read: left out"),
             }
         }
         let prefix = place_prefix();

@@ -73,10 +73,18 @@ pub struct SyncState {
 }
 
 /// The newest `as_of` end, in unix ms, of the imported sessions whose source
-/// is `source`, over every tag that holds one.
+/// is `source`, over every tag that holds one. A tag's record that could not
+/// be read may hold one, so then there is no answer: an error naming its key.
 pub fn newest_end(store: &Store, source: &str) -> Result<Option<u64>> {
     let mut newest: Option<u64> = None;
-    for t in super::write::list(store)?.tags {
+    let list = super::write::list(store)?;
+    if let Some(key) = list.unread.first() {
+        anyhow::bail!(
+            "the record under {key} could not be read as a tag's counts, so where the first sync \
+             starts is not known: nothing is planned"
+        );
+    }
+    for t in list.tags {
         if !t.sources.contains_key(source) {
             continue;
         }

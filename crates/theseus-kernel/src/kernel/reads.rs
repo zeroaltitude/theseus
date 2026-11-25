@@ -60,9 +60,12 @@ impl Kernel {
         for (position, payload) in records {
             match self.decode_execution(payload) {
                 Ok(e) => out.push(e),
-                Err(e) => {
+                Err(_) => {
                     skipped += 1;
-                    tracing::warn!(position, error = %format!("{e:#}"), "an execution record did not decode; it is left out of the listing");
+                    tracing::warn!(
+                        position,
+                        "an execution record did not decode; it is left out of the listing"
+                    );
                 }
             }
         }
@@ -292,8 +295,10 @@ impl Kernel {
     }
 
     /// An execution as stored, decoded as `executions` decodes it (a unit
-    /// budget read in dollars): what the push's observer hands on.
+    /// budget read in dollars): what the push's observer hands on. Its
+    /// callers pass over a record that does not read, so a payload that is no
+    /// JSON object is one more such record (`Execution::from_stored_listed`).
     pub fn decode_execution(&self, payload: &[u8]) -> Result<Execution> {
-        Execution::from_stored(payload, self.cfg.spend_limit_micros)
+        Execution::from_stored_listed(payload, self.cfg.spend_limit_micros)
     }
 }

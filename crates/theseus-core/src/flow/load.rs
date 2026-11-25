@@ -337,8 +337,8 @@ impl Core {
                         stored: s.clone(),
                     });
                 }
-                Err(e) => {
-                    tracing::warn!(flow = %s.name, error = %e, "a loaded flow does not read: not offered")
+                Err(_) => {
+                    tracing::warn!(flow = %s.name, "a loaded flow does not read: not offered")
                 }
             }
         }
