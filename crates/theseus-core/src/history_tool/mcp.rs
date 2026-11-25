@@ -304,6 +304,7 @@ mod tests {
             reply_begins: None,
             outside: false,
             labels: None,
+            quotes: Default::default(),
         };
         let read = line(l, &crate::scrub::Cuts::live());
         assert!(read.who.starts_with("outside text, ppp"), "{}", read.who);
