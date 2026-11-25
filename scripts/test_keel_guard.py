@@ -1986,6 +1986,109 @@ class Acks(unittest.TestCase):
                 self.assertNotIn("keel: acked", out)
                 self.assertIn("ceiling-raised", out)
 
+    def test_a_name_git_reads_as_pathspec_magic_keeps_its_ack_bound(self):
+        # `:t.rs` as a pathspec means `t.rs`: the mode comparison then looked at another file and found no change.
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({":t.rs": "#[test]\nfn kept() {}\n\n#[test]\nfn gone() {}\n"}, "a test file")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({":t.rs": "#[test]\nfn kept() {}\n"}, "drop a test")
+        self.repo.commit({}, "ack\n\nKeel: test-removed :t.rs \u2014 gone\n", sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+        self.repo.git("update-index", "--chmod=+x", "--", ":t.rs")
+        (self.repo.root / ":t.rs").chmod(0o755)
+        self.repo.git("commit", "-q", "-m", "mode")
+        for args in ((), ("--base", "main", "--head", "lane")):
+            with self.subTest(args=args):
+                code, out = self.repo.guard(*args)
+                self.assertEqual(code, 1, out)
+                self.assertNotIn("keel: acked: :t.rs", out)
+
+    def test_an_acked_file_with_crlf_line_ends_passes_in_the_working_tree_too(self):
+        # The working tree was read in text mode, which turns CRLF into LF: the acked bytes then never matched.
+        crlf = LONG.replace("\n", "\r\n")
+        self.repo.git("checkout", "-q", "main")
+        (self.repo.root / "scripts/long-files.txt").write_bytes(crlf.encode())
+        self.repo.git("commit", "-q", "-am", "crlf line ends")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        (self.repo.root / "scripts/long-files.txt").write_bytes(sub(crlf, "big.rs 3000", "big.rs 3050").encode())
+        self.repo.git("commit", "-q", "-am", "raise a ceiling")
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        for args in ((), ("--base", "main", "--head", "lane")):
+            with self.subTest(args=args):
+                code, out = self.repo.guard(*args)
+                self.assertEqual(code, 0, out)
+                self.assertIn("keel: acked: scripts/long-files.txt", out)
+
+    def test_a_replace_object_borrows_no_signature(self):
+        # refs/replace makes git show another object in a commit's place: an unsigned ack then read as signed.
+        self.repo.commit({}, self.ACK)
+        unsigned = self.repo.git("rev-parse", "HEAD").strip()
+        tree = self.repo.git("rev-parse", "HEAD^{tree}").strip()
+        parent = self.repo.git("rev-parse", "HEAD~1").strip()
+        signed = subprocess.run(["git", "-C", self.dir, "commit-tree", f"-S{self.listed}", "-p", parent, "-m",
+                                 self.ACK, tree], env=self.repo.env, check=True, capture_output=True,
+                                text=True).stdout.strip()
+        self.repo.git("replace", unsigned, signed)
+        for args in ((), ("--base", "main", "--head", "lane")):
+            with self.subTest(args=args):
+                code, out = self.repo.guard(*args)
+                self.assertEqual(code, 1, out)
+                self.assertNotIn("keel: acked", out)
+                self.assertIn("unsigned", out)
+
+    def test_an_ack_line_holding_a_carriage_return_is_refused(self):
+        # A terminal draws what follows a CR over the line's start: the ack shown is not the ack signed.
+        self.repo.commit({}, "ack\n\nKeel: ceiling-raised scripts/long-files.txt \u2014 x\r"
+                             "Keel: test-removed crates/demo/src/lib.rs \u2014 shown instead\n", sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("keel: acked", out)
+        self.assertIn("control character", out)
+        self.assertIn("\\rKeel: test-removed", out)  # the output is read with text=True, which turns a CR into LF
+
+    def test_a_reader_that_died_stops_the_guard(self):
+        # A dead cat-file answered every later read with nothing, which read as "no such file".
+        mod = load_guard()
+        tree = mod.Tree(self.dir, "main", "lane")
+        self.addCleanup(lambda: (tree.close(), tree.proc.stdout.close()))
+        self.assertIsNotNone(tree.blob("lane:scripts/long-files.txt"))
+        tree.proc.kill()
+        tree.proc.wait()
+        with self.assertRaises(mod.GuardError):
+            tree.blob("lane:scripts/long-files.txt")
+
+    def test_a_replace_object_borrows_no_signature_when_the_config_asks_for_replace_refs(self):
+        # core.useReplaceRefs=true in the repository's config outranks GIT_NO_REPLACE_OBJECTS.
+        self.repo.git("config", "core.useReplaceRefs", "true")
+        self.test_a_replace_object_borrows_no_signature()
+
+    def test_a_mode_change_after_the_ack_is_open_whatever_the_callers_pathspec_setting(self):
+        # GIT_LITERAL_PATHSPECS=1 made `:(literal)<path>` a file name of its own, which matched nothing.
+        self.repo.env["GIT_LITERAL_PATHSPECS"] = "1"
+        self.test_a_mode_change_after_the_ack_is_open()
+
+    def test_a_reader_cut_off_mid_answer_stops_the_guard(self):
+        # A line with no newline is a reader that died while answering, not git's "missing".
+        import io
+        mod = load_guard()
+        for answer in (b"", b"main:scripts/long-files.txt missing", b"0" * 40 + b" blob 5", b"0" * 40 + b" blob 5\nab",
+                       b"0" * 40 + b" blob 2\nab"):
+            with self.subTest(answer=answer):
+                tree = mod.Tree(self.dir, "main", "lane")
+                tree.proc.stdin.close(); tree.proc.wait(); tree.proc.stdout.close()
+                tree.proc = type("P", (), {"stdin": io.BytesIO(), "stdout": io.BufferedReader(io.BytesIO(answer)),
+                                           "wait": lambda self: 0})()
+                with self.assertRaises(mod.GuardError):
+                    tree.blob("main:scripts/long-files.txt")
+
+    def test_a_keel_line_above_the_trailers_is_printed_escaped(self):
+        self.repo.commit({}, "ack\n\nKeel: test-removed x \u2014 y\x1b[2K\n\nlast paragraph\n", sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("\x1b", out)
+        self.assertIn("\\x1b[2K", out)
+
     def test_an_ack_signed_by_a_listed_key_passes(self):
         self.repo.commit({}, self.ACK, sign=self.listed)
         code, out = self.repo.guard()
