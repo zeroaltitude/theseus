@@ -175,7 +175,7 @@ impl Core {
         }
         // A prompt file is changed in its own way: no restart, its own copies.
         if super::prompt_file::write::is_card(args) {
-            let (previous, before, after) = self.write_prompt_file(a, args)?;
+            let (previous, before, after) = self.write_prompt_file(a, args, by, via)?;
             return Ok(Applied {
                 previous,
                 before,

@@ -29,7 +29,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use theseus_kernel::Action;
-use theseus_protocol::term::words::cut_marked;
 use theseus_protocol::work::ask::{self as words, AskInput, Choice};
 use theseus_store::{kinds, NewRecord};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
@@ -116,10 +115,14 @@ impl Tool for OwnerAsk {
         Retry::SafeToRepeat
     }
 
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+    fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
         let a = AskInput::parse(input)?;
+        let asked = match ctx.cut.get().head(a.question.trim(), 80) {
+            (q, true) => format!("{q}…"),
+            (q, false) => q.to_string(),
+        };
         Ok(Plan {
-            summary: format!("ask the owner: {}", cut_marked(a.question.trim(), 80)),
+            summary: format!("ask the owner: {asked}"),
             // Asking acts on nothing, but only the owner answers it: the
             // gate waits at every posture, as it does for a layer-1 change.
             authority: Some("the owner's decision".into()),
@@ -252,6 +255,23 @@ mod tests {
         let (t, m) = read_back(&ask(), Some(&answer("", None, true)));
         assert!(t.contains("the default applied: option 1, \"Hold\""), "{t}");
         assert_eq!(m["ask"]["default"], 1);
+    }
+
+    /// The plan's summary cuts the question where the call's cut says: a
+    /// value it knows across eighty characters is left out whole.
+    #[test]
+    fn an_asks_summary_stops_before_a_known_value() {
+        use crate::tests_cut_sites::{whole_or_absent, V};
+        let mut ctx = ToolCtx::default();
+        let known = crate::scrub::Scrubber::with_values(vec![(V.into(), "cut_test".into())]);
+        ctx.cut = theseus_tools::Cutter::new(std::sync::Arc::new(known.cuts()));
+        let input = json!({
+            "question": format!("{}{V} ok?", "x".repeat(70)),
+            "options": [{"label": "Yes"}, {"label": "No"}]
+        });
+        let plan = OwnerAsk.plan(&input, &ctx).unwrap();
+        whole_or_absent("the summary", &plan.summary, V);
+        assert_eq!(plan.summary, format!("ask the owner: {}…", "x".repeat(70)));
     }
 
     #[test]

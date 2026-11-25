@@ -1025,11 +1025,7 @@ pub fn read_stored(store: &crate::store::Store, server: &str) -> Option<StoredLi
 
 /// A value's JSON, cut to `max` characters, for a call's summary.
 pub(crate) fn short(v: &Value, max: usize) -> String {
-    let s = v.to_string();
-    match s.char_indices().nth(max) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s,
-    }
+    crate::scrub::safe::head_marked(&v.to_string(), max)
 }
 
 /// An MCP call's span attributes (`mcp.call`): its server and its tool.

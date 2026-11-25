@@ -46,7 +46,7 @@ async fn accept(r: &Rig) -> Result<serde_json::Value, theseus_protocol::RpcError
 /// is refused in fixed words and writes nothing.
 async fn says_unconfirmed(r: &Rig) {
     assert_eq!(look_of(&r.core).accepted, Accepted::Unknown);
-    let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
+    let block = crate::tests_own_file::project_part(&r.core, &r.work);
     assert!(
         !block.contains(KEPT) && !block.contains("BRINDLEWICK-9"),
         "{block}"
@@ -54,6 +54,14 @@ async fn says_unconfirmed(r: &Rig) {
     assert!(
         block.contains("No version of it has been accepted yet"),
         "{block}"
+    );
+    let why = crate::tests_own_file::refused_turn(&r.core, &r.fake, &r.work).await;
+    assert!(
+        why.contains(
+            "An accept may already be written that this daemon cannot read back: restart the \
+             daemon"
+        ),
+        "{why}"
     );
     assert_eq!(
         r.core.health().own_file.as_deref(),

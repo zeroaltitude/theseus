@@ -114,7 +114,7 @@ impl TurnRunner {
         let paths =
             self.cfg
                 .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
-        self.context_files.peek(&paths)
+        self.context_peek(&paths)
     }
 
     /// The target a session's next request, or a fresh session's first on `place_kind`, is built for.

@@ -144,7 +144,10 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   accepted; a different file on disk is named, not read. `theseus own-file` shows what is accepted, what is on disk, and
   the change; `theseus own-file accept` shows the same and asks you, at your terminal, to accept what is on disk (yours
   alone, refused inside a job; with no terminal it accepts nothing). The first start with no accepted version accepts
-  what is on disk, once, and says so; `theseusd check` says it beforehand.
+  what is on disk, once, and says so; `theseusd check` says it beforehand. The context files your settings name
+  (`[context] files`) are held the same way: `theseus own-file --file PATH` and `theseus own-file accept --file PATH`
+  show and accept one of them, the first start that names a file accepts it once, and a change you asked Theseus to
+  make and said yes to is accepted by that yes.
 - **`ledger`**: recent ledger rows (every turn, loop, provider call, state change, error). `theseus ledger -n 20 -k provider.call`;
   `ledger verify`, `ledger head`; `ledger exchanges` sums the exchange ledger's rows of private turns (counts only),
   `ledger rebuild-exchanges [--dry-run]` writes the exchanges of older turns from their nodes; `ledger ladder <place> [--dry-run]

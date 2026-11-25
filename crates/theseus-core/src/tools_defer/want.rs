@@ -87,6 +87,7 @@ const GAP: usize = 4;
 /// deferred one (the owner's rule), so a model that never searches takes `proc.run`'s background
 /// job for it. Both kinds of model pass through this (`extra`; the deferral's search path).
 pub fn asks_for_task(ask: &str) -> bool {
+    // plain cut: words matched against fixed ones, never kept
     let words = tokens(&ask.chars().take(ASK_CHARS).collect::<String>());
     let is_task = |w: &String| w == "task" || w == "tasks";
     words.iter().enumerate().any(|(i, w)| {

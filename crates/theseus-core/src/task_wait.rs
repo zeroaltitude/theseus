@@ -554,6 +554,7 @@ fn newest(text: &str, max: usize, cuts: &Cuts) -> String {
     if n <= max {
         return text.to_string();
     }
+    // plain cut: a start point only; the tail kept begins where `cuts.after` says
     let from = text.char_indices().nth(n - max).map_or(0, |(i, _)| i);
     let from = text[from..].find('\n').map_or(from, |i| from + i + 1);
     let tail = &text[cuts.after(text, from)..];
@@ -977,11 +978,12 @@ fn index(
     ));
     let mut text = head;
     let foot = "\nEach report follows as its own note.";
+    let cuts = Cuts::live();
     for (i, r) in rows.iter().enumerate() {
         let title = r
             .title
             .as_deref()
-            .map(|t| format!(" \"{}\"", t.chars().take(48).collect::<String>()))
+            .map(|t| format!(" \"{}\"", crate::scrub::safe::head_with(&cuts, t, 48).0))
             .unwrap_or_default();
         let tail = match r.state {
             "done" => match r.findings {

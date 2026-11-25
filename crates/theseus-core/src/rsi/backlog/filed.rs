@@ -132,11 +132,15 @@ fn cut(s: &str) -> String {
     if s.chars().count() <= TITLE_MAX {
         return s.to_string();
     }
-    let head: String = s.chars().take(TITLE_MAX - 1).collect();
+    let cuts = crate::scrub::Cuts::live();
+    let (head, _) = crate::scrub::safe::head_with(&cuts, s, TITLE_MAX - 1);
     let head = match head.rsplit_once(' ') {
         Some((h, _)) if h.chars().count() >= TITLE_MAX / 2 => h,
         _ => head.trim_end(),
     };
+    // The word end, checked again on the whole title: a known value may hold
+    // the space.
+    let head = s[..cuts.before(s, head.len())].trim_end();
     format!("{head}…")
 }
 
@@ -287,5 +291,36 @@ mod tests {
         assert!(o.contains("Filed by the owner."), "{o}");
         assert!(o.contains("the gate runs clippy twice"), "{o}");
         assert!(o.contains("self.propose_change { item: \"tsk_x1\""), "{o}");
+    }
+
+    /// The head's last space is inside a known value: the title stops
+    /// before it.
+    #[test]
+    fn a_titles_last_space_inside_a_known_value_is_no_place_to_cut() {
+        use crate::tests_cut_sites::whole_or_absent;
+        let spaced = "kelp-0417 ferry-99";
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("spaced", crate::secrets::Secret::new(spaced.into()));
+        // The head ends in the `u`s; its last space is inside the value.
+        let title = title_of(
+            "",
+            Some(&format!("{} {spaced}{}", "t".repeat(70), "u".repeat(40))),
+        );
+        assert_eq!(title, format!("{}…", "t".repeat(70)));
+        whole_or_absent("the filed title", &title, spaced);
+    }
+
+    #[test]
+    fn a_long_title_stops_before_a_known_value() {
+        use crate::tests_cut_sites::{whole_or_absent, V};
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        // No space to fall back to: the title is cut where it is long.
+        let title = title_of(
+            "",
+            Some(&format!("{}{V} again", "t".repeat(TITLE_MAX - 10))),
+        );
+        assert!(title.ends_with('…'), "{title}");
+        whole_or_absent("the filed title", &title, V);
     }
 }

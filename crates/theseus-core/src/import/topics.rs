@@ -60,6 +60,9 @@ pub const MADE_BY: &str = "import";
 /// A topic's `added_by` when `tag`'s import declares it.
 pub fn made_by(tag: &str) -> String {
     let s = format!("{MADE_BY} {tag}");
+    // Records are found again by this text, so it must come back the same each time.
+    // A checked tag is at most `TAG_MAX` (64) ASCII bytes: the text fits `ADDED_BY_MAX` (100).
+    // plain cut: an import's tag is checked short enough that nothing is cut
     s.chars().take(theseus_ontology::ADDED_BY_MAX).collect()
 }
 

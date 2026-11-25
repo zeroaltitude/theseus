@@ -23,7 +23,9 @@
 //!   the file the card was built from is not written.
 //!
 //! A prompt file is read again at every request (`context_files.rs`), so a
-//! change takes effect with the next message and nothing restarts.
+//! change takes effect with the next message and nothing restarts; a context
+//! file's yes is also its accept (`write.rs`), so the version carried is the
+//! text written.
 
 pub mod card;
 pub mod history;
@@ -213,3 +215,5 @@ mod tests;
 mod tests_answer;
 #[cfg(test)]
 mod tests_floor;
+#[cfg(test)]
+mod tests_held;

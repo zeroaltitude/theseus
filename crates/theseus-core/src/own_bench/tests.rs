@@ -534,9 +534,22 @@ async fn a_replay_sends_the_system_the_turn_saw_not_the_one_built_now() {
         c.tools.projects_dir = Some(work.to_string_lossy().into_owned());
         c.context.files = vec![file.clone().into()];
     });
+    // The daemon's start step: the context file is accepted, once.
+    rig.core.held_first_start().unwrap();
     script(&rig, &[ORIGINAL, REPLAYED]);
     let (sid, t) = asked(&rig).await;
     std::fs::write(&file, "The relay listens on 9000 now.\n").unwrap();
+    // The owner accepts the new text, so the system built now carries it.
+    let digest = rig.core.own_file_show_of(Some(&file)).unwrap().digest;
+    crate::tests_m3::rpc_as(
+        &rig.core,
+        crate::tests_m3::surface("sock#1", crate::approval::Surface::Cli)
+            .behind(crate::peer_proc::Behind::Owner),
+        theseus_protocol::method::OWN_FILE_ACCEPT,
+        serde_json::json!({"digest": digest, "file": file}),
+    )
+    .await
+    .unwrap();
     rig.core
         .turn_replay(params(&sid, &t, "haiku"), "cli")
         .await

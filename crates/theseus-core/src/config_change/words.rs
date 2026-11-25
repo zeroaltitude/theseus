@@ -112,6 +112,7 @@ pub fn mcp(marker: &Value, restart: bool) -> String {
 /// What installing a joined change says: the commit, which is all the card
 /// and the helper agree on.
 pub fn install(commit: &str) -> String {
+    // plain cut: a commit id's first eight characters
     let c8: String = commit.chars().take(8).collect();
     format!("install the build of commit `{c8}` and restart Theseus")
 }

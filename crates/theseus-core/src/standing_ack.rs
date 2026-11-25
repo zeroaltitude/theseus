@@ -73,6 +73,7 @@ fn words(text: &str) -> BTreeSet<String> {
         .filter(|w| w.chars().count() >= 4 && !STOP.contains(&w.as_str()))
         .map(|w| {
             let w = w.strip_suffix('s').unwrap_or(&w).to_string();
+            // plain cut: a word stem compared between texts, never kept
             w.chars().take(5).collect()
         })
         .collect()

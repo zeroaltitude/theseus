@@ -302,6 +302,9 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         requests: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    // The daemon's start step: the context files the tweak named are
+    // accepted, once, as they are on disk.
+    core.held_first_start().unwrap();
     Rig {
         core,
         model,
@@ -1362,4 +1365,31 @@ async fn an_agents_yes_is_refused_and_the_owners_counts() {
         .confirm_action(&q.correlation_id, true, None, "cli")
         .unwrap();
     assert!(r.file_text().contains("enabled = false"));
+}
+
+/// The card's reason line, cut at its length, stops before a value the
+/// vault's board knows: the card holds the value whole or not at all, and
+/// so does every post the question made.
+#[tokio::test]
+async fn a_proposals_card_reason_stops_before_a_known_value() {
+    use crate::tests_cut_sites::{whole_or_absent, V};
+    let r = rig();
+    r.core
+        .secrets
+        .hold("cut_test", crate::secrets::Secret::new(V.into()));
+    let sid = r.session();
+    let mut call = change("import.notes.enabled", json!(false));
+    call["reason"] = json!(format!("{}{V} and more", "x".repeat(190)));
+    r.turn(&sid, call).await;
+    let q = r.asked().remove(0);
+    whole_or_absent("the card", &q.reason, V);
+    assert!(
+        q.reason
+            .contains(&format!("in its own words: \"{}…\"", "x".repeat(190))),
+        "{}",
+        q.reason
+    );
+    for a in r.core.kernel.outbox_actions().unwrap() {
+        whole_or_absent("a post", &crate::outbox::body_of(&a).to_string(), V);
+    }
 }

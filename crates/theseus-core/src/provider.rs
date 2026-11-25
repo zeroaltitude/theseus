@@ -823,7 +823,7 @@ fn api_error_message(body: &str) -> String {
             let m = e.get("message").and_then(Value::as_str).unwrap_or("");
             Some(format!("{t}: {m}"))
         })
-        .unwrap_or_else(|| body.chars().take(400).collect())
+        .unwrap_or_else(|| crate::scrub::safe::head(body, 400).0.to_string())
 }
 
 // ------------------------------------------------------------------ trait

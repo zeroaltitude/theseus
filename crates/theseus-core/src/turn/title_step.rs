@@ -70,6 +70,7 @@ mod tests {
     fn after(inputs: &[&str], within: u64) -> SessionRecord {
         let mut s = SessionRecord::new(SessionKind::Conversation, Some("the owner's label".into()));
         for i in inputs {
+            // plain cut: test code, titling made-up inputs
             retitle(&mut s, title_from(i, &crate::scrub::Cuts::none()), within);
             s.turns += 1;
         }

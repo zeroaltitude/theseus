@@ -323,7 +323,11 @@ mod tests_content_race;
 #[cfg(test)]
 mod tests_context;
 #[cfg(test)]
+mod tests_context_held;
+#[cfg(test)]
 mod tests_continuations;
+#[cfg(test)]
+mod tests_cut_last;
 #[cfg(test)]
 mod tests_cut_sites;
 #[cfg(test)]
@@ -546,6 +550,8 @@ mod tests_persona_recall;
 mod tests_personas;
 #[cfg(test)]
 mod tests_places;
+#[cfg(test)]
+mod tests_plain_cuts;
 #[cfg(test)]
 mod tests_priced_off_peak;
 #[cfg(test)]

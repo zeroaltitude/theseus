@@ -90,6 +90,7 @@ fn one_line(s: &str) -> String {
 /// At most `max` characters, the last an ellipsis when it cut.
 fn cut(s: &str, max: usize) -> String {
     match s.chars().count() > max {
+        // plain cut: `post` gives it only text the scrubber has masked
         true => format!("{}…", s.chars().take(max - 1).collect::<String>()),
         false => s.to_string(),
     }

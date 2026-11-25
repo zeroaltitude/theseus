@@ -27,8 +27,9 @@ const DIFF_CHARS: usize = 40_000;
 
 /// The fixer's text: the fault, the tree, the rules, and how to answer.
 pub fn fix_prompt(a: &FixAsk) -> String {
-    let mut diff: String = a.diff.chars().take(DIFF_CHARS).collect();
-    if diff.len() < a.diff.len() {
+    let (head, cut) = crate::scrub::safe::head(&a.diff, DIFF_CHARS);
+    let mut diff = head.to_string();
+    if cut {
         diff.push_str("\n[the diff is cut here: read the rest from the tree]");
     }
     format!(
@@ -68,7 +69,7 @@ pub fn fix_prompt(a: &FixAsk) -> String {
 
 /// The approver's text: the fix's commit alone, its reason, the fault it answered.
 pub fn approve_prompt(a: &ApproveAsk) -> String {
-    let diff: String = a.diff.chars().take(DIFF_CHARS).collect();
+    let (diff, _) = crate::scrub::safe::head(&a.diff, DIFF_CHARS);
     format!(
         "You built branch {branch} of Theseus's own source, for backlog item {item}. Its {point} \
          found a small fault, and another model, {fixer}, repaired it with the one commit below. \

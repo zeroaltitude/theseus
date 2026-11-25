@@ -52,13 +52,10 @@ impl Core {
             joined_not_running: self.self_joined_not_running(),
             self_held: self.self_held(),
             own_file: self.own_file_health(),
+            held_files: self.held_health(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: totals.sessions,
-            imported: {
-                let mut i = totals.imported;
-                i.sync = self.sync_health(theseus_protocol::now_unix_ms());
-                i
-            },
+            imported: self.imported_now(totals.imported),
             turns: totals.turns,
             model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
             profile,
@@ -158,6 +155,15 @@ impl Core {
             }
         }
         phases
+    }
+
+    /// The imported sessions' counts, with the sync's health as of now.
+    fn imported_now(
+        &self,
+        mut i: theseus_protocol::import::HealthImported,
+    ) -> theseus_protocol::import::HealthImported {
+        i.sync = self.sync_health(theseus_protocol::now_unix_ms());
+        i
     }
 
     /// Health's session totals (theseus-lv2): from the index's projection,
@@ -887,7 +893,7 @@ impl Core {
             None,
             "Wake {} cancelled by {by}: \"{}\" will not run.",
             info.short,
-            crate::session::title_from(&w.note, &crate::scrub::Cuts::none())
+            crate::session::title_from(&w.note, &crate::scrub::Cuts::live())
         );
         Ok(theseus_protocol::WakeCancelResult { wake: info })
     }

@@ -465,6 +465,7 @@ pub async fn read_guardduty(account: &Arc<Account>) -> Result<Option<AwsGuardDut
 /// Whole days from an RFC 3339 time (`2026-10-03T…`) to `now_ms`.
 fn age_days(now_ms: u64) -> impl Fn(&str) -> Option<u64> {
     move |t: &str| {
+        // plain cut: a time stamp's date digits
         let (y, rest) = t.get(..10)?.split_once('-')?;
         let (m, d) = rest.split_once('-')?;
         let day = crate::wake::days_from_civil(y.parse().ok()?, m.parse().ok()?, d.parse().ok()?);

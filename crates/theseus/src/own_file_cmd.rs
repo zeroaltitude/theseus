@@ -1,5 +1,6 @@
-//! `theseus own-file`: your own instruction file (`<state dir>/AGENTS.md`).
-//! Theseus carries the version you last accepted. `own-file` shows what is
+//! `theseus own-file`: your own instruction file (`<state dir>/AGENTS.md`),
+//! and with `--file PATH` a context file your settings name. Theseus
+//! carries the version you last accepted. `own-file` shows what is
 //! accepted, what is on disk, and the change; `own-file accept` shows the
 //! same and asks, at your terminal, whether to accept what is on disk. It
 //! accepts the digest you were shown, so a file that changes after you
@@ -21,7 +22,12 @@ pub enum OwnFileCmd {
     Accept,
 }
 
-pub async fn run(c: &mut Conn, json: bool, cmd: Option<OwnFileCmd>) -> Result<()> {
+pub async fn run(
+    c: &mut Conn,
+    json: bool,
+    cmd: Option<OwnFileCmd>,
+    file: Option<String>,
+) -> Result<()> {
     let accept = matches!(cmd, Some(OwnFileCmd::Accept));
     if accept {
         // Before anything is shown or asked: a job's shell gets no question.
@@ -31,11 +37,15 @@ pub async fn run(c: &mut Conn, json: bool, cmd: Option<OwnFileCmd>) -> Result<()
         )?;
     }
     let v = c
-        .request(method::OWN_FILE_SHOW, OwnFileShowParams {})
+        .request(
+            method::OWN_FILE_SHOW,
+            OwnFileShowParams { file: file.clone() },
+        )
         .await?;
+    let held = file.is_some();
     if !accept {
         return crate::cmd::output(json, v, |r: OwnFileShowResult| {
-            print!("{}", shown(&r, true));
+            print!("{}", shown(&r, true, held));
             Ok(())
         });
     }
@@ -45,10 +55,10 @@ pub async fn run(c: &mut Conn, json: bool, cmd: Option<OwnFileCmd>) -> Result<()
         bail!(
             "{} asks at your terminal, and there is none here (or the output is JSON): nothing was \
              accepted",
-            theseus_protocol::own_file::accept_command()
+            theseus_protocol::own_file::accept_command_for(file.as_deref())
         );
     }
-    print!("{}", shown(&r, false));
+    print!("{}", shown(&r, false, held));
     if r.state == OwnFileState::Unreadable {
         println!(
             "Nothing can be accepted while its accepted version cannot be read from the store."
@@ -76,6 +86,7 @@ pub async fn run(c: &mut Conn, json: bool, cmd: Option<OwnFileCmd>) -> Result<()
             method::OWN_FILE_ACCEPT,
             OwnFileAcceptParams {
                 digest: r.digest.clone(),
+                file,
                 ..Default::default()
             },
         )
@@ -92,8 +103,14 @@ fn said_yes(line: &str) -> bool {
 /// What the show prints: the file, where it stands, and the change from the
 /// accepted version to the file on disk. `hint` adds the accept's command
 /// when there is something to accept.
-pub fn shown(r: &OwnFileShowResult, hint: bool) -> String {
-    let mut out = format!("Your own instruction file: {}\n", r.path);
+/// `held`: of a context file the settings name, asked for with `--file`,
+/// whose first line and accept say so.
+pub fn shown(r: &OwnFileShowResult, hint: bool, held: bool) -> String {
+    let mut out = if held {
+        format!("Your context file: {}\n", r.path)
+    } else {
+        format!("Your own instruction file: {}\n", r.path)
+    };
     let on = r
         .accepted
         .as_ref()
@@ -161,7 +178,7 @@ pub fn shown(r: &OwnFileShowResult, hint: bool) -> String {
     if hint && open {
         out.push_str(&format!(
             "Accept what is on disk with `{}` at your terminal.\n",
-            theseus_protocol::own_file::accept_command()
+            theseus_protocol::own_file::accept_command_for(held.then_some(r.path.as_str()))
         ));
     }
     out
@@ -211,6 +228,7 @@ mod tests {
         let differs = shown(
             &result(OwnFileState::Differs, Some("```diff\n-old\n+new\n```\n")),
             true,
+            false,
         );
         assert_eq!(
             differs,
@@ -220,7 +238,7 @@ mod tests {
              ```diff\n-old\n+new\n```\n\
              Accept what is on disk with `theseus own-file accept` at your terminal.\n"
         );
-        let same = shown(&result(OwnFileState::Same, None), true);
+        let same = shown(&result(OwnFileState::Same, None), true, false);
         assert_eq!(
             same,
             "Your own instruction file: /srv/state/AGENTS.md\n\
@@ -235,6 +253,7 @@ mod tests {
         let damaged = shown(
             &result(OwnFileState::Damaged, Some("```diff\n+new\n```\n")),
             true,
+            false,
         );
         assert_eq!(
             damaged,

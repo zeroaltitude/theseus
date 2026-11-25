@@ -1434,6 +1434,7 @@ fn landings_of(
 }
 
 fn clip(s: &str, max: usize) -> String {
+    // plain cut: its one caller passes text the scrubber has masked first
     match s.char_indices().nth(max) {
         Some((at, _)) => format!("{}…", &s[..at]),
         None => s.to_string(),

@@ -707,6 +707,7 @@ pub fn result_text(detail: &Value) -> String {
             .map_or(String::new(), |w| format!(": {w}")),
         detail["cost_usd"].as_f64().unwrap_or(0.0),
     );
+    let cuts = crate::scrub::Cuts::live();
     for h in detail["hands"].as_array().into_iter().flatten() {
         let mut line = format!(
             "#{} {}",
@@ -733,7 +734,7 @@ pub fn result_text(detail: &Value) -> String {
         if let Some(t) = h["tail"].as_str() {
             let last = t.trim_end().lines().last().unwrap_or_default();
             if !last.is_empty() {
-                let cut: String = last.chars().take(200).collect();
+                let (cut, _) = crate::scrub::safe::head_with(&cuts, last, 200);
                 line.push_str(&format!(": {cut}"));
             }
         }

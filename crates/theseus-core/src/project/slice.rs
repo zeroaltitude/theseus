@@ -41,9 +41,9 @@ fn tokens(s: &str) -> u64 {
 
 fn clip(s: &str, n: usize) -> String {
     let first = s.lines().next().unwrap_or_default().trim();
-    match first.char_indices().nth(n) {
-        Some((at, _)) => format!("{}…", first[..at].trim_end()),
-        None => first.to_string(),
+    match crate::scrub::safe::head(first, n) {
+        (kept, true) => format!("{}…", kept.trim_end()),
+        (_, false) => first.to_string(),
     }
 }
 

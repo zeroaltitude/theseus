@@ -27,6 +27,7 @@ fn starts(line: &str, marker: &str) -> bool {
     if digits.len() < rest.len() && digits.starts_with(['.', ')']) {
         rest = digits[1..].trim_start_matches(|c: char| c.is_whitespace() || c == '>');
     }
+    // plain cut: compared with a fixed marker, never kept
     rest.get(..marker.len())
         .is_some_and(|l| l.eq_ignore_ascii_case(marker))
 }

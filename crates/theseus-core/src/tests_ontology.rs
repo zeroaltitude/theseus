@@ -87,6 +87,8 @@ fn rig() -> Rig {
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model::default());
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    // The daemon's start step: the context files above are accepted, once.
+    core.held_first_start().unwrap();
     core.bind_places(vec![
         BoundPlace {
             target: format!("discord:dm:{OWNER}"),

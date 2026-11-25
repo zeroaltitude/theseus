@@ -178,6 +178,7 @@ impl ToolRuntime {
 fn output_span(text: &str, s: &Source) -> Option<std::ops::Range<usize>> {
     let start = text.len().checked_sub(s.from_end)?;
     let end = text.len().checked_sub(s.after)?;
+    // plain cut: checks a span the source recorded; nothing is cut here
     (start <= end && text.is_char_boundary(start) && text.is_char_boundary(end))
         .then_some(start..end)
 }
@@ -220,6 +221,7 @@ fn head(text: &str, max: usize, rest: impl FnOnce(&str) -> String, cuts: &Cuts) 
     }
     // Room for the line that says what is left.
     let keep = max - 512;
+    // plain cut: a budget only; `cuts.before` below sets where the head ends
     let mut h = text.char_indices().nth(keep).map_or(text.len(), |(i, _)| i);
     if let Some(i) = text[..h].rfind('\n') {
         h = i + 1;

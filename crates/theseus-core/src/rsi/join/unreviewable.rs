@@ -120,7 +120,7 @@ pub(super) fn waiting(earlier: &[Stop], now_ms: u64) -> bool {
 /// that repeating does not clear.
 pub(super) fn card(branch: &str, item: &str, class: &str, repeats: usize, why: &str) -> String {
     let cmd = theseus_protocol::rsi::retry_command(item);
-    let said: String = why.chars().take(400).collect();
+    let (said, _) = crate::scrub::safe::head(why, 400);
     let body = format!(
         "Theseus asked another model to review this change and the request failed the same way \
          {repeats} times in a row ({class}), a failure that asking again does not clear. It has \

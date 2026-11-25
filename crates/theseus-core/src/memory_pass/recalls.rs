@@ -212,6 +212,7 @@ pub(super) fn units(
 /// whole text when the range does not fit it.
 fn excerpt_of(text: &str, (start, end): (u32, u32)) -> String {
     let (s, e) = (start as usize, end as usize);
+    // plain cut: checks the byte range a recall stored; no new cut is made here
     if s < e && e <= text.len() && text.is_char_boundary(s) && text.is_char_boundary(e) {
         text[s..e].to_string()
     } else {

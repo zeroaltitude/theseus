@@ -102,6 +102,7 @@ pub(crate) fn named_hold(h: &HeldCall) -> String {
 /// The last `n` characters of `s`.
 fn tail(s: &str, n: usize) -> String {
     let count = s.chars().count();
+    // plain cut: the text is a correlation id the daemon made, never a value
     s.chars().skip(count.saturating_sub(n)).collect()
 }
 

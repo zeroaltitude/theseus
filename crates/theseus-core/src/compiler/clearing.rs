@@ -16,6 +16,7 @@ pub(super) use remember::notes;
 
 use super::Compilation;
 use crate::node::{Body, Node};
+use crate::scrub::safe::head_marked;
 use crate::stub::{Kind, Stub};
 
 /// Half the request's budget: the line a task's fan-in keeps its reports under (`task_wait::fan_in_bound`).
@@ -225,7 +226,7 @@ pub fn stub_noted(name: &str, input: &Value, r: &Node, note: Option<&str>) -> St
         }
         _ => format!(
             "{head} {name} {} ({chars} characters). Call it again if you need it.{note}]",
-            short(&input.to_string(), 120)
+            head_marked(&input.to_string(), 120)
         ),
     }
 }
@@ -253,13 +254,5 @@ fn argv_of(input: &Value) -> String {
             .join(" && "),
         _ => String::new(),
     };
-    short(&line, 200)
-}
-
-/// `s` cut at `max` characters, with an ellipsis when cut.
-fn short(s: &str, max: usize) -> String {
-    match s.char_indices().nth(max) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.to_string(),
-    }
+    head_marked(&line, 200)
 }

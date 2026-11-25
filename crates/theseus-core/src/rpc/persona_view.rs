@@ -81,7 +81,7 @@ impl Core {
                 public: f.readers() == ContextReaders::Public,
             })
             .collect();
-        let read: Vec<ContextFile> = self.runner.context_files.peek(&paths);
+        let read: Vec<ContextFile> = self.runner.context_peek(&paths);
         let files: Vec<PersonaFile> = read
             .iter()
             .map(|f| PersonaFile {

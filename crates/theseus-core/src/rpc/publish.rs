@@ -204,8 +204,8 @@ impl Core {
             anyhow!("session {sid} has never run a turn: say something there first")
         })?;
         let row = fact::row(f, Some(sid), None)?;
-        let excerpt: String = item.text.chars().take(NOTICE_CHARS).collect();
-        let more = if excerpt.len() < item.text.len() {
+        let (excerpt, cut) = crate::scrub::safe::head(&item.text, NOTICE_CHARS);
+        let more = if cut {
             format!(
                 "\n… ({} bytes in all; Theseus has it whole)",
                 item.text.len()

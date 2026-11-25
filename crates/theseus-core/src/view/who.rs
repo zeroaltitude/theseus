@@ -74,11 +74,8 @@ fn cut(s: &str, most: usize) -> String {
     if one.len() <= most {
         return one.to_string();
     }
-    let mut at = most.saturating_sub(MORE.len());
-    while !one.is_char_boundary(at) {
-        at -= 1;
-    }
-    format!("{}{MORE}", one[..at].trim_end())
+    let head = crate::scrub::safe::head_bytes(one, most.saturating_sub(MORE.len())).0;
+    format!("{}{MORE}", head.trim_end())
 }
 
 #[cfg(test)]

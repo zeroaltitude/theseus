@@ -25,6 +25,7 @@ use crate::config::{BrokerConfig, WebToolsConfig};
 use crate::cpu::CpuPool;
 use crate::policy::{Posture, ToolPolicy};
 use crate::secrets::{Secret, SecretBoard};
+use crate::tests_cut_sites::V;
 
 /// One request the server saw.
 #[derive(Debug, Clone)]
@@ -156,6 +157,10 @@ fn route(path: &str, headers: &BTreeMap<String, String>, port: u16) -> Reply {
         ),
         "/odd.pdf" => ok("application/pdf", &[b'%'; 12_400]),
         "/big.txt" => ok("text/plain", &[b'x'; 100_000]),
+        "/keyed.txt" => ok(
+            "text/plain",
+            format!("{}{V}{}", "o".repeat(990), "o".repeat(5_000)).as_bytes(),
+        ),
         "/slow" => Reply {
             delay_ms: 2_000,
             ..ok("text/plain", b"late")
@@ -919,4 +924,23 @@ fn a_pages_head_stops_before_a_known_value() {
         "{fitted}"
     );
     assert!(!fitted.contains("kqzv"), "{fitted}");
+}
+
+/// A body cut at its byte cap ends before a known value that runs across the
+/// cap, and says how many bytes it kept. The value is invented.
+#[tokio::test]
+async fn a_body_cut_at_its_byte_cap_holds_a_value_whole_or_not_at_all() {
+    let board = SecretBoard::empty();
+    board.hold("cut_test", Secret::new(V.into()));
+    let s = serve().await;
+    let w = web(s.port, WebToolsConfig::default(), true);
+    let url = format!("http://site.test:{}/keyed.txt", s.port);
+    let (out, _) = fetch(&w, json!({"url": url, "max_bytes": 1000}), false)
+        .await
+        .unwrap();
+    crate::tests_cut_sites::whole_or_absent("the fetched text", &out.text, V);
+    assert_eq!(
+        (out.meta["truncated"].clone(), out.meta["bytes"].clone()),
+        (json!(true), json!(990))
+    );
 }

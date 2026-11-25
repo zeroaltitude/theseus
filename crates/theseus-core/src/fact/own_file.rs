@@ -1,11 +1,23 @@
-//! The owner's own instruction file (`project_context::own_file`): the file
-//! on disk differs from the version the owner accepted, and an accept.
+//! The owner's own instruction file (`project_context::own_file`), and a
+//! context file the settings name on the same records
+//! (`project_context::held`): the file on disk differs from the version the
+//! owner accepted, and an accept. A context file's row says so with one more
+//! key, `"file": "context"`; the owner's own file's rows are as they were.
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
 use theseus_protocol::NarrativePart::{Approval, Context};
 
 use super::{Fact, Say};
+use crate::project_context::own_file::Whose;
+
+/// The row's additive key for a context file's row; none for the owner's
+/// own file.
+fn mark(row: &mut Value, whose: Whose) {
+    if whose == Whose::Context {
+        row["file"] = json!("context");
+    }
+}
 
 /// `own_file.changed`: the file on disk is not the version the owner
 /// accepted, and the accepted one is what is carried. One row per disk
@@ -17,14 +29,17 @@ pub struct OwnFileChanged<'a> {
     pub accepted: &'a str,
     /// The disk's digest; empty: no file, or one the reader cannot read.
     pub disk: &'a str,
+    pub whose: Whose,
 }
 
 impl Fact for OwnFileChanged<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::OwnFileChanged);
 
     fn row(&self) -> Value {
-        json!({"path": self.path, "accepted": self.accepted, "disk": self.disk,
-            "carried": "accepted"})
+        let mut row = json!({"path": self.path, "accepted": self.accepted, "disk": self.disk,
+            "carried": "accepted"});
+        mark(&mut row, self.whose);
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -33,14 +48,35 @@ impl Fact for OwnFileChanged<'_> {
         } else {
             "differs from the version you accepted"
         };
+        let path = std::path::Path::new(self.path);
+        let yours = match self.whose {
+            Whose::Own => format!("your own instruction file {}", self.path),
+            Whose::Context => format!("your context file {}", self.path),
+        };
         say.line(
             Context,
             format!(
-                "Context: your own instruction file {} {what}; the accepted version is carried \
-                 until `{}`.",
-                self.path,
-                theseus_protocol::own_file::accept_command()
+                "Context: {yours} {what}; the accepted version is carried until `{}`.",
+                self.whose.accept(path)
             ),
+        );
+    }
+}
+
+/// A turn was not run: the owner's instruction files cannot be read as last
+/// accepted (`turn/instructions_step.rs`). The session's line only; the
+/// turn's error carries the same words to whoever sent it.
+pub struct TurnWithoutInstructions<'a> {
+    pub author: &'a str,
+    /// The refusal's words, which name what the owner does.
+    pub why: &'a str,
+}
+
+impl Fact for TurnWithoutInstructions<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            theseus_protocol::NarrativePart::Turn,
+            format!("A turn from {} was refused. {}", self.author, self.why),
         );
     }
 }
@@ -57,14 +93,17 @@ pub struct OwnFileAccepted<'a> {
     pub how: &'a str,
     pub by: &'a str,
     pub via: &'a str,
+    pub whose: Whose,
 }
 
 impl Fact for OwnFileAccepted<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::OwnFileAccepted);
 
     fn row(&self) -> Value {
-        json!({"path": self.path, "digest": self.digest, "seq": self.seq,
-            "bytes": self.bytes, "how": self.how, "by": self.by, "via": self.via})
+        let mut row = json!({"path": self.path, "digest": self.digest, "seq": self.seq,
+            "bytes": self.bytes, "how": self.how, "by": self.by, "via": self.via});
+        mark(&mut row, self.whose);
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -73,14 +112,19 @@ impl Fact for OwnFileAccepted<'_> {
         } else {
             format!("the {} B on disk are accepted and carried", self.bytes)
         };
-        let how = if self.how == crate::project_context::own_file::HOW_FIRST_START {
-            ", once, at the first start with no version"
-        } else {
-            ""
+        let how = match (self.how, self.whose) {
+            (crate::project_context::own_file::HOW_FIRST_START, Whose::Own) => {
+                ", once, at the first start with no version"
+            }
+            (crate::project_context::own_file::HOW_FIRST_START, Whose::Context) => {
+                ", once, at the first start that names it"
+            }
+            _ => "",
         };
-        say.line(
-            Approval,
-            format!("Your own instruction file {}: {what}{how}.", self.path),
-        );
+        let yours = match self.whose {
+            Whose::Own => "Your own instruction file",
+            Whose::Context => "Your context file",
+        };
+        say.line(Approval, format!("{yours} {}: {what}{how}.", self.path));
     }
 }

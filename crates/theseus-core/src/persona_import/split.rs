@@ -5,14 +5,17 @@
 /// The cut points of `text`, so that each part is at most `limit` bytes where
 /// that can be done: at the start of a heading line (`#` to `######`) first,
 /// then at a blank line, then at any line, and only when a single line is
-/// longer than the limit, at a character boundary. Returns the parts in
-/// order; a text within the limit is one part.
-pub fn parts(text: &str, limit: usize) -> Vec<&str> {
+/// longer than the limit, at a character boundary; never inside a value the
+/// vault knows. Returns the parts in order; a text within the limit is one
+/// part. None when a part would have to cut through a known value (one
+/// longer than the limit starts it).
+pub fn parts(text: &str, limit: usize) -> Option<Vec<&str>> {
     assert!(limit >= 4, "a part must hold at least one character");
+    let cuts = crate::scrub::Cuts::live();
     let mut out = Vec::new();
     let mut rest = text;
     while rest.len() > limit {
-        let cut = cut_of(rest, limit);
+        let cut = cut_of(rest, limit, &cuts)?;
         let (head, tail) = rest.split_at(cut);
         out.push(head);
         rest = tail;
@@ -20,26 +23,25 @@ pub fn parts(text: &str, limit: usize) -> Vec<&str> {
     if !rest.is_empty() || out.is_empty() {
         out.push(rest);
     }
-    out
+    Some(out)
 }
 
 /// Where to cut `rest` (longer than `limit`): the latest line start within
 /// `limit` that is a heading's, else a paragraph's, else any line's, else a
-/// character boundary.
-fn cut_of(rest: &str, limit: usize) -> usize {
-    let mut heading = None;
-    let mut blank = None;
-    let mut line = None;
+/// character boundary; each one only where it is outside every known value.
+/// None when the only place left is the start.
+fn cut_of(rest: &str, limit: usize, cuts: &crate::scrub::Cuts) -> Option<usize> {
+    let (mut heading, mut blank, mut line) = (Vec::new(), Vec::new(), Vec::new());
     let mut at = 0;
     let mut prev_blank = false;
     for l in rest.split_inclusive('\n') {
         if at > 0 && at <= limit {
-            line = Some(at);
+            line.push(at);
             if is_heading(l) {
-                heading = Some(at);
+                heading.push(at);
             }
             if prev_blank {
-                blank = Some(at);
+                blank.push(at);
             }
         }
         prev_blank = l.trim().is_empty();
@@ -48,14 +50,18 @@ fn cut_of(rest: &str, limit: usize) -> usize {
             break;
         }
     }
-    if let Some(c) = heading.or(blank).or(line) {
-        return c;
+    // A line start inside a value that holds a line break is no place to cut.
+    let outside = |c: &&usize| cuts.before(rest, **c) == **c;
+    let found = [heading, blank, line]
+        .iter()
+        .find_map(|starts| starts.iter().rev().find(outside).copied());
+    if found.is_some() {
+        return found;
     }
-    let mut c = limit;
-    while !rest.is_char_boundary(c) {
-        c -= 1;
-    }
-    c
+    let c = crate::scrub::safe::head_bytes_with(cuts, rest, limit)
+        .0
+        .len();
+    (c > 0).then_some(c)
 }
 
 fn is_heading(line: &str) -> bool {

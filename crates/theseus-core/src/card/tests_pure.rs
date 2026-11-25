@@ -677,3 +677,20 @@ fn the_noted_block_shows_todays_open_observations_only() {
     assert_eq!(text.lines().count(), MAX_LINES + 1, "{text}");
     assert!(text.contains(&format!(", {}:", MAX_LINES + 4)), "{text}");
 }
+
+/// A line cut at its length stops before a value the vault knows: each line
+/// holds the value whole or not at all.
+#[test]
+fn a_lines_cut_stops_before_a_known_value() {
+    use crate::tests_cut_sites::{whole_or_absent, V};
+    let board = crate::secrets::SecretBoard::empty();
+    board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+    let words = "word ".repeat(58);
+    let text = format!("- {words}{V} and the rest\n- {V} said once more in the next line");
+    let got = lines_of(&text);
+    assert_eq!(got.len(), 2, "{got:?}");
+    for l in &got {
+        whole_or_absent("a line", l, V);
+    }
+    assert_eq!(got[0], format!("{words}…"));
+}

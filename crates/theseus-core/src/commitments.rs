@@ -111,19 +111,16 @@ fn line(
 ) -> String {
     let due = at(w.due_at_ms);
     let short = crate::task::short(&w.id);
+    let cuts = crate::scrub::Cuts::live();
+    let note = crate::session::title_from(&w.note, &cuts);
+    let title = crate::scrub::safe::head_with(&cuts, &note, TITLE_CHARS)
+        .0
+        .to_string();
     // A watch says what it last saw: `👁 c3d4e5 PR 123 merged? (OPEN at 14:05)`.
     if w.probe().is_some() {
-        let title: String = crate::session::title_from(&w.note, &crate::scrub::Cuts::none())
-            .chars()
-            .take(TITLE_CHARS)
-            .collect();
         let seen = shown(w).map_or(String::new(), |v| format!(" ({v})"));
         return format!("👁 {short} {title}{seen}");
     }
-    let title: String = crate::session::title_from(&w.note, &crate::scrub::Cuts::none())
-        .chars()
-        .take(TITLE_CHARS)
-        .collect();
     // A reminder, a routine or a watch says what it is; a held one says so.
     let title = match w.purpose {
         Purpose::Check => title,

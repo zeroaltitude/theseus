@@ -261,8 +261,8 @@ fn render(e: &Value, account: &str, zone: ZoneAt<'_>) -> String {
     }
     if let Some(d) = text(e, &["description"]) {
         let d = one_line(d);
-        let cut: String = d.chars().take(400).collect();
-        let more = if cut.len() < d.len() { " …" } else { "" };
+        let (cut, more) = crate::scrub::safe::head(&d, 400);
+        let more = if more { " …" } else { "" };
         out.push_str(&format!("  about: {cut}{more}\n"));
     }
     out

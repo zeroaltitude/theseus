@@ -40,6 +40,7 @@
 //! it, and only while `[ontology] dream_guidance` is on (the default; off is
 //! its rollback: nothing is read, called or written).
 
+use crate::scrub::safe;
 use crate::sweep_notice::SweepId;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -214,10 +215,6 @@ struct Seen {
     title: String,
     first: String,
     last: String,
-}
-
-fn cut(text: &str) -> String {
-    text.trim().chars().take(TEXT_CHARS).collect()
 }
 
 /// The request for one category: the instructions, then the category and its
@@ -401,6 +398,12 @@ impl Core {
         // A session whose first or last human text cannot be read is left out
         // of the call (theseus-23wd8); the category waits only when fewer than
         // [`MIN_SESSIONS`] readable ones remain.
+        let cuts = self.tools.scrubber.cuts();
+        let cut = |text: &str| {
+            safe::head_with(&cuts, text.trim(), TEXT_CHARS)
+                .0
+                .to_string()
+        };
         let seen: Vec<Seen> = theseus_store::blocking(|| {
             sample
                 .iter()

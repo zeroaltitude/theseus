@@ -56,6 +56,7 @@ use crate::judge::categorize::{due, is_human, ExchangeEnd, Mark};
 use crate::judge::{spend, JudgeService};
 use crate::node::{Body, Node};
 use crate::rpc::Core;
+use crate::scrub::safe;
 use crate::session::SessionRecord;
 use crate::standing;
 
@@ -457,12 +458,15 @@ impl Core {
             Some((p, n)) if owner.len() > extract::MAX_LINES => (*p, n.created_at_ms),
             _ => newest,
         };
+        let cuts = self.tools.scrubber.cuts();
         let lines: Vec<OwnerLine> = owner
             .iter()
             .take(extract::MAX_LINES)
             .filter_map(|(_, n)| match &n.body {
                 Body::UserMessage { text, .. } => {
-                    let t: String = text.trim().chars().take(extract::LINE_CHARS).collect();
+                    let t = safe::head_with(&cuts, text.trim(), extract::LINE_CHARS)
+                        .0
+                        .to_string();
                     (!t.is_empty()).then(|| OwnerLine {
                         node: n.id.clone(),
                         text: t,

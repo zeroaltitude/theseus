@@ -5,4 +5,9 @@ import type { DiscordOrigin } from "./DiscordOrigin";
  * `own_file.accept`: accept what is on disk, which must still be what the owner was shown (`digest`, from
  * `own_file.show`; empty for no file).
  */
-export type OwnFileAcceptParams = { digest: string, author?: string, discord?: DiscordOrigin, };
+export type OwnFileAcceptParams = { digest: string, 
+/**
+ * A context file the settings name, as `own_file.show` was given it; none: the owner's own
+ * instruction file.
+ */
+file?: string, author?: string, discord?: DiscordOrigin, };

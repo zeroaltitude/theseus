@@ -36,12 +36,20 @@ pub fn note_of(blocks: &[Value]) -> Option<String> {
     if sentence.chars().count() <= NOTE_CHARS {
         return Some(sentence);
     }
-    let cut: String = sentence.chars().take(NOTE_CHARS).collect();
-    let at = cut.rfind(' ').filter(|i| *i > 0).unwrap_or(cut.len());
-    Some(format!(
-        "{}…",
-        cut[..at].trim_end_matches([',', ';', ':', ' '])
-    ))
+    // The word end and the trimmed stops are checked again on the whole
+    // sentence: a value the head kept whole may hold that space or stop.
+    let cuts = crate::scrub::Cuts::live();
+    let (cut, _) = crate::scrub::safe::head_with(&cuts, &sentence, NOTE_CHARS);
+    let mut at = cut.rfind(' ').filter(|i| *i > 0).unwrap_or(cut.len());
+    loop {
+        let trimmed = sentence[..at].trim_end_matches([',', ';', ':', ' ']).len();
+        let end = cuts.before(&sentence, trimmed);
+        if end == at {
+            break;
+        }
+        at = end;
+    }
+    Some(format!("{}…", &sentence[..at]))
 }
 
 /// For each cleared result among `nodes` (in order), by the result's own node

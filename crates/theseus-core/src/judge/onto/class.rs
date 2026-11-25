@@ -77,6 +77,7 @@ pub(crate) fn request(
     let shown: Vec<String> = titles
         .iter()
         .take(TITLES)
+        // plain cut: the scrubber has masked every known value in it first
         .map(|t| scrub(t).chars().take(TITLE_CHARS).collect())
         .collect();
     let text = format!(
