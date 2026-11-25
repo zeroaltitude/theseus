@@ -288,13 +288,7 @@ fn note_of(i: &Issue, repo: &str) -> String {
         .unwrap_or("");
     if !first.is_empty() {
         note.push_str(": ");
-        match first.chars().count() > NOTE_BODY_CHARS {
-            true => {
-                note.extend(first.chars().take(NOTE_BODY_CHARS));
-                note.push('…');
-            }
-            false => note.push_str(first),
-        }
+        note.push_str(&crate::scrub::safe::head_marked(first, NOTE_BODY_CHARS));
     }
     note
 }

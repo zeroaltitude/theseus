@@ -78,8 +78,9 @@ pub trait Reviewer: Send + Sync {
 /// The check's text: the claim (the report, the diff and the evidence) as
 /// `check::render` puts a check task's, and how to answer.
 pub fn prompt(a: &Ask) -> String {
-    let mut diff: String = a.diff.chars().take(DIFF_CHARS).collect();
-    if diff.len() < a.diff.len() {
+    let (head, cut) = crate::scrub::safe::head(&a.diff, DIFF_CHARS);
+    let mut diff = head.to_string();
+    if cut {
         diff.push_str("\n[the diff is cut here: read the rest from the branch]");
     }
     let claim = crate::check::Claim {

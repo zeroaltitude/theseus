@@ -201,7 +201,7 @@ pub fn tests(p: &Place, dir: &Path, base: &str, before: &str, c: &Change) -> Opt
                 "tests",
                 format!(
                     "the fix weakens a test in {file}, which existed before the branch: {}",
-                    l.trim().chars().take(160).collect::<String>()
+                    crate::scrub::safe::head(l.trim(), 160).0
                 ),
             ));
         }

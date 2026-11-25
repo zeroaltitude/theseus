@@ -360,7 +360,7 @@ impl Work {
                 principal: PRINCIPAL.into(),
                 by_model: true,
                 self_started: true,
-                because: Some(c.title.chars().take(BECAUSE_MAX).collect()),
+                because: Some(crate::scrub::safe::head(&c.title, BECAUSE_MAX).0.into()),
                 project: None,
             },
             state: if keel.is_some() {

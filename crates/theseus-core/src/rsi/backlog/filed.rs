@@ -132,7 +132,7 @@ fn cut(s: &str) -> String {
     if s.chars().count() <= TITLE_MAX {
         return s.to_string();
     }
-    let head: String = s.chars().take(TITLE_MAX - 1).collect();
+    let (head, _) = crate::scrub::safe::head(s, TITLE_MAX - 1);
     let head = match head.rsplit_once(' ') {
         Some((h, _)) if h.chars().count() >= TITLE_MAX / 2 => h,
         _ => head.trim_end(),
@@ -287,5 +287,19 @@ mod tests {
         assert!(o.contains("Filed by the owner."), "{o}");
         assert!(o.contains("the gate runs clippy twice"), "{o}");
         assert!(o.contains("self.propose_change { item: \"tsk_x1\""), "{o}");
+    }
+
+    #[test]
+    fn a_long_title_stops_before_a_known_value() {
+        use crate::tests_cut_sites::{whole_or_absent, V};
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        // No space to fall back to: the title is cut where it is long.
+        let title = title_of(
+            "",
+            Some(&format!("{}{V} again", "t".repeat(TITLE_MAX - 10))),
+        );
+        assert!(title.ends_with('…'), "{title}");
+        whole_or_absent("the filed title", &title, V);
     }
 }

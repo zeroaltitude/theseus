@@ -378,8 +378,9 @@ impl Write {
 pub(crate) fn rejected_twice_text(e: &Entry) -> String {
     use crate::owner_note::{note, Kind};
     let mut body = format!("Two independent reviews rejected {}:\n", e.title);
+    let cuts = crate::scrub::Cuts::live();
     for (i, f) in e.findings.iter().enumerate() {
-        let f: String = f.chars().take(300).collect();
+        let (f, _) = crate::scrub::safe::head_with(&cuts, f, 300);
         body.push_str(&format!("- review {}: {f}\n", i + 1));
     }
     body.push_str(&format!(
