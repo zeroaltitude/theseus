@@ -677,6 +677,9 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     // Records `providers`, `kernel`, and `core`, one after another.
     let core = Core::new(cfg, secrets, store, startup.clone(), gate)?;
     let _ = CORE.set(Arc::downgrade(&core));
+    // The instruction files' start step (`after_serving`) has begun: a turn
+    // that arrives before it ends waits for it.
+    core.instructions_adopting();
     // The change this start is onto: wait for health and say so, or go back.
     if let Some((marker, p)) = watch.take() {
         tokio::spawn(core.clone().confirm_change(marker, p, socket_path.clone()));

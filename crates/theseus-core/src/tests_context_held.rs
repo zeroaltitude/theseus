@@ -17,7 +17,7 @@ use crate::approval::Surface;
 use crate::peer_proc::Behind;
 use crate::policy::Posture;
 use crate::project_context::held;
-use crate::project_context::own_file::{self, Accepted};
+use crate::project_context::own_file::{self, Accepted, Look};
 use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::store::Store;
 use crate::tests_m3::{rpc_as, surface};
@@ -40,6 +40,11 @@ struct Held {
 /// A core whose settings name `names` under `notes/`, each as a context
 /// file, with no start step run yet.
 fn held(names: &[&str]) -> Held {
+    held_with(names, |_, _| {})
+}
+
+/// [`held`], the settings then changed by `tweak`, given `notes/`.
+fn held_with(names: &[&str], tweak: impl FnOnce(&mut Config, &Path)) -> Held {
     let dir = tempfile::tempdir().unwrap();
     let (work, notes, state) = (
         dir.path().join("work"),
@@ -63,6 +68,7 @@ fn held(names: &[&str]) -> Held {
         .iter()
         .map(|n| notes.join(n).to_string_lossy().into_owned().into())
         .collect();
+    tweak(&mut cfg, &notes);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("Noted.")]));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
@@ -104,6 +110,58 @@ impl Held {
             self.core.store.clone(),
         ))
         .unwrap()
+    }
+
+    /// The core gone and its store closed, then the store's directory
+    /// opened again under a new core with the same settings: a restart whose
+    /// index holds only what the open replays from the log.
+    async fn reopened(self) -> Held {
+        let Held {
+            core,
+            fake,
+            work,
+            notes,
+            _dir,
+        } = self;
+        let cfg = (*core.cfg).clone();
+        let dir = core.store.dir().to_path_buf();
+        drop(core);
+        let mut store = Store::open(&dir);
+        for _ in 0..50 {
+            if store.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            store = Store::open(&dir);
+        }
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            fake.clone(),
+            store.unwrap(),
+        ))
+        .unwrap();
+        Held {
+            core,
+            fake,
+            work,
+            notes,
+            _dir,
+        }
+    }
+
+    /// A turn sent as `turn.submit` is: its answer, or the error it was
+    /// refused with.
+    async fn submit(
+        &self,
+        core: &Arc<Core>,
+    ) -> Result<serde_json::Value, theseus_protocol::RpcError> {
+        rpc_as(
+            core,
+            owner(),
+            method::TURN_SUBMIT,
+            json!({"input": "what are the rules?", "dir": self.work.to_string_lossy()}),
+        )
+        .await
     }
 
     async fn turn(&self, core: &Arc<Core>) -> ProviderRequest {
@@ -428,12 +486,346 @@ async fn check_counts_the_context_files_and_never_quotes_them() {
     assert!(!line.contains("QUILLFERN") && !line.contains("MARSHLOOM"));
     assert_eq!(held::check_line(&store_dir, &[]), None);
     assert_eq!(
-        own_file::pid(&h.path("RULES.md")),
+        held::pid(&h.path("RULES.md")),
         held::look(
             &h.core.store,
             &h.core.runner.context_files,
             &h.path("RULES.md")
         )
         .pid
+    );
+}
+
+/// One file the settings name and a persona names too, by the same path or
+/// through a link (a persona carries one file, its soul): every copy a
+/// request carries is the accepted version, and an edit on disk reaches none
+/// of them before the owner accepts it.
+#[tokio::test]
+async fn a_file_a_persona_names_too_is_carried_as_its_accepted_version_everywhere() {
+    for soul in ["RULES.md", "ALIAS.md"] {
+        a_persona_names_the_held_file_as(soul).await;
+    }
+}
+
+async fn a_persona_names_the_held_file_as(soul: &str) {
+    let h = held_with(&["RULES.md"], |cfg, notes| {
+        std::os::unix::fs::symlink(notes.join("RULES.md"), notes.join("ALIAS.md")).unwrap();
+        cfg.context.default_persona = Some("plain".into());
+        cfg.personas.insert(
+            "plain".into(),
+            crate::config::PersonaConfig {
+                files: vec![notes.join(soul).to_string_lossy().into_owned().into()],
+                ..Default::default()
+            },
+        );
+    });
+    h.write("RULES.md", &format!("{KEPT}\n"));
+    h.core.held_first_start().unwrap();
+    h.write("RULES.md", &format!("{LATER}\n"));
+    let req = h.turn(&h.core).await;
+    assert!(
+        !everything(&req).contains("MARSHLOOM-7"),
+        "{soul}: {}",
+        everything(&req)
+    );
+    let all: String = req
+        .system
+        .iter()
+        .filter_map(|b| b["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    for header in [
+        format!("# Context file (system): {}", h.path("RULES.md").display()),
+        format!("# Context file (persona plain): {}", h.path(soul).display()),
+    ] {
+        assert!(all.contains(&format!("{header}\n\n{KEPT}")), "{header}: {all}");
+    }
+    owner_accepts(&h.core, &h.path("RULES.md")).await;
+    let after = everything(&h.turn(&h.core).await);
+    assert!(
+        after.contains("MARSHLOOM-7") && !after.contains("QUILLFERN-3"),
+        "{soul}: {after}"
+    );
+}
+
+/// The daemon's own message in a persona's words (the initiative's reader)
+/// carries the accepted version of a file the settings name, never the
+/// file as it stands on disk.
+#[tokio::test]
+async fn the_daemons_own_message_carries_the_accepted_version_of_a_held_file() {
+    let h = held_with(&["RULES.md"], |cfg, notes| {
+        cfg.personas.insert(
+            "plain".into(),
+            crate::config::PersonaConfig {
+                files: vec![notes.join("RULES.md").to_string_lossy().into_owned().into()],
+                ..Default::default()
+            },
+        );
+    });
+    h.write("RULES.md", &format!("{KEPT}\n"));
+    h.core.held_first_start().unwrap();
+    h.write("RULES.md", &format!("{LATER}\n"));
+    let view =
+        crate::config::persona::PersonaView::of("plain", h.core.cfg.personas.get("plain").unwrap());
+    let system = h.core.persona_system(&view);
+    assert!(system.contains(KEPT), "{system}");
+    assert!(!system.contains("MARSHLOOM-7"), "{system}");
+}
+
+/// A link above a configured file pointed at another directory: the
+/// accepted text stays what is carried, the change is held and named, and
+/// a restart (the store opened again) accepts nothing; the owner's accept
+/// at his terminal does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_parent_link_pointed_elsewhere_keeps_the_accepted_text_across_a_restart() {
+    let h = held_with(&["current/RULES.md"], |_, notes| {
+        for d in ["a", "b"] {
+            std::fs::create_dir_all(notes.join(d)).unwrap();
+        }
+        std::fs::write(notes.join("a/RULES.md"), format!("{KEPT}\n")).unwrap();
+        std::fs::write(notes.join("b/RULES.md"), format!("{LATER}\n")).unwrap();
+        std::os::unix::fs::symlink(notes.join("a"), notes.join("current")).unwrap();
+    });
+    assert_eq!(h.core.held_first_start().unwrap(), 1);
+    let current = h.path("current");
+    std::fs::remove_file(&current).unwrap();
+    std::os::unix::fs::symlink(h.path("b"), &current).unwrap();
+    let h = h.reopened().await;
+    assert_eq!(
+        h.core.held_first_start().unwrap(),
+        0,
+        "a restart accepts nothing"
+    );
+    let req = h.turn(&h.core).await;
+    assert!(layer(&req).contains(KEPT), "{}", layer(&req));
+    assert!(!everything(&req).contains("MARSHLOOM-7"));
+    let file = h.path("current/RULES.md");
+    assert!(
+        block_3(&req).contains(&format!(
+            "The context file {} on disk differs from the version accepted on",
+            file.display()
+        )),
+        "{}",
+        block_3(&req)
+    );
+    assert_eq!(h.core.health().held_files.len(), 1);
+    owner_accepts(&h.core, &file).await;
+    assert!(layer(&h.turn(&h.core).await).contains("MARSHLOOM-7"));
+}
+
+/// A configured file under a directory that did not exist at the first
+/// start (its absence was accepted), reached through a link: when the
+/// directory appears with a file in it, the file is named and not read, and
+/// a restart accepts nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_parent_that_appears_later_keeps_the_accepted_absence_across_a_restart() {
+    let h = held_with(&["alias/later/RULES.md"], |_, notes| {
+        std::fs::create_dir_all(notes.join("real")).unwrap();
+        std::os::unix::fs::symlink(notes.join("real"), notes.join("alias")).unwrap();
+    });
+    assert_eq!(h.core.held_first_start().unwrap(), 1, "the absence");
+    std::fs::create_dir_all(h.path("real/later")).unwrap();
+    h.write("real/later/RULES.md", &format!("{LATER}\n"));
+    let h = h.reopened().await;
+    assert_eq!(
+        h.core.held_first_start().unwrap(),
+        0,
+        "a restart accepts nothing"
+    );
+    let req = h.turn(&h.core).await;
+    assert!(
+        !everything(&req).contains("MARSHLOOM-7"),
+        "{}",
+        everything(&req)
+    );
+    assert!(
+        block_3(&req).contains("the version accepted on")
+            && block_3(&req).contains("is no file at all"),
+        "{}",
+        block_3(&req)
+    );
+}
+
+/// A turn while the store cannot say which version of a context file is
+/// accepted (its version record cannot be read) is not run: nothing reaches
+/// the model, the refusal names the file and the accept that repairs it,
+/// and after that accept the turn runs.
+#[tokio::test]
+async fn a_turn_is_refused_while_an_accepted_version_cannot_be_read() {
+    let h = held(&["RULES.md"]);
+    let path = h.path("RULES.md");
+    h.write("RULES.md", &format!("{KEPT}\n"));
+    h.core.held_first_start().unwrap();
+    h.core
+        .store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::META,
+            Some(&own_file::version_key(&held::pid(&path), 1)),
+            &"not a version",
+        )
+        .unwrap()])
+        .unwrap();
+    let core = h.restarted_naming(&["RULES.md"]);
+    let sent = h.fake.requests().len();
+    let e = h.submit(&core).await.expect_err("refused");
+    assert_eq!(
+        e.message,
+        format!(
+            "This turn was not run: your instruction files could not be read from the store as \
+             you last accepted them, and Theseus runs no turn without them. Your context file {p}: \
+             its accepted version cannot be read, and `theseus own-file accept --file {p}` at \
+             your terminal shows the file on disk and keeps it as the next version.",
+            p = path.display()
+        ),
+        "{e:?}"
+    );
+    assert_eq!(h.fake.requests().len(), sent, "nothing reached the model");
+    owner_accepts(&core, &path).await;
+    let ran = h
+        .submit(&core)
+        .await
+        .expect("the turn runs once it is accepted");
+    assert!(ran["session_id"].is_string(), "{ran}");
+    assert!(layer(&h.fake.requests().pop().unwrap()).contains(KEPT));
+}
+
+/// The owner's own instruction file, its pointer unreadable: a turn is not
+/// run, and the refusal says the record cannot be read and names the show.
+#[tokio::test]
+async fn a_turn_is_refused_while_the_own_files_pointer_cannot_be_read() {
+    let h = held(&[]);
+    let own = Look::of(&h.core.cfg, &h.core.store, &h.core.runner.context_files);
+    h.core
+        .store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::META,
+            Some(&own_file::now_key(&own.pid)),
+            &"not a pointer",
+        )
+        .unwrap()])
+        .unwrap();
+    let e = h.submit(&h.core).await.expect_err("refused");
+    assert_eq!(
+        e.message,
+        "This turn was not run: your instruction files could not be read from the store as you \
+         last accepted them, and Theseus runs no turn without them. Your own instruction file: \
+         the record of which version is accepted cannot be read, and no accept can be written \
+         over it (`theseus own-file` shows it).",
+        "{e:?}"
+    );
+    assert!(h.fake.requests().is_empty());
+}
+
+/// A turn that arrives while the daemon's start step that accepts the
+/// instruction files runs waits for it: no request reaches the model before
+/// the step ends, and the request then carries the accepted file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_waits_for_the_start_step_that_accepts_the_instruction_files() {
+    let h = held(&["RULES.md"]);
+    h.write("RULES.md", &format!("{KEPT}\n"));
+    h.core.instructions_adopting();
+    let (core, fake, work) = (h.core.clone(), h.fake.clone(), h.work.clone());
+    let pending = tokio::spawn(async move { turn(&core, &fake, &work).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(h.fake.requests().is_empty(), "nothing before the step ends");
+    assert!(!pending.is_finished());
+    h.core.own_file_after_serving().unwrap();
+    let req = tokio::time::timeout(Duration::from_secs(30), pending)
+        .await
+        .expect("the turn runs once the step ends")
+        .unwrap();
+    assert!(layer(&req).contains(KEPT), "{}", layer(&req));
+}
+
+/// A file accepted cut (over the reader's cap) keeps its cut and its size in
+/// the manifest while an early byte of it differs on disk: what is carried
+/// is the accepted, cut text.
+#[tokio::test]
+async fn an_accepted_cut_file_keeps_its_cut_and_size_while_the_disk_differs() {
+    use crate::context_files::MAX_BYTES;
+    let h = held(&["BIG.md"]);
+    let big = h.path("BIG.md");
+    h.write("BIG.md", &"y".repeat(MAX_BYTES + 1_000));
+    h.core.held_first_start().unwrap();
+    h.write("BIG.md", &format!("z{}", "y".repeat(MAX_BYTES + 999)));
+    let (session, req) = turn_in(&h.core, &h.fake, &h.work).await;
+    assert!(
+        layer(&req).contains(&"y".repeat(MAX_BYTES)),
+        "the accepted text"
+    );
+    assert!(block_3(&req).contains("differs from the version accepted"));
+    let comps = h.core.store.session_compilations(&session).unwrap();
+    let f = comps[0]
+        .manifest
+        .context_files
+        .iter()
+        .find(|f| f.path == big.display().to_string())
+        .unwrap();
+    assert!(f.cut && f.bytes == MAX_BYTES as u64, "{f:?}");
+}
+
+/// A context file's accept that the store's log kept and its index did not
+/// may be written: none of the instruction files is carried, every turn is
+/// refused until a restart, and the words logged say so, never that the
+/// version accepted before is carried.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_context_accept_that_may_be_written_refuses_every_turn_and_says_so() {
+    let h = held(&["RULES.md"]);
+    let path = h.path("RULES.md");
+    h.write("RULES.md", &format!("{KEPT}\n"));
+    h.core.held_first_start().unwrap();
+    let key = own_file::version_key(&held::pid(&path), 2);
+    h.core
+        .store
+        .retain_plain_frame(move |rows| rows.iter().any(|x| x.key.as_deref() == Some(&key)));
+    let real = std::fs::canonicalize(&path).unwrap();
+    let said = h
+        .core
+        .held_written(&real, &format!("{LATER}\n"), "the owner", "cli");
+    assert_eq!(said, Some(crate::rpc::own_file::WRITTEN_UNCONFIRMED));
+    assert!(said
+        .unwrap()
+        .contains("none of the instruction files is carried"));
+    let files = &h.core.runner.context_files;
+    assert_eq!(
+        held::look(&h.core.store, files, &path).accepted,
+        Accepted::Unknown
+    );
+    assert_eq!(
+        Look::of(&h.core.cfg, &h.core.store, files).accepted,
+        Accepted::Unknown
+    );
+    let e = h
+        .submit(&h.core)
+        .await
+        .expect_err("refused until a restart");
+    assert!(
+        e.message.contains(
+            "An accept may already be written that this daemon cannot read back: restart the \
+             daemon"
+        ),
+        "{e:?}"
+    );
+}
+
+/// The project layer with an accepted absence carries the reader's note that
+/// the file cannot be read; when a file appears there, the note goes and the
+/// new text is not carried: the layer changes without an accept, and block 3
+/// names the file. (The one exception to "the layer changes only at an
+/// accept", kept because an unreadable file behaves as it did.)
+#[tokio::test]
+async fn a_file_appearing_where_an_absence_was_accepted_changes_the_layer_without_its_text() {
+    let h = held(&["LATER.md"]);
+    h.core.held_first_start().unwrap();
+    let before = h.turn(&h.core).await;
+    assert!(layer(&before).contains("[Missing: the file could not be read (not found).]"));
+    h.write("LATER.md", &format!("{LATER}\n"));
+    let after = h.turn(&h.core).await;
+    assert!(!layer(&after).contains("[Missing:"), "{}", layer(&after));
+    assert!(!everything(&after).contains("MARSHLOOM-7"));
+    assert!(
+        block_3(&after).contains("is no file at all"),
+        "{}",
+        block_3(&after)
     );
 }

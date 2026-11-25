@@ -65,7 +65,28 @@ impl Fixture for Rig {
 }
 
 impl Rig {
+    /// The daemon, once its secrets are ready and its start step has
+    /// accepted the context files.
     fn start() -> Self {
+        let r = Self::spawned(&[]);
+        r.wait("the secrets", || {
+            r.call("health", Value::Null)
+                .ok()
+                .filter(|h| h["secrets"]["state"] == "ready")
+        });
+        // The start step accepts the context files once
+        // (`Core::held_first_start`); a request compiled before it carries
+        // none of their text.
+        r.wait("the context files accepted", || {
+            r.call("health", Value::Null)
+                .ok()
+                .filter(|h| h.get("held_files").is_none())
+        });
+        r
+    }
+
+    /// The daemon spawned with `env` added, waiting for nothing.
+    fn spawned(env: &[(&str, &str)]) -> Self {
         let model = FakeModel::start(|prompt| {
             if prompt.starts_with(START) {
                 vec![(
@@ -114,9 +135,12 @@ impl Rig {
             .insert("files".into(), file("context/persona.md"));
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         let log = std::fs::File::create(path("theseusd.log")).unwrap();
+        let mut cmd = Command::new(&theseusd);
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
         let daemon = Daemon::spawn(
-            Command::new(&theseusd)
-                .arg("--config")
+            cmd.arg("--config")
                 .arg(path("config.toml"))
                 .arg("--state-dir")
                 .arg(path("state"))
@@ -139,21 +163,7 @@ impl Rig {
                 .stdout(Stdio::null())
                 .stderr(log),
         );
-        let r = Self { dir, daemon, model };
-        r.wait("the secrets", || {
-            r.call("health", Value::Null)
-                .ok()
-                .filter(|h| h["secrets"]["state"] == "ready")
-        });
-        // The start step accepts the context files once
-        // (`Core::held_first_start`); a request compiled before it carries
-        // none of their text.
-        r.wait("the context files accepted", || {
-            r.call("health", Value::Null)
-                .ok()
-                .filter(|h| h.get("held_files").is_none())
-        });
-        r
+        Self { dir, daemon, model }
     }
 
     fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
@@ -522,4 +532,26 @@ fn the_sonnet_profiles_sessions_and_task_share_one_header() {
 #[test]
 fn the_glm_profiles_sessions_and_task_share_one_header() {
     the_first_requests_share_one_header("glm", "zai");
+}
+
+/// A turn sent the moment the socket answers, with no wait on health, while
+/// the daemon's start step that accepts the context files is held back (a
+/// debug build's `THESEUS_TEST_SLOW_AFTER_SERVING_MS`): the turn waits for
+/// that step, so its request to the model carries the system level's file.
+#[test]
+fn a_turn_sent_before_the_context_files_are_accepted_waits_for_them() {
+    let r = Rig::spawned(&[("THESEUS_TEST_SLOW_AFTER_SERVING_MS", "2000")]);
+    let s = r.wait("the socket", || {
+        r.call("session.open", json!({"label": "early"})).ok()
+    });
+    r.call(
+        "turn.submit",
+        json!({"session_id": s["session_id"], "input": OTHER, "profile": "sonnet",
+               "author": "test", "attachments": []}),
+    )
+    .unwrap();
+    let raw = r.model.raw_requests();
+    let (_, first) = first_request(&raw, "the early turn", (last_text, &|t| t.contains(OTHER)));
+    let system = bytes(&first["system"]);
+    assert!(system.contains(SYSTEM_FILE), "{system}");
 }

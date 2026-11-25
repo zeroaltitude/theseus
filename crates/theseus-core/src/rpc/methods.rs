@@ -157,12 +157,6 @@ impl Core {
         phases
     }
 
-    /// Health's session totals (theseus-lv2): from the index's projection,
-    /// which adds up every session's numbers as it is written, and the
-    /// sessions holding external text by their term; so a health answer
-    /// reads only those sessions. From one read of every session record
-    /// while the projection is not whole (a store an older build wrote last,
-    /// until its terms are built after serving).
     /// The imported sessions' counts, with the sync's health as of now.
     fn imported_now(
         &self,
@@ -172,6 +166,12 @@ impl Core {
         i
     }
 
+    /// Health's session totals (theseus-lv2): from the index's projection,
+    /// which adds up every session's numbers as it is written, and the
+    /// sessions holding external text by their term; so a health answer
+    /// reads only those sessions. From one read of every session record
+    /// while the projection is not whole (a store an older build wrote last,
+    /// until its terms are built after serving).
     fn session_totals(&self) -> SessionTotals {
         use theseus_store::Store as _;
         let inner = self.store.inner();

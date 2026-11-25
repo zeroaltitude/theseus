@@ -64,7 +64,9 @@ impl Core {
             Kept::FileNew,
             args["candidate_sha256"].as_str().unwrap_or_default(),
         )?;
-        if let Some(why) = put::refusal(self, &named, &now, &new) {
+        if let Some(why) =
+            put::refusal(self, &named, &now, &new).or_else(|| put::held_base(self, &named, &now))
+        {
             return Err(format!("{why}, so nothing was written"));
         }
         let (previous, _) = write::keep_previous_file(state, &now).map_err(|e| {

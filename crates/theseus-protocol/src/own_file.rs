@@ -15,11 +15,33 @@ pub fn accept_command() -> String {
 }
 
 /// The words that name the accept of `file`, a context file the settings
-/// name; none: the owner's own instruction file.
+/// name; none: the owner's own instruction file. The path is one shell word
+/// ([`shell_word`]), so the line can be pasted at a terminal.
 pub fn accept_command_for(file: Option<&str>) -> String {
     match file {
-        Some(f) => format!("{} --file {f}", accept_command()),
+        Some(f) => format!("{} --file {}", accept_command(), shell_word(f)),
         None => accept_command(),
+    }
+}
+
+/// The words that name the show of `file`, as [`accept_command_for`] does.
+pub fn show_command_for(file: Option<&str>) -> String {
+    match file {
+        Some(f) => format!("theseus {COMMAND} --file {}", shell_word(f)),
+        None => format!("theseus {COMMAND}"),
+    }
+}
+
+/// `s` as one word a shell reads back as `s`: as it is when every character
+/// is plain, else in single quotes, a quote in it written `'\''`.
+pub fn shell_word(s: &str) -> String {
+    let plain = !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-:@+=,%".contains(c));
+    if plain {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
     }
 }
 
@@ -124,4 +146,32 @@ pub struct OwnFileAcceptResult {
     pub seq: u64,
     /// Whether this accept kept a new version; false when the disk already held the accepted one.
     pub kept: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pasteable command keeps a plain path as it is, and quotes one with
+    /// a space, a quote or a character a shell would read.
+    #[test]
+    fn the_accept_command_quotes_a_path_a_shell_would_split_or_read() {
+        assert_eq!(
+            accept_command_for(Some("/srv/notes/RULES.md")),
+            "theseus own-file accept --file /srv/notes/RULES.md"
+        );
+        assert_eq!(
+            accept_command_for(Some("/srv/my notes/RULES.md")),
+            "theseus own-file accept --file '/srv/my notes/RULES.md'"
+        );
+        assert_eq!(
+            accept_command_for(Some("/srv/it's/R.md")),
+            "theseus own-file accept --file '/srv/it'\\''s/R.md'"
+        );
+        assert_eq!(
+            show_command_for(Some("/srv/$(touch x);`y`|z&.md")),
+            "theseus own-file --file '/srv/$(touch x);`y`|z&.md'"
+        );
+        assert_eq!(accept_command_for(None), "theseus own-file accept");
+    }
 }

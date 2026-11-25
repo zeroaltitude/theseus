@@ -89,7 +89,7 @@ impl Core {
                 public: f.readers() == ContextReaders::Public,
             })
             .collect();
-        let files = self.runner.context_files.peek(&paths);
+        let files = self.runner.context_peek(&paths);
         if !crate::persona::owned(&files) {
             return crate::turn::PERSONA.to_string();
         }

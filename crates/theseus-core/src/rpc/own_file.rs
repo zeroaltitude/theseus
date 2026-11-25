@@ -110,7 +110,7 @@ impl Core {
             return Ok(false);
         }
         let at_ms = theseus_protocol::now_unix_ms();
-        match self.own_file_settle(&[look.unread_record(at_ms)?], true) {
+        match self.own_file_settle(&look.path, &[look.unread_record(at_ms)?], true) {
             Ok(()) => {
                 if let Some(missed) = missed {
                     self.runner.context_files.set_own_missed(missed);
@@ -127,15 +127,28 @@ impl Core {
     /// each. The owner's own file goes first, so a fresh store's first start
     /// is its own. The own file's error is the caller's; a context file's
     /// is one line in the log.
+    ///
+    /// A turn waits for this step once the daemon has said it begins
+    /// ([`Core::instructions_adopting`]), and runs when it has ended; a step
+    /// that ends without finishing leaves every turn refused.
     pub fn own_file_after_serving(&self) -> Result<()> {
         theseus_store::blocking(|| {
+            let ends = AdoptionEnds(&self.runner.context_files, true);
             let own = self.own_file_first_start().map(|_| ());
             if let Err(e) = self.held_first_start() {
                 tracing::error!(error = %e,
                     "a context file: the first start that names it could not be recorded, so none of it is carried and this run accepts nothing of it by itself; `theseus own-file accept --file` accepts a version");
             }
+            ends.finished();
             own
         })
+    }
+
+    /// The daemon's start step that accepts the instruction files
+    /// ([`Core::own_file_after_serving`]) begins: from now until it ends, a
+    /// turn waits for it. Said before the daemon serves.
+    pub fn instructions_adopting(&self) {
+        self.runner.context_files.adoption_begins();
     }
 
     /// The first start of each context file the settings name
@@ -198,29 +211,43 @@ impl Core {
     /// context file. An accept that is not kept is logged and the yes
     /// stands: the file then differs from its accepted version, and the
     /// owner is told so as for any other change.
-    pub(crate) fn held_written(&self, path: &std::path::Path, text: &str, by: &str, via: &str) {
-        let Some(path) = held::paths(&self.cfg)
-            .into_iter()
-            .find(|p| std::fs::canonicalize(p).is_ok_and(|real| real == path))
-        else {
-            return;
-        };
-        let mut look = held::look(&self.store, &self.runner.context_files, &path);
-        look.disk = own_file::Disk::written(look.disk.found.clone(), text);
-        if matches!(&look.accepted, Accepted::Some(_)) && !look.differs() {
-            return;
+    ///
+    /// Every configured spelling that resolves to the file written is
+    /// accepted. The words of the last accept that was not kept, which are
+    /// logged; none when every one was.
+    pub(crate) fn held_written(
+        &self,
+        path: &std::path::Path,
+        text: &str,
+        by: &str,
+        via: &str,
+    ) -> Option<&'static str> {
+        let mut said = None;
+        for spelling in held::spellings_of(&self.cfg, path) {
+            let mut look = held::look(&self.store, &self.runner.context_files, &spelling);
+            look.disk = own_file::Disk::written(look.disk.found.clone(), text);
+            if matches!(&look.accepted, Accepted::Some(_)) && !look.differs() {
+                continue;
+            }
+            let v = look.disk.version(
+                &look.path,
+                theseus_protocol::now_unix_ms(),
+                by,
+                via,
+                own_file::HOW_ACCEPT,
+            );
+            let Err(e) = self.own_file_kept(&look, &v, false, Whose::Context) else {
+                continue;
+            };
+            let words = if e.is::<own_file::Unconfirmed>() {
+                WRITTEN_UNCONFIRMED
+            } else {
+                WRITTEN_NOT_KEPT
+            };
+            tracing::warn!(path = %look.path.display(), error = %e, "{words}");
+            said = Some(words);
         }
-        let v = look.disk.version(
-            &look.path,
-            theseus_protocol::now_unix_ms(),
-            by,
-            via,
-            own_file::HOW_ACCEPT,
-        );
-        if let Err(e) = self.own_file_kept(&look, &v, false, Whose::Context) {
-            tracing::warn!(path = %look.path.display(), error = %e,
-                "a context file written at the owner's yes: its accept was not kept, so the version accepted before is still what is carried");
-        }
+        said
     }
 
     /// `v` accepted for the file `look` read: its records and its row, in
@@ -263,7 +290,7 @@ impl Core {
             if own_file::used(&self.store, &look.pid, seq) {
                 bail!(own_file::USED);
             }
-            self.own_file_settle(&records, durable)?;
+            self.own_file_settle(&look.path, &records, durable)?;
         }
         rec.announce(&fact);
         Ok(seq)
@@ -276,7 +303,12 @@ impl Core {
     /// ([`Missed::Unknown`]), one line is logged, and the answer is
     /// [`own_file::Unconfirmed`], never "not written". Any other error is
     /// the append's.
-    fn own_file_settle(&self, records: &[NewRecord], durable: bool) -> Result<()> {
+    fn own_file_settle(
+        &self,
+        path: &std::path::Path,
+        records: &[NewRecord],
+        durable: bool,
+    ) -> Result<()> {
         let e = match self.store.append(records) {
             Ok(_) if !durable => return Ok(()),
             Ok(_) => match self.store.checkpoint() {
@@ -287,8 +319,8 @@ impl Core {
             Err(e) => return Err(e),
         };
         self.runner.context_files.set_own_missed(Missed::Unknown);
-        tracing::error!(error = %e,
-            "your own instruction file: an accept of it may already be written that this run cannot read back, so none of it is carried and every accept is refused until the daemon is restarted");
+        tracing::error!(path = %path.display(), error = %e,
+            "an accept of an instruction file may already be written that this run cannot read back, so none of the instruction files is carried, and every accept and every turn is refused until the daemon is restarted");
         bail!(own_file::Unconfirmed)
     }
 
@@ -545,6 +577,39 @@ impl Core {
             &r,
         )?;
         Err(r.into())
+    }
+}
+
+/// The words logged when a context file the daemon wrote at the owner's yes
+/// was not accepted with it ([`Core::held_written`]): its accept may be
+/// written and cannot be read back.
+pub const WRITTEN_UNCONFIRMED: &str = "a context file written at the owner's yes: its accept may \
+                                       already be written that this run cannot read back, so none \
+                                       of the instruction files is carried, and every accept and \
+                                       every turn is refused until the daemon is restarted";
+
+/// [`WRITTEN_UNCONFIRMED`]'s, when the accept was not written.
+pub const WRITTEN_NOT_KEPT: &str = "a context file written at the owner's yes: its accept was not \
+                                    kept, so the version accepted before is still what is carried \
+                                    and the file on disk differs from it";
+
+/// The start step's end, said when it is dropped: finished, or (a panic)
+/// unfinished.
+struct AdoptionEnds<'a>(&'a crate::context_files::ContextFiles, bool);
+
+impl AdoptionEnds<'_> {
+    fn finished(mut self) {
+        self.1 = false;
+        self.0.adoption_ends(crate::context_files::Adopting::Done);
+    }
+}
+
+impl Drop for AdoptionEnds<'_> {
+    fn drop(&mut self) {
+        if self.1 {
+            self.0
+                .adoption_ends(crate::context_files::Adopting::Unfinished);
+        }
     }
 }
 

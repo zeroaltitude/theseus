@@ -116,6 +116,19 @@ pub fn sum(text: Option<&str>) -> String {
     hex::encode(Sha256::digest(text.unwrap_or_default().as_bytes()))
 }
 
+/// What [`resolve`] read of an accepted version: its text (none for an
+/// absence), and its size and cut.
+type Resolved = (Option<Arc<str>>, (u64, bool));
+
+/// An accepted version's text, read and checked once a daemon run, with
+/// its size and cut as the reader recorded them (`ContextFiles::accepted`).
+#[derive(Debug)]
+pub struct Kept {
+    pub text: Arc<str>,
+    pub bytes: u64,
+    pub cut: bool,
+}
+
 /// The pointer: which version stands, its digest, and when it was accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Now {
@@ -363,6 +376,14 @@ impl Whose {
         }
     }
 
+    /// The words that name its show.
+    pub fn show(self, path: &Path) -> String {
+        let file = path.display().to_string();
+        theseus_protocol::own_file::show_command_for(
+            (self == Whose::Context).then_some(file.as_str()),
+        )
+    }
+
     /// The words that name its accept.
     pub fn accept(self, path: &Path) -> String {
         let file = path.display().to_string();
@@ -381,6 +402,10 @@ pub struct Look {
     /// The accepted version's text, read and checked with its pointer; none
     /// for an absence accepted, and with nothing accepted.
     pub text: Option<Arc<str>>,
+    /// The accepted version's size and cut as the reader recorded them when
+    /// it was accepted ([`Version::bytes`], [`Version::cut`]); none with no
+    /// text.
+    pub size: Option<(u64, bool)>,
     pub disk: Disk,
 }
 
@@ -412,10 +437,27 @@ impl Look {
         found: Option<Found>,
     ) -> Self {
         let pid = pid(&path);
-        let (accepted, text) = resolve(store, files, &pid);
+        Self::bound(store, files, path, pid, found)
+    }
+
+    /// The file at `path` whose records are under `pid`, with discovery's
+    /// stat of it.
+    pub fn bound(
+        store: &crate::store::Store,
+        files: &ContextFiles,
+        path: PathBuf,
+        pid: String,
+        found: Option<Found>,
+    ) -> Self {
+        let (accepted, kept) = resolve(store, files, &pid);
+        let (text, size) = match kept {
+            Some((t, size)) => (t, Some(size)),
+            None => (None, None),
+        };
         Self {
             accepted,
             text,
+            size,
             disk: Disk::read(files, found),
             path,
             pid,
@@ -680,7 +722,7 @@ fn resolve(
     store: &crate::store::Store,
     files: &ContextFiles,
     pid: &str,
-) -> (Accepted, Option<Arc<str>>) {
+) -> (Accepted, Option<Resolved>) {
     if files.own_missed() == Some(Missed::Unknown) {
         return (Accepted::Unknown, None);
     }
@@ -692,14 +734,18 @@ fn resolve(
     };
     let key = version_key(pid, n.seq);
     let digest = n.digest.as_deref().unwrap_or("-");
-    let text = files.accepted(&format!("{key}.{digest}"), || {
+    let kept = files.accepted(&format!("{key}.{digest}"), || {
         let v = store.get_meta::<Version>(&key).ok().flatten()?;
-        v.holds(&n).then(|| v.text.unwrap_or_default())
+        v.holds(&n).then(|| Kept {
+            text: v.text.unwrap_or_default().into(),
+            bytes: v.bytes,
+            cut: v.cut,
+        })
     });
-    match text {
-        Some(t) => {
-            let text = n.digest.is_some().then_some(t);
-            (Accepted::Some(n), text)
+    match kept {
+        Some(k) => {
+            let text = n.digest.is_some().then(|| k.text.clone());
+            (Accepted::Some(n), Some((text, (k.bytes, k.cut))))
         }
         None => (Accepted::Damaged(n), None),
     }
@@ -788,6 +834,7 @@ pub fn check_line(store_dir: &Path, path: &Path) -> String {
                 pid: pid(path),
                 accepted: Accepted::Some(n.clone()),
                 text: None,
+                size: None,
                 disk: disk.clone(),
             };
             let on = crate::owner_note::day(n.at_ms);

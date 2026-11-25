@@ -168,6 +168,30 @@ pub(crate) async fn turn_in(
     (session, fake.requests().pop().expect("the model was asked"))
 }
 
+/// A turn sent as `turn.submit` is, in `dir`, that must be refused: the
+/// words it was refused with. Nothing reaches the model.
+pub(crate) async fn refused_turn(core: &Arc<Core>, fake: &FakeProvider, dir: &Path) -> String {
+    use crate::approval::Surface;
+    use crate::peer_proc::Behind;
+    let sent = fake.requests().len();
+    let e = crate::tests_m3::rpc_as(
+        core,
+        crate::tests_m3::surface("sock#1", Surface::Cli).behind(Behind::Owner),
+        method::TURN_SUBMIT,
+        json!({"input": "what are the rules?", "dir": dir.to_string_lossy()}),
+    )
+    .await
+    .expect_err("the turn is refused");
+    assert_eq!(fake.requests().len(), sent, "nothing reached the model");
+    e.message
+}
+
+/// What a request in `dir` would carry of the project part of block 3.
+pub(crate) fn project_part(core: &Core, dir: &Path) -> String {
+    let files = &core.runner.context_files;
+    crate::project_context::block(&core.cfg, &core.store, files, dir, false).unwrap_or_default()
+}
+
 /// Block 3 of a request: the last system block.
 pub(crate) fn block_3(req: &ProviderRequest) -> String {
     req.system
@@ -281,8 +305,15 @@ async fn a_pointer_that_cannot_be_read_is_never_accepted_over() {
     assert_eq!(look_of(&r.core).accepted, Accepted::Unreadable);
     assert!(r.core.own_file_first_start().unwrap().is_none());
     assert!(rows(&r.core, "own_file.accepted").is_empty());
-    let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
+    let block = project_part(&r.core, &r.work);
     assert!(!block.contains("BRINDLEWICK-9"), "{block}");
+    let why = refused_turn(&r.core, &r.fake, &r.work).await;
+    assert!(
+        why.contains(
+            "Your own instruction file: the record of which version is accepted cannot be read"
+        ),
+        "{why}"
+    );
 }
 
 /// A store that accepted a version under another path (a state directory

@@ -560,6 +560,9 @@ async fn an_undo_says_the_file_changed_again_since() {
         .text()
         .replace("Rule 90: be careful.", "Rule 90: be gentle.");
     std::fs::write(&f.named, &later).unwrap();
+    // The owner accepts his later edit at his terminal: an undo, as a
+    // change, is asked only on the version he accepted.
+    super::tests_held::owner_accepts(&f.r.core, &f.named).await;
     let sid = f.r.session();
     f.r.turn_with("config_undo", &sid, json!({})).await;
     let (status, text) = f.r.result(&sid);

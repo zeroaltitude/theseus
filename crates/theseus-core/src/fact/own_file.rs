@@ -63,6 +63,24 @@ impl Fact for OwnFileChanged<'_> {
     }
 }
 
+/// A turn was not run: the owner's instruction files cannot be read as last
+/// accepted (`turn/instructions_step.rs`). The session's line only; the
+/// turn's error carries the same words to whoever sent it.
+pub struct TurnWithoutInstructions<'a> {
+    pub author: &'a str,
+    /// The refusal's words, which name what the owner does.
+    pub why: &'a str,
+}
+
+impl Fact for TurnWithoutInstructions<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            theseus_protocol::NarrativePart::Turn,
+            format!("A turn from {} was refused. {}", self.author, self.why),
+        );
+    }
+}
+
 /// `own_file.accepted`: a version of the file is accepted, by the owner's
 /// act or by the daemon's first start with none.
 pub struct OwnFileAccepted<'a> {

@@ -50,6 +50,20 @@ pub fn refusal(core: &Core, named: &Named, before: &str, after: &str) -> Option<
     })
 }
 
+/// Why a change may not be asked, or written, on `before`, the text of
+/// `named`: it is a context file and `before` is not its accepted version
+/// (`held::base_refusal`). Asked at the proposal (and an undo's) and again at
+/// the yes.
+pub fn held_base(core: &Core, named: &Named, before: &str) -> Option<String> {
+    crate::project_context::held::base_refusal(
+        &core.cfg,
+        &core.store,
+        &core.runner.context_files,
+        &named.path,
+        before,
+    )
+}
+
 /// Build the card, keep the two texts for it, and ask the owner.
 pub fn put_file(
     rt: &ToolRuntime,
@@ -59,6 +73,9 @@ pub fn put_file(
     a: Ask<'_>,
 ) -> Result<(String, Value), String> {
     if let Some(why) = refusal(core, a.named, a.before, a.after) {
+        return Err(why);
+    }
+    if let Some(why) = held_base(core, a.named, a.before) {
         return Err(why);
     }
     let w = &rt.config_change;
