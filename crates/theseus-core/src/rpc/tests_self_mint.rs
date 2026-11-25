@@ -557,15 +557,20 @@ async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_o
     assert_eq!(c.tools.self_pr.role(&writer), None);
     assert!(crate::view_gate::Verified::of_session(&c.runner, &writer).own_place_only());
     let ordinary = {
-        let rec = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        let rec =
+            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
         c.store.put_session(&rec.session_id, &rec).unwrap();
         rec.session_id
     };
     // Laid: the ordinary session's request holds the held-back words through recall; the writer's does not.
     for (sid, who) in [(&ordinary, "ordinary"), (&writer, "writer")] {
-        crate::tests_view_hand_backs::unmarked(&c, sid, &format!("{who}: HARBOR merge the job branch?"))
-            .await
-            .unwrap();
+        crate::tests_view_hand_backs::unmarked(
+            &c,
+            sid,
+            &format!("{who}: HARBOR merge the job branch?"),
+        )
+        .await
+        .unwrap();
     }
     let sent = |who: &str| {
         let q = (model.requests().into_iter())
@@ -574,17 +579,35 @@ async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_o
             .expect("its request");
         serde_json::to_string(&q.messages).unwrap()
     };
-    assert!(sent("ordinary").contains("HELD-BACK-HARBOR"), "the control is laid it");
-    assert!(!sent("writer").contains("HELD-BACK-HARBOR"), "the writer is not");
+    assert!(
+        sent("ordinary").contains("HELD-BACK-HARBOR"),
+        "the control is laid it"
+    );
+    assert!(
+        !sent("writer").contains("HELD-BACK-HARBOR"),
+        "the writer is not"
+    );
     // Paged, opened, found: the ordinary session reaches it, the writer does not.
     let history = |sid: String, a: Value| {
         let c = c.clone();
         async move {
-            let pov = crate::history_tool::pov_of(&c, &sid, "t_now", None, crate::places::PlaceClass::Private);
+            let pov = crate::history_tool::pov_of(
+                &c,
+                &sid,
+                "t_now",
+                None,
+                crate::places::PlaceClass::Private,
+            );
             let a: crate::view::history::HistoryArgs = serde_json::from_value(a).unwrap();
-            crate::history_tool::answer(&c, &crate::history_tool::Board::default(), (&sid, "t_now"), &pov, &a)
-                .await
-                .map(|o| o.text)
+            crate::history_tool::answer(
+                &c,
+                &crate::history_tool::Board::default(),
+                (&sid, "t_now"),
+                &pov,
+                &a,
+            )
+            .await
+            .map(|o| o.text)
         }
     };
     for a in [
@@ -592,13 +615,24 @@ async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_o
         json!({"place": place.clone()}),
         json!({"place": "*"}),
     ] {
-        let wide = history(ordinary.clone(), a.clone()).await.unwrap_or_else(|e| e);
-        assert!(wide.contains("HELD-BACK-HARBOR"), "{a}: the control: {wide}");
-        let own = history(writer.clone(), a.clone()).await.unwrap_or_else(|e| e);
+        let wide = history(ordinary.clone(), a.clone())
+            .await
+            .unwrap_or_else(|e| e);
+        assert!(
+            wide.contains("HELD-BACK-HARBOR"),
+            "{a}: the control: {wide}"
+        );
+        let own = history(writer.clone(), a.clone())
+            .await
+            .unwrap_or_else(|e| e);
         assert!(!own.contains("HELD-BACK-HARBOR"), "{a}: the writer: {own}");
     }
     let opened = history(writer.clone(), json!({"open": held.session.clone()})).await;
     assert!(opened.is_err(), "its session does not open: {opened:?}");
-    let searched = history(writer.clone(), json!({"place": "import", "words": "HARBOR"})).await;
+    let searched = history(
+        writer.clone(),
+        json!({"place": "import", "words": "HARBOR"}),
+    )
+    .await;
     assert!(searched.is_err(), "no import search: {searched:?}");
 }
