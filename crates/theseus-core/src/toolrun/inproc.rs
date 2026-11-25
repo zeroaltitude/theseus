@@ -208,6 +208,8 @@ impl ToolRuntime {
         };
         // What a result shows the words of (P0's rule 3): its edges ride in its frame, as a glide's did.
         let copied = crate::copies::copied(tool.name(), &mut meta);
+        // A look back's answer as parts, kept in place of its words (issue 49).
+        let parts = super::parts::taken(tool.name(), &mut meta);
         // An edit's diagnostics, and what arrived since for the session's
         // pending files, in a private place only (L3); none for a call a
         // cancel settled.
@@ -232,6 +234,10 @@ impl ToolRuntime {
                 meta: meta.clone(),
                 image,
                 external,
+                by_ref: (!parts.is_empty()).then_some(super::parts::ByRef {
+                    parts,
+                    store: tc.store,
+                }),
                 ..ResultNode::new(&call.id, tool.name(), status, text)
             },
         );
@@ -287,7 +293,7 @@ impl ToolRuntime {
         // The call did run, and this turn still holds what it said, so the
         // transcript gets it as the call's result (theseus-0o8).
         if matches!(accepted, Accepted::LateAfterCancel { .. }) {
-            let mut late = vec![node.record()?];
+            let mut late = vec![super::parts::record(&node)?];
             late.extend(crate::copies::edges(&node.id, &copied)?);
             tc.store.append(&late)?;
         }

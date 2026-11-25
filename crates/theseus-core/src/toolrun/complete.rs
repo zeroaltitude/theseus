@@ -38,7 +38,7 @@ impl ToolRuntime {
         extra: Vec<theseus_store::NewRecord>,
     ) -> Result<Accepted> {
         let sid = tc.session_id;
-        let mut frame = vec![node.record()?];
+        let mut frame = vec![super::parts::record(node)?];
         frame.extend(extra);
         let accepted = tc.kernel.accept_completion_with(c, frame)?;
         // A Google result raises its label where it is written

@@ -68,6 +68,7 @@ pub(crate) mod page;
 pub(crate) mod session;
 #[cfg(test)]
 mod tests;
+pub(crate) mod written;
 
 /// Its name, as the config's `[policy.tools]` checks it.
 pub const NAMES: [&str; 1] = [HISTORY_TOOL];
@@ -202,6 +203,7 @@ pub(crate) fn open_any(
         let s = session::open(lens, &h.0, before)?;
         return Ok(OpenedAny {
             text: s.text,
+            parts: s.parts,
             outside: s.outside,
             session: true,
             next: s.next,
@@ -211,6 +213,7 @@ pub(crate) fn open_any(
     let o = open::open_marked(lens, h)?;
     Ok(OpenedAny {
         text: o.text,
+        parts: o.parts,
         outside: o.outside,
         session: false,
         next: None,
@@ -223,6 +226,8 @@ pub(crate) fn open_any(
 /// words it shows.
 pub(crate) struct OpenedAny {
     pub text: String,
+    /// The same text, kept by reference (issue 49).
+    pub parts: Vec<crate::quotes::Part>,
     pub outside: bool,
     pub session: bool,
     pub next: Option<Cursor>,
@@ -528,6 +533,7 @@ pub(crate) async fn answer(
                 "outside": outside_of(opened.outside, handle.trim()),
             });
             meta[crate::copies::KEY] = json!(opened.sources);
+            meta[written::PARTS] = json!(opened.parts);
             ToolOutput {
                 meta,
                 text: opened.text,
@@ -557,23 +563,21 @@ pub(crate) async fn answer(
                 "outside": outside_of(page::shows_another(&p), of),
             });
             // An import search's page shows imported messages, which no exchange holds: its own sources.
-            let (text, sources) = match imported {
+            let cuts = core.tools.scrubber.cuts();
+            let (w, sources) = match imported {
                 Some(f) => (
-                    imports::render(&p, a, span.as_ref(), f.why.as_deref(), &core.tools.scrubber.cuts()),
+                    imports::written_page(&p, a, span.as_ref(), f.why.as_deref(), &cuts),
                     f.nodes,
                 ),
                 None => (
-                    page::render(
-                        &p,
-                        (&heading, span.as_ref()),
-                        looks,
-                        resume.as_ref(),
-                        &core.tools.scrubber.cuts(),
-                    ),
+                    page::written_page(&p, (&heading, span.as_ref()), looks, resume.as_ref(), &cuts),
                     page_sources(core, &p)?,
                 ),
             };
+            // What it shows rides as parts too, which the runtime keeps in place of its words (`written`).
+            let (text, parts) = w.into_parts();
             meta[crate::copies::KEY] = json!(sources);
+            meta[written::PARTS] = json!(parts);
             ToolOutput { text, meta }
         }
     })

@@ -25,6 +25,7 @@ mod handles;
 mod kept;
 mod keys;
 mod labels;
+mod parts;
 
 const HERE: &str = "local";
 const DM: &str = "discord:dm:42";
@@ -2079,6 +2080,7 @@ fn a_pages_place_person_and_span_stop_before_a_known_value() {
             reply_begins: None,
             outside: true,
             labels: None,
+            quotes: Default::default(),
         }],
         next: None,
         end: PageEnd::HistoryExhausted,

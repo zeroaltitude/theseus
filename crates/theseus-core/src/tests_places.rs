@@ -122,7 +122,8 @@ pub(crate) fn system_text(req: &ProviderRequest) -> String {
         .join("\n")
 }
 
-/// A call's result, as its session stores it.
+/// A call's result, as its session stores it: its words, or what the parts of one kept by reference show
+/// ([`kept_text`]).
 pub(crate) fn result_of(core: &Core, sid: &str, id: &str) -> String {
     core.store
         .session_nodes(sid)
@@ -132,11 +133,21 @@ pub(crate) fn result_of(core: &Core, sid: &str, id: &str) -> String {
             crate::node::Body::ToolResult {
                 tool_use_id,
                 content,
+                parts,
                 ..
-            } if tool_use_id == id => Some(content),
+            } if tool_use_id == id => Some(kept_text(core, content, &parts)),
             _ => None,
         })
         .unwrap_or_else(|| panic!("no result for {id}"))
+}
+
+/// A stored result's text: `content` for one stored with its words, else what its `parts` show as written, an
+/// erased quote's fixed line in its place (issue 49).
+pub(crate) fn kept_text(core: &Core, content: String, parts: &[crate::quotes::Part]) -> String {
+    match parts.is_empty() {
+        true => content,
+        false => crate::quotes::render_with(parts, |q| crate::quotes::read(&core.store, q)),
+    }
 }
 
 /// Why the gate refused each call it refused, by call.

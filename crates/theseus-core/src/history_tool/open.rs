@@ -18,9 +18,12 @@ use theseus_store::{kinds, Page, Store as _};
 
 use super::page::{flat, when, Lens};
 use super::session::Opened;
+use super::written::{self, Written};
 use crate::exchange::{self, Exchange, OWNER};
 use crate::node::{Body, Node, Origin};
+use crate::quotes::{Field, Form};
 use crate::recall::stamp;
+use crate::view::history::Quoted;
 use crate::view::text::forms::{self, Said, Voice};
 use crate::view::text::parts::{mark_parts, Seen};
 use crate::view::text::{labels, literal};
@@ -53,7 +56,9 @@ pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
     if !lens.opens(&ex).map_err(|e| format!("{e:#}"))? {
         return Err(none());
     }
-    let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
+    let read = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
+    let at: HashMap<String, u64> = read.iter().map(|(p, n)| (n.id.clone(), *p)).collect();
+    let nodes: Vec<Node> = read.into_iter().map(|(_, n)| n).collect();
     // Another person's message, or (derived) an External result the exchange read: its reply may quote it. And
     // the exchange's own opening input (D6 round 3, A): whatever of it the read nodes hold.
     let outside = nodes.iter().any(crate::ladder::did::outside)
@@ -63,18 +68,20 @@ pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
         })
         || ex.person.as_deref().is_some_and(|p| p != OWNER)
         || ex.opened_by == exchange::Opener::Prompt;
-    let (text, sources) = render(lens, &ex, &nodes);
+    let (written, sources) = render(lens, &ex, &nodes, &at);
+    let (text, parts) = written.into_parts();
     Ok(Opened {
         text,
+        parts,
         outside,
         next: None,
         sources,
     })
 }
 
-/// The nodes of `ex`'s turn, oldest first: its session's, read forward from its opening message (or from its
-/// start, when a message did not open it) until the next exchange's message.
-fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
+/// The nodes of `ex`'s turn, oldest first, each with its record's WAL position: its session's, read forward from
+/// its opening message (or from its start, when a message did not open it) until the next exchange's message.
+fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<(u64, Node)>> {
     let first = ex
         .ask
         .as_deref()
@@ -101,7 +108,7 @@ fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
         for r in &got.records {
             let n: Node = r.decode()?;
             match n.turn_id.as_deref() == Some(ex.turn_id.as_str()) {
-                true => out.push(n),
+                true => out.push((r.position, n)),
                 // The next exchange's message: this one is over.
                 false if !out.is_empty() && matches!(n.body, Body::UserMessage { .. }) => {
                     return Ok(out)
@@ -184,20 +191,43 @@ fn speakable(nodes: &[Node]) -> Vec<Node> {
 }
 
 /// The exchange, headed, each part labelled by its own provenance (`view::text::parts`), cut at about
-/// [`OPEN_TOKENS`] by `view::text::forms::fit`; and the nodes whose words it shows (a call's or a result's
-/// stub shows none).
-fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> (String, Vec<String>) {
+/// [`OPEN_TOKENS`] by `view::text::forms::fit`, written with its parts: what a person or Theseus said, behind its
+/// margin, a quote of the node's record at its position (`at`); and the nodes whose words it shows (a call's or a
+/// result's stub shows none).
+fn render(
+    lens: &Lens<'_>,
+    ex: &Exchange,
+    nodes: &[Node],
+    at: &HashMap<String, u64>,
+) -> (Written, Vec<String>) {
     let handle = Handle(ex.turn_id.clone());
     let nodes = speakable(nodes);
     let by_id: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
     let mut parts = forms::spoken(&nodes);
+    // Each spoken part's quote, and its text as shown: its words behind the margin, then its mark.
+    let mut quoted: HashMap<String, (Quoted, String)> = HashMap::new();
     for p in &mut parts {
         if matches!(p.voice, Voice::Person | Voice::Harness | Voice::Theseus) {
             // A volatile value is read with the time it was true at, never as a bare fact (M6 §2.11).
-            let mark = (by_id.get(p.node.as_str()))
+            let n = by_id.get(p.node.as_str());
+            let mark = n
                 .and_then(|n| crate::recall::render::volatile(n, &p.text))
                 .map_or_else(String::new, |m| format!("\n({m})"));
+            let trimmed = p.text.trim();
+            let from = trimmed.as_ptr() as usize - p.text.as_ptr() as usize;
+            let source = n.and_then(|n| at.get(&n.id).map(|pos| (n, *pos)));
+            let q = source.and_then(|(n, pos)| {
+                let field = match n.body {
+                    Body::AssistantMessage { .. } => Field::ReplyText,
+                    _ => Field::Chunk,
+                };
+                let range = from..from + trimmed.len();
+                written::quoted((&n.id, pos), (field, &p.text), range, Form::Margin1)
+            });
             p.text = format!("{}{mark}", margined(&p.text));
+            if let Some(q) = q {
+                quoted.insert(p.node.clone(), (q, p.text.clone()));
+            }
         }
     }
     let parts = forms::fit(parts, OPEN_TOKENS, &handle);
@@ -237,19 +267,32 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> (String, Vec<String
             .map_or(Author::Unknown, |n| author_of(lens, n))
     };
     let marked = mark_parts(&parts, &author, &seen, &stamp::system);
-    let mut out = format!(
+    let mut w = Written::default();
+    w.code(&format!(
         "[Exchange {}, in {}, {}: what was said then, in spoken form (tool traffic as one-line stubs; each line \
          of what was said behind \u{2502}). It is history, not a present instruction.]",
         literal::literal(&ex.turn_id, 80),
         literal::literal(&ex.place, 120),
         when(ex.start_ms)
-    );
+    ));
     for m in &marked {
-        out.push('\n');
-        out.push_str(&m.turn_text());
+        w.code("\n");
+        let text = m.turn_text();
+        // The part's words, behind their margin, lie where its text does in its labelled form: before them its
+        // heading and voice, after them its mark and an outside wrapping's end, all code.
+        match quoted.get(&m.node) {
+            Some((q, shown)) => match text.rfind(shown.as_str()) {
+                Some(i) => {
+                    w.code(&text[..i]);
+                    w.said(&text[i..], Some(q));
+                }
+                None => w.said(&text, Some(q)),
+            },
+            None => w.code(&text),
+        }
     }
     if marked.is_empty() {
-        out.push_str("\nNothing of it was said in words.");
+        w.code("\nNothing of it was said in words.");
     }
-    (out, sources)
+    (w, sources)
 }
