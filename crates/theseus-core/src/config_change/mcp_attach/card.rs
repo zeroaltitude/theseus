@@ -246,17 +246,22 @@ fn refused_sign_in(t: &Tried) -> bool {
 }
 
 /// How it signs in (issue 55), and what the owner does next: said before the
-/// yes. A server asked for with no sign-in whose trial was refused for want
-/// of one is told so, with what to ask instead.
+/// yes, with why when the trial's 401 made it one that signs in.
 fn sign_in(name: &str, t: &Tried, s: &McpServerConfig) -> String {
     match &s.oauth {
         Some(o) => {
-            let mut out = format!(
+            let mut out = match refused_sign_in(t) {
+                true => "The trial was refused for want of a sign-in (HTTP 401), so it is \
+                         attached as a server that signs in.\n"
+                    .to_string(),
+                false => String::new(),
+            };
+            out.push_str(&format!(
                 "Sign-in: it signs in in a browser. After your yes, run `theseus mcp login {name}` \
                  in your own terminal and sign in once; until then it is attached but not \
                  connected. What the sign-in gives is kept and renewed by Theseus itself, never \
                  in this conversation.\n"
-            );
+            ));
             if let Some(id) = &o.client_id {
                 out.push_str(&format!("Its sign-in uses the client id {}.\n", lit(id)));
             }
@@ -265,11 +270,6 @@ fn sign_in(name: &str, t: &Tried, s: &McpServerConfig) -> String {
             }
             out
         }
-        None if refused_sign_in(t) && s.auth_secret.is_none() => format!(
-            "The trial was refused for want of a sign-in (HTTP 401). As asked, it has no \
-             sign-in, so it would be attached but would not connect. Ask for it again with a \
-             sign-in (`oauth`); then, after your yes, run `theseus mcp login {name}`.\n"
-        ),
         None => String::new(),
     }
 }

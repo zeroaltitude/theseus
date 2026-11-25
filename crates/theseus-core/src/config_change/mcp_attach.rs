@@ -80,13 +80,6 @@ struct AttachInput {
     env: BTreeMap<String, String>,
     #[serde(default)]
     auth_secret: Option<String>,
-    /// The server signs in in a browser (issue 55).
-    #[serde(default)]
-    oauth: Option<bool>,
-    #[serde(default)]
-    oauth_client_id: Option<String>,
-    #[serde(default)]
-    oauth_scopes: Vec<String>,
     #[serde(default)]
     read: Vec<String>,
     #[serde(default)]
@@ -150,9 +143,6 @@ fn check(i: &AttachInput) -> Result<(), String> {
                         .into(),
                 );
             }
-            if signs_in(i) {
-                return Err("`oauth` is for a server over HTTP that signs in in a browser".into());
-            }
         }
         (true, Some(u)) => {
             if !(u.starts_with("https://") || u.starts_with("http://")) {
@@ -173,12 +163,6 @@ fn check(i: &AttachInput) -> Result<(), String> {
             if !i.env.is_empty() {
                 return Err("`env` is for a program Theseus starts; a server over HTTP gets its key from `auth_secret`".into());
             }
-            if signs_in(i) && i.auth_secret.is_some() {
-                return Err(
-                    "a server is sent a fixed key (`auth_secret`) or signs in (`oauth`), not both"
-                        .into(),
-                );
-            }
             if i.sandbox.as_deref() == Some("l1") || !i.egress.is_empty() {
                 return Err("`sandbox` and `egress` are for a program Theseus starts; a server over HTTP runs elsewhere".into());
             }
@@ -193,12 +177,6 @@ fn check(i: &AttachInput) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-/// Whether the server is asked for with a sign-in: `oauth`, or a client id
-/// or scopes for one.
-fn signs_in(i: &AttachInput) -> bool {
-    i.oauth == Some(true) || i.oauth_client_id.is_some() || !i.oauth_scopes.is_empty()
 }
 
 /// The table to write, from the server as the owner asked for it.
@@ -261,10 +239,7 @@ impl Spec {
             env: i.env.clone(),
             url: i.url.clone(),
             auth_secret: i.auth_secret.clone(),
-            oauth: signs_in(i).then(|| crate::config::mcp::McpOauth {
-                client_id: i.oauth_client_id.clone(),
-                scopes: i.oauth_scopes.clone(),
-            }),
+            oauth: None,
             read: i.read.clone(),
             sandbox,
             egress: i.egress.clone(),
@@ -307,6 +282,23 @@ impl Spec {
     fn path(&self) -> Vec<String> {
         server_path(&self.name)
     }
+
+    /// A server over HTTP asked for with no key, whose trial was refused with
+    /// HTTP 401, wants a sign-in (issue 55): it is attached as one that signs
+    /// in (`oauth`), and its card says so. True when that changed the table.
+    fn signs_in_after(&mut self, tried: &card::Tried) -> bool {
+        let refused = tried
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("HTTP 401"));
+        let w = &mut self.wanted;
+        if !refused || w.url.is_none() || w.auth_secret.is_some() || w.oauth.is_some() {
+            return false;
+        }
+        w.oauth = Some(crate::config::mcp::McpOauth::default());
+        self.table = table_of(w);
+        true
+    }
 }
 
 /// `mcp.servers.<name>` as a path.
@@ -334,9 +326,7 @@ impl Tool for Attach {
          it is given by name, and which hosts it may reach. Only the owner's yes attaches it, \
          with a second proof, and its tools are offered from the next message with no restart. \
          A secret a server needs is named by its `[secrets]` entry (`env`: variable to secret \
-         name; `auth_secret` for HTTP): never a value. A server over HTTP that signs in in a \
-         browser is asked for with `oauth`; the owner signs in afterwards with \
-         `theseus mcp login NAME`. A command or address its maker publishes may be \
+         name; `auth_secret` for HTTP): never a value. A command or address its maker publishes may be \
          looked up with the web tools rather than asked for: give it with a `source`, never a guess. \
          Offered only to the owner, in a private place."
     }
@@ -350,9 +340,6 @@ impl Tool for Attach {
                 "url": {"type": "string", "description": "Instead of command: the address of a server over HTTP."},
                 "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Environment variable to the NAME of a [secrets] entry. Never a value."},
                 "auth_secret": {"type": "string", "description": "For url: the NAME of the [secrets] entry that is its key."},
-                "oauth": {"type": "boolean", "description": "For url: true when the server signs in in a browser (its trial answers 401 for want of a sign-in). The owner then runs `theseus mcp login NAME` once. Never with auth_secret."},
-                "oauth_client_id": {"type": "string", "description": "With oauth, only for a server that offers no registration: the client id its maker gave the owner."},
-                "oauth_scopes": {"type": "array", "items": {"type": "string"}, "description": "With oauth, only when the owner names them: the scopes to ask for."},
                 "read": {"type": "array", "items": {"type": "string"}, "description": "The tools the owner says are read-only. Every other tool asks first."},
                 "sandbox": {"type": "string", "enum": ["l1", "l0"], "description": "l1 (the default) runs it in the sandbox; l0 outside it, only on the owner's word."},
                 "egress": {"type": "array", "items": {"type": "string"}, "description": "Hosts (host:port) a sandboxed server may reach. Empty: no network."},
@@ -612,6 +599,27 @@ fn only_the_server(name: &str, settings: &[diff::Setting]) -> Result<(), String>
     }
 }
 
+/// The settings with `spec`'s table: the file, the server as it loads, and the
+/// settings that change, which must be the server's own table alone.
+fn candidate_of(
+    g: &Ground,
+    spec: &Spec,
+) -> Result<(String, McpServerConfig, Vec<diff::Setting>), String> {
+    let change = edit::Change::Set(spec.path(), spec.table.clone());
+    let candidate = edit::apply(&g.base, &[change])?;
+    let (loaded, _) = crate::Config::parse(&candidate)
+        .map_err(|e| format!("the settings with that server do not load: {e:#}"))?;
+    let server = loaded
+        .mcp
+        .servers
+        .get(&spec.name)
+        .cloned()
+        .ok_or("the settings with that server do not hold it")?;
+    let settings = diff::between(&g.base, &candidate)?;
+    only_the_server(&spec.name, &settings)?;
+    Ok((candidate, server, settings))
+}
+
 /// Run `mcp.attach` for the call `correlation_id` of the turn `tc`. An error is
 /// the result the model reads.
 pub async fn attach(
@@ -628,7 +636,7 @@ pub async fn attach(
         return Ok(done);
     }
     let i: AttachInput = parse(input)?;
-    let spec = Spec::of(&i)?;
+    let mut spec = Spec::of(&i)?;
     let g = ground(rt)?;
     if g.config.mcp.servers.contains_key(&spec.name) || g.board.has_server(&spec.name) {
         return Err(format!(
@@ -650,25 +658,14 @@ pub async fn attach(
     let blocked = !missing.is_empty() || !unloaded.is_empty();
     // The candidate, before anything starts: one that does not load makes no
     // trial and no card.
-    let built = match blocked {
+    let mut built = match blocked {
         true => None,
-        false => {
-            let change = edit::Change::Set(spec.path(), spec.table.clone());
-            let candidate = edit::apply(&g.base, &[change])?;
-            let (loaded, _) = crate::Config::parse(&candidate)
-                .map_err(|e| format!("the settings with that server do not load: {e:#}"))?;
-            let server = loaded
-                .mcp
-                .servers
-                .get(&spec.name)
-                .cloned()
-                .ok_or("the settings with that server do not hold it")?;
-            let settings = diff::between(&g.base, &candidate)?;
-            only_the_server(&spec.name, &settings)?;
-            Some((candidate, server, settings))
-        }
+        false => Some(candidate_of(&g, &spec)?),
     };
     let tried = try_once(rt, &g.board, &spec, correlation_id).await?;
+    if spec.signs_in_after(&tried) {
+        built = built.map(|_| candidate_of(&g, &spec)).transpose()?;
+    }
     if tried.error.is_none() {
         let list = crate::mcp::StoredList {
             digest: crate::mcp::digest(&tried.tools),
