@@ -163,18 +163,23 @@ impl Renderer {
         let Some(t) = self.turns.iter().rev().find(|t| t.turn_id == turn) else {
             return vec![];
         };
-        render_turn(t, &self.tightened, !self.notice_embeds, self.exits.as_deref())
-            .into_iter()
-            .filter(|m| m.key.ends_with(TOOLS))
-            .map(|m| Op::Upsert {
-                key: m.key,
-                content: m.content,
-                buttons: match m.menu {
-                    Some(menu) if !menu.is_empty() => Buttons::ShouldHaveAsked(menu),
-                    _ => Buttons::Keep,
-                },
-            })
-            .collect()
+        render_turn(
+            t,
+            &self.tightened,
+            !self.notice_embeds,
+            self.exits.as_deref(),
+        )
+        .into_iter()
+        .filter(|m| m.key.ends_with(TOOLS))
+        .map(|m| Op::Upsert {
+            key: m.key,
+            content: m.content,
+            buttons: match m.menu {
+                Some(menu) if !menu.is_empty() => Buttons::ShouldHaveAsked(menu),
+                _ => Buttons::Keep,
+            },
+        })
+        .collect()
     }
 }
 
@@ -231,10 +236,10 @@ impl Fold {
     fn menu(&self) -> Vec<Asked> {
         let mut out: Vec<Asked> = Vec::new();
         for a in self.menus.values().flatten() {
-            match out.iter_mut().find(|o| o.tool == a.tool) {
-                Some(o) => o.correlation_id.clone_from(&a.correlation_id),
-                None if out.len() < MAX_ASKED => out.push(a.clone()),
-                None => {}
+            if let Some(o) = out.iter_mut().find(|o| o.tool == a.tool) {
+                o.correlation_id.clone_from(&a.correlation_id);
+            } else if out.len() < MAX_ASKED {
+                out.push(a.clone());
             }
         }
         out
@@ -491,10 +496,13 @@ mod tests {
             ("fs.read", done()),
             ("fs.read", done()),
             ("fs.grep", done()),
-            ("proc.run", ToolState::Done {
-                status: "error".into(),
-                ms: 9,
-            }),
+            (
+                "proc.run",
+                ToolState::Done {
+                    status: "error".into(),
+                    ms: 9,
+                },
+            ),
             ("fs.write", ToolState::Waiting),
             ("mcp.tool", done()),
         ]);
@@ -503,15 +511,33 @@ mod tests {
             "-# 6 steps: 2 reads, 1 search, 1 command, 1 edit, 1 other call · 1 failed · 1 waiting for approval"
         );
         assert_eq!(
-            line(Some(&tally(&[("fs.read", done())])), Some(Thought::For(6)), BOTH),
+            line(
+                Some(&tally(&[("fs.read", done())])),
+                Some(Thought::For(6)),
+                BOTH
+            ),
             "-# 💭 thought for 6 s · 1 step: 1 read"
         );
         assert_eq!(
-            line(Some(&t), Some(Thought::Thinking), Shown { tools: false, thinking: true }),
+            line(
+                Some(&t),
+                Some(Thought::Thinking),
+                Shown {
+                    tools: false,
+                    thinking: true
+                }
+            ),
             "-# 💭 thinking"
         );
         assert_eq!(
-            line(Some(&t), Some(Thought::For(2)), Shown { tools: false, thinking: false }),
+            line(
+                Some(&t),
+                Some(Thought::For(2)),
+                Shown {
+                    tools: false,
+                    thinking: false
+                }
+            ),
             ""
         );
     }
@@ -546,17 +572,25 @@ mod tests {
         else {
             panic!("{out:?}")
         };
-        assert_eq!((key.as_str(), content.as_str()), ("turn_a:fold", "-# 2 steps: 2 reads"));
+        assert_eq!(
+            (key.as_str(), content.as_str()),
+            ("turn_a:fold", "-# 2 steps: 2 reads")
+        );
         assert_eq!((b.page, b.pages), (None, 1));
         // The same again writes nothing.
-        let again = f.take(vec![upsert("turn_a:L1:tools", "-# ⏳ `fs.read` b")], |_| {
-            "-# 2 steps: 2 reads".into()
-        });
+        let again = f.take(
+            vec![upsert("turn_a:L1:tools", "-# ⏳ `fs.read` b")],
+            |_| "-# 2 steps: 2 reads".into(),
+        );
         assert!(again.is_empty(), "{again:?}");
         // Open, it is the loops' lines, in order; closed, the line again.
-        let (open, _) = f.press("turn_a", Some(0), "-# 2 steps: 2 reads", Vec::new).unwrap();
+        let (open, _) = f
+            .press("turn_a", Some(0), "-# 2 steps: 2 reads", Vec::new)
+            .unwrap();
         assert_eq!(open, "-# ✅ `fs.read` a · 3 ms\n-# ⏳ `fs.read` b");
-        let (closed, _) = f.press("turn_a", None, "-# 2 steps: 2 reads", Vec::new).unwrap();
+        let (closed, _) = f
+            .press("turn_a", None, "-# 2 steps: 2 reads", Vec::new)
+            .unwrap();
         assert_eq!(closed, "-# 2 steps: 2 reads");
     }
 
@@ -566,7 +600,9 @@ mod tests {
     fn a_long_fold_pages_whole_lines() {
         let mut f = Folds::default();
         let lines: Vec<String> = (0..60)
-            .map(|i| format!("-# ✅ `fs.read` /a/rather/long/path/to/a/file/number/{i:03}.txt · 3 ms"))
+            .map(|i| {
+                format!("-# ✅ `fs.read` /a/rather/long/path/to/a/file/number/{i:03}.txt · 3 ms")
+            })
             .collect();
         let ops: Vec<Op> = lines
             .chunks(20)
@@ -583,7 +619,8 @@ mod tests {
             assert!(page.len() <= PART_LIMIT, "page {p}: {} bytes", page.len());
             let (body, more) = page.rsplit_once('\n').unwrap();
             assert!(
-                more.starts_with("-# … and ") && more.ends_with(&format!("page {} of {}", p + 1, b.pages)),
+                more.starts_with("-# … and ")
+                    && more.ends_with(&format!("page {} of {}", p + 1, b.pages)),
                 "{more}"
             );
             for l in body.lines() {
@@ -595,7 +632,10 @@ mod tests {
         assert!(first.starts_with(&lines[0]));
         // A page past the last shows the last.
         let (past, _) = f.press("turn_b", Some(99), "x", Vec::new).unwrap();
-        assert!(past.ends_with(&format!("page {} of {}", b.pages, b.pages)), "{past}");
+        assert!(
+            past.ends_with(&format!("page {} of {}", b.pages, b.pages)),
+            "{past}"
+        );
     }
 
     /// A press on a fold this place does not hold takes its lines from
@@ -603,7 +643,9 @@ mod tests {
     #[test]
     fn a_press_after_a_restart_reads_the_lines_from_the_seed() {
         let mut f = Folds::default();
-        assert!(f.press("turn_c", Some(0), "-# 1 step: 1 read", Vec::new).is_none());
+        assert!(f
+            .press("turn_c", Some(0), "-# 1 step: 1 read", Vec::new)
+            .is_none());
         let (open, _) = f
             .press("turn_c", Some(0), "-# 1 step: 1 read", || {
                 vec![upsert("turn_c:L0:tools", "-# ✅ `fs.read` c · 2 ms")]

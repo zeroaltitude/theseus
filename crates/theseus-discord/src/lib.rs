@@ -38,9 +38,9 @@ mod tests_default_forum;
 #[cfg(test)]
 mod tests_dm_flow_golden;
 #[cfg(test)]
-mod tests_forum_archive;
-#[cfg(test)]
 mod tests_fold;
+#[cfg(test)]
+mod tests_forum_archive;
 #[cfg(test)]
 mod tests_gateway;
 #[cfg(test)]

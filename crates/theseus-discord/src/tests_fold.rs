@@ -47,8 +47,16 @@ fn steps(dir: &Path, word: &str) -> Vec<Scripted> {
         Scripted::tools(
             "",
             &[
-                (&format!("r1_{word}"), "fs_read", json!({"path": path("chart.txt")})),
-                (&format!("r2_{word}"), "fs_read", json!({"path": path("notes.txt")})),
+                (
+                    &format!("r1_{word}"),
+                    "fs_read",
+                    json!({"path": path("chart.txt")}),
+                ),
+                (
+                    &format!("r2_{word}"),
+                    "fs_read",
+                    json!({"path": path("notes.txt")}),
+                ),
             ],
         ),
         Scripted::tools(
@@ -105,14 +113,18 @@ fn norm(s: &str) -> String {
 }
 
 fn ask(r: &Rig, channel: Option<u64>, word: &str) {
-    r.say((ANA, "ana"), channel, &format!("When is low tide by the {word} chart?"));
+    r.say(
+        (ANA, "ana"),
+        channel,
+        &format!("When is low tide by the {word} chart?"),
+    );
 }
 
 fn answered(r: &Rig, channel: u64, word: &str) -> bool {
-    r.posted(channel)
-        .iter()
-        .any(|m| m.content.contains(&format!("the {word} chart is at 06:12.")))
-        && r.core.outbox.status("discord").pending == 0
+    r.posted(channel).iter().any(|m| {
+        m.content
+            .contains(&format!("the {word} chart is at 06:12."))
+    }) && r.core.outbox.status("discord").pending == 0
 }
 
 /// The parts of the rows of the binding's creates that end with `end`.
@@ -144,7 +156,11 @@ async fn a_turn_of_several_calls_is_one_closed_fold_and_one_answer() {
     .await;
     let dm = r.posted(ANA_DM);
     let f = fold(&r, ANA_DM).unwrap();
-    assert_eq!(labels(&f).last().map(String::as_str), Some("Show steps"), "{f:#?}");
+    assert_eq!(
+        labels(&f).last().map(String::as_str),
+        Some("Show steps"),
+        "{f:#?}"
+    );
     for v in &f.versions {
         assert!(v.starts_with("-# ") && !v.contains('\n'), "one line: {v:?}");
         for never in ["`fs.", "chart.txt", "06:12", "pier"] {
@@ -156,12 +172,17 @@ async fn a_turn_of_several_calls_is_one_closed_fold_and_one_answer() {
         .iter()
         .find(|m| m.content.contains("the dm chart is at 06:12."))
         .unwrap();
-    assert!(answer.buttons.iter().all(|b| !b.custom_id.starts_with("fold:")));
+    assert!(answer
+        .buttons
+        .iter()
+        .all(|b| !b.custom_id.starts_with("fold:")));
     assert!(
-        dm.iter().all(|m| m.versions.iter().all(|v| !v.contains("`fs."))),
+        dm.iter()
+            .all(|m| m.versions.iter().all(|v| !v.contains("`fs."))),
         "no tool line was ever shown: {dm:#?}"
     );
-    r.until("the fold's row", || !parts(&r, ":fold").is_empty()).await;
+    r.until("the fold's row", || !parts(&r, ":fold").is_empty())
+        .await;
     assert_eq!(parts(&r, ":fold").len(), 1);
     assert!(parts(&r, ":tools").is_empty(), "{:?}", parts(&r, ":tools"));
 }
@@ -188,13 +209,21 @@ async fn open_shows_the_lines_an_open_place_shows_and_hide_closes_it() {
         let tools = tool_messages(&r, LAB);
         answered(&r, LAB, "lab")
             && tools.len() == 2
-            && tools.iter().all(|m| !m.content.contains('⏳') && !m.content.contains('▫'))
+            && tools
+                .iter()
+                .all(|m| !m.content.contains('⏳') && !m.content.contains('▫'))
     })
     .await;
     let lab = tool_messages(&r, LAB);
-    let want = norm(&lab.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n"));
+    let want = norm(
+        &lab.iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
     assert!(fold(&r, LAB).is_none(), "an open place makes no fold");
-    r.until("#lab's rows", || parts(&r, ":tools").len() == 2).await;
+    r.until("#lab's rows", || parts(&r, ":tools").len() == 2)
+        .await;
     assert!(parts(&r, ":fold").is_empty());
     let mut choices: Vec<String> = lab.iter().flat_map(labels).collect();
     choices.dedup();
@@ -213,7 +242,11 @@ async fn open_shows_the_lines_an_open_place_shows_and_hide_closes_it() {
         writes(&lab)
     );
     let closed = labels(&f);
-    assert_eq!(closed[..closed.len() - 1], choices[..], "#lab's choices, closed too");
+    assert_eq!(
+        closed[..closed.len() - 1],
+        choices[..],
+        "#lab's choices, closed too"
+    );
 
     r.press(&f.id, "Show steps", (ANA, "ana"));
     r.until("the fold open", || {
@@ -232,7 +265,9 @@ async fn open_shows_the_lines_an_open_place_shows_and_hide_closes_it() {
     })
     .await;
     assert_eq!(
-        labels(&fold(&r, ANA_DM).unwrap()).last().map(String::as_str),
+        labels(&fold(&r, ANA_DM).unwrap())
+            .last()
+            .map(String::as_str),
         Some("Show steps")
     );
 }
@@ -269,16 +304,22 @@ async fn a_fold_opens_after_its_place_starts_again() {
     r.until("#lab unbound", || !labels_bound().contains(&"#lab".into()))
         .await;
     std::fs::write(&file, bindings("")).unwrap();
-    r.until("#lab bound again", || labels_bound().contains(&"#lab".into()))
-        .await;
+    r.until("#lab bound again", || {
+        labels_bound().contains(&"#lab".into())
+    })
+    .await;
     r.press(&f.id, "Show steps", (ANA, "ana"));
     r.until("the fold open after the restart", || {
-        fold(&r, LAB).is_some_and(|f| f.content.contains("`fs.read`") && f.content.contains("`fs.grep`"))
+        fold(&r, LAB)
+            .is_some_and(|f| f.content.contains("`fs.read`") && f.content.contains("`fs.grep`"))
     })
     .await;
     let opened = fold(&r, LAB).unwrap();
     assert_eq!(opened.content.lines().count(), 3, "{opened:#?}");
-    assert!(opened.content.lines().all(|l| l.starts_with("-# ✅ `fs.")), "{opened:#?}");
+    assert!(
+        opened.content.lines().all(|l| l.starts_with("-# ✅ `fs.")),
+        "{opened:#?}"
+    );
 }
 
 /// Three loops of ten calls each: open, the fold is cut whole-line into
@@ -294,7 +335,9 @@ async fn a_long_fold_is_cut_whole_line_into_pages() {
             for l in 0..3 {
                 let calls: Vec<(String, Value)> = (0..10)
                     .map(|i| {
-                        let p = work.join(format!("a-rather-long-name-for-a-file-the-fold-pages-{l}{i}.txt"));
+                        let p = work.join(format!(
+                            "a-rather-long-name-for-a-file-the-fold-pages-{l}{i}.txt"
+                        ));
                         std::fs::write(&p, "x\n").unwrap();
                         (format!("r{l}{i}"), json!({"path": p.to_string_lossy()}))
                     })
@@ -315,7 +358,9 @@ async fn a_long_fold_is_cut_whole_line_into_pages() {
     .await;
     r.say((ANA, "ana"), None, "Read the thirty files.");
     r.until("the answer and the fold", || {
-        r.posted(ANA_DM).iter().any(|m| m.content.contains("Read all thirty."))
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("Read all thirty."))
             && fold(&r, ANA_DM).is_some_and(|f| f.content == "-# 30 steps: 30 reads")
     })
     .await;
@@ -328,9 +373,19 @@ async fn a_long_fold_is_cut_whole_line_into_pages() {
     let page = |n: usize| {
         let m = fold(&r, ANA_DM).unwrap();
         let (body, more) = m.content.rsplit_once('\n').unwrap();
-        assert!(m.content.chars().count() <= 2000, "{} characters", m.content.chars().count());
-        assert!(more.starts_with("-# … and ") && more.contains(&format!(" · page {n} of ")), "{more}");
-        assert!(body.lines().all(|l| l.starts_with("-# ✅ `fs.read` ")), "whole lines: {body}");
+        assert!(
+            m.content.chars().count() <= 2000,
+            "{} characters",
+            m.content.chars().count()
+        );
+        assert!(
+            more.starts_with("-# … and ") && more.contains(&format!(" · page {n} of ")),
+            "{more}"
+        );
+        assert!(
+            body.lines().all(|l| l.starts_with("-# ✅ `fs.read` ")),
+            "whole lines: {body}"
+        );
         (body.lines().count(), more.to_string(), labels(&m))
     };
     let (first, more, l) = page(1);
@@ -365,9 +420,16 @@ async fn a_card_and_a_failed_turn_are_never_in_the_fold() {
             Arc::new(FakeProvider::scripted(vec![
                 Scripted::tools(
                     "Writing it.",
-                    &[("w1", "fs_write", json!({"path": out.to_string_lossy(), "content": "x"}))],
+                    &[(
+                        "w1",
+                        "fs_write",
+                        json!({"path": out.to_string_lossy(), "content": "x"}),
+                    )],
                 ),
-                Scripted::tools("", &[("r1", "fs_read", json!({"path": chart.to_string_lossy()}))]),
+                Scripted::tools(
+                    "",
+                    &[("r1", "fs_read", json!({"path": chart.to_string_lossy()}))],
+                ),
                 Scripted::Fail(ProviderError::InvalidRequest {
                     status: 400,
                     message: "the request was refused".into(),
@@ -381,7 +443,9 @@ async fn a_card_and_a_failed_turn_are_never_in_the_fold() {
     .await;
     r.say((ANA, "ana"), Some(LAB), "Write the proof.");
     r.until("the card and the fold that says it waits", || {
-        r.posted(LAB).iter().any(|m| m.versions[0].contains("**Approve?**"))
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.versions[0].contains("**Approve?**"))
             && fold(&r, LAB).is_some_and(|f| f.content.contains("1 waiting for approval"))
     })
     .await;
@@ -397,7 +461,9 @@ async fn a_card_and_a_failed_turn_are_never_in_the_fold() {
 
     r.say((ANA, "ana"), None, "Read the chart.");
     r.until("the failure and the fold", || {
-        r.posted(ANA_DM).iter().any(|m| m.content.contains("Turn failed"))
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("Turn failed"))
             && fold(&r, ANA_DM).is_some_and(|f| f.content == "-# 1 step: 1 read")
     })
     .await;
@@ -406,9 +472,15 @@ async fn a_card_and_a_failed_turn_are_never_in_the_fold() {
         .into_iter()
         .find(|m| m.content.contains("Turn failed"))
         .unwrap();
-    assert!(failed.buttons.iter().all(|b| !b.custom_id.starts_with("fold:")));
+    assert!(failed
+        .buttons
+        .iter()
+        .all(|b| !b.custom_id.starts_with("fold:")));
     let f = fold(&r, ANA_DM).unwrap();
-    assert!(f.versions.iter().all(|v| !v.contains("Turn failed")), "{f:#?}");
+    assert!(
+        f.versions.iter().all(|v| !v.contains("Turn failed")),
+        "{f:#?}"
+    );
 }
 
 /// A turn that thinks: its fold says how long, and its create is silent, as
@@ -440,13 +512,17 @@ async fn a_thinking_turns_fold_says_so_and_is_silent() {
     r.until("the answer and the fold", || {
         answered(&r, ANA_DM, "dm")
             && fold(&r, ANA_DM).is_some_and(|f| {
-                f.content.starts_with("-# 💭 thought for ") && f.content.ends_with(" · 1 step: 1 read")
+                f.content.starts_with("-# 💭 thought for ")
+                    && f.content.ends_with(" · 1 step: 1 read")
             })
     })
     .await;
     let f = fold(&r, ANA_DM).unwrap();
     assert!(f.silent(), "{f:#?}");
-    assert!(f.versions.iter().all(|v| !v.contains("chart is in work")), "{f:#?}");
+    assert!(
+        f.versions.iter().all(|v| !v.contains("chart is in work")),
+        "{f:#?}"
+    );
 }
 
 /// A fold whose turn this place cannot read back (no such turn) tells the
@@ -482,7 +558,11 @@ async fn a_fold_too_old_to_read_back_says_so_to_the_presser() {
         })
     })
     .await;
-    let m = r.fake.messages(ANA_DM).into_iter().find(|m| m.id == id).unwrap();
+    let m = r
+        .fake
+        .messages(ANA_DM)
+        .into_iter()
+        .find(|m| m.id == id)
+        .unwrap();
     assert_eq!(m.content, "-# 2 steps: 2 reads");
 }
-

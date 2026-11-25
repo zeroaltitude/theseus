@@ -646,12 +646,21 @@ mod tests {
     #[test]
     fn a_place_folds_its_steps_unless_it_says_open() {
         let b = Bindings::parse(EXAMPLE_BINDINGS).unwrap();
-        assert_eq!((b.channel[0].steps, b.dm[0].steps), (Steps::Folded, Steps::Folded));
+        assert_eq!(
+            (b.channel[0].steps, b.dm[0].steps),
+            (Steps::Folded, Steps::Folded)
+        );
         let example = EXAMPLE_BINDINGS.replacen("# steps = \"folded\"", "steps = \"open\"", 2);
         let b = Bindings::parse(&example).unwrap();
-        assert_eq!((b.channel[0].steps, b.dm[0].steps), (Steps::Open, Steps::Open));
+        assert_eq!(
+            (b.channel[0].steps, b.dm[0].steps),
+            (Steps::Open, Steps::Open)
+        );
         let dm = |w: &str| format!("[[dm]]\nuser = \"323456789012345678\"\nsteps = \"{w}\"\n");
-        assert_eq!(Bindings::parse(&dm("folded")).unwrap().dm[0].steps, Steps::Folded);
+        assert_eq!(
+            Bindings::parse(&dm("folded")).unwrap().dm[0].steps,
+            Steps::Folded
+        );
         let e = Bindings::parse(&dm("collapsed")).unwrap_err();
         assert!(format!("{e:#}").contains("collapsed"), "{e:#}");
     }

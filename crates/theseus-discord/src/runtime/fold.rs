@@ -121,8 +121,13 @@ impl Shared {
         let Some((turn, page)) = parse(&c.custom_id) else {
             return false;
         };
-        self.respond(i, InteractionResponseType::DeferredUpdateMessage, None, false)
-            .await;
+        self.respond(
+            i,
+            InteractionResponseType::DeferredUpdateMessage,
+            None,
+            false,
+        )
+        .await;
         let (reply, answer) = oneshot::channel();
         if place
             .send(PlaceMsg::Fold(Box::new(Ask { turn, page, reply })))
@@ -137,17 +142,14 @@ impl Shared {
                 return true;
             }
         };
-        let (Some((content, buttons)), Some(ch), Some(m)) =
+        let (Some((content, Buttons::Fold(f))), Some(ch), Some(m)) =
             (shown, i.channel.as_ref(), i.message.as_ref())
         else {
             self.followup(i, TOO_OLD).await;
             return true;
         };
-        let Buttons::Fold(f) = &buttons else {
-            return true;
-        };
         let content = command_reply::leaving(&self.core.exits, &content);
-        let comps = buttons(f);
+        let comps = buttons(&f);
         if let Err(e) = self
             .http
             .update_message(ch.id, m.id)
@@ -195,7 +197,13 @@ mod tests {
         let t = "turn_01JABCDEF";
         assert_eq!(parse(&id(t, Some(3))), Some((t.to_string(), Some(3))));
         assert_eq!(parse(&id(t, None)), Some((t.to_string(), None)));
-        for bad in ["fold:o:x:turn_a", "fold:c:", "fold:z:turn_a", "src:a:b", "fold:o:1"] {
+        for bad in [
+            "fold:o:x:turn_a",
+            "fold:c:",
+            "fold:z:turn_a",
+            "src:a:b",
+            "fold:o:1",
+        ] {
             assert_eq!(parse(bad), None, "{bad}");
         }
         assert!(id(&"t".repeat(80), Some(99)).len() <= 100, "Discord's 100");
@@ -227,7 +235,10 @@ mod tests {
         assert_eq!(labels(&f(None, 1)), ["Show steps"]);
         assert_eq!(labels(&f(Some(0), 1)), ["Hide steps"]);
         assert_eq!(labels(&f(Some(0), 3)), ["Later ▶", "Hide steps"]);
-        assert_eq!(labels(&f(Some(1), 3)), ["◀ Earlier", "Later ▶", "Hide steps"]);
+        assert_eq!(
+            labels(&f(Some(1), 3)),
+            ["◀ Earlier", "Later ▶", "Hide steps"]
+        );
         assert_eq!(labels(&f(Some(2), 3)), ["◀ Earlier", "Hide steps"]);
     }
 }
