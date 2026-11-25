@@ -109,7 +109,11 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
         "{note}"
     );
     assert!(!note.contains("a page said to"), "no outside words: {note}");
-    assert_eq!(notes(&r)[0]["announce"], json!(true), "to the notices place");
+    assert_eq!(
+        notes(&r)[0]["announce"],
+        json!(true),
+        "to the notices place"
+    );
     // The yes path's restart, with its marker, as a card's yes leaves it.
     let marker = super::restart::marker_path(&r.state);
     let p = super::restart::load(&marker).expect("the marker");
@@ -155,11 +159,9 @@ async fn the_undo_follows_and_puts_back_exactly_what_was() {
     assert_eq!(status, ResultStatus::Ok, "{text}");
     assert!(r.asked().is_empty(), "no card: {:?}", r.asked());
     assert_eq!(r.file_text(), FILE, "exactly as it was");
-    assert!(
-        super::diff::between(FILE, &r.file_text())
-            .unwrap()
-            .is_empty()
-    );
+    assert!(super::diff::between(FILE, &r.file_text())
+        .unwrap()
+        .is_empty());
     let undone = r.rows("config.undone");
     assert_eq!(undone.len(), 1, "{undone:?}");
     assert_eq!(undone[0]["undone"], json!(n));
@@ -204,8 +206,18 @@ async fn a_sensitive_change_keeps_its_card_whatever_the_setting() {
     for (path, value, proof, fresh) in [
         ("policy.enforcement", json!("approve"), true, false),
         ("kernel.daily_spend_ceiling_usd", json!(400.0), true, false),
-        ("places.owner", json!(["discord:4100000000000000099"]), true, true),
-        ("content_based_security.injection", json!("refuse"), false, false),
+        (
+            "places.owner",
+            json!(["discord:4100000000000000099"]),
+            true,
+            true,
+        ),
+        (
+            "content_based_security.injection",
+            json!("refuse"),
+            false,
+            false,
+        ),
     ] {
         let sid = r.session();
         r.turn(&sid, change(path, value)).await;
@@ -250,9 +262,10 @@ async fn a_lowered_ceiling_asks_with_the_card_alone() {
         .unwrap();
     assert!(q.needs_proof, "{}", q.reason);
     assert!(
-        q.reason
-            .contains("These settings need a second proof as well as your yes: \
-                       kernel.daily_spend_ceiling_usd"),
+        q.reason.contains(
+            "These settings need a second proof as well as your yes: \
+             kernel.daily_spend_ceiling_usd"
+        ),
         "{}",
         q.reason
     );

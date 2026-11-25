@@ -651,27 +651,36 @@ pub(crate) fn put_using(
         args["secret"] = s.args();
     }
     // Issue 57: an ordinary change follows the tool's own setting (`told.rs`).
-    let tool = match undoes {
-        Some(_) => undo::UNDO,
-        None => PROPOSE,
-    };
-    let ordinary = secret.is_none() && long == 0 && sensitive(changes, &settings).is_empty();
-    if let (true, Some(setting)) = (ordinary && going_live.is_empty(), told::untold(rt, tool)) {
-        let spend = match args["restart"] == true {
-            true => told::restart_spent(tc).ok().map(Some),
-            false => Some(None),
+    let ordinary = secret.is_none()
+        && long == 0
+        && going_live.is_empty()
+        && sensitive(changes, &settings).is_empty();
+    if ordinary {
+        let tool = match undoes {
+            Some(_) => undo::UNDO,
+            None => PROPOSE,
         };
-        if let Some(spend) = spend {
-            let t = told::Told {
-                id: correlation_id,
-                session_id: tc.session_id,
-                args: &args,
-                setting: &setting,
-                records: spend.into_iter().collect(),
-            };
-            return change_told(rt, tc, t, (tool, base, &settings), outside || steered);
+        let at = (tool, base, settings.as_slice());
+        if let Some(done) = change_told(rt, tc, correlation_id, &args, at, outside || steered) {
+            return done;
         }
     }
+    let said = ask_card(rt, tc, correlation_id, args, (&question, base, &settings), needs)?;
+    Ok((
+        said,
+        json!({"settings": settings.len(), "candidate": digest}),
+    ))
+}
+
+/// [`put_using`]'s card: the question with `args`, and what the tool says of it.
+fn ask_card(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    correlation_id: &str,
+    args: Value,
+    (question, base, settings): (&str, &str, &[diff::Setting]),
+    needs: proof_seam::Needs,
+) -> Result<String, String> {
     let proposal = Proposal {
         tool: ACK.into(),
         args,
@@ -688,18 +697,41 @@ pub(crate) fn put_using(
         },
         waiting::SETTINGS_CHECKED,
         waiting::waiting(tc),
-        show::before(base, &settings)
+        show::before(base, settings)
     );
     ask(rt, tc, proposal, correlation_id, &said, needs)?;
-    Ok((
-        said,
-        json!({"settings": settings.len(), "candidate": digest}),
-    ))
+    Ok(said)
 }
 
-/// An ordinary change written with no card (`told.rs`): the tool's result says
-/// it was done, its number, and how to undo it; the owner is told the same.
+/// An ordinary change written with no card (`told.rs`), when the tool's setting
+/// lets it run and a restart it needs is not past its bound: the tool's result
+/// says it was done, its number, and how to undo it; the owner is told the same.
+/// None: the card is asked.
 fn change_told(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    correlation_id: &str,
+    args: &Value,
+    (tool, base, settings): (&str, &str, &[diff::Setting]),
+    outside_text: bool,
+) -> Option<Result<(String, Value), String>> {
+    let setting = told::untold(rt, tool)?;
+    let records = match args["restart"] == true {
+        true => vec![told::restart_spent(tc).ok()?],
+        false => vec![],
+    };
+    let t = told::Told {
+        id: correlation_id,
+        session_id: tc.session_id,
+        args,
+        setting: &setting,
+        records,
+    };
+    Some(write_change_told(rt, tc, t, (tool, base, settings), outside_text))
+}
+
+/// [`change_told`]'s write and its words.
+fn write_change_told(
     rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
     t: told::Told<'_>,

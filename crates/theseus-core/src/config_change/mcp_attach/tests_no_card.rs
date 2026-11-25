@@ -61,7 +61,9 @@ async fn a_removal_runs_with_no_card_and_attaching_again_still_asks() {
     r.turn(&sid, "mcp_attach", wc()).await;
     let asks = r.asked();
     assert_eq!(asks.len(), 1, "{asks:?}");
-    assert!(asks[0].reason.starts_with("Attach the MCP server \"wc\"?\n"));
+    assert!(asks[0]
+        .reason
+        .starts_with("Attach the MCP server \"wc\"?\n"));
 }
 
 /// The KEEP neighbour: a server that names a secret asks with the code; one
@@ -76,7 +78,8 @@ async fn attaching_a_server_with_a_secret_asks_with_the_code() {
     let q = r.asked().remove(0);
     assert!(q.needs_proof, "{}", q.reason);
     assert!(
-        q.reason.contains("so this needs a second proof as well as your yes"),
+        q.reason
+            .contains("so this needs a second proof as well as your yes"),
         "{}",
         q.reason
     );

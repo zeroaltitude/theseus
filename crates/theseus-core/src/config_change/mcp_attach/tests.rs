@@ -438,16 +438,14 @@ async fn attaching_and_detaching_are_asked_with_the_second_proof() {
         .expect("the detach's card");
     super::super::tests::assert_worded(&r.core, &detach, "remove the MCP server `base`");
     assert!(!detach.needs_proof, "{detach:?}");
-    for q in [&attach] {
-        let e = r
-            .core
-            .confirm_action(&q.correlation_id, true, None, "cli")
-            .unwrap_err();
-        assert!(
-            e.to_string().contains("theseus owner proof enroll"),
-            "{e:#}"
-        );
-    }
+    let e = r
+        .core
+        .confirm_action(&attach.correlation_id, true, None, "cli")
+        .unwrap_err();
+    assert!(
+        e.to_string().contains("theseus owner proof enroll"),
+        "{e:#}"
+    );
     assert_eq!(r.file_text(), FILE);
     assert!(!r.core.mcp.has_server("wc"));
     assert_eq!(r.asked().len(), 2, "both still wait");

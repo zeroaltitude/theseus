@@ -209,8 +209,7 @@ fn lines(f: &Facts<'_>) -> String {
         .settings
         .iter()
         .filter_map(|s| {
-            let code =
-                sensitivity::proof_reason(&s.path, s.before.as_ref(), s.after.as_ref())?;
+            let code = sensitivity::proof_reason(&s.path, s.before.as_ref(), s.after.as_ref())?;
             let why = sensitivity::reason(&s.path).unwrap_or(code);
             Some(format!("{} ({why})", super::edit::dotted(&s.path)))
         })

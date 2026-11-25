@@ -92,7 +92,13 @@ fn asked_by(a: &Action, args: &Value) -> Value {
 
 /// The `config.changed` row of a change written: on a card's yes, or with no
 /// card (`told.rs`), whose row says so with `told`.
-pub(super) fn changed_row(q: Asked<'_>, d: &Applied, who: &Value, by: &str, via: &str) -> LedgerRow {
+pub(super) fn changed_row(
+    q: Asked<'_>,
+    d: &Applied,
+    who: &Value,
+    by: &str,
+    via: &str,
+) -> LedgerRow {
     let args = q.args;
     let mut data = json!({
         "source": "owner", "question": q.id, "paths": args["paths"],
@@ -363,7 +369,14 @@ impl Core {
             NewRecord::json(kinds::LEDGER, None, &row)?,
         ];
         // An undo that was written names the change it undid.
-        rows.extend(undone_row(Asked::of(a, &args), approve, &args, &who, by, via)?);
+        rows.extend(undone_row(
+            Asked::of(a, &args),
+            approve,
+            &args,
+            &who,
+            by,
+            via,
+        )?);
         rows.extend(keep_note(a, &answer, note.as_deref())?);
         // A server attached or removed by asking: who did it rides in the frame.
         let live = match applied.is_some() {

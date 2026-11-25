@@ -214,7 +214,11 @@ mod tests {
         assert_eq!(usd(five, three), Needs::Card);
         assert_eq!(usd(three, five), Needs::Proof);
         assert_eq!(usd("", five), Needs::Proof, "set where there was none");
-        assert_eq!(usd(five, ""), Needs::Proof, "removed: its default may be higher");
+        assert_eq!(
+            usd(five, ""),
+            Needs::Proof,
+            "removed: its default may be higher"
+        );
         assert_eq!(
             usd(five, "[self.budget]\nusd = \"lots\"\n"),
             Needs::Proof,
