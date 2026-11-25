@@ -535,3 +535,51 @@ fn a_turn_that_made_room_clears_its_old_results_whatever_the_line() {
     );
     assert!(all.contains(&"n".repeat(5_000)), "the newest stays whole");
 }
+
+/// A tool prints a known value end to end, more than the window holds: the result is laid as its head, and
+/// the request carries each copy whole (masked at the exit) or not at all, never a piece at the head's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_long_result_laid_in_the_view_holds_a_value_whole_or_not_at_all() {
+    use crate::provider::Scripted;
+    use crate::tests_cut_sites::{knowing_core, tool_results, whole_or_absent, V};
+    use crate::tests_places::{answers_a_call, session, turn};
+    let script = format!("for i in $(seq 1 20000); do printf '%s' '{V}'; done");
+    let r = knowing_core(
+        V,
+        |c| {
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                crate::catalog::CatalogRow {
+                    context_window: Some(200_000),
+                    max_output_tokens: Some(2_000),
+                    ..Default::default()
+                },
+            );
+            c.context.working_window_tokens = Some(40_000);
+            c.tools.result_max_chars = 1_000_000;
+            c.tools.large_payload_chars = 0;
+        },
+        move |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Done.");
+            }
+            Scripted::tools(
+                "Printing.",
+                &[("p1", "proc_run", json!({"argv": ["bash", "-c", script]}))],
+            )
+        },
+    );
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "print it").await;
+    let sent: Vec<String> = r.requests().iter().flat_map(tool_results).collect();
+    let laid: Vec<&String> = sent
+        .iter()
+        .filter(|s| s.contains("[Only the first"))
+        .collect();
+    assert!(!laid.is_empty(), "no result was laid as its head");
+    for s in laid {
+        assert!(s.contains("[redacted:cut_test]"), "the masked copies");
+        let rest = s.replace("[redacted:cut_test]", "");
+        whole_or_absent("the laid result outside its masked copies", &rest, V);
+    }
+}

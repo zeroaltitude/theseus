@@ -7,11 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 use theseus_protocol::cite::{split_header, Citation, DiscordSource};
-use theseus_protocol::term::words::cut_marked as clip;
 use theseus_store::NewRecord;
 
 use super::render::shown_text;
 use crate::node::{Body, Node, RecalledRef};
+use crate::scrub::safe::head_marked as clip;
 use crate::turn::TurnRunner;
 
 /// How much of a source a citation's excerpt holds, in characters.

@@ -36,7 +36,7 @@ pub fn note_of(blocks: &[Value]) -> Option<String> {
     if sentence.chars().count() <= NOTE_CHARS {
         return Some(sentence);
     }
-    let cut: String = sentence.chars().take(NOTE_CHARS).collect();
+    let (cut, _) = crate::scrub::safe::head(&sentence, NOTE_CHARS);
     let at = cut.rfind(' ').filter(|i| *i > 0).unwrap_or(cut.len());
     Some(format!(
         "{}…",
