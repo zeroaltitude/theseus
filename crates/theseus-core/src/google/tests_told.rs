@@ -76,27 +76,21 @@ fn owner() -> crate::approval::Answerer {
     }
 }
 
-/// Someone in a shared place who is not the owner, and an agent's process on
-/// the CLI: neither counts.
+/// Someone who is not the owner, in a shared place and in a DM: neither
+/// counts. (An undo is judged as a routine's delete is: the CLI is the
+/// owner's, and a job's shell is refused by the CLI before it sends.)
 fn not_the_owner() -> [crate::approval::Answerer; 2] {
-    [
-        crate::approval::Answerer {
-            label: "discord:777".into(),
-            surface: crate::approval::Surface::Discord,
-            discord: Some(theseus_protocol::DiscordOrigin {
-                user_id: "777".into(),
-                channel_id: "42".into(),
-                guild_id: Some("7".into()),
-            }),
-            agent: None,
-        },
-        crate::approval::Answerer {
-            label: "agent:helper".into(),
-            surface: crate::approval::Surface::Cli,
-            discord: None,
-            agent: Some("helper".into()),
-        },
-    ]
+    let stranger = |guild: Option<&str>| crate::approval::Answerer {
+        label: "discord:777".into(),
+        surface: crate::approval::Surface::Discord,
+        discord: Some(theseus_protocol::DiscordOrigin {
+            user_id: "777".into(),
+            channel_id: "42".into(),
+            guild_id: guild.map(String::from),
+        }),
+        agent: None,
+    };
+    [stranger(Some("7")), stranger(None)]
 }
 
 /// The one note a turn staged, its words and its Undo's id: a press by
