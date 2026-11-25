@@ -60,15 +60,16 @@ async fn a_server_is_attached_on_a_code_and_removed_inside_the_window() {
     );
     assert!(r.core.mcp.is_loaded("wc"));
     assert_eq!(r.core.proofs.status().windows.len(), 1);
-    // Taking it away is the same card inside the window, on the yes alone.
+    // Taking it away needs no code (issue 57): its card's yes alone, and the
+    // window is not drawn on.
     let sid = r.session();
     r.turn(&sid, "mcp_detach", json!({"name": "wc"})).await;
     let d = r.asked().remove(0);
-    assert!(d.needs_proof, "{d:?}");
+    assert!(!d.needs_proof, "{d:?}");
     yes(&r, owner(), &d.correlation_id, None).await.unwrap();
     assert!(!r.file_text().contains("[mcp.servers.wc]"));
     assert!(!r.core.mcp.is_loaded("wc"));
-    assert_eq!(r.rows("owner.proof.window_used").len(), 1);
+    assert_eq!(r.rows("owner.proof.window_used").len(), 0);
 }
 
 /// An agent's process and a job's process approve neither card, with the

@@ -321,10 +321,16 @@ async fn a_restart_runs_with_no_card_once_per_message_of_the_owners() {
         .confirm_action(&asks[0].correlation_id, false, None, "cli")
         .unwrap();
     back(&r);
-    // The owner writes again: one more with no card.
+    // Theseus is back on the same store, and the owner writes again: one more
+    // with no card.
+    let r = r.restart(|cfg, _| {
+        for t in super::tests::ASKING {
+            cfg.policy.tools.remove(t);
+        }
+    });
     r.turn_with("daemon_restart", &sid, restart).await;
     assert!(r.asked().is_empty(), "{:?}", r.asked());
-    assert_eq!(texts(&r).len(), 2);
+    restart_asked(&r).await;
 }
 
 /// Row 57's exception: while a change written since the start, and so not yet
