@@ -752,7 +752,8 @@ async fn an_adding_use_is_written_and_told_with_no_question() {
         "The item \"Lantern key\", field \"credential\", in the vault \"Harbor\", is kept under the name `lantern_key`, read from op://Harbor/Lantern key/credential.",
         "Nothing is given it yet.",
         "It takes effect when Theseus next restarts; nothing restarts it but you.",
-        "Undo: ask Theseus to undo settings change",
+        "Its Undo puts back exactly what was there before;",
+        "Undo: `ask Theseus to undo settings change #",
     ] {
         assert!(told[0].contains(part), "{part} in {}", told[0]);
     }
@@ -800,7 +801,7 @@ async fn a_repointing_use_is_told_and_its_undo_puts_the_file_back_exactly() {
         .as_u64()
         .unwrap() as u32;
     assert!(
-        told[0].contains(&format!("undo settings change {n}")),
+        told[0].contains(&format!("undo settings change #{n}`")),
         "{told:?}"
     );
     let rows = history::rows(&r.core.store);
@@ -986,4 +987,83 @@ fn the_restart_names_only_what_the_file_still_holds() {
         told::waiting(&w).is_empty(),
         "the file no longer holds the last use's reference"
     );
+}
+
+/// The told use's note: its post id and the undo it carries.
+fn told_note(r: &Rig) -> (String, Value) {
+    let a = r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .into_iter()
+        .find(|a| crate::outbox::body_of(a)["kind"] == "told")
+        .expect("the use's note, with its Undo");
+    let undo = crate::outbox::body_of(&a)["undo"].clone();
+    (a.correlation_id, undo)
+}
+
+/// Someone on Discord, in a guild's channel no binding makes private.
+fn in_a_shared_place(user: u64) -> crate::approval::Answerer {
+    crate::approval::Answerer {
+        label: format!("discord:{user}"),
+        surface: crate::approval::Surface::Discord,
+        discord: Some(theseus_protocol::DiscordOrigin {
+            user_id: user.to_string(),
+            channel_id: "777".into(),
+            guild_id: Some("7".into()),
+        }),
+        agent: None,
+    }
+}
+
+/// The note's Undo puts the wiring before the use back exactly, a new name's entry gone again
+/// and a re-pointed name read from its earlier item, byte for byte; it counts only for the owner
+/// in a private place, once, and the history says the change was undone.
+#[tokio::test]
+async fn the_notes_undo_puts_the_wiring_back_exactly_for_the_owner_alone() {
+    use crate::config_change::tests::OWNER;
+    use crate::config_change::tests_answer::owner_in_dm;
+    for name in ["lantern_key", "anthropic_api_key"] {
+        let (r, _dir, _d) = rig_vault("ok");
+        let sid = r.session();
+        let mut c = call(json!([]));
+        c["name"] = json!(name);
+        r.turn_with("vault_use", &sid, c).await;
+        assert_ne!(r.file_text(), crate::config_change::tests::FILE, "{name}");
+        let n = r.rows("config.changed")[0]["previous_copy"].as_u64().unwrap();
+        let (post, undo) = told_note(&r);
+        assert_eq!(undo, json!({"method": "vault.use.undo", "id": n}), "{name}");
+        for who in [in_a_shared_place(999), in_a_shared_place(OWNER)] {
+            let e = r.core.told_undo(&post, &who).await.unwrap_err();
+            assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{name}: {e:?}");
+            assert_ne!(r.file_text(), crate::config_change::tests::FILE, "{name}");
+        }
+        let done = r.core.told_undo(&post, &owner_in_dm()).await.unwrap();
+        assert!(done.text.ends_with(&format!("↩️ Undone by discord:{OWNER}.")), "{}", done.text);
+        assert_eq!(r.file_text(), crate::config_change::tests::FILE, "{name}: byte for byte");
+        assert_eq!(r.rows("config.undone").len(), 1, "{name}");
+        let again = r.core.told_undo(&post, &owner_in_dm()).await.unwrap_err();
+        assert!(again.data["undone_by"].is_string(), "{name}: {again:?}");
+        assert_eq!(r.file_text(), crate::config_change::tests::FILE, "{name}");
+    }
+}
+
+/// A use whose secret was pointed elsewhere again since is not put back by its note's Undo, which
+/// would overwrite that later change: the owner is told to ask, and nothing is written.
+#[tokio::test]
+async fn the_notes_undo_does_not_overwrite_a_later_change() {
+    use crate::config_change::tests_answer::owner_in_dm;
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(json!([]))).await;
+    let (first, _) = told_note(&r);
+    let mut c = call(json!([]));
+    c["item"] = json!("Lantern key");
+    c["field"] = json!("username");
+    r.turn_with("vault_use", &sid, c).await;
+    assert_eq!(r.rows("config.changed").len(), 2, "{:?}", r.asked());
+    let later = r.file_text();
+    let e = r.core.told_undo(&first, &owner_in_dm()).await.unwrap_err();
+    assert!(e.message.contains("changed again since"), "{e:?}");
+    assert_eq!(r.file_text(), later);
 }

@@ -40,6 +40,11 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
+    /// A use of a vault secret the owner was told of, by its settings change's
+    /// number: the wiring before it put back exactly (issue 54). It has no
+    /// method of its own; `told.undo` runs it in the core.
+    #[serde(rename = "vault.use.undo")]
+    VaultUseUndo(u32),
 }
 
 impl Undo {
@@ -51,6 +56,7 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
+            Undo::VaultUseUndo(_) => method::TOLD_UNDO,
         }
     }
 
@@ -63,6 +69,7 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
+            Undo::VaultUseUndo(n) => json!({"id": n, "author": author}),
         }
     }
 
@@ -73,6 +80,8 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
+            // No shell command puts a settings change back: the words that ask.
+            Undo::VaultUseUndo(n) => format!("ask Theseus to undo settings change #{n}"),
         }
     }
 }
@@ -194,6 +203,20 @@ mod tests {
             assert_eq!(p["author"], json!("ana"));
             assert_eq!(u.command(), cmd);
         }
+    }
+
+    /// A use of a vault secret is undone through the one door: no method of its own, and the words
+    /// that ask for it where a shell command would be.
+    #[test]
+    fn a_vault_use_undo_names_the_one_door_and_the_words_that_ask() {
+        let u = Undo::VaultUseUndo(4);
+        assert_eq!(u.method(), method::TOLD_UNDO);
+        assert_eq!(
+            serde_json::to_value(&u).unwrap(),
+            json!({"method": "vault.use.undo", "id": 4})
+        );
+        assert_eq!(u.params("ana", None), json!({"id": 4, "author": "ana"}));
+        assert_eq!(u.command(), "ask Theseus to undo settings change #4");
     }
 
     /// A restart: the core gone and its store opened again under a new one.

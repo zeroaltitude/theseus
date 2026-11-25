@@ -34,6 +34,7 @@ use crate::secrets::Source;
 use crate::toolrun::{ToolRuntime, TurnCtx};
 
 pub(crate) mod check;
+mod put_back;
 #[cfg(test)]
 mod tests;
 pub mod told;

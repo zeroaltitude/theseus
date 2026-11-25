@@ -46,8 +46,11 @@ for `config.propose`) the other settings that should read that name: a provider'
    one FYI note to the owner names the item and field, the name, what reads it, that it takes effect at the next restart
    (nothing here restarts Theseus; only the owner does), and the undo: `config.undo` of that change number, which puts back
    each setting the use touched, byte for byte. A re-pointed name's note says so, and names the reference it read until
-   now. No card, no second proof. The undo is said in words: the shared note's Undo button calls an existing method, and
-   none undoes a settings change. A restart a turn asks for keeps its card, which says, while the settings file still holds
+   now. No card, no second proof. The note is the shared told note (`owner_note::told`): its **Undo** is
+   `Undo::VaultUseUndo(<change>)`, pressed through `told.undo` (the owner, from a private place), which puts the wiring
+   before the use back exactly in the core (`vault_use/put_back.rs`: `config.undo`'s own plan, the use's own write, a
+   `config.undone` row). It refuses a change whose settings were changed again since, and the owner asks in a
+   conversation instead, where the card shows what the undo would overwrite. A restart a turn asks for keeps its card, which says, while the settings file still holds
    what a told use wrote since this start, which secret name is read from which reference by which settings from that
    start on.
 6. **otherwise puts the whole change to the owner as one card** (`config_change::put_using`, the path every settings change

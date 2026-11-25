@@ -124,6 +124,10 @@ impl Core {
                 };
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
+            // No method of its own: the wiring before the use, put back in the core.
+            Undo::VaultUseUndo(n) => self
+                .vault_use_put_back(*n, who)
+                .map_err(|e| RpcFailure::invalid(anyhow::anyhow!(e))),
         }
     }
 }

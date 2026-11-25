@@ -93,16 +93,16 @@ pub(crate) fn waiting(w: &super::super::Where) -> Vec<String> {
     out
 }
 
-/// The note: FYI-headed, the conversation, what now reads where (and, for a re-pointed name, what
-/// it read before), that a restart is needed, and the undo. Names and references only, never the
-/// value.
-pub(crate) fn note_text(
+/// The note's title, its second line (the conversation) and its body: what now reads where (and,
+/// for a re-pointed name, what it read before) and that a restart is needed. `told::stage` adds
+/// the Undo. Names and references only, never the value.
+pub(crate) fn note_parts(
     title: Option<&str>,
     used: &Chosen,
     before: Option<&str>,
     readers: &[String],
     number: u32,
-) -> String {
+) -> (&'static str, String, String) {
     let c = &used.checked;
     let section = c
         .section
@@ -125,22 +125,21 @@ pub(crate) fn note_text(
             used.name
         )
     });
-    crate::owner_note::note(
-        crate::owner_note::Kind::Fyi,
+    (
         match before.is_some() {
             true => "Theseus pointed a secret at another vault item",
             false => "Theseus put a secret from the vault to use",
         },
-        &format!(
+        format!(
             "{}, at your word, without a card:",
             crate::judge::onto::words::in_conversation(title)
         ),
-        &format!(
+        format!(
             "The item \"{}\", field \"{}\"{section}, in the vault \"{}\", is kept under the name \
              `{}`, read from {}.{was}{by_id} {given} Its value was read once to check it and is shown \
-             nowhere.\nIt takes effect when Theseus next restarts; nothing restarts it but you.\n\
-             Undo: ask Theseus to undo settings change {number} (`config.undo`), which puts back \
-             each setting this changed; `theseus config history` lists it.",
+             nowhere.\nIt takes effect when Theseus next restarts; nothing restarts it but you. \
+             Its Undo puts back exactly what was there before; `theseus config history` lists it \
+             as change #{number}.",
             c.item, c.field, c.vault, used.name, c.reference
         ),
     )
@@ -222,13 +221,24 @@ pub(super) fn put_told(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push((used.name.clone(), used.checked.reference.clone()));
-    let text = note_text(title.as_deref(), used, before.as_deref(), &readers, number);
-    crate::config_change::hold::tell_owner(tc, &text, super::USE);
+    let (head, by, body) = note_parts(title.as_deref(), used, before.as_deref(), &readers, number);
+    let undo = crate::owner_note::told::Undo::VaultUseUndo(number);
+    match crate::owner_note::told::stage(tc.outbox, Some(tc.session_id), head, &by, &body, &undo) {
+        Ok((post, records)) => {
+            for r in records {
+                if let Err(e) = tc.store.defer(r) {
+                    tracing::warn!(error = %format!("{e:#}"), "vault.use: the note's record was not kept");
+                }
+            }
+            tc.posts.lock().unwrap().push(post);
+        }
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "vault.use: the note was not staged"),
+    }
     let said = format!(
         "Done, and the owner is told (no card): `secrets.{}` now reads the vault's item \"{}\", \
          field \"{}\"; {}. It takes effect when Theseus next restarts, which only the owner starts \
          (`daemon.restart` asks them). The value went to no turn, note or record. This is \
-         settings change {number}; `config.undo` puts it back.",
+         settings change {number}; the note's Undo, or `config.undo`, puts it back.",
         used.name,
         used.checked.item,
         used.checked.field,
