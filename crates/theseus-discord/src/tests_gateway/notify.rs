@@ -25,13 +25,15 @@ fn model(_: &std::path::Path, _: Arc<FakeDiscord>) -> Arc<dyn Provider> {
 
 /// `#lab`, `#theseus-notify` and ana's DM. `notify` says whether the second
 /// channel is bound as the announcement place; without it the file binds the
-/// same three places and marks none, which is today's shape.
+/// same three places and marks none, which is today's shape. The DM shows an
+/// FYI's words, not its folded line, as these tests read them (issue 56: a
+/// place folds them unless it says `steps = "open"`).
 fn file(notify: bool) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
          [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
          [[channel]]\nid = \"{NOTIFY}\"\nname = \"theseus-notify\"\nusers = [\"{ANA}\"]\nprivate = true\nnotify = {notify}\n\
-         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\nsteps = \"open\"\n"
     )
 }
 

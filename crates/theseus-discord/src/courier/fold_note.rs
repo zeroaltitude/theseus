@@ -8,7 +8,7 @@
 //! every post that is not an FYI of an informing kind are written as ever.
 //!
 //! A press carries the post's correlation id (`runtime/fold.rs`), and the
-//! words are read back from the post itself (`kernel.action`), by the same
+//! words are read back from the post itself (`kernel.outbox_action`), by the same
 //! functions the lane wrote them with, only when the pressed message is the
 //! one that post was written to: a button forged elsewhere shows nothing.
 

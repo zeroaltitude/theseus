@@ -201,7 +201,7 @@ impl Shared {
         let (Some(ch), Some(m)) = (i.channel.as_ref(), i.message.as_ref()) else {
             return;
         };
-        let a = self.core.kernel.action(post).ok().flatten();
+        let a = self.core.kernel.outbox_action(post).ok().flatten();
         let ours = a
             .as_ref()
             .is_some_and(|a| a.external_op_id.as_deref() == Some(m.id.to_string().as_str()));

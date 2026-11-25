@@ -742,7 +742,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   op for op. A standalone FYI note (`courier/fold_note.rs`) folds too: a post the notices place's rule says only
   informs (`notices::informs`), written to a folded place (`Shared::steps_in`, the place's `PlaceBits`) and not to the
   notices place, with no button of its own and no met watch, is `-# ℹ️ FYI: <its kind's words>` with **Show note**
-  (`fold:no:<post>`, `fold:nc:<post>`); a press reads the words back from the post (`kernel.action`) only when the
+  (`fold:no:<post>`, `fold:nc:<post>`); a press reads the words back from the post (`kernel.outbox_action`) only when the
   pressed message is the post's own (`external_op_id`), else tells the presser `fold::NOTE_GONE`. Tests:
   `tests_fold.rs`, `render/fold.rs`, `runtime/fold.rs`, `runtime/show.rs`, `courier/fold_note.rs`.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
