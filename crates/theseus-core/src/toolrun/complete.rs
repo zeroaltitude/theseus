@@ -81,12 +81,8 @@ impl ToolRuntime {
                 crate::owner_note::told::stage(tc.outbox, None, &p.title, &p.by, &p.body, &undo)?
             }
             None => {
-                let text = crate::owner_note::note(
-                    crate::owner_note::Kind::Fyi,
-                    &p.title,
-                    &p.by,
-                    &p.body,
-                );
+                let text =
+                    crate::owner_note::note(crate::owner_note::Kind::Fyi, &p.title, &p.by, &p.body);
                 tc.outbox.stage_to_operator(
                     None,
                     serde_json::json!({"kind": "notice", "text": text, "announce": true}),

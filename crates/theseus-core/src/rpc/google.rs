@@ -88,8 +88,14 @@ impl crate::Core {
     ) -> Result<serde_json::Value, RpcFailure> {
         let what = format!("the undo of {id}");
         let method = theseus_protocol::method::GOOGLE_UNDO;
-        self.judge_act(who, Act::Google { method, what: &what })
-            .map_err(refused)?;
+        self.judge_act(
+            who,
+            Act::Google {
+                method,
+                what: &what,
+            },
+        )
+        .map_err(refused)?;
         let node = self.store.get_node(id).map_err(RpcFailure::invalid)?;
         let Some(calls) = node.and_then(|(_, n)| crate::google::told::undo_calls(&n)) else {
             return Err(RpcFailure::new(
@@ -103,7 +109,9 @@ impl crate::Core {
             .registry
             .get(crate::google::call::NAME)
             .cloned()
-            .ok_or_else(|| RpcFailure::new(error_code::INVALID_PARAMS, "google.call is not here"))?;
+            .ok_or_else(|| {
+                RpcFailure::new(error_code::INVALID_PARAMS, "google.call is not here")
+            })?;
         let ctx = theseus_tools::ToolCtx {
             approved: true,
             ..Default::default()

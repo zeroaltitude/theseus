@@ -220,7 +220,10 @@ mod tests {
             let s = text(&t, Some("tidy my inbox")).unwrap();
             assert!(crate::owner_note::is_headed(&s), "{s}");
             assert!(s.starts_with("ℹ️ FYI · "), "{s}");
-            assert!(s.contains("\nIn \"tidy my inbox\", without asking you\n"), "{s}");
+            assert!(
+                s.contains("\nIn \"tidy my inbox\", without asking you\n"),
+                "{s}"
+            );
             let s = text(&t, None).unwrap();
             assert!(
                 s.contains("\nIn a conversation with no title yet, without asking you\n"),

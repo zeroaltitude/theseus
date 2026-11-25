@@ -109,7 +109,12 @@ async fn press(r: &Rig, words: &str, same: impl Fn() -> bool) {
     let id = n[0].1.clone().expect("an Undo");
     for who in not_the_owner() {
         let e = r.core.google_undo(&id, &who).await.unwrap_err();
-        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{}", e.message);
+        assert_eq!(
+            e.code,
+            theseus_protocol::error_code::REFUSED,
+            "{}",
+            e.message
+        );
         assert!(same(), "{} changed nothing", who.label);
     }
     r.core.google_undo(&id, &owner()).await.unwrap();

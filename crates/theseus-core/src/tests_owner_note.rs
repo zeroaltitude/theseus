@@ -145,9 +145,8 @@ fn spend_families() -> Vec<(&'static str, String)> {
         at_ms: 0,
     });
     let google = crate::google::tend::lapse_text("wren@example.com");
-    let told = |t: serde_json::Value| {
-        crate::google::told::text(&t, Some("tidy the inbox")).unwrap()
-    };
+    let told =
+        |t: serde_json::Value| crate::google::told::text(&t, Some("tidy the inbox")).unwrap();
     let google_trash = told(crate::google::told::mail_trashed(&[("threads", "t1")]));
     let google_revoke = told(crate::google::told::drive_revoked(
         "doc1",
