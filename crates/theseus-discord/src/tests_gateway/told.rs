@@ -413,18 +413,25 @@ async fn a_told_notes_send_its_undo_edit_and_its_replies_are_masked() {
     let p = r.press(&m.id, "Undo", (ANA, "ana"));
     told_to(&r, &p, "↩️ Undone.").await;
     assert!(!pending(&r, &id), "cancelled");
-    let p = r.press(&m.id, "Undo", (ANA, "ana"));
+    // A repeat press, on a copy still showing the button: the core's answer
+    // edits the copy too, and that edit is masked as well.
+    let again = forge(&r, ANA_DM, &format!("told:undo:{post}")).await;
+    let p = r.press(&again, "Undo", (ANA, "ana"));
     told_to(&r, &p, "↩️ Already undone by discord:ana").await;
-    let edited = r.posted(ANA_DM).into_iter().find(|x| x.id == m.id).unwrap();
-    assert!(
-        edited.content.contains("\n↩️ Undone by discord:ana."),
-        "{}",
-        edited.content
-    );
-    assert!(edited.content.contains("[redacted:"), "{}", edited.content);
-    assert!(edited.versions.len() >= 2, "{:?}", edited.versions);
-    for v in &edited.versions {
-        assert!(!v.contains(SECRET), "{v}");
+    for at in [&m.id, &again] {
+        let edited = r.posted(ANA_DM).into_iter().find(|x| x.id == *at).unwrap();
+        assert!(
+            edited.content.contains("\n↩️ Undone by discord:ana."),
+            "{}",
+            edited.content
+        );
+        assert!(edited.content.contains("[redacted:"), "{}", edited.content);
+        assert!(edited.versions.len() >= 2, "{:?}", edited.versions);
+    }
+    for at in [ANA_DM, LAB] {
+        for x in r.posted(at) {
+            assert!(x.versions.iter().all(|v| !v.contains(SECRET)), "{x:?}");
+        }
     }
     for x in r.fake.replies() {
         let c = x.content.unwrap_or_default();
