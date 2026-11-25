@@ -565,7 +565,9 @@ impl TurnState {
                 }
             }
             (Err(_), _) => {
-                tracing::warn!("a node the turn wrote did not decode; its transcript is read again");
+                tracing::warn!(
+                    "a node the turn wrote did not decode; its transcript is read again"
+                );
                 *t = None;
             }
             (Ok(_), None) => {}

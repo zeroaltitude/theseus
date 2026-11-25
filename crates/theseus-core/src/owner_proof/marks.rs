@@ -36,7 +36,10 @@ pub fn marked(store: &Store, correlation_id: &str) -> Option<bool> {
         Ok(found) => found.map(|m| m.fresh),
         Err(_) => {
             // A mark that cannot be read is read as the strictest one, never as none.
-            tracing::warn!(correlation_id, "an owner proof mark could not be read; treating it as fresh");
+            tracing::warn!(
+                correlation_id,
+                "an owner proof mark could not be read; treating it as fresh"
+            );
             Some(true)
         }
     }

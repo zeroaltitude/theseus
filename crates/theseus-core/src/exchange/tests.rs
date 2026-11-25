@@ -1381,7 +1381,13 @@ async fn a_rebuild_passes_over_a_touch_that_does_not_read() {
     let c = &r.core;
     let (ex, key) = unread_touch(c).await;
     let readable = Root::Thing("file:y.rs");
-    let moved = touch(readable, &ex.turn_id, &ex.session_id, ex.end_ms.unwrap() + 5).unwrap();
+    let moved = touch(
+        readable,
+        &ex.turn_id,
+        &ex.session_id,
+        ex.end_ms.unwrap() + 5,
+    )
+    .unwrap();
     c.store.append(&[moved]).unwrap();
     let held = || {
         let r = (c.store.inner()).latest_by_key(theseus_store::kinds::META, &key);
@@ -1394,7 +1400,10 @@ async fn a_rebuild_passes_over_a_touch_that_does_not_read() {
     assert!(dry.error.is_none(), "{:?}", dry.error);
     let dry = dry.result.unwrap();
     assert_eq!(
-        (dry["touches_passed_over"].as_u64(), dry["repaired"].as_u64()),
+        (
+            dry["touches_passed_over"].as_u64(),
+            dry["repaired"].as_u64()
+        ),
         (Some(1), Some(1)),
         "{dry}"
     );
@@ -1403,7 +1412,10 @@ async fn a_rebuild_passes_over_a_touch_that_does_not_read() {
     assert!(run.error.is_none(), "{:?}", run.error);
     let run = run.result.unwrap();
     assert_eq!(
-        (run["touches_passed_over"].as_u64(), run["repaired"].as_u64()),
+        (
+            run["touches_passed_over"].as_u64(),
+            run["repaired"].as_u64()
+        ),
         (Some(1), Some(1)),
         "{run}"
     );
@@ -1435,7 +1447,11 @@ async fn a_touch_that_does_not_read_is_named_by_its_key_alone() {
     let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
     // A touch's key holds its separator, which the log writes escaped, as `{:?}` does.
     let shown = format!("{key:?}");
-    assert_eq!(text.matches(shown.as_str()).count(), 1, "{shown} once: {text}");
+    assert_eq!(
+        text.matches(shown.as_str()).count(),
+        1,
+        "{shown} once: {text}"
+    );
     assert!(!text.contains(TOUCH_WORDS), "the record was quoted: {text}");
 }
 

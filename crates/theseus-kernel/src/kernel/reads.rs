@@ -62,7 +62,10 @@ impl Kernel {
                 Ok(e) => out.push(e),
                 Err(_) => {
                     skipped += 1;
-                    tracing::warn!(position, "an execution record did not decode; it is left out of the listing");
+                    tracing::warn!(
+                        position,
+                        "an execution record did not decode; it is left out of the listing"
+                    );
                 }
             }
         }

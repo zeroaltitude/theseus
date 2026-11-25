@@ -785,7 +785,10 @@ impl Tender {
                     }
                     Err(_) => {
                         undecodable += 1;
-                        tracing::warn!(position = r.position, "index: a node record it could not read");
+                        tracing::warn!(
+                            position = r.position,
+                            "index: a node record it could not read"
+                        );
                     }
                 },
                 kinds::LEDGER => {
