@@ -9,10 +9,11 @@
 //! - **Every automatic reader** ([`hold`]): the turn's request, the census,
 //!   `context explain`, the persona view and the daemon's own messages go
 //!   through `TurnRunner::context_load` or `TurnRunner::context_peek`. A
-//!   file that one of the configured spellings resolves to is carried as
-//!   that spelling's accepted text, under the reader's own header, whatever
-//!   names it (the system level, or a persona), and never as it stands on
-//!   disk.
+//!   path that is a configured spelling, or a symbolic link that resolves
+//!   to the same path as one, is carried as that spelling's accepted text,
+//!   under the reader's own header, whether the system level or a persona
+//!   names it, and never as it stands on disk. The path is compared, not
+//!   the file: a hard link under another name is read as it stands.
 //! - **The binding is the configured spelling** ([`pid`]): when a link above
 //!   it is pointed elsewhere, or a directory in it appears, the accepted
 //!   text stays what is carried and the change is held like any other.
@@ -100,8 +101,9 @@ pub fn first_start_due(look: &Look) -> bool {
 }
 
 /// The reader's sections `read`, one for each of `paths` in order, as a
-/// request carries them. A file a configured spelling names, or resolves to
-/// ([`spellings_of`]), whatever level reads it, is that spelling's accepted
+/// request carries them. A path that is a configured spelling, or resolves to
+/// the same canonical path as one ([`spellings_of`]), whichever level reads
+/// it, is that spelling's accepted
 /// text under the reader's own header; with none of its text accepted, a
 /// file the reader could not read keeps the reader's note, and one it could
 /// read is not carried ([`lines`] names it). Any other file is the
@@ -187,7 +189,10 @@ pub fn lines(
 /// `text` is not that spelling's accepted version, as the reader would read
 /// it. None for a file no configured spelling names. A card shows the change
 /// from its base, so a base that is not the accepted version would let a yes
-/// accept what the card never showed as a change.
+/// accept what the card never showed as a change. A file whose accepted
+/// version or base is longer than the reader carries is refused too: a
+/// change to the part not carried would not be on the card, and a change
+/// before it could bring that part into what is carried.
 pub fn base_refusal(
     cfg: &crate::config::Config,
     store: &crate::store::Store,
@@ -198,6 +203,15 @@ pub fn base_refusal(
     spellings_of(cfg, real).into_iter().find_map(|spelling| {
         let look = look(store, files, &spelling);
         let base = Disk::written(look.disk.found.clone(), text);
+        if base.cut || look.size.is_some_and(|(_, cut)| cut) {
+            return Some(format!(
+                "{} is longer than the {} bytes of it Theseus carries, so no change to it is \
+                 asked: change it yourself at your terminal, then accept it with `{}`",
+                spelling.display(),
+                crate::narrative::thousands(crate::context_files::MAX_BYTES as u64),
+                Whose::Context.accept(&spelling)
+            ));
+        }
         let accepted = matches!(&look.accepted,
             Accepted::Some(n) if n.digest.is_some() && n.digest == base.digest);
         (!accepted).then(|| {
