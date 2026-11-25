@@ -281,6 +281,12 @@ pub fn propose_lines(r: &CardProposeResult, dry_run: bool) -> Vec<String> {
             r.setup, r.one_task
         ));
     }
+    if let Some(n) = r.tags_unread {
+        out.push(format!(
+            "Not read: {n} records under the import's tags' prefix could not be read as a tag's counts; \
+             their sessions were not read, and the records are left as they are."
+        ));
+    }
     for c in &r.conflicts {
         out.push(format!("Conflict: {c}."));
     }
@@ -550,6 +556,27 @@ mod tests {
             true,
         );
         assert!(dry[1].contains("up to 3 calls, at most $0.05"), "{dry:?}");
+    }
+
+    /// A run that passed over tag records it could not read says how many, and that they were left as they
+    /// are (issue 46); one that passed over none says nothing of them.
+    #[test]
+    fn a_run_says_how_many_tag_records_it_could_not_read() {
+        let r = CardProposeResult {
+            tags_unread: Some(2),
+            ..CardProposeResult::default()
+        };
+        let lines = propose_lines(&r, true);
+        assert!(
+            lines.contains(
+                &"Not read: 2 records under the import's tags' prefix could not be read as a tag's \
+                  counts; their sessions were not read, and the records are left as they are."
+                    .to_string()
+            ),
+            "{lines:?}"
+        );
+        let none = propose_lines(&CardProposeResult::default(), true);
+        assert!(!none.iter().any(|l| l.starts_with("Not read")), "{none:?}");
     }
 
     #[test]

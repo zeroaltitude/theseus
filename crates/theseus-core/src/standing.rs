@@ -438,8 +438,9 @@ impl Board {
             for r in store.inner().latest_with_prefix(kinds::META, PREFIX)? {
                 match r.decode::<StandingRecord>() {
                     Ok(rec) => records.push((r.position, rec)),
-                    Err(e) => tracing::warn!(key = ?r.key, error = %e,
-                        "a standing record does not read: left out"),
+                    Err(_) => {
+                        tracing::warn!(key = ?r.key, "a standing record does not read: left out")
+                    }
                 }
             }
             // By start, then as written: the order memory keeps (`write`). Two records of one millisecond (a fast

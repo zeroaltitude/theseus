@@ -673,9 +673,8 @@ impl Views {
         } else if key.starts_with(VIEW_PREFIX) {
             match r.decode::<ViewRecord>() {
                 Ok(v) => self.kept.push((born, v)),
-                Err(e) => {
-                    tracing::warn!(key, error = %format!("{e:#}"),
-                        "a view record cannot be read: reach says partial");
+                Err(_) => {
+                    tracing::warn!(key, "a view record cannot be read: reach says partial");
                     self.partial = true;
                 }
             }

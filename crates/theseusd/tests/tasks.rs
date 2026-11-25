@@ -625,7 +625,7 @@ fn a_stopped_jobs_raw_output_goes_with_its_cancelled_result() {
             "Run the noisy build",
             vec![(
                 "proc_run",
-                json!({"argv": ["bash", "-c", "head -c 100000 /dev/zero | tr '\\0' x; echo; echo still building; sleep 30"], "timeout_secs": 60}),
+                json!({"argv": ["bash", "-c", "head -c 100000 /dev/zero | tr '\\0' '\\n'; echo; echo still building; sleep 30"], "timeout_secs": 60}),
             )],
         )],
         |t| {

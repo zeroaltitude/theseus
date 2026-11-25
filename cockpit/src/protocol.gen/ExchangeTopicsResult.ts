@@ -14,13 +14,20 @@ exchanges: number,
  */
 touched_before: number, asked_before: number, 
 /**
- * Those opened by someone other than the owner: a guest in a shared
- * place, or a person no record proves. His decision was about his own
- * history, so they are never sent.
+ * Those a person's typed message opened that is not the owner's: a
+ * guest's, an agent's, or one whose author no record proves. His
+ * decision was about his own history, so they are never sent.
  */
 not_owner: number, 
 /**
- * Those opened by no person's message that can be read.
+ * Of those, the ones whose author no record proves (no person, and no
+ * mark on the message), and of these, the ones in places the
+ * ontology's judge would not act on now.
+ */
+unproven: number, unproven_not_acting: number, 
+/**
+ * Those opened by no person's message that can be read: a wake, a
+ * task's brief, Theseus's own turn among them.
  */
 no_message: number, 
 /**

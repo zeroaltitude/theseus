@@ -57,7 +57,7 @@ impl Core {
         p: &SelfPipelineParams,
         seams: &Seams,
     ) -> Result<SelfPipelineResult> {
-        let state = crate::rsi::state(&self.self_ctx());
+        let state = self.self_state();
         let mut out = SelfPipelineResult {
             builder: Local.name().into(),
             budget: self.runner.self_budget.view(),

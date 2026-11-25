@@ -588,6 +588,27 @@ async fn a_dry_run_makes_no_call() {
     );
 }
 
+/// A record under the import's tags' prefix that does not read as a tag's counts does not stop the job
+/// (issue 46): every other tag's evidence is read, and the answer counts the one passed over.
+#[tokio::test]
+async fn a_tag_record_that_does_not_read_is_passed_over_and_counted() {
+    let r = rig(vec![two()], |_| {});
+    archive(&r).await;
+    crate::import::tests_unread::unread_tag(&r.core);
+    let got = r
+        .core
+        .card_propose(
+            &theseus_protocol::CardProposeParams {
+                dry_run: true,
+                ..Default::default()
+            },
+            cli(),
+        )
+        .await;
+    let got = got.expect("the job completes");
+    assert_eq!((got.evidence, got.tags_unread), (7, Some(1)), "{got:?}");
+}
+
 /// A statement that repeats a live standing record is dropped.
 #[tokio::test]
 async fn a_live_record_is_not_proposed_again() {
