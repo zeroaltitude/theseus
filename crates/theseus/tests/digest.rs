@@ -245,7 +245,7 @@ fn since_seen_asks_from_the_stores_look_and_a_session_scopes_it_and_records_noth
     let ran = w.run(&["digest", "--session", "ses_task"], false);
     assert_eq!(ran.digests[0]["since_look"], true);
     assert_eq!(ran.digests[0]["roots"], json!(["ses_task"]));
-    assert!(ran.looks.is_empty(), "{:?}", ran.looks);
+    assert_eq!(ran.looks, Vec::<Value>::new());
 }
 
 #[test]
@@ -253,8 +253,9 @@ fn nothing_is_recorded_inside_a_job_and_json_is_the_answer_as_it_came() {
     let mut w = World::new();
     w.store_looked(500, at(0, 0));
     let ran = w.run(&["digest"], true);
-    assert!(
-        ran.looks.is_empty(),
+    assert_eq!(
+        ran.looks,
+        Vec::<Value>::new(),
         "a job's reading is not the operator's"
     );
     let ran = w.run(&["--json", "digest"], false);
@@ -268,7 +269,7 @@ fn status_ends_with_one_line_when_something_happened_since_the_last_look() {
     // Never looked: status starts nothing and says nothing of it.
     let ran = w.run(&["status"], false);
     assert!(!ran.out.contains("theseus digest"), "{}", ran.out);
-    assert!(ran.looks.is_empty(), "{:?}", ran.looks);
+    assert_eq!(ran.looks, Vec::<Value>::new());
     w.store_looked(500, at(0, 0));
     let ran = w.run(&["status"], false);
     assert_eq!(ran.digests.len(), 1);
@@ -281,7 +282,7 @@ fn status_ends_with_one_line_when_something_happened_since_the_last_look() {
         ran.out
     );
     // Status is not a look: the line is there until the digest is read.
-    assert!(ran.looks.is_empty(), "{:?}", ran.looks);
+    assert_eq!(ran.looks, Vec::<Value>::new());
     // The prompt's and the script's forms say nothing of it.
     let ran = w.run(&["status", "--short"], false);
     assert!(

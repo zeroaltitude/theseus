@@ -82,11 +82,13 @@ async fn rig_looked(path: &Path, look_ms: Option<u64>) -> Rig {
     .await
 }
 
-/// Each digest asked since the store's look, never since a position this chat holds.
-fn since_the_stores_look(asked: &[Value]) -> bool {
+/// How each digest was asked: its `since_look`, and whether it named a
+/// position (never: a position this chat holds may be another history's).
+fn asked_how(asked: &[Value]) -> Vec<(Value, bool)> {
     asked
         .iter()
-        .all(|a| a["since_look"] == true && a.get("since").is_none())
+        .map(|a| (a["since_look"].clone(), a.get("since").is_some()))
+        .collect()
 }
 
 // ------------------------------------------------------------ the digest
@@ -96,7 +98,10 @@ async fn opening_after_an_absence_tells_what_happened_in_one_line() {
     let (_dir, path) = seen_file();
     let mut r = rig_looked(&path, Some(T0 - HOUR)).await;
     r.asked("work.digest", 1).await;
-    assert!(since_the_stores_look(&r.daemon.asked("work.digest")));
+    assert_eq!(
+        asked_how(&r.daemon.asked("work.digest")),
+        [(json!(true), false)]
+    );
     r.shows("◆ 2 reported, 1 answered by you since").await;
     assert!(r.text().contains("theseus digest"), "{}", r.text());
     // The banner comes first: the line is told under it, never above.
@@ -118,6 +123,10 @@ async fn a_first_start_is_told_nothing_and_its_board_is_the_first_look() {
     r.asked("work.watch", 1).await;
     r.asked("work.digest", 1).await;
     r.settle().await;
+    assert_eq!(
+        asked_how(&r.daemon.asked("work.digest")),
+        [(json!(true), false)]
+    );
     assert!(!r.text().contains('◆'), "{}", r.text());
     r.asked("work.look", 1).await;
     assert_eq!(r.daemon.asked("work.look"), [json!({"position": 900})]);
@@ -150,7 +159,7 @@ fn the_welcome_and_the_reconnect_ask_since_the_stores_look() {
     };
     let welcome = asks(c.connected(T0));
     assert_eq!(welcome.len(), 1, "{welcome:?}");
-    assert!(since_the_stores_look(&welcome), "{welcome:?}");
+    assert_eq!(asked_how(&welcome), [(json!(true), false)]);
     c.session = Some(SID.to_string());
     c.board.position = 640;
     c.now_ms = T0 + 5_000;
@@ -161,7 +170,7 @@ fn the_welcome_and_the_reconnect_ask_since_the_stores_look() {
     c.disconnected();
     let back = asks(c.connected(T0 + 15_000 + 120_000));
     assert_eq!(back.len(), 1, "{back:?}");
-    assert!(since_the_stores_look(&back), "{back:?}");
+    assert_eq!(asked_how(&back), [(json!(true), false)]);
 }
 
 // ------------------------------------------------------------ what rings

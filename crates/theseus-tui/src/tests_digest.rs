@@ -31,12 +31,13 @@ fn footer(rig: &Rig) -> String {
     rig.screen().join("\n")
 }
 
-/// Each digest asked since the store's look, never since a position this
-/// terminal holds.
-fn since_the_stores_look(asked: &[serde_json::Value]) -> bool {
+/// How each digest was asked: its `since_look`, and whether it named a
+/// position (never: a position this terminal holds may be another history's).
+fn asked_how(asked: &[serde_json::Value]) -> Vec<(serde_json::Value, bool)> {
     asked
         .iter()
-        .all(|a| a["since_look"] == true && a.get("since").is_none())
+        .map(|a| (a["since_look"].clone(), a.get("since").is_some()))
+        .collect()
 }
 
 #[tokio::test]
@@ -50,7 +51,7 @@ async fn the_start_tells_what_happened_since_the_last_look_in_one_line() {
     let mut rig = Rig::new(140, 24, script(world));
     rig.asked("work.digest", 1).await;
     let asked = rig.daemon().asked("work.digest");
-    assert!(since_the_stores_look(&asked), "{asked:?}");
+    assert_eq!(asked_how(&asked), [(json!(true), false)], "{asked:?}");
     rig.shows("◆ 2 reported, 1 answered by you since").await;
     assert!(footer(&rig).contains("theseus digest"), "{}", footer(&rig));
     // The store's look moves to the digest's end.
@@ -73,7 +74,10 @@ async fn a_first_start_is_told_nothing_and_its_board_is_the_first_look() {
     rig.asked("executions.watch", 1).await;
     rig.asked("work.digest", 1).await;
     rig.settle().await;
-    assert!(since_the_stores_look(&rig.daemon().asked("work.digest")));
+    assert_eq!(
+        asked_how(&rig.daemon().asked("work.digest")),
+        [(json!(true), false)]
+    );
     assert!(!footer(&rig).contains('◆'), "{}", footer(&rig));
     rig.asked("work.look", 1).await;
     assert_eq!(rig.daemon().asked("work.look"), [json!({"position": 900})]);
@@ -90,6 +94,8 @@ async fn regaining_focus_after_an_absence_asks_again_and_a_short_one_does_not() 
     let mut rig = Rig::new(140, 24, script(world));
     rig.asked("work.digest", 1).await;
     rig.settle().await;
+    // The store's look moved to the digest's end.
+    assert_eq!(rig.daemon().asked("work.look"), [json!({"position": 900})]);
     // Away for a moment: nothing to tell.
     send(&mut rig, TermEvent::FocusLost).await;
     NOW.with(|n| n.set(T0 + 5_000));
@@ -103,7 +109,11 @@ async fn regaining_focus_after_an_absence_asks_again_and_a_short_one_does_not() 
     rig.asked("work.digest", 2).await;
     let asked = rig.daemon().asked("work.digest");
     assert_eq!(asked.len(), 2);
-    assert!(since_the_stores_look(&asked), "{asked:?}");
+    assert_eq!(
+        asked_how(&asked),
+        [(json!(true), false), (json!(true), false)],
+        "{asked:?}"
+    );
     NOW.with(|n| n.set(T0));
 }
 
@@ -132,7 +142,7 @@ async fn a_reconnect_after_a_restore_asks_since_the_stores_look() {
     rig.shows("fresh start").await;
     rig.asked("work.digest", 1).await;
     let asked = rig.daemon().asked("work.digest");
-    assert!(since_the_stores_look(&asked), "{asked:?}");
+    assert_eq!(asked_how(&asked), [(json!(true), false)], "{asked:?}");
 }
 
 #[tokio::test]
