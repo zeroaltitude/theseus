@@ -167,7 +167,10 @@ async fn an_erased_import_blanks_only_its_words_in_a_piece_of_a_look_back() {
         .expect("the task's arrangement");
     assert!(!stored.contains(WORD), "{stored}");
     for line in erased.lines().filter(|l| !l.trim().is_empty()) {
-        assert!(!stored.contains(line), "a line of the erased message: {line:?}: {stored}");
+        assert!(
+            !stored.contains(line),
+            "a line of the erased message: {line:?}: {stored}"
+        );
     }
 }
 

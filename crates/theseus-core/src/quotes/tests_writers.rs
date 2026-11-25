@@ -248,7 +248,9 @@ fn funcs(s: &[char]) -> Vec<Func> {
         if !word_at(s, i, "fn") {
             continue;
         }
-        let j = (i + 2..s.len()).find(|j| !s[*j].is_whitespace()).unwrap_or(s.len());
+        let j = (i + 2..s.len())
+            .find(|j| !s[*j].is_whitespace())
+            .unwrap_or(s.len());
         let name: String = s[j..].iter().take_while(|c| ident(**c)).collect();
         if name.is_empty() {
             continue;
@@ -346,7 +348,9 @@ fn faults(sources: &BTreeMap<String, String>, writers: &[&str], others: &[&str])
             false => caps(&r.code),
         };
         for at in sets(&r.code).into_iter().chain(assigns(&r.code)) {
-            *found.entry(format!("{file}::{}", holder_of(&r.funcs, at))).or_default() += 1;
+            *found
+                .entry(format!("{file}::{}", holder_of(&r.funcs, at)))
+                .or_default() += 1;
         }
         for at in cap {
             let key = format!("{file}::{}", holder_of(&r.funcs, at));
@@ -377,7 +381,9 @@ fn faults(sources: &BTreeMap<String, String>, writers: &[&str], others: &[&str])
     for (key, _, rest) in writers.iter().map(entry) {
         let checker = rest.split(' ').next().unwrap_or_default();
         if capping.contains(&key) && checker != key {
-            out.push(format!("{key}: it caps parts, so it checks them itself, not {checker}"));
+            out.push(format!(
+                "{key}: it caps parts, so it checks them itself, not {checker}"
+            ));
         }
         let (file, name) = checker.rsplit_once("::").unwrap_or((checker, ""));
         let asks = match read.get(&file.to_string()).map(|r| r.own(name)) {
@@ -389,7 +395,9 @@ fn faults(sources: &BTreeMap<String, String>, writers: &[&str], others: &[&str])
             None => false,
         };
         if !asks {
-            out.push(format!("{key}: its checker {checker} asks no edge check in its own text"));
+            out.push(format!(
+                "{key}: its checker {checker} asks no edge check in its own text"
+            ));
         }
     }
     for (key, _, _) in others.iter().map(entry) {
@@ -420,7 +428,12 @@ fn sources() -> BTreeMap<String, String> {
 }
 
 /// `sources` with one file's `from` (which it holds once) replaced by `to`.
-fn mutated(sources: &BTreeMap<String, String>, file: &str, from: &str, to: &str) -> BTreeMap<String, String> {
+fn mutated(
+    sources: &BTreeMap<String, String>,
+    file: &str,
+    from: &str,
+    to: &str,
+) -> BTreeMap<String, String> {
     let mut out = sources.clone();
     let s = out.get_mut(file).unwrap();
     assert_eq!(s.matches(from).count(), 1, "{file} holds {from:?} once");
@@ -452,7 +465,10 @@ fn a_look_backs_piece_without_its_own_check_is_named() {
         "match crate::quotes::edges_hold(store, &parts, cuts) {",
         "match true {",
     );
-    assert!(unchecked[FILE].contains("edges_hold_with("), "the message's branch still checks");
+    assert!(
+        unchecked[FILE].contains("edges_hold_with("),
+        "the message's branch still checks"
+    );
     assert_eq!(
         faults(&unchecked, WRITERS, NOT_QUOTES),
         vec![format!(
@@ -492,7 +508,10 @@ fn a_writer_that_sets_parts_without_the_edge_check_is_named() {
             format!("{trim}: found Some(1), listed None"),
         ]
     );
-    let own = [format!("{note} 1 {note} a note"), format!("{trim} 1 {trim} a cut")];
+    let own = [
+        format!("{note} 1 {note} a note"),
+        format!("{trim} 1 {trim} a cut"),
+    ];
     assert_eq!(
         faults(&sources, &own.each_ref().map(String::as_str), &[]),
         vec![
@@ -500,10 +519,15 @@ fn a_writer_that_sets_parts_without_the_edge_check_is_named() {
             format!("{trim}: its checker {trim} asks no edge check in its own text"),
         ]
     );
-    let elsewhere = [format!("{note} 1 {ok} a note"), format!("{trim} 1 {ok} a cut")];
+    let elsewhere = [
+        format!("{note} 1 {ok} a note"),
+        format!("{trim} 1 {ok} a cut"),
+    ];
     assert_eq!(
         faults(&sources, &elsewhere.each_ref().map(String::as_str), &[]),
-        vec![format!("{trim}: it caps parts, so it checks them itself, not {ok}")]
+        vec![format!(
+            "{trim}: it caps parts, so it checks them itself, not {ok}"
+        )]
     );
 }
 
