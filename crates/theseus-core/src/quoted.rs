@@ -54,10 +54,20 @@ pub fn holds_parts(n: &Node) -> bool {
 
 /// `n`'s rendering now, with what `since` says has been said since; none for a node that holds no parts.
 pub fn rendering(store: &Store, n: &Node, since: &Since<'_>) -> Result<Option<Rendering>> {
+    rendering_then(store, n, since, || {})
+}
+
+/// [`rendering`], `after` run once its words are read. The nodes it may read words of are taken before them, so
+/// one erased while they are read is still among them, and a later check of them finds it.
+fn rendering_then(
+    store: &Store,
+    n: &Node,
+    since: &Since<'_>,
+    after: impl FnOnce(),
+) -> Result<Option<Rendering>> {
     let Some(parts) = parts_of(n) else {
         return Ok(None);
     };
-    let text = quotes::render(store, parts, since)?;
     let mut read: Vec<String> = (parts.iter())
         .filter_map(|p| match p {
             Part::Quote(q) if q.field != Field::Did => Some(q.node.clone()),
@@ -67,6 +77,8 @@ pub fn rendering(store: &Store, n: &Node, since: &Since<'_>) -> Result<Option<Re
         .collect();
     read.sort();
     read.dedup();
+    let text = quotes::render(store, parts, since)?;
+    after();
     Ok(Some(Rendering { text, read }))
 }
 

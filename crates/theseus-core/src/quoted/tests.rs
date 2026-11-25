@@ -195,6 +195,27 @@ fn an_own_result_blanks_only_its_erased_quote() {
     );
 }
 
+/// A message erased just after a rendering read its words: the nodes the rendering keeps still name it, so the turn's
+/// next check finds the erase and the rendering is not carried; the words are not laid again unseen.
+#[test]
+fn an_erase_just_after_a_rendering_is_found_by_the_nodes_it_read() {
+    let (_d, s) = store();
+    let (id, at) = source(&s);
+    let n = page("t1", "c1", page_parts(&id, at));
+    let none = BTreeSet::new();
+    let erase = || {
+        let (_, m) = s.get_node(&id).unwrap().unwrap();
+        put(&s, &m.erased(1, "a test"));
+    };
+    let r = rendering_then(&s, &n, &Since::new(&s, &none), erase)
+        .unwrap()
+        .unwrap();
+    assert_eq!(r.text, page_text(), "read before the erase");
+    assert_eq!(r.read, vec![id.clone()]);
+    assert!(erased_since(&s, &r.read));
+    assert!(carried(&s, HashMap::from([(n.id, r)])).is_empty());
+}
+
 /// A reader outside a conversation (inspect, a node's page, publish) shows the rendering; a node with no parts
 /// as it is.
 #[test]
