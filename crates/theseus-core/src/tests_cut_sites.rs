@@ -254,7 +254,12 @@ async fn a_retractions_card_stops_before_a_known_value() {
     });
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
     let rn = Node::recall(&rec.session_id, "turn_t", "rcl_task", "baseline", vec![]);
-    let edge = Edge::new(EdgeKind::DerivedFrom, &rn.id, &node, crate::graph::VIA_RECALL);
+    let edge = Edge::new(
+        EdgeKind::DerivedFrom,
+        &rn.id,
+        &node,
+        crate::graph::VIA_RECALL,
+    );
     (r.core.store)
         .append(&[rn.record().unwrap(), edge.record().unwrap()])
         .unwrap();
@@ -264,10 +269,19 @@ async fn a_retractions_card_stops_before_a_known_value() {
         session_id: None,
     };
     assert!(r.core.fact_retract(&p, "cli").unwrap().card);
-    let cards: Vec<String> = (r.core.outbox.open_for(crate::outbox::OPERATOR_TARGET).iter())
-        .filter(|a| crate::outbox::kind_of(a) == "retraction")
-        .map(|a| crate::outbox::body_of(a)["text"].as_str().unwrap().to_string())
-        .collect();
+    let cards: Vec<String> = (r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter())
+    .filter(|a| crate::outbox::kind_of(a) == "retraction")
+    .map(|a| {
+        crate::outbox::body_of(a)["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    })
+    .collect();
     assert_eq!(cards.len(), 1, "{cards:?}");
     let card = &cards[0];
     assert!(card.ends_with(&format!("{}…", "x".repeat(1_300))), "{card}");
