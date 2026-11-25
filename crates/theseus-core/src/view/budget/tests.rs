@@ -432,7 +432,11 @@ fn the_topic_block_is_held_to_its_cap_and_recall_is_cut_first() {
     let card = 300 + H;
     let whole = |band, at| (band, at, Form::Whole);
     let uncut = run(pieces(), &budget(60_000, 150_000)).expect("fits");
-    assert_eq!(forms(&uncut).len(), 5, "under the ceiling alone nothing is cut");
+    assert_eq!(
+        forms(&uncut).len(),
+        5,
+        "under the ceiling alone nothing is cut"
+    );
 
     let v = run(pieces(), &capped(3 * card + 100 + H)).expect("fits");
     assert_eq!(
@@ -483,6 +487,13 @@ fn the_topic_block_is_held_to_its_cap_and_recall_is_cut_first() {
         .map(|s| s.tokens)
         .sum::<u64>()
         + 2 * R;
-    assert!(block <= 2 * card + 2 * R, "the block within its cap: {block}");
-    assert_eq!(v.tokens, 3 * card + 2 * R, "the waiting card is not cut for it");
+    assert!(
+        block <= 2 * card + 2 * R,
+        "the block within its cap: {block}"
+    );
+    assert_eq!(
+        v.tokens,
+        3 * card + 2 * R,
+        "the waiting card is not cut for it"
+    );
 }

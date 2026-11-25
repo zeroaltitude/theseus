@@ -69,7 +69,9 @@ async fn a_topic_the_judge_filed_the_last_exchange_under_brings_its_card() {
     );
     let (shown, dropped) = topic_cards(&r, &next);
     assert!(
-        shown.iter().all(|s| *s == (Band::InPlay, Slot::Called, "topic:harbour-00".into())),
+        shown
+            .iter()
+            .all(|s| *s == (Band::InPlay, Slot::Called, "topic:harbour-00".into())),
         "{shown:?}"
     );
     assert!(!shown.is_empty());

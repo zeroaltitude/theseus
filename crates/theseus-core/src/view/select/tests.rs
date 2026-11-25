@@ -1473,7 +1473,10 @@ fn topic_lays_the_task_card_then_named_then_in_play_then_recall() {
         (Band::Recall, "card:recalled"),
     ]
     .map(|(b, h)| (b, h.to_string()));
-    assert_eq!(block, want, "one block, in one order: the task, named, in play, recall");
+    assert_eq!(
+        block, want,
+        "one block, in one order: the task, named, in play, recall"
+    );
 }
 
 #[test]
@@ -1516,7 +1519,10 @@ fn a_thing_named_twice_is_one_card() {
 
 #[test]
 fn an_old_record_naming_in_play_and_reached_still_reads() {
-    for (band, want) in [("\"in_play\"", Band::InPlay), ("\"reached\"", Band::Reached)] {
+    for (band, want) in [
+        ("\"in_play\"", Band::InPlay),
+        ("\"reached\"", Band::Reached),
+    ] {
         assert_eq!(serde_json::from_str::<Band>(band).unwrap(), want);
     }
     assert_eq!(
