@@ -1379,7 +1379,7 @@ fn a_format_60_store_opens_with_no_look_and_no_parts_and_takes_both() {
     *parts = vec![
         Part::Code("- the owner: \u{ab}".into()),
         Part::Quote(Quote {
-            node: said.id.clone(),
+            node: said.id,
             position: at,
             field: Field::Text,
             from: 0,
