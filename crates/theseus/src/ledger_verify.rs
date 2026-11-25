@@ -94,6 +94,9 @@ pub enum LedgerCmd {
     /// --include-unmarked counts as yours the old messages no mark proves, typed in your own places
     /// (your terminal, the web UI, your DM, a channel bound private); shared channels stay out; the
     /// words stay author unknown wherever they are shown.
+    ///
+    /// --undo-declared ends every topic touch your declaration filed, and nothing else; run it with
+    /// --dry-run first.
     Topics {
         /// Count the exchanges it would ask and their worst case, and ask nothing.
         #[arg(long)]
@@ -107,6 +110,10 @@ pub enum LedgerCmd {
         /// (from before places were recorded) stays out.
         #[arg(long)]
         include_unmarked: bool,
+        /// Undo your declaration: end every topic touch it filed, and nothing else. Asks nothing
+        /// and spends nothing; running it twice is harmless.
+        #[arg(long, conflicts_with_all = ["include_unmarked", "cap_usd"])]
+        undo_declared: bool,
     },
 }
 
@@ -166,11 +173,13 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
             dry_run,
             cap_usd,
             include_unmarked,
+            undo_declared,
         } => {
             let p = theseus_protocol::exchange::ExchangeTopicsParams {
                 dry_run,
                 cap_usd,
                 include_unmarked,
+                undo_declared,
             };
             return crate::exchanges_cmd::topics(conn, json, p).await;
         }
@@ -430,6 +439,27 @@ mod tests {
                     your own places (your terminal, the web UI, your DM, a channel bound \
                     private); shared channels stay out; the words stay author unknown wherever \
                     they are shown.";
+        assert!(flat.contains(said), "{flat}");
+    }
+
+    /// `theseus ledger topics --help` says how his declaration is undone.
+    #[test]
+    fn the_topics_help_says_how_to_undo_it() {
+        use clap::{CommandFactory, Parser};
+        #[derive(Parser)]
+        struct T {
+            #[command(subcommand)]
+            cmd: LedgerCmd,
+        }
+        let mut t = T::command();
+        let help = t.find_subcommand_mut("topics").unwrap().render_long_help();
+        let flat = help
+            .to_string()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let said = "--undo-declared ends every topic touch your declaration filed, and nothing \
+                    else; run it with --dry-run first.";
         assert!(flat.contains(said), "{flat}");
     }
 }

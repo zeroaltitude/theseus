@@ -33,7 +33,8 @@
 //!   wherever they are shown); it is asked as a private place's, and its
 //!   row's context says `declared: unmarked`, so what the declaration filed
 //!   can be found and undone. Only a run that carries the declaration
-//!   writes a declared answer's touches again from its row.
+//!   writes a declared answer's touches again from its row; the undo
+//!   (`undo_declared`, `history_undo.rs`) ends every touch they came to.
 //! - **Touches only.** The ask goes in shadow, so the sink writes its row
 //!   and nothing else: no membership, no category minted, no card, no
 //!   `still_*` answer acted on. The job writes the touches itself, with the
@@ -228,11 +229,22 @@ fn onto_touched(store: &Store) -> anyhow::Result<HashSet<String>> {
     Ok(out)
 }
 
-/// This job's answered judgments, by turn: the rows of `onto`'s scope whose
-/// context says `purpose: history`.
+/// This job's answered judgments, by turn.
 fn asked_before(store: &Store) -> anyhow::Result<HashMap<String, Judgment>> {
-    let id = ONTO_PACK.split('.').next().unwrap_or(ONTO_PACK);
     let mut out = HashMap::new();
+    for j in history_rows(store)? {
+        if let Some(turn) = j.context["turn"].as_str() {
+            out.insert(turn.to_string(), j);
+        }
+    }
+    Ok(out)
+}
+
+/// This job's answered judgments, oldest first: the rows of `onto`'s scope
+/// whose context says `purpose: history`, each one.
+pub(super) fn history_rows(store: &Store) -> anyhow::Result<Vec<Judgment>> {
+    let id = ONTO_PACK.split('.').next().unwrap_or(ONTO_PACK);
+    let mut out = Vec::new();
     for r in store.scope_after(&format!("judge:{id}"), 0)? {
         let Ok(row) = r.decode::<LedgerRow>() else {
             continue;
@@ -245,8 +257,8 @@ fn asked_before(store: &Store) -> anyhow::Result<HashMap<String, Judgment>> {
         let Ok(j) = serde_json::from_value::<Judgment>(row.data) else {
             continue;
         };
-        if let (true, Some(turn)) = (j.actionable(), j.context["turn"].as_str()) {
-            out.insert(turn.to_string(), j);
+        if j.actionable() {
+            out.push(j);
         }
     }
     Ok(out)
@@ -486,6 +498,16 @@ impl Core {
         // plan would not see it, and would ask that exchange again.
         if !self.history_drained().await {
             return Err(Busy::Writing.into());
+        }
+        if p.undo_declared {
+            anyhow::ensure!(
+                !p.include_unmarked,
+                "--undo-declared undoes your declaration and --include-unmarked makes it: run one \
+                 of them. Nothing was asked or ended"
+            );
+            let core = self.clone();
+            let dry_run = p.dry_run;
+            return theseus_store::blocking(move || core.topics_undo(dry_run));
         }
         let core = self.clone();
         let declare = p.include_unmarked;

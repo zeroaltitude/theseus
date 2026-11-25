@@ -50,7 +50,10 @@ first: it counts the exchanges it would ask and prices their worst case, and ask
   (before 2026-10-14; counted on its own line) stay out. Some terminal messages were typed by his agents: that is
   his to accept. The exchange's person is never written, so its words stay "author unknown" in the view; it is
   asked as a private place's, and its row's context says `declared: unmarked`. Only a run with the flag writes a
-  declared answer's touches again from its row.
+  declared answer's touches again from its row. `--undo-declared` (alone; `--dry-run` counts first) ends every
+  touch of a category a declared answer chose by the exchange it was about, a touch the rebuild moved and one of a
+  topic retired since included, and nothing else (`judge::onto::history_undo`); the rows stay, as history, and
+  running it twice ends nothing more.
 - **What it asks**: the live point's `onto` question, once, about the opening message alone (no message before it,
   no reply, no attachment), through the judge's one client and its scrubber.
 - **What it writes: touches only.** The ask goes in shadow, so the sink writes its row and files nothing: no

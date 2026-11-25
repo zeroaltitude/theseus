@@ -116,9 +116,9 @@ pub fn topics_request(p: ExchangeTopicsParams) -> Result<serde_json::Value> {
     Ok(serde_json::to_value(p)?)
 }
 
-/// The daemon's answer to `asked`. A daemon older than the declaration
-/// reads the request without it, so its answer does not say it counted it:
-/// it is told to update.
+/// The daemon's answer to `asked`. A daemon older than the declaration, or
+/// than its undo, reads the request without it, so its answer does not say
+/// it did it: it is told to update.
 pub fn topics_answer(
     asked: &ExchangeTopicsParams,
     v: serde_json::Value,
@@ -128,6 +128,12 @@ pub fn topics_answer(
         anyhow::bail!(
             "this daemon does not know --include-unmarked: it ran without it and counted nothing \
              more as yours; update it, then run the command again"
+        );
+    }
+    if asked.undo_declared && !r.undo_declared {
+        anyhow::bail!(
+            "this daemon does not know --undo-declared: it ran a filing without your declaration \
+             and ended nothing; update it, then run the command again"
         );
     }
     Ok(r)
@@ -436,6 +442,9 @@ fn verdict(notes: &[String]) -> &'static str {
 /// A filing of the history in two lines: what the ledger holds, and what the
 /// run would ask or did. Counts and dollars, never a message's words.
 pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
+    if r.undo_declared {
+        return undo_lines(r);
+    }
     let cap = cap_dollars(r.cap_usd);
     let mut s = match r.dry_run {
         true => format!("a dry run for a cap of ${cap} a run: nothing is asked\n"),
@@ -488,6 +497,23 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
         s.push_str(&format!("\nstopped: {why}"));
     }
     s
+}
+
+/// The undo of his declaration in two lines: counts only.
+fn undo_lines(r: &ExchangeTopicsResult) -> String {
+    let (rows, ended, undone) = (r.declared_rows, r.ended, r.undone);
+    match r.dry_run {
+        true => format!(
+            "a dry run of the undo of your declaration: nothing is ended\n{rows} answers your \
+             declaration filed came to {ended} touches on {undone} exchanges; a run ends them, and \
+             nothing else"
+        ),
+        false => format!(
+            "the undo of your declaration\n{rows} answers your declaration filed: {ended} touches \
+             on {undone} exchanges ended, and nothing else; their rows stay, and a run without \
+             --include-unmarked never writes their touches again"
+        ),
+    }
 }
 
 /// A cap's dollars: to the cent from a cent up, and under a cent with the
@@ -1067,5 +1093,71 @@ mod tests {
         assert_eq!(plain.exchanges, 3);
         let newer = serde_json::json!({"dry_run": true, "include_unmarked": true});
         assert!(topics_answer(&asked, newer).unwrap().include_unmarked);
+    }
+
+    /// The undo of his declaration prints counts: a dry run what a run would
+    /// end, a run what it ended; nothing of the filing's.
+    #[test]
+    fn the_undo_lines_are_counts() {
+        let dry = ExchangeTopicsResult {
+            dry_run: true,
+            undo_declared: true,
+            declared_rows: 4,
+            undone: 3,
+            ended: 5,
+            ..ExchangeTopicsResult::default()
+        };
+        assert_eq!(
+            topics_lines(&dry),
+            "a dry run of the undo of your declaration: nothing is ended\n4 answers your \
+             declaration filed came to 5 touches on 3 exchanges; a run ends them, and nothing \
+             else"
+        );
+        let run = ExchangeTopicsResult {
+            dry_run: false,
+            ..dry
+        };
+        assert_eq!(
+            topics_lines(&run),
+            "the undo of your declaration\n4 answers your declaration filed: 5 touches on 3 \
+             exchanges ended, and nothing else; their rows stay, and a run without \
+             --include-unmarked never writes their touches again"
+        );
+    }
+
+    /// `--undo-declared` goes alone (never with the declaration or a cap)
+    /// and reaches the wire; a daemon whose answer does not say it undid (one
+    /// older than the undo) is told to update.
+    #[test]
+    fn the_undo_reaches_the_wire_alone_and_an_older_daemon_is_told_to_update() {
+        use clap::Parser;
+        #[derive(Parser, Debug)]
+        struct T {
+            #[command(subcommand)]
+            cmd: crate::ledger_verify::LedgerCmd,
+        }
+        assert!(T::try_parse_from(["t", "topics", "--undo-declared", "--dry-run"]).is_ok());
+        for with in [&["--include-unmarked"][..], &["--cap-usd", "1"][..]] {
+            let mut argv = vec!["t", "topics", "--undo-declared"];
+            argv.extend(with);
+            assert!(T::try_parse_from(argv).is_err(), "{with:?}");
+        }
+        let asked = ExchangeTopicsParams {
+            undo_declared: true,
+            ..ExchangeTopicsParams::default()
+        };
+        assert_eq!(
+            topics_request(asked.clone()).unwrap(),
+            serde_json::json!({"dry_run": false, "undo_declared": true})
+        );
+        let older = serde_json::json!({"dry_run": false, "exchanges": 3});
+        let e = topics_answer(&asked, older).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "this daemon does not know --undo-declared: it ran a filing without your declaration \
+             and ended nothing; update it, then run the command again"
+        );
+        let newer = serde_json::json!({"undo_declared": true, "ended": 2});
+        assert_eq!(topics_answer(&asked, newer).unwrap().ended, 2);
     }
 }

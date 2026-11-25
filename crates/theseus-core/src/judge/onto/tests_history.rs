@@ -86,7 +86,7 @@ fn exchange_of(
 }
 
 /// An old exchange opened by the person's `text`.
-fn said(core: &Core, sid: &str, turn: &str, text: &str, start_ms: u64) {
+pub(super) fn said(core: &Core, sid: &str, turn: &str, text: &str, start_ms: u64) {
     let n = Node::user(sid, Some(turn), "test", text);
     old_exchange(core, sid, turn, &n, start_ms);
 }

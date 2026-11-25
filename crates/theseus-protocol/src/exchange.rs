@@ -280,6 +280,10 @@ pub struct ExchangeTopicsParams {
     /// channel bound private). Their stored author is not changed.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub include_unmarked: bool,
+    /// His declaration undone (issue 51): end every touch an answer it
+    /// filed came to, and nothing else. Asks nothing and spends nothing.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub undo_declared: bool,
 }
 
 /// A run's cap of `exchange.topics` (issue 46), as the CLI reads it before
@@ -328,6 +332,13 @@ pub struct ExchangeTopicsResult {
     /// The run counted his declaration (`include_unmarked`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub include_unmarked: bool,
+    /// The run undid his declaration (`undo_declared`): the answers his
+    /// declaration filed, the exchanges whose touches end, and the touches.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub undo_declared: bool,
+    pub declared_rows: u64,
+    pub undone: u64,
+    pub ended: u64,
     /// Those opened by no person's message that can be read: a wake, a
     /// task's brief, Theseus's own turn among them.
     pub no_message: u64,

@@ -9,7 +9,7 @@ use theseus_protocol::exchange::ExchangeTopicsParams;
 use theseus_protocol::{error_code, method, LedgerKind};
 
 use super::tests_history::{
-    ledger, ledger_topic, of_kind, params, run, timeline, untouch, SAID, WORDS,
+    ledger, ledger_topic, of_kind, params, run, said, timeline, untouch, SAID, WORDS,
 };
 use crate::approval::{Client, Surface};
 use crate::exchange::{self, Exchange, Opener};
@@ -398,4 +398,227 @@ async fn his_declaration_at_his_terminal_runs_and_no_word_reaches_a_row() {
         assert!(!answers.contains(w), "{w} in the answer: {answers}");
         assert!(!rows.contains(w), "{w} in a row");
     }
+}
+
+/// The undo's request, a dry run or a run.
+fn undo(dry_run: bool) -> ExchangeTopicsParams {
+    ExchangeTopicsParams {
+        undo_declared: true,
+        ..params(dry_run, None)
+    }
+}
+
+/// KEY (the undo): it ends the touches of the answers his declaration filed,
+/// and nothing else: his own exchange, proven by its mark, keeps its touch,
+/// and every row stays. It says how many, and calls nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn undo_ends_only_the_touches_of_declared_rows() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_his", SAID, 4_000);
+    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    let out = run(&r.core, declared(false)).await;
+    assert_eq!((out.asked, out.filed), (2, 2), "{out:?}");
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 2);
+    let rows = ledger(&r.core).len();
+    let u = run(&r.core, undo(false)).await;
+    assert!(u.undo_declared, "{u:?}");
+    assert_eq!(
+        (u.declared_rows, u.undone, u.ended, u.asked, u.filed),
+        (1, 1, 1, 0, 0),
+        "{u:?}"
+    );
+    let [t] = timeline(&r.core, "topic:ledger")
+        .try_into()
+        .unwrap_or_else(|v| panic!("his own touch alone: {v:?}"));
+    assert_eq!(t.exchange, "turn_his");
+    assert_eq!(ledger(&r.core).len(), rows, "the undo writes no row");
+    assert_eq!(
+        of_kind(&r.core, LedgerKind::JudgeCall).len(),
+        2,
+        "the rows stay"
+    );
+    assert_eq!(r.jev.seen().len(), 2, "no call");
+}
+
+/// KEY (the undo holds, and twice is harmless): after it, a run without
+/// the declaration asks nothing and writes none of its touches again; a
+/// second undo ends nothing; a run with the declaration writes them again
+/// from the rows, with no call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_after_undo_without_the_flag_touches_nothing() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    run(&r.core, declared(false)).await;
+    let u = run(&r.core, undo(false)).await;
+    assert_eq!(u.ended, 1, "{u:?}");
+    let plain = run(&r.core, params(false, None)).await;
+    assert_eq!((plain.asked, plain.touches), (0, 0), "{plain:?}");
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
+    let twice = run(&r.core, undo(false)).await;
+    assert_eq!(
+        (
+            twice.undo_declared,
+            twice.declared_rows,
+            twice.undone,
+            twice.ended
+        ),
+        (true, 1, 0, 0),
+        "{twice:?}"
+    );
+    let again = run(&r.core, declared(false)).await;
+    assert_eq!(
+        (again.asked_before, again.asked, again.filed),
+        (1, 0, 1),
+        "{again:?}"
+    );
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 1);
+    assert_eq!(r.jev.seen().len(), 1, "the first run's call alone");
+}
+
+/// KEY: the undo's dry run counts what a run would end, and ends nothing;
+/// an undo that also carries the declaration is refused and does neither.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_undo_dry_run_counts_and_writes_nothing() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    run(&r.core, declared(false)).await;
+    let rows = ledger(&r.core).len();
+    let d = run(&r.core, undo(true)).await;
+    assert_eq!(
+        (
+            d.dry_run,
+            d.undo_declared,
+            d.declared_rows,
+            d.undone,
+            d.ended
+        ),
+        (true, true, 1, 1, 1),
+        "{d:?}"
+    );
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 1, "nothing ended");
+    assert_eq!(ledger(&r.core).len(), rows);
+    let both = ExchangeTopicsParams {
+        include_unmarked: true,
+        ..undo(false)
+    };
+    let e = r.core.topics_history(&both).await.unwrap_err();
+    assert!(e.to_string().contains("--undo-declared"), "{e}");
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 1, "nothing ended");
+    assert_eq!(r.jev.seen().len(), 1, "no call");
+}
+
+/// KEY: a declared touch the rebuild moved (its key at a new time), and one
+/// of a topic retired since, are ended all the same: the undo finds a touch
+/// by its exchange and the category the answer chose.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_undo_ends_a_moved_touch_of_a_retired_topic() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    run(&r.core, declared(false)).await;
+    untouch(&r.core, "turn_dm");
+    let moved = exchange::touch(
+        exchange::Root::Thing("topic:ledger"),
+        "turn_dm",
+        &sid,
+        7_000,
+    );
+    r.core.store.append(&[moved.unwrap()]).unwrap();
+    let topic = theseus_ontology::CategoryId::parse("topic:ledger").unwrap();
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let retired = o.category(&topic).unwrap().retired(9_000);
+    (r.core.runner.ontology)
+        .write(
+            &r.core.store,
+            vec![theseus_ontology::Record::Category(retired)],
+            theseus_ontology::Origin::Operator,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 1);
+    let u = run(&r.core, undo(false)).await;
+    assert_eq!((u.undone, u.ended), (1, 1), "{u:?}");
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
+}
+
+/// KEY (his decision: his own terminal only): the undo is refused from his
+/// web UI, an agent's process at his terminal, Discord, MCP and an unnamed
+/// connection, a dry run and a run, in words, and ends nothing; each is
+/// ledgered but MCP's. At his own terminal, in person, it ends his
+/// declaration's touch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_agents_process_cannot_undo() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    run(&r.core, declared(false)).await;
+    let callers = [
+        ("the owner's web UI", Client::new("ws#1", Surface::Web)),
+        (
+            "an agent at the terminal",
+            surface("sock#2", Surface::Cli).behind(Behind::Agent("claude".into())),
+        ),
+        ("discord", Client::new("discord", Surface::Discord)),
+        ("mcp", Client::new("mcp", Surface::Mcp)),
+        (
+            "an unnamed connection",
+            Client::new("conn#9", Surface::Unnamed),
+        ),
+    ];
+    let asks = [
+        json!({"dry_run": true, "undo_declared": true}),
+        json!({"dry_run": false, "undo_declared": true}),
+    ];
+    for (who, client) in callers {
+        for p in &asks {
+            let e = rpc_as(&r.core, client.clone(), method::EXCHANGE_TOPICS, p.clone())
+                .await
+                .expect_err(who);
+            assert_eq!(e.code, error_code::REFUSED, "{who}: {e:?}");
+            let said = match who {
+                "mcp" => "may not call exchange.topics",
+                _ => "Nothing was asked.",
+            };
+            assert!(e.message.ends_with(said), "{who}: {e:?}");
+        }
+    }
+    let refused = of_kind(&r.core, LedgerKind::ApprovalRefused);
+    assert_eq!(
+        refused.len(),
+        8,
+        "each refusal ledgered, MCP's apart: {refused:?}"
+    );
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 1, "nothing ended");
+    let v = rpc_as(
+        &r.core,
+        surface("sock#1", Surface::Cli),
+        method::EXCHANGE_TOPICS,
+        asks[1].clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (v["undo_declared"].clone(), v["ended"].clone()),
+        (json!(true), json!(1)),
+        "{v}"
+    );
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
 }
