@@ -748,6 +748,10 @@ mod tests_tasks_deferred;
 #[cfg(test)]
 mod tests_tasks_wake;
 #[cfg(test)]
+mod tests_tell_tasks;
+#[cfg(test)]
+mod tests_tell_timers;
+#[cfg(test)]
 mod tests_tender;
 #[cfg(test)]
 mod tests_term;

@@ -728,9 +728,10 @@ impl ToolRuntime {
         }
     }
 
-    /// Whether abandoning a task follows `task.close`'s posture: the operator
-    /// set that line in `[policy.tools]` to `notify` and it is still notify
-    /// now (a tightening to approve ends it). Unset, or `open`, keeps the ask.
+    /// Whether abandoning a self-loop item follows `task.close`'s posture: the
+    /// operator set that line in `[policy.tools]` to `notify` and it is still
+    /// notify now (a tightening to approve ends it). Unset, or `open`, keeps
+    /// the ask. Every other task of his is told, with an undo (issue 57).
     pub fn abandon_follows_posture(&self) -> bool {
         let name = crate::task_graph::tools::CLOSE;
         self.policy.tools.contains_key(name)
@@ -1227,16 +1228,14 @@ impl ToolRuntime {
         let ctx = self.ctx_in(tc);
         let mut proposal = Self::proposal_for(tool, &call.input, &ctx);
         let planned = tool.plan(&call.input, &ctx);
-        // Layer 1 guards only the owner's tasks (theseus-ext.10).
-        let planned = planned.map(|p| {
-            crate::task_graph::tools::authority_for(
-                tc,
-                tool.name(),
-                &call.input,
-                p,
-                self.abandon_follows_posture(),
-            )
-        });
+        // Layer 1 guards only the owner's tasks (theseus-ext.10), and what can
+        // be undone asks only where its tool is set to (issue 57).
+        let asks = (
+            self.posture_now(tool.name()).posture == Posture::Approve,
+            self.abandon_follows_posture(),
+        );
+        let planned = planned
+            .map(|p| crate::task_graph::tools::authority_for(tc, tool.name(), &call.input, p, asks));
         // A read of Theseus's own settings is asked when the turn read outside text.
         let planned =
             planned.map(|p| crate::config_change::show::ask_if_outside(tc, tool.name(), p));
@@ -1752,6 +1751,12 @@ impl ToolRuntime {
         // A task edit's records ride in the frame that settles it, under its
         // task's lock (39a).
         let mut edit = crate::task_graph::tools::Done::default();
+        // A routine made without the owner's yes waits before its first run
+        // (issue 57): he is told of it first.
+        let hold_ms = match ran_at {
+            Posture::Approve => 0,
+            _ => crate::routine::TOLD_HOLD_MS,
+        };
         let done = match tool.name() {
             crate::task::CREATE => crate::task::create_call(
                 tc,
@@ -1759,6 +1764,7 @@ impl ToolRuntime {
                 correlation_id,
                 (&self.profiles, (&self.routines, &self.projects)),
                 &self.forecasts,
+                hold_ms,
             )
             .map(|c| edit.take(c)),
             crate::project_tool::ATTACH => crate::project_tool::attach(tc, &call.input),
@@ -1766,7 +1772,7 @@ impl ToolRuntime {
             crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
             crate::routine_tool::CREATE => {
-                crate::routine_tool::run(tc, &self.routines, &call.input, &|t| {
+                crate::routine_tool::run(tc, &self.routines, &call.input, hold_ms, &|t| {
                     self.registry.get(t).is_some()
                 })
             }

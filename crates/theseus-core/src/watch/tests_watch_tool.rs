@@ -77,6 +77,18 @@ fn script(req: &ProviderRequest) -> Scripted {
             )],
         );
     }
+    if last == "WATCH REPLY" {
+        return Scripted::tools(
+            "Watching.",
+            &[(
+                "w1",
+                "watch",
+                json!({"title": "harbour master replies",
+                       "check": {"kind": "reply", "place": "discord:channel:777"},
+                       "for_at_most": "5d"}),
+            )],
+        );
+    }
     if let Some(rest) = last.strip_prefix("WATCH FILE ") {
         let (path, then) = rest.split_once(' ').unwrap();
         return Scripted::tools(
@@ -269,4 +281,54 @@ async fn a_met_watch_with_then_turn_gives_its_conversation_a_turn() {
     );
     assert_eq!(pending_watches(&r.core), 0);
     assert!(exec_of(&r.core, &sid).wakes.is_empty(), "the turn took it");
+}
+
+/// With nothing set on `watch` (issue 57), a command watch is set at once
+/// with no question: its command runs in the sandbox's place as it was given,
+/// and `wake.cancel`, its undo, ends it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_watch_runs_unasked_and_its_cancel_ends_it() {
+    let r = rig_scripted(|_| {}, script);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    r.core.watches.set_run_hook(hook(&calls));
+    let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
+    let res = turn(&r.core, &sid, "WATCH RUN").await;
+    assert!(res.awaiting_confirm.is_none(), "nothing is asked");
+    assert_eq!(pending_watches(&r.core), 1);
+    let id = exec_of(&r.core, &sid).wakes[0].id.clone();
+    until("the first look", 10, || {
+        r.core.watches.get(&id).is_some_and(|e| e.checks >= 1)
+    })
+    .await;
+    let given: Vec<String> = ["gh", "pr", "view", "123"].map(String::from).to_vec();
+    assert!(calls.lock().unwrap().iter().all(|a| *a == given));
+    rpc(&r.core, "wake.cancel", json!({"wake": id})).await.unwrap();
+    assert_eq!(pending_watches(&r.core), 0, "its cancel ends it");
+}
+
+/// With `watch = "approve"` set, a reply watch asks; with nothing set, it is
+/// set at once and `wake.cancel` ends it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_watch_asks_only_where_watch_is_set_to() {
+    let asks = rig_scripted(
+        |cfg| {
+            cfg.policy
+                .tools
+                .insert("watch".into(), crate::policy::Posture::Approve);
+        },
+        script,
+    );
+    let sid = session(&asks.core, Some(&format!("dm:{OWNER}")));
+    let res = turn(&asks.core, &sid, "WATCH REPLY").await;
+    assert!(res.awaiting_confirm.is_some(), "its setting asks");
+    assert_eq!(pending_watches(&asks.core), 0);
+
+    let r = rig_scripted(|_| {}, script);
+    let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
+    let res = turn(&r.core, &sid, "WATCH REPLY").await;
+    assert!(res.awaiting_confirm.is_none(), "nothing is asked");
+    assert_eq!(pending_watches(&r.core), 1);
+    let id = exec_of(&r.core, &sid).wakes[0].id.clone();
+    rpc(&r.core, "wake.cancel", json!({"wake": id})).await.unwrap();
+    assert_eq!(pending_watches(&r.core), 0, "its cancel ends it");
 }

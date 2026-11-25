@@ -431,10 +431,9 @@ fn probe(rt: &crate::toolrun::ToolRuntime, view: PlaceView, tool: &dyn Tool) -> 
     Plan {
         resources: vec![Resource { path: at, access }],
         summary: format!("a call of {}", tool.name()),
+        // A question for the owner asks at every posture (theseus-j7cje); a
+        // routine follows its tool's own (issue 57).
         authority: match tool.name() {
-            n if n == crate::routine_tool::CREATE => Some(crate::routine_tool::ASKS.to_string()),
-            // A question for the owner asks at every posture, as a layer-1
-            // change does (theseus-j7cje).
             n if n == crate::ask::OWNER_ASK => Some("the owner's decision".to_string()),
             _ => None,
         },

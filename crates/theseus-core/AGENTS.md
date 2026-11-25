@@ -2549,9 +2549,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   rides `open_task`'s frame. `task.update`, `task.split`, `task.close` (`task_graph/tools.rs`) run in the harness under
   `Store::lock_task` (the order: a session's lock, a task's, an execution's), compare the `version` the call names
   (stale: refused with the record as it is now, `task.stale_refused`), and write the record in the frame that settles
-  the call. Layer 1 (objective, acceptance, abandoning) plans with `Plan::authority`, so the gate asks at every posture
-  as the floor does: its proposal is written on the record in the asking frame, the yes applies it, a no clears it in
-  the answer's frame (`confirms.rs`). A task session's running state is read from its execution (`state_now`), and its
+  the call. Layer 1 (objective, acceptance, abandoning) of the owner's task runs at its tool's own posture and is told,
+  with `task.undo` (issue 57, `task_graph/undo.rs`): the change's row is keyed `task.told:<task>:v<version>` and keeps
+  the record before it, which the undo writes back as the next version while the task has not moved since (a
+  self-loop item's abandoning keeps its card). With the tool set to `approve` it plans with `Plan::authority`: its
+  proposal is written on the record in the asking frame, the yes applies it, a no clears it in the answer's frame
+  (`confirms.rs`). A task session's running state is read from its execution (`state_now`), and its
   report closes its record in the frame that ends it (`tools::Closing`, `turn.rs`). The view (`task_graph/view.rs`)
   is the last block of a request's last message, the conversation's breakpoint on the block before it; a test's
   stand-in that reads the last user text skips it (`view::is_view`, `view::HEAD`). Facts: `fact/task_graph.rs`.
@@ -2671,8 +2674,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the first run of the local month (`budget.reset { why: "month" }`). `speak: when_notable`: the brief asks for a report ending
   `NOTHING NEW` when there is nothing to say, and such a run only logs (`TaskOf::target_for`, `routine::quiet`, the run's mark
   `routine.run:<task session>`). A run of a routine notifies at its limit instead of asking (`Kernel::overdraws`); A routine's **grant** (theseus-52tut, below) is its wake's `TaskRun.tools`. The model's `routine.create` (`routine_tool.rs`) is private-place only
-  and always waits for the owner's yes: its plan names an authority, which `task_graph::tools::authority_for` keeps for it, and
-  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · its own budget, not a
+  and runs at its tool's own posture, telling the owner with its Delete (issue 57); a routine made without his yes waits at
+  least `routine::TOLD_HOLD_MS` (ten minutes) before its first run (`routine::held`). Where he set the tool to `approve`, its
+  plan's authority words the card (`task_graph::tools::authority_for` keeps it there), which reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · its own budget, not a
   system cap: up to $0.50 a run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
   Morning digest (next Fri)`, from `Book::made_in`, memory only). `[kernel] max_routines` moved to `[routines] max_routines`.
   **A start, an optional stop, and what a run carries** (theseus-97b8c; the owner 2026-10-28, "start, optional stop, interval,
@@ -2800,7 +2804,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   outside text and would drive a turn). `place` is a bound place's name, its target, or a channel's id (`reply::resolve_place`);
   `from` a user id, `discord:<id>` or a name (any case, contained); `words` text in any case or a `/pattern/`. Its seed is due
   at its expiry, which is its one look. Set by the owner's `watch.create` (the place rule is `Act::Watch`'s) and the model's
-  `watch` tool (asks the owner once). Tests: `watch/tests_reply.rs`.
+  `watch` tool (it tells the owner, with `wake.cancel` as the undo; `watch = "approve"` asks once, issue 57). Tests:
+  `watch/tests_reply.rs`.
 - **The Operations page's verbs** (theseus-jid7t.2; no store format change: META `session.profile.<session>`, three ledger
   kinds, `theseus_protocol::ops`; `rpc/session_profile.rs`, `rpc/task_rehome.rs`, `rpc/task_reschedule.rs`, `content_wait.rs`'s `mark_of`,
   `fact/ops.rs`, the kernel's `task_edit.rs`), each the owner's act (`session.profile`: `Act::Session`; the two task verbs:

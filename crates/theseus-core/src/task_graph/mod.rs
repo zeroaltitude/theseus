@@ -13,9 +13,10 @@
 //!   taken after a session's and before an execution's.
 //! - **Three layers** (`tools.rs`): the plan (title, children, deps, owner)
 //!   applies; evidence only appends; the objective and acceptance, and
-//!   abandoning, are the operator's, and a change to them waits at the gate
-//!   as the floor's calls do, until the operator answers it (abandoning alone
-//!   follows an explicit `[policy.tools] task.close = "notify"`: it runs and tells them).
+//!   abandoning, are the operator's: a change to them runs at its tool's own
+//!   posture and tells them, with an undo that writes the record before it
+//!   back (`undo.rs`, issue 57), and with the tool set to `approve` it waits
+//!   at the gate until the operator answers it.
 //! - **A session's task follows its execution when read** (`state_now`):
 //!   running is `in_progress`, a card waiting `waiting_human`, a budget
 //!   question or a cancel `suspended`. Its record is written at its own
@@ -44,6 +45,7 @@ pub mod place;
 pub mod plan;
 pub mod retitle;
 pub mod tools;
+pub mod undo;
 pub mod view;
 pub mod words;
 

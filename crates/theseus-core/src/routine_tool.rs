@@ -1,14 +1,15 @@
-//! `routine.create`: the model sets up recurring work (theseus-pvm5c; the
-//! owner's decision D-H3: yes, behind one card). A routine spends money on a
-//! schedule with no one there, so the call always waits for the owner's yes:
-//! its plan names the authority it needs (`Plan::authority`), which asks at
-//! every posture as a floor call does, and its card reads
+//! `routine.create`: the model sets up recurring work (theseus-pvm5c). It runs
+//! at its tool's own posture and the owner is told, with its Delete (issue 57:
+//! he is asked only for what cannot be undone). What a run spends does not
+//! come back, so a routine made without his yes waits at least
+//! `routine::TOLD_HOLD_MS` before its first run. Where he set the tool to
+//! `approve`, its plan's authority (`Plan::authority`) words the card:
 //!
 //! `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00,
 //! Mon 08:00, Tue 08:00) · its own budget, not a system cap: up to $0.50 a run, $10 a month ·
 //! posts to your DM`
 //!
-//! Approved, the harness makes the routine (`routine::create`, the same
+//! Run, the harness makes the routine (`routine::create`, the same
 //! function the owner's `routine.create` verb calls) in the conversation's
 //! name: its commitments block lists it. A run asks before it uses a tool, as
 //! any task does, except the tools in its `grant` (theseus-52tut): those run
@@ -27,8 +28,8 @@ use crate::routine::{create, prepare, NewRoutine};
 use crate::toolrun::TurnCtx;
 
 pub const CREATE: &str = "routine.create";
-/// Why it always asks: the authority its plan names (`policy.explain` probes with it too).
-pub const ASKS: &str = "a routine spends money on a schedule, so it always waits for your yes";
+/// Why it asks where the owner set it to: the authority its plan names.
+pub const ASKS: &str = "a routine spends money on a schedule, so it waits for your yes";
 /// The tools this module adds, for the template's `[policy.tools]` list.
 pub const NAMES: [&str; 1] = [CREATE];
 
@@ -96,8 +97,8 @@ impl Tool for RoutineCreate {
          08:00`, `every 30m`, `monthly 09:00`, or cron), each run a fresh task that does not see \
          this conversation, reporting to the owner's DM. `start` moves the first run; `stop` \
          (`after 3 runs`, or a time) ends the series, and with none it runs until paused. Each \
-         run is given the whole of the last run's report, so it reports the change. It waits for \
-         the owner's yes on one card. A run may spend `budget_usd` (default $0.50), the routine \
+         run is given the whole of the last run's report, so it reports the change. The owner is \
+         told, and can delete it; its first run is at least ten minutes away. A run may spend `budget_usd` (default $0.50), the routine \
          `month_usd` a month (default $10); a spent month skips runs. For a condition a command \
          can check, with no model, use `watch`."
     }
@@ -184,11 +185,13 @@ impl Tool for RoutineCreate {
     }
 }
 
-/// Run `routine.create` (the harness's side), once the owner said yes.
+/// Run `routine.create` (the harness's side): its first run at least `hold_ms`
+/// away (`routine::held`; none once the owner said yes).
 pub fn run(
     tc: &TurnCtx<'_>,
     book: &crate::routine::Book,
     input: &Value,
+    hold_ms: u64,
     known: &dyn Fn(&str) -> bool,
 ) -> Result<(String, Value), String> {
     // A task may propose one: the owner's yes on its card is the gate, as for a
@@ -201,6 +204,7 @@ pub fn run(
     let mut new = i.new_routine();
     new.grant = crate::routine::grant::check(&new.grant, known)?;
     let prepared = prepare(tc.kernel, &book.cfg, &new, &by, Some(tc.session_id))?;
+    let prepared = crate::routine::held(tc.kernel, prepared, hold_ms)?;
     let spec = create(tc.kernel, tc.store, book, prepared, &by).map_err(|e| format!("{e:#}"))?;
     let zone = &tc.kernel.config().zone;
     let first = tc

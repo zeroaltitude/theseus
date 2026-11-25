@@ -722,6 +722,37 @@ pub fn prepare(
     })
 }
 
+/// The least wait before the first run of a routine a conversation set up
+/// (issue 57). It is made without asking the owner, who is told at once, with
+/// its Delete; what a run spends does not come back, so no run starts in the
+/// minutes he has to see that note.
+pub const TOLD_HOLD_MS: u64 = 10 * 60_000;
+
+/// `p` with its first run no sooner than `hold_ms` from now: the schedule read
+/// again from then, as a `start` reads it. A stop that is a time and comes
+/// before that first run would run nothing, and says so.
+pub fn held(kernel: &Kernel, mut p: Prepared, hold_ms: u64) -> Result<Prepared, String> {
+    let kc = kernel.config();
+    let from = kernel.now_ms().saturating_add(hold_ms);
+    if p.first_ms >= from {
+        return Ok(p);
+    }
+    let mut parsed = parse_schedule(&p.spec.schedule, &kc.zone, from, kc.min_repeat_ms)?;
+    if p.until_ms.is_some_and(|until| until < parsed.first_ms) {
+        return Err(format!(
+            "the stop comes before the first run ({}), which is at least {} minutes after a \
+             routine is set up: nothing would run",
+            when(&kc.zone, parsed.first_ms),
+            hold_ms / 60_000
+        ));
+    }
+    parsed.repeat.until_ms = p.until_ms;
+    p.next = occurrences(&parsed, &kc.zone, 3);
+    p.first_ms = parsed.first_ms;
+    p.repeat = parsed.repeat;
+    Ok(p)
+}
+
 /// Make the routine: its conversation (a session and an execution whose limit
 /// is the month), then its wake and its record in one frame.
 pub fn create(

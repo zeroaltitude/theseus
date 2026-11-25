@@ -11,10 +11,14 @@
 //!   `task.close` only appends.
 //! - **Layer 1, the objective and acceptance, and abandoning**: the owner's
 //!   on the owner's tasks (`TaskRecord::is_owners`: a task session opened
-//!   with a brief, and every record from before theseus-ext.10). There the
-//!   call's plan names the authority (`Plan::authority`), so the gate makes it
-//!   wait at every posture, as the floor does (abandoning alone follows
-//!   `task.close` when the operator set it to `notify`: a notice, not an ask). Asked, its proposal is written
+//!   with a brief, and every record from before theseus-ext.10). A change to
+//!   one runs at its tool's own posture, and the owner is told, with an undo
+//!   that writes the task's record before it back (`undo.rs`, issue 57). Where
+//!   the operator set the tool to `approve`, the call's plan names the
+//!   authority (`Plan::authority`), so its card says what changes. A
+//!   self-loop item's abandoning is never told (`undo::keeps_card`): it keeps
+//!   its card unless the operator set `task.close` to `notify`, as before.
+//!   Asked, its proposal is written
 //!   on the record (`proposed`, `task.change_proposed`); the operator's yes
 //!   runs the call, which applies it in one frame (`task.change_accepted`),
 //!   and a no clears it and leaves the task (`declined`,
@@ -359,11 +363,18 @@ pub fn authority_for(
     name: &str,
     input: &Value,
     plan: Plan,
-    abandon_follows_posture: bool,
+    (asks, abandon_follows_posture): (bool, bool),
 ) -> Plan {
     let mut plan = plan;
-    // The operator set `task.close` below approve: abandoning then follows it,
-    // a notice, not a hard-coded ask. Objective and acceptance still ask.
+    // Told, not asked (issue 57): an act the owner can undo exactly runs at
+    // its tool's own posture, and he is told, with an Undo. `asks`: the
+    // operator set the tool to approve, and its card keeps its words.
+    if !asks && plan.authority.is_some() && told(tc.store, name, input) {
+        plan.authority = None;
+        return plan;
+    }
+    // The operator set `task.close` below approve: abandoning a self-loop item
+    // then follows it, a notice, not a hard-coded ask.
     if name == CLOSE && abandon_follows_posture {
         plan.authority = None;
         return plan;
@@ -391,6 +402,20 @@ pub fn authority_for(
     plan
 }
 
+/// Whether a call that names an authority is told rather than asked when
+/// its tool is not set to approve (issue 57): a change to the owner's task
+/// (a self-loop item's abandoning aside, `undo::keeps_card`), a routine, a
+/// project's review routine, and a watch. Each has its undo.
+fn told(store: &crate::store::Store, name: &str, input: &Value) -> bool {
+    match name {
+        UPDATE => true,
+        CLOSE => owners_target(store, name, input).is_none_or(|t| !super::undo::keeps_card(&t)),
+        n => n == crate::routine_tool::CREATE
+            || n == crate::task::CREATE
+            || n == crate::watch_tool::WATCH,
+    }
+}
+
 fn id_schema() -> Value {
     json!({"type": "string", "description": "The task's id (tsk_…), as the task graph shows it."})
 }
@@ -412,8 +437,8 @@ impl Tool for TaskUpdate {
          the edit is refused with the task as it is now, and you read it again. `title`, `deps` \
          (the tasks it waits on), and `owner` apply at once. On a task the task graph marks \
          \"the operator's objective\", `objective` and `acceptance` are the operator's: a change \
-         to either becomes a proposal that waits for the operator's yes, and nothing changes \
-         until then. On any other task (a plan item, a split's child) they apply at once. On \
+         to either applies and tells the operator, who can undo it. On any other task (a plan \
+         item, a split's child) they apply at once. On \
          the operator's task, name the operator's message that asks the change in `said`, and \
          its `kind`."
     }
@@ -431,8 +456,8 @@ impl Tool for TaskUpdate {
                         "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on, replacing the list."},
                         "owner": {"type": "string", "description": "`agent`, or a person."},
                         "due": {"type": "string", "description": "A milestone's or project's date (`2026-11-03`, `fri 09:00`, `in 3d`), or `none`. A milestone's date sets its reminder."},
-                        "objective": {"type": "string", "description": "On the operator's task, a proposal that waits for the operator."},
-                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, a proposal that waits for the operator."}
+                        "objective": {"type": "string", "description": "On the operator's task, the operator is told and can undo it."},
+                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, the operator is told and can undo it."}
                     },
                     "additionalProperties": false
                 },
@@ -544,8 +569,8 @@ impl Tool for TaskClose {
         "Close a task: `done` with its evidence (each an identity, such as `commit:<sha>` or \
          `job:<id>`, and its node when you have one), or `abandoned`. Evidence is only ever \
          added. Abandoning a task the task graph marks \"the operator's objective\" is the \
-         operator's: it waits for the operator's yes unless the operator set closing to \
-         notify, then it runs and tells them; any other task's applies at once. Name \
+         operator's: it runs and tells them, and they can undo it (an item of Theseus's own \
+         self-improvement backlog waits for their yes); any other task's applies at once. Name \
          the `version` you read; a stale one is refused with the task as it is now."
     }
 
@@ -702,9 +727,10 @@ pub(super) fn cas(tc: &TurnCtx<'_>, rec: &TaskRecord, version: u64) -> Result<()
 }
 
 /// Run one edit (the harness's side). `approved`: the operator approved the
-/// call, which a layer-1 change needs; `said_yes`: it was really asked and
-/// answered (an abandon that only follows a notify posture is approved, not
-/// asked). `lease_ms`: a claim's lease, which
+/// call, which a self-loop item's abandoning needs; `said_yes`: it was really
+/// asked and answered (an abandon that only follows a notify posture is
+/// approved, not asked). A layer-1 change of the owner's task that ran without
+/// his yes is told, with an undo (issue 57). `lease_ms`: a claim's lease, which
 /// the holder's edit renews (39b).
 pub fn run<'a>(
     tc: &TurnCtx<'a>,
@@ -714,7 +740,7 @@ pub fn run<'a>(
     (approved, said_yes, lease_ms): (bool, bool, u64),
 ) -> Result<Done<'a>, String> {
     match name {
-        UPDATE => update(tc, input, approved, lease_ms),
+        UPDATE => update(tc, input, said_yes, lease_ms),
         SPLIT => split(tc, input, correlation_id, lease_ms),
         CLOSE => close(tc, input, correlation_id, approved, said_yes),
         super::lease::CLAIM => super::lease::claim(tc, input, lease_ms),
@@ -722,7 +748,8 @@ pub fn run<'a>(
     }
 }
 
-/// `task.update`: layer 2 applies; layer 1 only with the operator's yes.
+/// `task.update`: layer 2 applies; the owner's layer 1 with his yes, in his
+/// own words, or told with an undo.
 fn update<'a>(
     tc: &TurnCtx<'a>,
     input: &Value,
@@ -747,6 +774,8 @@ fn update<'a>(
     let touches_layer1 = i.patch.layer1().is_some();
     let layer1 = i.patch.layer1().filter(|_| rec.is_owners());
     let by_words = his_words(tc, &rec, &i, layer1, approved, &mut done)?;
+    let told = layer1.is_some() && !approved && by_words.is_none();
+    let before = rec.clone();
     if let Some(deps) = &i.patch.deps {
         let all = super::all(tc.store).map_err(|e| format!("{e:#}"))?;
         for d in deps {
@@ -766,9 +795,10 @@ fn update<'a>(
     super::lease::renew(&mut rec, tc, lease_ms);
     rec.version += 1;
     rec.updated_at_ms = now;
-    // The words behind an owner's change, by reference, when the call named them.
+    // The words behind an owner's change, by reference, when the call named
+    // them and his yes or his words carried it (a told one went by neither).
     let kept = match (i.said, i.kind, layer1) {
-        (Some(node), Some(kind), Some(_)) => Some(super::words::Words {
+        (Some(node), Some(kind), Some(_)) if !told => Some(super::words::Words {
             task: rec.id.clone(),
             version: rec.version,
             from,
@@ -782,7 +812,7 @@ fn update<'a>(
         }),
         _ => None,
     };
-    let verb = if layer1.is_some() {
+    let verb = if layer1.is_some() && !told {
         "change_accepted"
     } else {
         "updated"
@@ -791,8 +821,16 @@ fn update<'a>(
     if let (Some(w), Some(kind)) = (&kept, by_words) {
         detail["words"] = json!({"said": w.node, "kind": kind.as_str()});
     }
+    if told {
+        super::undo::tell(&mut detail, &before).map_err(|e| format!("{e:#}"))?;
+    }
     let c = change(tc, &rec, Some(from), detail);
     done.row(tc, verb, c)?;
+    if told {
+        if let Some(row) = done.records.last_mut() {
+            super::undo::key(row, &rec);
+        }
+    }
     done.records.extend(retitled);
     if let Some(w) = &kept {
         done.records
@@ -805,10 +843,10 @@ fn update<'a>(
             rec.id,
             fields.join(", "),
             rec.version,
-            if layer1.is_some() {
-                " The operator accepted the change."
-            } else {
-                ""
+            match (layer1.is_some(), told) {
+                (true, true) => " The operator is told, with an undo.",
+                (true, false) => " The operator accepted the change.",
+                _ => "",
             }
         ),
     };
@@ -817,10 +855,11 @@ fn update<'a>(
 }
 
 /// His own current words, read again under the task's lock (issue 44): the
-/// kind of a layer-1 change of the owner's task that ran without his yes,
-/// or the refusal; none for a change his yes ran, or no layer-1 change. A
-/// change that applies spends his message's receipt, under the message's own
-/// lock, in the change's frame.
+/// kind of a layer-1 change of the owner's task that ran without his yes and
+/// applies in his words; none for a change his yes ran, no layer-1 change, or
+/// one his words do not carry (it is told, issue 57). A change that applies in
+/// his words spends his message's receipt, under the message's own lock, in
+/// the change's frame.
 fn his_words<'a>(
     tc: &TurnCtx<'a>,
     rec: &TaskRecord,
@@ -849,14 +888,7 @@ fn his_words<'a>(
         done.records
             .push(super::judged::receipt_record(&r).map_err(|e| format!("{e:#}"))?);
     }
-    applied.map(Some).map_err(|_| {
-        format!(
-            "Not applied: a change to task {}'s {} is the operator's, and it ran \
-                 without the operator's yes",
-            rec.id,
-            layer1.unwrap_or_default()
-        )
-    })
+    Ok(applied.ok())
 }
 
 /// The patch applied to `rec`: the fields it changed, and a retitle's mark.
@@ -999,8 +1031,8 @@ fn split<'a>(
     Ok(done)
 }
 
-/// `task.close`: evidence appended, and the outcome; abandoning only with
-/// the operator's yes.
+/// `task.close`: evidence appended, and the outcome; abandoning the owner's
+/// task with his yes, or told with an undo (a self-loop item's only approved).
 fn close<'a>(
     tc: &TurnCtx<'a>,
     input: &Value,
@@ -1022,7 +1054,9 @@ fn close<'a>(
         ));
     }
     let owners = rec.is_owners();
-    if i.outcome == Outcome::Abandoned && owners && !approved {
+    let abandons = i.outcome == Outcome::Abandoned && owners;
+    let keeps_card = super::undo::keeps_card(&rec);
+    if abandons && keeps_card && !approved {
         return Err(format!(
             "Not applied: abandoning task {} is the operator's, and it ran without the \
              operator's yes",
@@ -1034,6 +1068,8 @@ fn close<'a>(
         .transcript(tc.session_id)
         .ok()
         .and_then(|n| crate::task::holder_of(&n, correlation_id));
+    let told = abandons && !said_yes && !keeps_card;
+    let before = rec.clone();
     let from = rec.version;
     let added = i.evidence.len();
     for e in i.evidence {
@@ -1054,17 +1090,21 @@ fn close<'a>(
     rec.claim = None;
     rec.version += 1;
     rec.updated_at_ms = now;
-    if i.outcome == Outcome::Abandoned && owners && said_yes {
+    if abandons && said_yes {
         let c = change(tc, &rec, Some(from), json!({"fields": "abandon"}));
         done.row(tc, "change_accepted", c)?;
     }
-    let c = change(
-        tc,
-        &rec,
-        Some(from),
-        json!({"added": added, "evidence": rec.evidence}),
-    );
+    let mut detail = json!({"added": added, "evidence": rec.evidence});
+    if told {
+        super::undo::tell(&mut detail, &before).map_err(|e| format!("{e:#}"))?;
+    }
+    let c = change(tc, &rec, Some(from), detail);
     done.row(tc, "closed", c)?;
+    if told {
+        if let Some(row) = done.records.last_mut() {
+            super::undo::key(row, &rec);
+        }
+    }
     done.text = format!(
         "Closed task {} {} (v{from} → v{}), with {}.",
         rec.id,
@@ -1101,6 +1141,8 @@ pub struct Item<'i> {
     pub arrangement: Option<&'i crate::arrangement::Input>,
     /// Who started it (theseus-o1h3f.1); none is the owner's.
     pub own: Option<&'i crate::task_self::Own>,
+    /// The least wait before a project's review's first run (`routine::held`).
+    pub hold_ms: u64,
 }
 
 /// The record a task's objective and acceptance take from its pieces, else

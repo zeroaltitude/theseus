@@ -5,13 +5,15 @@
 //! - **The harness runs it** (`Backend::Harness`): one frame, the wake's
 //!   (`Kernel::set_wake_as`), exactly as `wake.at`'s; the open watch goes on
 //!   the board so its first check is at the next tick.
-//! - **A command is approved once, at creation, with the command shown** (the
-//!   owner's decision D-H9): a `run` watch plans with an authority, so the gate
-//!   asks at every posture, and the answer binds this call's exact input by
-//!   digest. Nothing edits a watch afterwards (its record has no verb that
-//!   does), so the command that was approved is the command that runs, in L1,
-//!   every time. A `fetch` is judged as `http.fetch` judges its URL, and a
-//!   `file` as a read of its path.
+//! - **A command runs as it was set** (the owner's decision D-H9): a `run`
+//!   watch, and a watch on replies or mail, runs at the tool's own posture and
+//!   the owner is told, with `wake.cancel` as its undo (issue 57); where he set
+//!   `watch` to `approve`, its plan's authority words the card with the
+//!   command shown, and the answer binds this call's exact input by digest.
+//!   Nothing edits a watch afterwards (its record has no verb that does), so
+//!   the command that was set is the command that runs, in L1, every time. A
+//!   `fetch` is judged as `http.fetch` judges its URL, and a `file` as a read
+//!   of its path.
 //! - **Not in a task**: a task must end, and a watch outlives it.
 //! - **Cancelled by `wake.cancel`**, by the id the pending-wakes block shows.
 
@@ -43,7 +45,7 @@ impl Tool for WatchTool {
 
     fn description(&self) -> &'static str {
         "Check something on a timer with no model until a condition holds, then be told (\"when \
-         PR 123 merges\"). `check`: {kind:run, argv, json?} (asks the owner once), {kind:fetch, \
+         PR 123 merges\"). `check`: {kind:run, argv, json?} (sandboxed; the owner is told), {kind:fetch, \
          url, json?} or {kind:file, path}. `until`: `exit 0`, `equals X`, `contains X`, `matches \
          RE`, `changes`, `above N`, `below N`, `exists`. `then`: notice, turn, or task with a \
          `brief`. To wait for someone to answer, {kind:reply, place, from?, words?} (no `until`, no \

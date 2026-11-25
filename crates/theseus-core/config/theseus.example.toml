@@ -749,9 +749,9 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # a background task (DD7): inherits enforcement, so each start is a notice; the
 # task's own calls are gated as usual, and it spends from this session's limit
 # "task.create" = "notify"
-# the task graph (39a): edits of its plan inherit enforcement; a change to a
-# task's objective or acceptance always waits for your yes; abandoning one waits
-# too, unless you set "task.close" = "notify" below, which makes it a notice
+# the task graph (39a): edits inherit enforcement; a change to your task's
+# objective or acceptance, or abandoning it, runs and tells you with an Undo;
+# set "task.update" or "task.close" = "approve" to be asked first instead
 # "task.update" = "notify"
 # "task.split" = "notify"
 # "task.close" = "notify"
@@ -765,10 +765,11 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # "wake.at" = "notify"
 # the model changing a wake it set (its own, from a private place): move it, or cancel it
 # "wake.move" = "notify"
-# "watch" = "notify"            # a watch that runs a command asks first, whatever this says
+# "watch" = "notify"            # a new watch tells you with an Undo; "approve" asks first, the command shown
 # "wake.cancel" = "notify"
-# recurring work (routines): setting one up always waits for your yes on a card, at every posture
-# "routine.create" = "approve"
+# recurring work (routines): setting one up tells you with its Delete, and its first run is at
+# least ten minutes away; "approve" asks first on a card
+# "routine.create" = "notify"
 # long-term work (projects): attaching a conversation to a project
 # "project.attach" = "notify"
 # gliding (38b): a post into another bound place. It inherits enforcement;

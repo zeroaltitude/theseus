@@ -61,15 +61,17 @@ pub fn request(
     }
 }
 
-/// Make the review routine (the same functions the routine verbs call).
+/// Make the review routine (the same functions the routine verbs call), its
+/// first run at least `hold_ms` away (`routine::held`; none for the owner's).
 pub fn make(
     kernel: &theseus_kernel::Kernel,
     store: &crate::store::Store,
     book: &Book,
     new: &NewRoutine,
-    (by, created_in): (&str, Option<&str>),
+    (by, created_in, hold_ms): (&str, Option<&str>, u64),
 ) -> Result<RoutineSpec, String> {
     let prepared = routine::prepare(kernel, &book.cfg, new, by, created_in)?;
+    let prepared = routine::held(kernel, prepared, hold_ms)?;
     routine::create(kernel, store, book, prepared, by).map_err(|e| format!("{e:#}"))
 }
 
