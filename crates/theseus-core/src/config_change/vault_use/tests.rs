@@ -837,7 +837,7 @@ async fn a_told_use_keeps_the_wall() {
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
     r.turn_with("vault_use", &rec.session_id, call(json!([]))).await;
     assert_eq!(r.result(&rec.session_id).0, ResultStatus::Error);
-    let shared = r.session_at("channel:314159265358979323");
+    let shared = r.session_at("channel:2");
     r.turn_with("vault_use", &shared, call(json!([]))).await;
     assert_ne!(r.result(&shared).0, ResultStatus::Ok);
     assert_eq!(r.file_text(), crate::config_change::tests::FILE);
