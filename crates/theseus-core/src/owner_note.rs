@@ -22,6 +22,15 @@ pub enum Kind {
     Reminder,
 }
 
+/// Every kind, in the order of their tags.
+const KINDS: [Kind; 5] = [
+    Kind::Fyi,
+    Kind::Action,
+    Kind::Decision,
+    Kind::Alert,
+    Kind::Reminder,
+];
+
 impl Kind {
     pub fn tag(self) -> &'static str {
         match self {
@@ -64,6 +73,18 @@ pub fn note(kind: Kind, title: &str, trigger: &str, body: &str) -> String {
     }
 }
 
+/// The kind a text's first line names as `head` writes it (`<tag> · `), or
+/// none for a text with no such head. The Discord binding reads it to send an
+/// FYI to the owner's notices place.
+pub fn kind_of(text: &str) -> Option<Kind> {
+    let first = text.lines().next()?;
+    KINDS.into_iter().find(|k| {
+        first
+            .strip_prefix(k.tag())
+            .is_some_and(|r| r.starts_with(" · "))
+    })
+}
+
 /// A day on this machine's clock, for a body's "since when": `2026-10-21`.
 pub fn day(unix_ms: u64) -> String {
     let l = crate::wake::local(unix_ms);
@@ -78,14 +99,7 @@ pub fn is_headed(text: &str) -> bool {
     let (Some(first), Some(second)) = (lines.next(), lines.next()) else {
         return false;
     };
-    let kinds = [
-        Kind::Fyi,
-        Kind::Action,
-        Kind::Decision,
-        Kind::Alert,
-        Kind::Reminder,
-    ];
-    let titled = kinds.iter().any(|&k| {
+    let titled = KINDS.iter().any(|&k| {
         first
             .strip_prefix(k.tag())
             .and_then(|r| r.strip_prefix(" · "))
@@ -138,5 +152,18 @@ mod tests {
         let r = head(Kind::Reminder, "🌱 water the plants", "a reminder you set");
         assert_eq!(r, "⏰ Reminder · 🌱 water the plants\na reminder you set");
         assert!(is_headed(&r));
+    }
+
+    /// A head names its kind; a text without one, or with the tag only in a
+    /// later line or with no ` · ` after it, names none.
+    #[test]
+    fn a_head_names_its_kind() {
+        for k in KINDS {
+            assert_eq!(kind_of(&note(k, "Title", "why", "body")), Some(k));
+        }
+        assert_eq!(kind_of("ℹ️ FYI · A"), Some(Kind::Fyi));
+        assert_eq!(kind_of("plain words\nℹ️ FYI · A"), None);
+        assert_eq!(kind_of("ℹ️ FYI: A"), None);
+        assert_eq!(kind_of(""), None);
     }
 }

@@ -95,6 +95,40 @@ impl FakeDiscord {
         self.state.lock().unwrap().refuse_channels = refuse;
     }
 
+    /// A message create in `channel` answers `status` (403 Missing
+    /// Permissions, 404 Unknown Channel, or a 5xx) and lands nothing, until
+    /// `None` lets creates there through again; other channels are untouched.
+    pub fn fail_creates_in(&self, channel: u64, status: Option<u16>) {
+        let mut st = self.state.lock().unwrap();
+        match status {
+            Some(s) => st.fail_creates.insert(channel, s),
+            None => st.fail_creates.remove(&channel),
+        };
+    }
+
+    /// The status a message create in `channel` answers, when
+    /// `fail_creates_in` set one.
+    pub(super) fn create_fails(&self, channel: &str) -> Option<u16> {
+        let c: u64 = channel.parse().ok()?;
+        self.state.lock().unwrap().fail_creates.get(&c).copied()
+    }
+
+    /// A message create in `channel` answered with its failure: nothing lands.
+    pub(super) fn refuse_create(&self, stream: TcpStream, channel: &str) -> std::io::Result<()> {
+        let status = self.create_fails(channel).unwrap_or(503);
+        self.record(seen(
+            "POST",
+            &format!("/channels/{channel}/messages"),
+            "failed",
+        ));
+        let (message, code) = match status {
+            403 => ("Missing Permissions", 50013),
+            404 => ("Unknown Channel", 10003),
+            _ => ("Service Unavailable (fake)", 0),
+        };
+        reply(stream, status, &json!({"message": message, "code": code}))
+    }
+
     /// Whether `id` is a channel or category the bot made.
     fn is_made_channel(&self, id: &str) -> bool {
         let c: u64 = id.parse().unwrap_or(0);
