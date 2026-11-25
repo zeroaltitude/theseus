@@ -70,7 +70,10 @@ mod tests {
         let fyi = note(Kind::Fyi, "Theseus started keeping track", "a word", "x");
         assert!(informs("onto_card", &fyi));
         assert!(informs("notice", &fyi));
-        assert!(!informs("standing_card", &fyi), "his own words, answered in his DM");
+        assert!(
+            !informs("standing_card", &fyi),
+            "his own words, answered in his DM"
+        );
         for k in [Kind::Action, Kind::Decision, Kind::Alert, Kind::Reminder] {
             assert!(!informs("notice", &note(k, "T", "why", "")), "{k:?}");
         }

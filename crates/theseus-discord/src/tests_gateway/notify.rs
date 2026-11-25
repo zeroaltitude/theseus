@@ -302,21 +302,35 @@ fn disk_back() -> serde_json::Value {
 /// the kept-standing note (his own words just said in his DM, answered there)
 /// stay in the DM. Both sides are counted, so an empty run cannot pass.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn with_a_notices_place_bound_an_fyi_goes_there_and_what_needs_the_owner_stays_in_the_dm()
-{
+async fn with_a_notices_place_bound_an_fyi_goes_there_and_what_needs_the_owner_stays_in_the_dm() {
     use theseus_core::owner_note::{note, Kind};
     let r = rig(true).await;
     stage(&r, mint("fyi-mint-pier"));
     stage(&r, fyi_notice("fyi-sweep-stopped"));
     stage(&r, disk_back());
-    let ask = note(Kind::Decision, "Is this a topic?", "a word came up", "dm-onto-ask");
+    let ask = note(
+        Kind::Decision,
+        "Is this a topic?",
+        "a word came up",
+        "dm-onto-ask",
+    );
     stage(
         &r,
         json!({"kind": "onto_card", "write": "jdg_ask", "undo": false, "text": ask}),
     );
-    let alert = note(Kind::Alert, "A hand ran away", "its spend", "dm-hands-alert");
+    let alert = note(
+        Kind::Alert,
+        "A hand ran away",
+        "its spend",
+        "dm-hands-alert",
+    );
     stage(&r, json!({"kind": "hands_alert", "text": alert}));
-    let retraction = note(Kind::Decision, "Run two tasks again?", "a retraction", "dm-retraction");
+    let retraction = note(
+        Kind::Decision,
+        "Run two tasks again?",
+        "a retraction",
+        "dm-retraction",
+    );
     stage(&r, json!({"kind": "retraction", "text": retraction}));
     let kept = theseus_core::capture::kept_card("dm-kept-standing");
     stage(
@@ -326,9 +340,17 @@ async fn with_a_notices_place_bound_an_fyi_goes_there_and_what_needs_the_owner_s
     let moved = ["fyi-mint-pier", "fyi-sweep-stopped", "back to normal"];
     for text in moved {
         landed(&r, NOTIFY, text).await;
-        assert!(!carries(&r, ANA_DM, text), "{text:?} only informs: not in the DM");
+        assert!(
+            !carries(&r, ANA_DM, text),
+            "{text:?} only informs: not in the DM"
+        );
     }
-    let kept_dm = ["dm-onto-ask", "dm-hands-alert", "dm-retraction", "dm-kept-standing"];
+    let kept_dm = [
+        "dm-onto-ask",
+        "dm-hands-alert",
+        "dm-retraction",
+        "dm-kept-standing",
+    ];
     for text in kept_dm {
         landed(&r, ANA_DM, text).await;
         assert!(!carries(&r, NOTIFY, text), "{text:?} stays in the DM");
