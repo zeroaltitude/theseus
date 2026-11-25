@@ -13,6 +13,9 @@
 //! directories that process made, and asserts the floor covers exactly
 //! those. `--stdio` is reachable in ordinary use (`theseus --spawn` spawns
 //! it), and the stdio daemon builds the same `Core` over the same floor.
+//!
+//! The same run shows that a `--stdio` daemon whose client goes away begins
+//! its stop, as a signal's stop does.
 
 mod common;
 
@@ -166,4 +169,21 @@ fn the_store_and_spool_a_stdio_daemon_makes_are_on_the_floor() {
             "{p:?} is not on the floor: {floor:?}"
         );
     }
+}
+
+/// A `--stdio` daemon whose client goes away begins its stop there, as one
+/// stopped by a signal does (issue 46): the stop's phases are logged, and a
+/// pass that takes the store afresh for each unit (the ledger's pin) starts
+/// none once it has begun, so none outlives the runtime.
+#[test]
+fn a_stdio_daemon_whose_client_went_away_begins_its_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    served_once(dir.path());
+    let log = std::fs::read_to_string(dir.path().join("theseusd.log")).unwrap();
+    // The field's name and its `=` are coloured apart; the value is whole.
+    assert!(
+        log.lines()
+            .any(|l| l.contains("stop") && l.contains("\"began\"")),
+        "the stop never began:\n{log}"
+    );
 }

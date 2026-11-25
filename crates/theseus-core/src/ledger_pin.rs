@@ -8,7 +8,7 @@
 //! background reads, writes its row and a META marker in one frame, and does
 //! nothing once the marker is there, or when no rows came before the chain.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -114,35 +114,11 @@ impl Core {
         let spawned = std::thread::Builder::new()
             .name("ledger-pin".into())
             .spawn(move || {
-                use theseus_store::pressure::{idle_this_thread, quiet_blocking, BOUND};
-                let _ = idle_this_thread();
                 // After a start's aftermath, as the index tender starts: a stop
                 // soon after serving must find no thread holding the store (it
                 // would not close it, and the next start would replay).
                 std::thread::sleep(START_AFTER);
-                let get = || core.upgrade().map(|c| c.store.clone());
-                let detail = match pin_with(get, || {
-                    quiet_blocking(BOUND);
-                }) {
-                    Ok(Pinned::Written { rows, position }) => {
-                        json!({"outcome": "pinned", "rows": rows, "position": position})
-                    }
-                    Ok(Pinned::Already) => json!({"outcome": "already"}),
-                    Ok(Pinned::NotNeeded) => json!({"outcome": "not needed"}),
-                    Ok(Pinned::Mismatch { claimed, found }) => {
-                        tracing::error!(
-                            claimed,
-                            found,
-                            "ledger: the rows from before the chain are not the ones it counted; nothing is pinned (`theseus ledger verify` says more)"
-                        );
-                        json!({"outcome": "mismatch", "claimed": claimed, "found": found})
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %format!("{e:#}"), "ledger: pinning the old history failed");
-                        json!({"outcome": "failed", "error": format!("{e:#}")})
-                    }
-                };
-                log.end(phase, detail);
+                log.end(phase, pass(&core));
             });
         if let Err(e) = spawned {
             self.startup_log
@@ -151,9 +127,55 @@ impl Core {
     }
 }
 
+/// The thread's pass, and what it did for the start's log. At normal priority,
+/// not `SCHED_IDLE`: it waits out a busy machine between pages holding no
+/// store, and an idle-class thread starved for seconds with the store in hand
+/// outlived the stop's wait for the store's close (issue 46).
+fn pass(core: &Weak<Core>) -> Value {
+    use theseus_store::pressure::{quiet_blocking, BOUND};
+    let between = || {
+        quiet_blocking(BOUND);
+    };
+    match pin_with(|| store_of(core), between) {
+        Ok(Pinned::Written { rows, position }) => {
+            json!({"outcome": "pinned", "rows": rows, "position": position})
+        }
+        Ok(Pinned::Already) => json!({"outcome": "already"}),
+        Ok(Pinned::NotNeeded) => json!({"outcome": "not needed"}),
+        Ok(Pinned::Mismatch { claimed, found }) => {
+            tracing::error!(
+                claimed,
+                found,
+                "ledger: the rows from before the chain are not the ones it counted; nothing is pinned (`theseus ledger verify` says more)"
+            );
+            json!({"outcome": "mismatch", "claimed": claimed, "found": found})
+        }
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), "ledger: pinning the old history failed");
+            json!({"outcome": "failed", "error": format!("{e:#}")})
+        }
+    }
+}
+
+/// The store for one unit of the pass. None once the stop has begun: a unit
+/// begun then could still hold the store when the runtime drops. None once
+/// the core is gone.
+fn store_of(core: &Weak<Core>) -> Option<Store> {
+    #[cfg(test)]
+    tests::TOOK_IN_IDLE.fetch_or(
+        theseus_store::pressure::this_thread_is_idle(),
+        std::sync::atomic::Ordering::SeqCst,
+    );
+    if crate::startup::stop_has_begun() {
+        return None;
+    }
+    core.upgrade().map(|c| c.store.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use theseus_store::chain_walk::verify;
     use theseus_store::wal::{Wal, WalConfig};
 
@@ -180,6 +202,54 @@ mod tests {
 
     fn row() -> LedgerRow {
         LedgerRow::new(LedgerKind::TurnStarted, Some("ses_a"), None, Value::Null)
+    }
+
+    /// Whether a unit of the pass took the store on a thread in `SCHED_IDLE`.
+    pub(super) static TOOK_IN_IDLE: AtomicBool = AtomicBool::new(false);
+
+    fn core() -> (tempfile::TempDir, Arc<Core>) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().join("state").to_string_lossy().into_owned();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let provider = Arc::new(crate::provider::FakeProvider::default());
+        let core = Core::build(crate::rpc::Parts::for_tests(cfg, provider, store)).unwrap();
+        (dir, core)
+    }
+
+    /// The pass takes the store at normal priority (issue 46): in `SCHED_IDLE`
+    /// on a saturated machine it could hold the store past the stop's wait.
+    #[test]
+    fn the_pin_pass_holds_the_store_at_normal_priority() {
+        let (_d, core) = core();
+        let detail = pass(&Arc::downgrade(&core));
+        assert_eq!(detail["outcome"], "not needed", "{detail}");
+        assert!(
+            !TOOK_IN_IDLE.load(Ordering::SeqCst),
+            "a unit of the pass took the store in SCHED_IDLE"
+        );
+    }
+
+    /// Once the stop has begun the pass takes no store (issue 46): a unit
+    /// begun then could still hold it when the runtime drops, and the store
+    /// would not close.
+    #[test]
+    fn a_pin_pass_takes_no_store_once_the_stop_has_begun() {
+        let (_d, core) = core();
+        let weak = Arc::downgrade(&core);
+        crate::startup::stop_began();
+        let took = std::cell::Cell::new(false);
+        let got = pin_with(
+            || {
+                let s = store_of(&weak);
+                took.set(took.get() || s.is_some());
+                s
+            },
+            || {},
+        );
+        let err = got.expect_err("the pass ran during the stop");
+        assert_eq!(format!("{err}"), "the daemon is stopping");
+        assert!(!took.get(), "a unit of the pass took the store");
     }
 
     #[test]
