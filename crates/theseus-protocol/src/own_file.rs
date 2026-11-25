@@ -1,6 +1,8 @@
-//! The owner's own instruction file, `<state_dir>/AGENTS.md`: the daemon
-//! carries the version the owner last accepted, and a different file on disk
-//! is named, not read, until the owner accepts it (`theseus own-file accept`).
+//! The owner's own instruction file, `<state_dir>/AGENTS.md`, and the files
+//! his settings name under `[context] files`: the daemon carries the version
+//! the owner last accepted of each, and a different file on disk is named,
+//! not read, until the owner accepts it (`theseus own-file accept`, with
+//! `--file PATH` for a context file).
 
 /// The CLI's verb, the one place its name is written: `theseus own-file`
 /// shows what differs, `theseus own-file accept` shows it and asks.
@@ -12,12 +14,25 @@ pub fn accept_command() -> String {
     format!("theseus {COMMAND} accept")
 }
 
+/// The words that name the accept of `file`, a context file the settings
+/// name; none: the owner's own instruction file.
+pub fn accept_command_for(file: Option<&str>) -> String {
+    match file {
+        Some(f) => format!("{} --file {f}", accept_command()),
+        None => accept_command(),
+    }
+}
+
 use serde::{Deserialize, Serialize};
 
-/// `own_file.show`: no params.
+/// `own_file.show`: the owner's own instruction file, or `file`, a context file the settings name.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct OwnFileShowParams {}
+pub struct OwnFileShowParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub file: Option<String>,
+}
 
 /// Where the file on disk stands against the accepted version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +103,11 @@ pub struct OwnFileShowResult {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct OwnFileAcceptParams {
     pub digest: String,
+    /// A context file the settings name, as `own_file.show` was given it; none: the owner's own
+    /// instruction file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub file: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,

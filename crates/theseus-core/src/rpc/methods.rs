@@ -52,13 +52,10 @@ impl Core {
             joined_not_running: self.self_joined_not_running(),
             self_held: self.self_held(),
             own_file: self.own_file_health(),
+            held_files: self.held_health(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: totals.sessions,
-            imported: {
-                let mut i = totals.imported;
-                i.sync = self.sync_health(theseus_protocol::now_unix_ms());
-                i
-            },
+            imported: self.imported_now(totals.imported),
             turns: totals.turns,
             model: prof.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
             profile,
@@ -166,6 +163,15 @@ impl Core {
     /// reads only those sessions. From one read of every session record
     /// while the projection is not whole (a store an older build wrote last,
     /// until its terms are built after serving).
+    /// The imported sessions' counts, with the sync's health as of now.
+    fn imported_now(
+        &self,
+        mut i: theseus_protocol::import::HealthImported,
+    ) -> theseus_protocol::import::HealthImported {
+        i.sync = self.sync_health(theseus_protocol::now_unix_ms());
+        i
+    }
+
     fn session_totals(&self) -> SessionTotals {
         use theseus_store::Store as _;
         let inner = self.store.inner();

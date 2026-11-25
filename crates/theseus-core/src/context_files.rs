@@ -9,6 +9,10 @@
 //! edit reaches the next turn (and starts a new chain inside a turn), and an
 //! unchanged file keeps every byte.
 //!
+//! What a compile carries of the system level's files is the version the
+//! owner last accepted of each (`project_context::held`), which this reader
+//! reads and compares; the persona's are carried as read.
+//!
 //! FAST: nothing is read at startup. Each compile stats each file and
 //! rereads it only when its size, mtime, or inode changed, or when it
 //! changed less than two seconds before it was read (a second edit inside
@@ -354,6 +358,15 @@ pub(crate) fn header(shown: &str, level: &Level) -> String {
         Level::User => format!("# Context file (user): {shown}"),
         Level::Project => format!("# Context file (project): {shown}"),
     }
+}
+
+/// What the reader carries of a file holding `bytes`: its record (digest,
+/// size, cut) and the text under its header, as a read of it would give
+/// them. The daemon's own write of a context file keeps this
+/// (`Core::held_written`), never the file read back.
+pub(crate) fn as_read(shown: &str, bytes: &[u8]) -> (ContextFileRef, String) {
+    let held = section(shown, bytes[..bytes.len().min(MAX_BYTES + 1)].to_vec());
+    (held.file, held.body)
 }
 
 /// A file's record and text from up to `MAX_BYTES + 1` bytes of it.

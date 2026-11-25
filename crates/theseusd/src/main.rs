@@ -1219,13 +1219,21 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
         .collect();
     // The owner's own instruction file: which version is accepted, read
     // from the store's log, and what the next start does.
+    let store_dir = theseus_core::rpc::store_dir(&cfg.state_dir(), false);
     let own = theseus_core::project_context::own_file::check_line(
-        &theseus_core::rpc::store_dir(&cfg.state_dir(), false),
+        &store_dir,
         &cfg.state_dir()
             .join(theseus_core::project_context::USER_FILE),
     );
+    // The context files the settings name, on the same records: by count.
+    let held = theseus_core::project_context::held::check_line(
+        &store_dir,
+        &theseus_core::project_context::held::paths(cfg),
+    )
+    .map(|l| format!("{l}\n"))
+    .unwrap_or_default();
     out(&format!(
-        "ok: config loaded from {source}; {}\n{outside}{calendars}{}\n{}\nL1: the self-test {}\n{}\n{own}\n",
+        "ok: config loaded from {source}; {}\n{outside}{calendars}{}\n{}\nL1: the self-test {}\n{}\n{own}\n{held}",
         resolved_words(&st),
         kept.line(),
         // Which killer features are on, and why the judge is off if it is.

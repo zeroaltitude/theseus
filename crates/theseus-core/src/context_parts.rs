@@ -87,7 +87,7 @@ impl TurnRunner {
         let paths =
             self.cfg
                 .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
-        let files = self.context_files.peek(&paths);
+        let files = self.context_peek(&paths);
         let mut spec = self.spec_of(target, kind, place, files.clone());
         spec.session_text = self.session_block(
             rec.as_ref().and_then(|r| r.dir.as_deref()),

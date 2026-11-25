@@ -868,6 +868,10 @@ enum Cmd {
     /// same and asks you, at your terminal, to accept what is on disk. Yours alone (refused inside a job).
     #[command(name = theseus_protocol::own_file::COMMAND, hide = true)]
     OwnFile {
+        /// A context file your settings name (`[context] files`), by its path as `theseus health` names it:
+        /// the same show and accept for it. Without it, your own instruction file.
+        #[arg(long, global = true)]
+        file: Option<String>,
         #[command(subcommand)]
         cmd: Option<own_file_cmd::OwnFileCmd>,
     },
@@ -1481,7 +1485,7 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
         Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
         Cmd::Owner { cmd } => owner_proof_cmd::run(c, json, cmd).await,
         Cmd::Vault { cmd } => vault_keep_cmd::run(c, json, cmd).await,
-        Cmd::OwnFile { cmd } => own_file_cmd::run(c, json, cmd).await,
+        Cmd::OwnFile { cmd, file } => own_file_cmd::run(c, json, cmd, file).await,
         _ => unreachable!("only agenda, card, digest, mode, owner, own-file and vault come here"),
     }
 }

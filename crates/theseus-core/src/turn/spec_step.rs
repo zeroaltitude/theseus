@@ -58,7 +58,7 @@ impl TurnRunner {
         let paths =
             self.cfg
                 .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
-        let (files, unreadable) = self.context_files.load(&paths);
+        let (files, unreadable) = self.context_load(&paths);
         (self.spec_of(target, kind, place, files), unreadable)
     }
 }

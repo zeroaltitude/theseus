@@ -63,6 +63,11 @@ joined_not_running?: string,
  */
 own_file?: string, 
 /**
+ * The context files the settings name, one line each while what is on disk is not the version
+ * accepted (or none is accepted), naming `theseus own-file accept --file PATH`. Empty otherwise.
+ */
+held_files?: Array<string>, 
+/**
  * The self loop has started nothing for longer than it should, held on its slots (issue 41):
  * how long, the trees that hold them, and the one act that clears each. Absent otherwise.
  */

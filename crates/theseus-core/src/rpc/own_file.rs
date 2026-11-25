@@ -1,8 +1,10 @@
 //! The owner's own instruction file at the daemon's level
-//! (`project_context::own_file`): the first start's accept, the line
-//! `theseus health` shows while the file on disk is not the accepted one,
-//! and the owner's two methods: `own_file.show`, a read, and
-//! `own_file.accept`, the owner's act at their own terminal.
+//! (`project_context::own_file`), and the context files the settings name
+//! on the same records (`project_context::held`): the first start's accept,
+//! the line `theseus health` shows while a file on disk is not the accepted
+//! one, and the owner's two methods: `own_file.show`, a read, and
+//! `own_file.accept`, the owner's act at their own terminal. Each names a
+//! context file by `file`, and the owner's own file without it.
 
 use std::sync::Arc;
 
@@ -20,7 +22,8 @@ use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal, Surface};
 use crate::fact::own_file::OwnFileAccepted;
-use crate::project_context::own_file::{self, Accepted, Look, Missed, Version};
+use crate::project_context::held;
+use crate::project_context::own_file::{self, Accepted, Look, Missed, Version, Whose};
 
 impl Core {
     /// The first start's accept, once the socket answers: what is on disk,
@@ -64,7 +67,7 @@ impl Core {
         } else {
             Missed::Read
         };
-        if !self.own_file_unread(&look, missed)? {
+        if !self.own_file_unread(&look, Some(missed))? {
             return Ok(None);
         }
         match not_written {
@@ -83,7 +86,7 @@ impl Core {
         else {
             return First::Unread;
         };
-        match self.own_file_kept(look, &v, true) {
+        match self.own_file_kept(look, &v, true, Whose::Own) {
             Ok(seq) => {
                 tracing::info!(path = %look.path.display(), bytes = v.bytes, seq,
                     present = v.digest.is_some(),
@@ -97,10 +100,11 @@ impl Core {
 
     /// The first start recorded as having happened with no version
     /// (`Look::unread_record`), under the accepts' lock, and made durable;
-    /// `missed`, what the start could not do, is kept for the run. False,
-    /// and nothing written, when a pointer stands by then; false too when
-    /// the store cannot confirm the record ([`own_file::Unconfirmed`]).
-    fn own_file_unread(&self, look: &Look, missed: Missed) -> Result<bool> {
+    /// `missed`, what the owner's own file's start could not do, is kept for
+    /// the run (none for a context file). False, and nothing written, when
+    /// a pointer stands by then; false too when the store cannot confirm the
+    /// record ([`own_file::Unconfirmed`]).
+    fn own_file_unread(&self, look: &Look, missed: Option<Missed>) -> Result<bool> {
         let _one = own_file::one_at_a_time();
         if own_file::read_now(&self.store, &look.pid) != Accepted::None {
             return Ok(false);
@@ -108,7 +112,9 @@ impl Core {
         let at_ms = theseus_protocol::now_unix_ms();
         match self.own_file_settle(&[look.unread_record(at_ms)?], true) {
             Ok(()) => {
-                self.runner.context_files.set_own_missed(missed);
+                if let Some(missed) = missed {
+                    self.runner.context_files.set_own_missed(missed);
+                }
                 Ok(true)
             }
             Err(e) if e.is::<own_file::Unconfirmed>() => Ok(false),
@@ -116,10 +122,105 @@ impl Core {
         }
     }
 
-    /// [`Core::own_file_first_start`] off the runtime's workers: it reads
-    /// the file and writes one frame. Its error is the caller's.
+    /// [`Core::own_file_first_start`], then [`Core::held_first_start`], off
+    /// the runtime's workers: each reads its files and writes a frame for
+    /// each. The owner's own file goes first, so a fresh store's first start
+    /// is its own. The own file's error is the caller's; a context file's
+    /// is one line in the log.
     pub fn own_file_after_serving(&self) -> Result<()> {
-        theseus_store::blocking(|| self.own_file_first_start()).map(|_| ())
+        theseus_store::blocking(|| {
+            let own = self.own_file_first_start().map(|_| ());
+            if let Err(e) = self.held_first_start() {
+                tracing::error!(error = %e,
+                    "a context file: the first start that names it could not be recorded, so none of it is carried and this run accepts nothing of it by itself; `theseus own-file accept --file` accepts a version");
+            }
+            own
+        })
+    }
+
+    /// The first start of each context file the settings name
+    /// (`held::first_start_due`): a path with no pointer is accepted, what
+    /// is on disk or its absence, as the owner's own file's first start
+    /// accepts it, in its own frame with its own row and one line in the
+    /// log; a file the reader cannot read, or whose accept is not written,
+    /// is recorded as started with no version. A pointer that stands, or
+    /// that cannot be read, is never accepted over. How many were accepted.
+    pub fn held_first_start(&self) -> Result<usize> {
+        let mut kept = 0;
+        for path in held::paths(&self.cfg) {
+            let look = held::look(&self.store, &self.runner.context_files, &path);
+            if !held::first_start_due(&look) {
+                continue;
+            }
+            match self.held_first_accept(&look)? {
+                Some(true) => kept += 1,
+                Some(false) => {}
+                None => break,
+            }
+        }
+        Ok(kept)
+    }
+
+    /// One context file's first start ([`Core::held_first_start`]): true
+    /// when what is on disk is accepted; false when the start is recorded
+    /// with no version, or a pointer stood by then; none when the store may
+    /// hold an accept it cannot read back ([`own_file::Unconfirmed`]).
+    fn held_first_accept(&self, look: &Look) -> Result<Option<bool>> {
+        let not_written = match own_file::first_version(look, theseus_protocol::now_unix_ms()) {
+            Some(v) => match self.own_file_kept(look, &v, true, Whose::Context) {
+                Ok(seq) => {
+                    tracing::info!(path = %look.path.display(), bytes = v.bytes, seq,
+                        present = v.digest.is_some(),
+                        "a context file: what is on disk is accepted, once, at the first start that names it; from now on a change to it waits for `theseus own-file accept --file`");
+                    return Ok(Some(true));
+                }
+                Err(e) if e.is::<own_file::Unconfirmed>() => return Ok(None),
+                Err(e) => Some(e),
+            },
+            None => None,
+        };
+        if !self.own_file_unread(look, None)? {
+            return Ok(Some(false));
+        }
+        match not_written {
+            None => tracing::warn!(path = %look.path.display(),
+                "a context file could not be read at the first start that names it, so no version is accepted and none of it is carried until `theseus own-file accept --file`"),
+            Some(e) => tracing::warn!(path = %look.path.display(), error = %e,
+                "a context file: its accept at the first start that names it could not be written, so no version is accepted and none of it is carried until `theseus own-file accept --file`"),
+        }
+        Ok(Some(false))
+    }
+
+    /// The context file at `path`, which the daemon itself has just written
+    /// with `text` at the owner's yes (`write_prompt_file`): that yes is the
+    /// accept, and the version kept is `text` as the reader reads it, never
+    /// the file read back. Nothing for a path the settings do not name as a
+    /// context file. An accept that is not kept is logged and the yes
+    /// stands: the file then differs from its accepted version, and the
+    /// owner is told so as for any other change.
+    pub(crate) fn held_written(&self, path: &std::path::Path, text: &str, by: &str, via: &str) {
+        let Some(path) = held::paths(&self.cfg)
+            .into_iter()
+            .find(|p| std::fs::canonicalize(p).is_ok_and(|real| real == path))
+        else {
+            return;
+        };
+        let mut look = held::look(&self.store, &self.runner.context_files, &path);
+        look.disk = own_file::Disk::written(look.disk.found.clone(), text);
+        if matches!(&look.accepted, Accepted::Some(_)) && !look.differs() {
+            return;
+        }
+        let v = look.disk.version(
+            &look.path,
+            theseus_protocol::now_unix_ms(),
+            by,
+            via,
+            own_file::HOW_ACCEPT,
+        );
+        if let Err(e) = self.own_file_kept(&look, &v, false, Whose::Context) {
+            tracing::warn!(path = %look.path.display(), error = %e,
+                "a context file written at the owner's yes: its accept was not kept, so the version accepted before is still what is carried");
+        }
     }
 
     /// `v` accepted for the file `look` read: its records and its row, in
@@ -129,12 +230,13 @@ impl Core {
     /// a record already stands under ([`own_file::USED`]), so a version's
     /// key is never written twice.
     pub(crate) fn own_file_keep(&self, look: &Look, v: &Version) -> Result<u64> {
-        self.own_file_kept(look, v, false)
+        self.own_file_kept(look, v, false, Whose::Own)
     }
 
     /// [`Core::own_file_keep`]; `durable`: the first start's, which passes
-    /// the store's barrier before it answers (`own_file_settle`).
-    fn own_file_kept(&self, look: &Look, v: &Version, durable: bool) -> Result<u64> {
+    /// the store's barrier before it answers (`own_file_settle`); `whose`:
+    /// the row's words.
+    fn own_file_kept(&self, look: &Look, v: &Version, durable: bool, whose: Whose) -> Result<u64> {
         let seq = look.next_seq()?;
         let mut records = look.accept_records(v)?;
         let path = look.path.display().to_string();
@@ -146,6 +248,7 @@ impl Core {
             how: &v.how,
             by: &v.by,
             via: &v.via,
+            whose,
         };
         let rec = self.rec(None);
         records.push(rec.row(&fact)?);
@@ -197,6 +300,40 @@ impl Core {
             self.runner.context_files.own_missed(),
         )
     }
+
+    /// `theseus health`'s lines about the context files the settings name,
+    /// one for each that has one (`Look::health_as`).
+    pub(super) fn held_health(&self) -> Vec<String> {
+        let now_ms = theseus_protocol::now_unix_ms();
+        held::paths(&self.cfg)
+            .iter()
+            .filter_map(|p| {
+                held::look(&self.store, &self.runner.context_files, p).health_as(
+                    &self.store,
+                    now_ms,
+                    None,
+                    Whose::Context,
+                )
+            })
+            .collect()
+    }
+
+    /// The file `file` names, as the show and the accept look at it: a
+    /// context file the settings name, or the owner's own file without it.
+    fn own_file_look(&self, file: Option<&str>) -> Result<(Look, Whose)> {
+        let files = &self.runner.context_files;
+        let Some(given) = file else {
+            return Ok((Look::of(&self.cfg, &self.store, files), Whose::Own));
+        };
+        let Some(path) = held::named(&self.cfg, given) else {
+            bail!(
+                "{} is not a context file the settings name, so there is nothing of it to show \
+                 or accept",
+                given.trim()
+            );
+        };
+        Ok((held::look(&self.store, files, &path), Whose::Context))
+    }
 }
 
 /// The own file's methods, routed by the owner-in-person dispatch arm
@@ -216,18 +353,36 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         if name == method::OWN_FILE_SHOW {
-            return route(params, |_: OwnFileShowParams| Ok(self.own_file_show()));
+            return route(params, |p: OwnFileShowParams| {
+                self.own_file_show_of(p.file.as_deref())
+                    .map_err(RpcFailure::invalid)
+            });
         }
         route(params, |p: OwnFileAcceptParams| {
             let who = conn.answerer(p.author.clone(), p.discord.clone());
-            self.own_file_accept(&p.digest, who).map_err(refused)
+            let whose = if p.file.is_some() {
+                Whose::Context
+            } else {
+                Whose::Own
+            };
+            self.own_file_accept_of(p.file.as_deref(), &p.digest, who)
+                .map_err(|e| refused(e, whose))
         })
     }
 
     /// What is accepted, what is on disk, and the change between them.
     pub fn own_file_show(&self) -> OwnFileShowResult {
-        let files = &self.runner.context_files;
-        let look = Look::of(&self.cfg, &self.store, files);
+        let look = Look::of(&self.cfg, &self.store, &self.runner.context_files);
+        Self::own_file_shown(&look)
+    }
+
+    /// [`Core::own_file_show`] of `file`, a context file the settings name,
+    /// or of the owner's own file without it.
+    pub fn own_file_show_of(&self, file: Option<&str>) -> Result<OwnFileShowResult> {
+        Ok(Self::own_file_shown(&self.own_file_look(file)?.0))
+    }
+
+    fn own_file_shown(look: &Look) -> OwnFileShowResult {
         let accepted = match &look.accepted {
             Accepted::Some(n) | Accepted::Damaged(n) => {
                 Some(theseus_protocol::own_file::OwnFileAccepted {
@@ -292,17 +447,29 @@ impl Core {
         digest: &str,
         who: impl Into<Answerer>,
     ) -> Result<OwnFileAcceptResult> {
+        self.own_file_accept_of(None, digest, who)
+    }
+
+    /// [`Core::own_file_accept`] of `file`, a context file the settings
+    /// name, or of the owner's own file without it: the same judge, the same
+    /// digest, the same frame.
+    pub fn own_file_accept_of(
+        &self,
+        file: Option<&str>,
+        digest: &str,
+        who: impl Into<Answerer>,
+    ) -> Result<OwnFileAcceptResult> {
         let who = who.into();
-        let look = Look::of(&self.cfg, &self.store, &self.runner.context_files);
+        let (look, whose) = self.own_file_look(file)?;
         let path = look.path.display().to_string();
-        self.own_file_judge(&who, &path)?;
+        self.own_file_judge(&who, &path, whose)?;
         if look.disk.digest.as_deref().unwrap_or_default() != digest
             || (digest.is_empty() && look.disk.found.is_some())
         {
             bail!(
                 "{path} changed after it was shown, so nothing was accepted: run `{}` again and \
                  read the change first",
-                theseus_protocol::own_file::accept_command()
+                whose.accept(&look.path)
             );
         }
         if let Accepted::Some(n) = &look.accepted {
@@ -321,7 +488,10 @@ impl Core {
             &who.via(),
             own_file::HOW_ACCEPT,
         );
-        let seq = self.own_file_keep(&look, &v)?;
+        let seq = match whose {
+            Whose::Own => self.own_file_keep(&look, &v)?,
+            Whose::Context => self.own_file_kept(&look, &v, false, whose)?,
+        };
         Ok(OwnFileAcceptResult {
             path,
             seq,
@@ -333,24 +503,31 @@ impl Core {
     /// (`places::owner_in_person_of`, whose rule is `project trust`'s), and
     /// at a terminal (the CLI's surface). The refusal is one
     /// `approval.refused` row.
-    fn own_file_judge(&self, who: &Answerer, path: &str) -> Result<()> {
-        let verdict = crate::places::owner_in_person_of(
-            who,
-            &self.runner.place_rule,
-            &self.cfg,
-            "your own instruction file is carried in every prompt, so only you accept a version \
-             of it",
-            "a version of your own instruction file is accepted",
-        )
-        .and_then(|()| match who.surface {
-            Surface::Cli => Ok(()),
-            _ => Err(format!(
-                "it came through {}, and a version of your own instruction file is accepted at \
-                 your own terminal alone: `{}`",
+    fn own_file_judge(&self, who: &Answerer, path: &str, whose: Whose) -> Result<()> {
+        let (why, given, which) = match whose {
+            Whose::Own => (
+                "your own instruction file is carried in every prompt, so only you accept a \
+                 version of it",
+                "a version of your own instruction file is accepted",
+                "your own instruction file",
+            ),
+            Whose::Context => (
+                "a context file is carried in every prompt, so only you accept a version of it",
+                "a version of a context file is accepted",
+                "a context file",
+            ),
+        };
+        let verdict =
+            crate::places::owner_in_person_of(who, &self.runner.place_rule, &self.cfg, why, given)
+                .and_then(|()| match who.surface {
+                    Surface::Cli => Ok(()),
+                    _ => Err(format!(
+                "it came through {}, and a version of {which} is accepted at your own terminal \
+                 alone: `{}`",
                 who.via(),
-                theseus_protocol::own_file::accept_command()
+                whose.accept(std::path::Path::new(path))
             )),
-        });
+                });
         let Err(why) = verdict else {
             return Ok(());
         };
@@ -384,12 +561,16 @@ enum First {
 
 /// A refusal as the wire's `REFUSED`, with its reason; any other error as
 /// invalid.
-fn refused(e: anyhow::Error) -> RpcFailure {
+fn refused(e: anyhow::Error, whose: Whose) -> RpcFailure {
+    let which = match whose {
+        Whose::Own => "your own instruction file",
+        Whose::Context => "a context file",
+    };
     match e.downcast::<Refusal>() {
         Ok(r) => RpcFailure {
             code: error_code::REFUSED,
             message: format!(
-                "an accept of your own instruction file from {} does not count: {}",
+                "an accept of {which} from {} does not count: {}",
                 r.who, r.why
             ),
             data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),

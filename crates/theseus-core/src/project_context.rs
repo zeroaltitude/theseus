@@ -44,6 +44,7 @@ use std::path::{Path, PathBuf};
 use crate::context_files::{ContextFile, ContextFiles, ContextPath, Level};
 
 pub mod change;
+pub mod held;
 pub mod own_file;
 pub mod trust;
 
@@ -578,7 +579,8 @@ pub fn block_and_own(
         cfg.state_dir().join(USER_FILE),
         found.user.clone(),
     );
-    let own = look.carry(store, theseus_protocol::now_unix_ms());
+    let now_ms = theseus_protocol::now_unix_ms();
+    let own = look.carry(store, now_ms);
     parts.extend(own.section);
     if !found.project.is_empty() {
         if granted {
@@ -599,14 +601,18 @@ pub fn block_and_own(
                 &found.dirs,
                 flagged,
             );
-            // The owner's own file is carried by its accepted version alone:
-            // a repository file that resolves to it is not read here.
-            let own_real = std::fs::canonicalize(cfg.state_dir().join(USER_FILE)).ok();
+            // The owner's own file, and each context file the settings
+            // name, is carried by its accepted version alone: a repository
+            // file that resolves to one of them is not read here.
+            let accepted: Vec<PathBuf> = std::iter::once(cfg.state_dir().join(USER_FILE))
+                .chain(held::paths(cfg))
+                .filter_map(|p| std::fs::canonicalize(p).ok())
+                .collect();
             let carry: Vec<Found> = found
                 .project
                 .iter()
                 .filter(|f| !seen.withholds(&f.shown))
-                .filter(|f| own_real.is_none() || std::fs::canonicalize(&f.path).ok() != own_real)
+                .filter(|f| !std::fs::canonicalize(&f.path).is_ok_and(|r| accepted.contains(&r)))
                 .cloned()
                 .collect();
             let a = assemble(files, &carry, budget);
@@ -622,6 +628,7 @@ pub fn block_and_own(
         }
     }
     parts.extend(own.line);
+    parts.extend(held::lines(cfg, store, files, now_ms));
     let text = (!parts.is_empty()).then(|| parts.join("\n\n"));
     (text, look.carried())
 }

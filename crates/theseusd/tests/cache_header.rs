@@ -145,6 +145,14 @@ impl Rig {
                 .ok()
                 .filter(|h| h["secrets"]["state"] == "ready")
         });
+        // The start step accepts the context files once
+        // (`Core::held_first_start`); a request compiled before it carries
+        // none of their text.
+        r.wait("the context files accepted", || {
+            r.call("health", Value::Null)
+                .ok()
+                .filter(|h| h.get("held_files").is_none())
+        });
         r
     }
 
