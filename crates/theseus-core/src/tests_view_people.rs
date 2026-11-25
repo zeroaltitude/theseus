@@ -17,14 +17,14 @@ use crate::view::text::tokens;
 use crate::view::wire_text::BESIDE_HEAD;
 
 /// A guest's Discord id: their held record is `person:<id>`, which holds `discord:<id>`.
-const GUEST: &str = "4401";
+pub(crate) const GUEST: &str = "4401";
 
-fn guest() -> String {
+pub(crate) fn guest() -> String {
     format!("discord:{GUEST}")
 }
 
 /// Hold a person as the owner's records would: `local` (`person:<local>`) named `name`.
-fn hold(c: &crate::Core, local: &str, name: &str) {
+pub(crate) fn hold(c: &crate::Core, local: &str, name: &str) {
     hold_by(c, local, name, &[]);
 }
 
@@ -44,7 +44,7 @@ fn hold_by(c: &crate::Core, local: &str, name: &str, handles: &[&str]) {
 
 /// An exchange `person` opened with `words` in `place` of session `sid` at `at_ms`, marked as the chat
 /// service's (not the owner's), on the place's and the person's timelines: its turn id.
-fn said_by(
+pub(crate) fn said_by(
     store: &crate::store::Store,
     (sid, place, private): (&str, &str, bool),
     person: &str,
@@ -100,7 +100,7 @@ fn said_by(
 }
 
 /// A session of its own, for exchanges elsewhere.
-fn far_session(store: &crate::store::Store) -> String {
+pub(crate) fn far_session(store: &crate::store::Store) -> String {
     let r = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     store.put_session(&r.session_id, &r).unwrap();
     r.session_id
@@ -125,7 +125,7 @@ fn people(q: &ProviderRequest) -> Vec<String> {
 }
 
 /// The block beside the message.
-fn beside(q: &ProviderRequest) -> String {
+pub(crate) fn beside(q: &ProviderRequest) -> String {
     let all = q.messages.iter().flat_map(|m| {
         (m["content"].as_array().into_iter().flatten())
             .filter_map(|b| b["text"].as_str().map(str::to_string))
