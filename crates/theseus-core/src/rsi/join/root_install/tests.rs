@@ -513,51 +513,22 @@ async fn no_helper_means_no_install_and_a_plain_notice() {
     assert!(t.steps().contains(&"no_helper".to_string()));
 }
 
-/// The second proof is asked: with no app paired no card is made (and no build is spent), and the owner is told how to
-/// pair one; with one paired the card is marked, a yes alone from a place with no window is refused and installs
-/// nothing, and a good code installs.
+/// Issue 57: the install asks with the card alone. With no authenticator app paired the card is still made, it is not
+/// marked for the code, and the owner's yes from their own terminal installs.
 #[tokio::test]
-async fn the_second_proof_is_asked_for_the_install() {
+async fn the_install_asks_with_the_card_alone() {
     let t = rooted(SelfInstall::Ask, None);
-    t.join().await;
-    assert!(t.cards().is_empty(), "no card while no app is paired");
-    let said = t.notices().join("\n");
-    assert!(said.contains("theseus owner proof enroll"), "{said}");
-    assert!(t
-        .helper
-        .calls
-        .lock()
-        .unwrap()
-        .iter()
-        .all(|c| c == "presence"));
-
-    // Paired, no window: the card is made and marked; a yes alone installs nothing.
-    let t = rooted(SelfInstall::Ask, None);
-    let secret = t.r.core.proofs.enrol_stand_in();
     t.join().await;
     let q = t.cards()[0].clone();
-    assert!(q.needs_proof && !q.needs_fresh_proof, "{q:?}");
-    let e =
-        t.r.core
-            .confirm_action(&q.correlation_id, true, None, "cli")
-            .unwrap_err();
-    assert!(e.to_string().contains("second proof"), "{e:#}");
+    assert!(!q.needs_proof && !q.needs_fresh_proof, "{q:?}");
     assert!(
-        t.helper.installed.lock().unwrap().is_empty()
-            && t.units.restarts.lock().unwrap().is_empty()
+        !t.notices().join("\n").contains("theseus owner proof enroll"),
+        "{:?}",
+        t.notices()
     );
-    assert_eq!(t.cards().len(), 1, "it still waits");
-    // A good code answers it.
-    let code = crate::owner_proof::Proofs::stand_in_code(&secret, 0);
-    crate::tests_m3::rpc_as(
-        &t.r.core,
-        crate::tests_m3::surface("sock#1", crate::approval::Surface::Cli)
-            .behind(crate::peer_proc::Behind::Owner),
-        theseus_protocol::method::ACTION_CONFIRM,
-        serde_json::json!({"correlation_id": q.correlation_id, "approve": true, "code": code}),
-    )
-    .await
-    .unwrap();
+    t.r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
     assert!(
         t.steps().contains(&"approved".to_string()),
         "{:?}",

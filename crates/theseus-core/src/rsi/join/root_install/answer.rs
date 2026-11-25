@@ -1,9 +1,8 @@
 //! The owner's answer to "Install the change Theseus joined": `action.confirm` on its `self.install.ack` question,
 //! judged by the place rule before it gets here, and refused to an agent's process (in `rpc/confirms.rs`'s dispatch).
 //!
-//! A yes is the second proof's to give: the card is marked as asking for it (`config_change::proof_seam`), and the
-//! gate where the answer becomes a decision approves it only on a good code or an open window of the answer's own
-//! place; a card asked without the mark settles as declined. Else the install runs, as a task, off the answer's path: the answer settles at once (one
+//! The card's yes is enough (issue 57: `self revert` undoes an install, and a failed start goes back by itself); the
+//! install runs, as a task, off the answer's path: the answer settles at once (one
 //! frame: the bind or the decline, the answer's row, the ledger row), and the run's steps are ledger rows of their own.
 
 use std::path::{Path, PathBuf};
@@ -20,7 +19,6 @@ use super::{
     exec_program, is_commit, program_of, repoint, rooted, short, Pending, Stage, Unit,
     CONFIRM_WITHIN_SECS,
 };
-use crate::config_change::proof_seam;
 use crate::fact::answer::CallAnswered;
 use crate::ledger::LedgerRow;
 use crate::outbox::Closed;
@@ -89,13 +87,9 @@ pub(super) fn restart_script(
 }
 
 impl Core {
-    /// Whether a yes is let stand: the card was asked with the second proof, and the card names a commit that is not already being
-    /// installed. Else it settles as a decline, with the reason.
-    fn root_yes_stands(&self, a: &Action, merge: &str) -> Result<(), String> {
-        // The code was judged where the answer became a decision; a card asked without the mark is never installed.
-        if !self.root_card_marked(a) {
-            return Err(proof_seam::NOT_ASKED.to_string());
-        }
+    /// Whether a yes is let stand: the card names a commit that is not already being installed. Else it settles as a
+    /// decline, with the reason.
+    fn root_yes_stands(&self, merge: &str) -> Result<(), String> {
         if !is_commit(merge) || self.root_install_pending_for(merge) {
             return Err(
                 "an install of that commit is already under way, or the card names no commit"
@@ -194,7 +188,7 @@ impl Core {
             .unwrap_or_default();
         let text = |k: &str| args[k].as_str().unwrap_or_default().to_string();
         let merge = text("merge");
-        let (approve, note) = match (approve, self.root_yes_stands(a, &merge)) {
+        let (approve, note) = match (approve, self.root_yes_stands(&merge)) {
             (true, Err(why)) => (false, Some(why)),
             (_, _) => (approve, note.map(str::to_string)),
         };
