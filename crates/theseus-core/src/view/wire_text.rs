@@ -10,7 +10,7 @@
 //! (`super::sources_store::Sessions::texts`). A piece with no text read is left out of the text; it stays in
 //! the view, so the view's record still says it was chosen.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use super::budget::View;
 use super::fold::FoldNode;
@@ -250,7 +250,7 @@ impl TextRenderer<'_> {
 /// every record of a node, and one written again (its tombstone, when it was erased) reads as the history tool
 /// reads it (`Store::get_node`), so an erased message lays none of its words.
 fn newest(nodes: Vec<(u64, Stub)>) -> Vec<(u64, Stub)> {
-    let mut at = std::collections::HashMap::new();
+    let mut at: HashMap<String, usize> = HashMap::new();
     let mut out: Vec<(u64, Stub)> = Vec::new();
     for (p, n) in nodes {
         match at.get(&n.id) {
