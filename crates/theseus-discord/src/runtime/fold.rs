@@ -8,6 +8,11 @@
 //! confirm's settle is, so a fold made before a restart opens after it. A
 //! turn too old to read back is said, in one line, to the presser alone.
 //!
+//! A folded FYI note (`courier/fold_note.rs`) is pressed the same way, by
+//! `fold:no:<post>` and `fold:nc:<post>`: its words are read back from the
+//! post itself, only when the pressed message is the one the post was
+//! written to, so a button forged elsewhere shows nothing.
+//!
 //! A press only shows again what the place showed openly before: it changes
 //! nothing and asks the core nothing. So anyone the place answers may press
 //! it, as anyone who can see the conversation could read the lines before
@@ -23,6 +28,7 @@ use twilight_model::channel::message::{AllowedMentions, Component};
 use twilight_model::http::interaction::InteractionResponseType;
 
 use super::{command_reply, LaneMsg, Place, PlaceMsg, Shared};
+use crate::bindings::Steps;
 use crate::render::fold::{FoldButtons, SUFFIX};
 use crate::render::{Buttons, Op};
 
@@ -32,6 +38,9 @@ const PREFIX: &str = "fold:";
 /// What the presser is told when the turn cannot be read back.
 pub(crate) const TOO_OLD: &str =
     "These steps are too old to show again: only a conversation's newest turns are kept.";
+
+/// What the presser is told when a note's post cannot be read back.
+pub(crate) const NOTE_GONE: &str = "This note is too old to show again.";
 
 /// What the presser is told when the place did not answer in time.
 const BUSY: &str = "Theseus is busy here: press it again in a moment.";
@@ -69,9 +78,34 @@ pub(crate) fn parse(custom_id: &str) -> Option<(String, Option<usize>)> {
     (!turn.is_empty()).then(|| (turn.to_string(), page))
 }
 
-/// Whether `i` is a press on a fold.
+/// A folded note's press id as its post and whether it opens it.
+pub(crate) fn parse_note(custom_id: &str) -> Option<(String, bool)> {
+    let rest = custom_id.strip_prefix(PREFIX)?;
+    let (open, post) = match rest.split_once(':')? {
+        ("no", post) => (true, post),
+        ("nc", post) => (false, post),
+        _ => return None,
+    };
+    (!post.is_empty()).then(|| (post.to_string(), open))
+}
+
+/// A folded note's button: Show note, or, open, Hide note.
+pub(crate) fn note_buttons(post: &str, open: bool) -> Vec<Component> {
+    let b = if open {
+        button("Hide note", format!("{PREFIX}nc:{post}"))
+    } else {
+        button("Show note", format!("{PREFIX}no:{post}"))
+    };
+    vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![b],
+    })]
+}
+
+/// Whether `i` is a press on a fold or a folded note.
 pub(super) fn is_press(i: &Interaction) -> bool {
-    matches!(&i.data, Some(InteractionData::MessageComponent(c)) if parse(&c.custom_id).is_some())
+    matches!(&i.data, Some(InteractionData::MessageComponent(c))
+        if parse(&c.custom_id).is_some() || parse_note(&c.custom_id).is_some())
 }
 
 fn button(label: &str, custom_id: String) -> Component {
@@ -124,11 +158,75 @@ pub(super) fn pressed(
         return false;
     }
     let (shared, i, place) = (shared.clone(), i.clone(), place.clone());
-    tokio::spawn(async move { shared.fold_press(&i, &place).await });
+    tokio::spawn(async move {
+        let note = match &i.data {
+            Some(InteractionData::MessageComponent(c)) => parse_note(&c.custom_id),
+            _ => None,
+        };
+        match note {
+            Some((post, open)) => shared.note_press(&i, &post, open).await,
+            None => shared.fold_press(&i, &place).await,
+        }
+    });
     true
 }
 
 impl Shared {
+    /// How the place whose channel is `channel` shows its steps and notes: a
+    /// bound channel's word, or a DM's by its user. A channel bound nowhere
+    /// is folded, as a place that says nothing is.
+    pub(crate) fn steps_in(&self, channel: u64) -> Steps {
+        let user = {
+            let r = self.routes.lock().unwrap();
+            r.dm_channel
+                .iter()
+                .find(|(_, c)| **c == channel)
+                .map(|(u, _)| *u)
+        };
+        let key = user.map_or_else(|| format!("channel:{channel}"), |u| format!("dm:{u}"));
+        self.place_bits.get(&key).steps
+    }
+
+    /// A press on a folded note: acknowledged, then the pressed message shows
+    /// the note's words, or its line again; a post that cannot be read back,
+    /// or that was not written to this message, is told to the presser.
+    async fn note_press(&self, i: &Interaction, post: &str, open: bool) {
+        self.respond(
+            i,
+            InteractionResponseType::DeferredUpdateMessage,
+            None,
+            false,
+        )
+        .await;
+        let (Some(ch), Some(m)) = (i.channel.as_ref(), i.message.as_ref()) else {
+            return;
+        };
+        let a = self.core.kernel.action(post).ok().flatten();
+        let ours = a
+            .as_ref()
+            .is_some_and(|a| a.external_op_id.as_deref() == Some(m.id.to_string().as_str()));
+        let Some(text) = a.as_ref().filter(|_| ours).and_then(crate::courier::note_words) else {
+            self.followup(i, NOTE_GONE).await;
+            return;
+        };
+        let content = if open {
+            command_reply::leaving(&self.core.exits, &text)
+        } else {
+            crate::courier::note_line(a.as_ref().map_or("", theseus_core::outbox::kind_of))
+        };
+        let comps = note_buttons(post, open);
+        if let Err(e) = self
+            .http
+            .update_message(ch.id, m.id)
+            .content(Some(&content))
+            .components(Some(&comps))
+            .allowed_mentions(Some(&AllowedMentions::default()))
+            .await
+        {
+            self.board.error("note press", None, e);
+        }
+    }
+
     /// A press on a fold, in the place `place`: acknowledged at once, then
     /// the pressed message shows what the place says the fold shows now.
     async fn fold_press(&self, i: &Interaction, place: &mpsc::UnboundedSender<PlaceMsg>) {
@@ -223,6 +321,18 @@ mod tests {
             assert_eq!(parse(bad), None, "{bad}");
         }
         assert!(id(&"t".repeat(80), Some(99)).len() <= 100, "Discord's 100");
+    }
+
+    /// A note's press id says its post and whether it opens; a turn's id is
+    /// no note's, and a note's no turn's.
+    #[test]
+    fn a_note_press_id_carries_its_post() {
+        assert_eq!(parse_note("fold:no:act_1"), Some(("act_1".into(), true)));
+        assert_eq!(parse_note("fold:nc:act_1"), Some(("act_1".into(), false)));
+        for bad in ["fold:no:", "fold:o:0:turn_a", "fold:c:turn_a", "src:no:x"] {
+            assert_eq!(parse_note(bad), None, "{bad}");
+        }
+        assert_eq!(parse("fold:no:act_1"), None);
     }
 
     /// Closed: Show steps alone. Open: the pages' buttons where there is a

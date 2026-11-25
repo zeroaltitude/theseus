@@ -739,7 +739,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   restart), and the pressed message is edited by its id; while the turn runs the same also goes through the lane,
   after any edit it holds. A turn it cannot read back is told to the presser alone (`fold::TOO_OLD`). Never folded:
   the reply's text, a card, a question, a settle, a failed turn, every post. `open` writes what it wrote before,
-  op for op. Tests: `tests_fold.rs`, `render/fold.rs`, `runtime/fold.rs`, `runtime/show.rs`.
+  op for op. A standalone FYI note (`courier/fold_note.rs`) folds too: a post the notices place's rule says only
+  informs (`notices::informs`), written to a folded place (`Shared::steps_in`, the place's `PlaceBits`) and not to the
+  notices place, with no button of its own and no met watch, is `-# ℹ️ FYI: <its kind's words>` with **Show note**
+  (`fold:no:<post>`, `fold:nc:<post>`); a press reads the words back from the post (`kernel.action`) only when the
+  pressed message is the post's own (`external_op_id`), else tells the presser `fold::NOTE_GONE`. Tests:
+  `tests_fold.rs`, `render/fold.rs`, `runtime/fold.rs`, `runtime/show.rs`, `courier/fold_note.rs`.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).

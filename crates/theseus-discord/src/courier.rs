@@ -24,7 +24,9 @@
 pub(crate) mod ask;
 mod board;
 mod catchup;
+mod fold_note;
 mod held;
+pub(crate) use fold_note::{line as note_line, words as note_words};
 mod notices;
 mod offer;
 mod recall;
@@ -729,6 +731,10 @@ impl Lane {
         let Some(mut notices) = self.take_notices_dm(a) else {
             return Ok(());
         };
+        // An FYI that stays here is one closed line, in a folded place (issue 56).
+        if notices.is_none() {
+            self.fold_notes(a, &mut plan.writes);
+        }
         if plan.writes.is_empty() {
             // Nothing to send (`Plan::nothing`): the post ends well and
             // reached no channel.
@@ -2025,6 +2031,7 @@ impl Lane {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
             }
             Buttons::Fold(f) => crate::runtime::fold::buttons(f),
+            Buttons::FoldNote(c, open) => crate::runtime::fold::note_buttons(c, *open),
             Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
         if !comps.is_empty() {
@@ -2106,6 +2113,7 @@ impl Lane {
                 offer.as_deref(),
             )),
             Buttons::Fold(f) => Some(crate::runtime::fold::buttons(f)),
+            Buttons::FoldNote(c, open) => Some(crate::runtime::fold::note_buttons(c, *open)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep | Buttons::V2 => None,
         };
