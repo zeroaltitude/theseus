@@ -99,3 +99,18 @@ fn an_exhausted_execution_an_earlier_build_migrated_reopens_at_the_next_start() 
     assert_eq!(rep.requeued_interrupted, ["exe_dm"]);
     assert_eq!(rows(&w, "ses_dm", "budget.reopened").len(), 1);
 }
+
+/// A stored execution that is JSON but no object (a string, a number, a list) does not read, and is not
+/// read as an older schema (issue 46): the listing passes it over and counts it, as any other.
+#[test]
+fn an_execution_that_is_no_object_does_not_read_and_is_passed_over() {
+    for payload in [r#""words""#, "7", "[1]"] {
+        let read = Execution::from_stored(payload.as_bytes(), 100 * MICROS_PER_USD);
+        assert!(read.is_err(), "{payload}");
+    }
+    let w = world();
+    let (read, skipped) = w
+        .kernel
+        .decode_executions_skipping([(1, br#""words""#.as_slice()), (2, b"7".as_slice())]);
+    assert_eq!((read.len(), skipped), (0, 2));
+}
