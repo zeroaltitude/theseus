@@ -378,8 +378,8 @@ impl Tool for VaultUse {
          `fields_of` lists them), a `name` of your choosing for it in the settings, and in `also` the other \
          settings that should read that name (a provider's `api_key_secret`, a program's \
          `broker.programs.<p>.env.<VAR>`, a server's `auth_secret`), written as for `config.propose`. The daemon \
-         finds the item and field, checks that its account can read them, builds the reference itself, and shows \
-         the owner ONE card that says so; only their yes (and the second proof) changes anything. A secret is \
+         finds the item and field, checks that its account can read them, builds the reference itself, and writes \
+         it, telling the owner, when only that name and settings reading it change; else ONE card asks. A secret is \
          used by its name: its value is never asked for, never shown, and never passes through you. Never write an \
          `op://` reference in `config.propose`, and the vault's program in a shell has no session by design. If the \
          account cannot see a vault, the result says what the owner can do. A fact the provider publishes (its \
