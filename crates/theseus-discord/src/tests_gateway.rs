@@ -1115,6 +1115,7 @@ mod reply;
 mod self_note;
 mod self_word;
 mod standing;
+mod told;
 
 /// A message with a Jev notice's Noise button for `judgment`, posted in
 /// `channel` as the bot's, as a forged or stale copy would be. Its id.
