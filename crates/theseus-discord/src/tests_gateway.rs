@@ -1109,6 +1109,7 @@ mod content;
 mod horizon;
 mod keep_form;
 mod notify;
+mod notify_fyi;
 mod onto;
 pub(crate) mod patience;
 mod persona_soul;
