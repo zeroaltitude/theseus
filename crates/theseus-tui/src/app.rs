@@ -23,7 +23,7 @@ use crate::follow::Follow;
 use crate::notice::{Delivery, Notices};
 use crate::selfview::SelfView;
 use crate::standing::{self, Standing};
-use theseus_client::seen::Seen;
+use theseus_client::seen::{self, Seen};
 use theseus_protocol::notices::{self, Viewer};
 
 /// What the TUI's requests carry as their author: the ledger names it, and
@@ -81,6 +81,8 @@ pub enum Purpose {
     Standing(String),
     /// `work.digest`: what happened since the operator last looked (theseus-qkoi3).
     Digest,
+    /// `work.look`: the operator was shown the board here (issue 46).
+    Look,
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -275,6 +277,10 @@ pub struct App {
     /// The newest board position applied: what "looked at the board" is
     /// recorded at (theseus-qkoi3).
     position: u64,
+    /// The position of the last `work.look` sent, and when (issue 46).
+    look_sent: (u64, u64),
+    /// The board was read since this connection came up.
+    board_read: bool,
 }
 
 /// How long after a change of focus the seen file is written.
@@ -282,6 +288,10 @@ const SAVE_AFTER_MS: u64 = 1_000;
 
 /// A terminal that had lost focus this long, regaining it, hears the digest.
 pub const AWAY_MS: u64 = 60_000;
+
+/// While the terminal has focus and the board moves, a look is sent at most
+/// this often (issue 46): every look is a record in the store.
+pub const LOOK_EVERY_MS: u64 = 60_000;
 
 impl App {
     pub fn new(hm: fn(u64) -> String) -> Self {
@@ -314,6 +324,8 @@ impl App {
             title: String::new(),
             save_at: None,
             position: 0,
+            look_sent: (0, 0),
+            board_read: false,
             sync_warn: None,
             notify_pinned: false,
             tui_notify: None,
@@ -353,12 +365,9 @@ impl App {
     fn took(&mut self, v: &ExecutionView, moved: Option<Moved>) {
         let watching = self.watching(&v.session_id);
         self.seen.applied(v, watching);
-        // A board on a terminal that has focus is being looked at: the
-        // digest starts after the last such moment (theseus-qkoi3).
+        // A board on a terminal that has focus is being looked at: the store's
+        // look follows, on blur and at most once a minute (`look_due`).
         self.position = self.position.max(v.position);
-        if self.term_focus {
-            self.seen.look(self.position, self.now_ms);
-        }
         let title = self.board.name(&v.session_id);
         match moved {
             Some(_) => self.notices.moved(v, &title, self.now_ms, &self.hm),
@@ -383,45 +392,106 @@ impl App {
     pub fn term_focused(&mut self, focused: bool) -> Vec<Effect> {
         let regained = !self.term_focus && focused;
         let away = self.now_ms.saturating_sub(self.blurred_at);
+        let mut out = Vec::new();
         if self.term_focus && !focused {
             self.blurred_at = self.now_ms;
-            // The last look is now, and the file follows a second later.
-            self.seen.look(self.position, self.now_ms);
+            // The last look is now: the store's look follows, and the file a
+            // second later.
+            out.extend(self.look_at(self.position));
             self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
         }
         self.term_focus = focused;
         self.mark_shown();
         if regained && away >= AWAY_MS {
-            return self.digest_call().into_iter().collect();
+            out.push(self.digest_call());
         }
-        Vec::new()
+        out
     }
 
-    /// `work.digest` since the last look; none before there is one (a first
-    /// start has nothing to be told).
-    fn digest_call(&self) -> Option<Effect> {
-        let since = self.seen.looked().position;
-        (since > 0).then(|| {
-            call(
-                method::WORK_DIGEST,
-                json!({ "since": since }),
-                Purpose::Digest,
-            )
-        })
+    /// `work.digest` since the store's look (issue 46). Before the store has
+    /// one, from the time an older build's seen file kept, else from now: a
+    /// first start is told nothing.
+    fn digest_call(&self) -> Effect {
+        call(
+            method::WORK_DIGEST,
+            json!({ "since_look": true, "since_ms": self.old_look().unwrap_or(self.now_ms) }),
+            Purpose::Digest,
+        )
     }
 
     /// The digest's one notice line, and the look it ends: the board is shown
     /// now (theseus-qkoi3).
-    fn digest_said(&mut self, v: Value) {
+    fn digest_said(&mut self, v: Value) -> Vec<Effect> {
         let Ok(r) = serde_json::from_value::<theseus_protocol::WorkDigestResult>(v) else {
-            return;
+            return Vec::new();
         };
-        let since = self.seen.looked().at_ms;
+        self.store_looked(r.look);
+        let old = self.old_look();
+        let since = r.look.map(|l| l.at_ms).or(old).unwrap_or(0);
         if let Some(line) = theseus_protocol::digest_summary(&r.lines, since, &self.hm) {
             self.flash = Some((Tag::Ok, format!("{line} · theseus digest")));
         }
-        self.seen.look(r.to, self.now_ms);
-        self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
+        if old.is_some() {
+            // Carried over: the next save writes the file without it.
+            self.seen.dirty = true;
+            self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
+        }
+        self.position = self.position.max(r.to);
+        self.look_at(r.to).into_iter().collect()
+    }
+
+    /// The store's look as the daemon told it: another than this machine knew
+    /// is another history, and the done marks start again from the board as it
+    /// stands (or from the board this connection reads next).
+    fn store_looked(&mut self, look: Option<theseus_protocol::Looked>) {
+        if !self.seen.store_looked(look) || !self.board_read {
+            return;
+        }
+        let views: Vec<ExecutionView> = self.board.views().cloned().collect();
+        for v in &views {
+            self.seen.applied(v, false);
+        }
+        self.seen.first_board_read();
+    }
+
+    /// `work.look`'s answer: the store's look this machine wrote, which the
+    /// seen file keeps for the next start.
+    pub fn look_said(&mut self, v: Value) {
+        if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkLookResult>(v) {
+            self.seen.wrote_look(r.look);
+            self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
+        }
+    }
+
+    /// The time of the look an older build kept in the seen file, carried over
+    /// once (issue 46).
+    fn old_look(&self) -> Option<u64> {
+        seen::old_look_time(self.seen.path()?)
+    }
+
+    /// `work.look` at `position`, unless it was sent already.
+    fn look_at(&mut self, position: u64) -> Option<Effect> {
+        if position == 0 || position <= self.look_sent.0 {
+            return None;
+        }
+        self.look_sent = (position, self.now_ms);
+        Some(call(
+            method::WORK_LOOK,
+            json!({ "position": position }),
+            Purpose::Look,
+        ))
+    }
+
+    /// When the board, looked at on a terminal that has focus, is next due a
+    /// look: a minute after the last one sent, if it moved since.
+    fn look_due(&self) -> Option<u64> {
+        (self.term_focus && self.position > self.look_sent.0)
+            .then_some(self.look_sent.1 + LOOK_EVERY_MS)
+    }
+
+    /// The look on the way out: the board was shown up to here.
+    pub fn last_look(&mut self) -> Option<Effect> {
+        self.look_at(self.position)
     }
 
     /// The session whose pane is on screen: the focused one, beside the list
@@ -480,6 +550,7 @@ impl App {
             waited,
             self.notices.next_due(),
             self.save_at,
+            self.look_due(),
             minute,
         ]
         .into_iter()
@@ -525,6 +596,9 @@ impl App {
         }
         if self.save_at.is_some_and(|at| at <= self.now_ms) {
             out.extend(self.save());
+        }
+        if self.look_due().is_some_and(|at| at <= self.now_ms) {
+            out.extend(self.look_at(self.position));
         }
         out
     }
@@ -580,7 +654,13 @@ impl App {
         if self.mode == Mode::SelfView {
             out.extend(self.self_read());
         }
-        out.extend(self.digest_call());
+        // This daemon may serve another store, or a restored one: no position
+        // from before counts, and no look goes before the digest has read the
+        // store's (`digest_said` sends it).
+        self.position = 0;
+        self.look_sent = (0, self.now_ms);
+        self.board_read = false;
+        out.push(self.digest_call());
         out
     }
 
@@ -747,12 +827,8 @@ impl App {
                 for v in self.board.snapshot(snap) {
                     self.took(&v, None);
                 }
-                // A first start has been shown nothing yet, and is
-                // told nothing of what came before it.
-                if self.seen.looked().position == 0 && self.term_focus {
-                    self.seen.look(self.position, self.now_ms);
-                }
                 self.seen.first_board_read();
+                self.board_read = true;
                 self.follow_up()
             }
             Err(e) => {
@@ -868,8 +944,9 @@ impl App {
             Purpose::FollowFind(_) | Purpose::FollowPeek(..) => {
                 return self.follow_answered(&purpose, v)
             }
-            Purpose::Digest => self.digest_said(v),
+            Purpose::Digest => return self.digest_said(v),
             Purpose::Mode(sid) => self.mode_read(&sid, v),
+            Purpose::Look => self.look_said(v),
             Purpose::Watch | Purpose::Typing | Purpose::SelfLog => {}
             Purpose::FollowStart(..) | Purpose::Unfollow => {}
         }
@@ -935,6 +1012,7 @@ impl App {
                 | Purpose::Work
                 | Purpose::Standing(_)
                 | Purpose::Digest
+                | Purpose::Look
         ) {
             return;
         }
@@ -1007,6 +1085,7 @@ impl App {
             Purpose::Standing(_) => method::STANDING_LIST,
             Purpose::HorizonAct(_) => "the Horizon section",
             Purpose::Digest => method::WORK_DIGEST,
+            Purpose::Look => method::WORK_LOOK,
             Purpose::Mode(_) => method::SESSION_MODE,
         };
         let text = format!("{what}: {}", e.message);

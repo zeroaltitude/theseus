@@ -1,10 +1,13 @@
 //! `theseus digest` (theseus-qkoi3): what finished, failed, was answered or
 //! woke since you last looked, in a few lines. One `work.digest` read.
 //!
-//! "Since you last looked" is the machine's seen file (`seen::looked`), which
-//! the terminal clients write when they show a board; `--since 2h` names a time
-//! instead. `theseus status` prints the digest's summary as its last line when
-//! there is something to say (`status_line`).
+//! "Since you last looked" is the store's look (issue 46): `since_look` asks
+//! from it, and `work.look` moves it when this command has shown the board.
+//! Before the store has one, the time of the look an older build kept in the
+//! machine's seen file is carried over once (`seen::old_look_time`), never its
+//! position. `--since 2h` names a time instead. `theseus status` prints the
+//! digest's summary as its last line when there is something to say
+//! (`status_line`).
 //!
 //! The words are the protocol's (`digest_words`, `digest_summary`): this file
 //! only lays them out, so the terminal UI, the cockpit and Discord say the same
@@ -16,6 +19,7 @@ use theseus_client::{seen, Conn};
 use theseus_protocol::work::Question;
 use theseus_protocol::{
     digest_more, digest_summary, method, now_unix_ms, WorkDigestParams, WorkDigestResult,
+    WorkLookParams, WorkLookResult,
 };
 
 use crate::{postmortem, status::local_hm};
@@ -42,26 +46,15 @@ pub struct DigestArgs {
 pub async fn run(conn: &mut Conn, json: bool, a: DigestArgs) -> Result<()> {
     let now = now_unix_ms();
     let path = seen::Seen::default_path();
-    let looked = path.as_deref().map(seen::looked).unwrap_or_default();
-    let mut params = WorkDigestParams {
-        roots: a.session.map(|s| vec![s]),
-        ..Default::default()
+    let old = path.as_deref().and_then(seen::old_look_time);
+    let mut params = match a.since.as_deref() {
+        Some(t) => WorkDigestParams {
+            since_ms: Some(postmortem::when(t, now)?),
+            ..Default::default()
+        },
+        None => since_look(old.unwrap_or(now.saturating_sub(FIRST))),
     };
-    let since_ms = match a.since.as_deref() {
-        Some(t) => {
-            let ms = postmortem::when(t, now)?;
-            params.since_ms = Some(ms);
-            ms
-        }
-        None if looked.position > 0 => {
-            params.since = Some(looked.position);
-            looked.at_ms
-        }
-        None => {
-            params.since_ms = Some(now.saturating_sub(FIRST));
-            now.saturating_sub(FIRST)
-        }
-    };
+    params.roots = a.session.map(|s| vec![s]);
     let v = conn
         .call(
             method::WORK_DIGEST,
@@ -74,41 +67,61 @@ pub async fn run(conn: &mut Conn, json: bool, a: DigestArgs) -> Result<()> {
         return Ok(());
     }
     let res: WorkDigestResult = serde_json::from_value(v)?;
+    let since_ms = match (a.since.is_some(), res.look) {
+        (false, Some(l)) => l.at_ms,
+        _ => params.since_ms.unwrap_or_default(),
+    };
     for l in lines(&res, since_ms, &local_hm) {
         println!("{l}");
     }
     // The whole board was shown; a session's own timeline is not the board,
     // and a command inside a job is the agent's reading, not the operator's.
     if params.roots.is_none() && client::job_session().is_none() {
-        if let Some(p) = path {
-            if let Err(e) = seen::record_looked(&p, res.to, now) {
-                eprintln!("could not record that you looked: {e}");
+        let look = WorkLookParams { position: res.to };
+        match conn.request(method::WORK_LOOK, look).await {
+            Err(e) => eprintln!("could not record that you looked: {e}"),
+            Ok(v) => {
+                // The terminal's next start knows this store by it (issue 46);
+                // the write drops an older build's look too.
+                let r = serde_json::from_value::<WorkLookResult>(v);
+                if let (Some(p), Ok(r)) = (path, r) {
+                    let _ = seen::record_store_look(&p, r.look);
+                }
             }
         }
     }
     Ok(())
 }
 
+/// A read since the store's look (issue 46); before the store has one, from
+/// `fallback`, a time.
+pub fn since_look(fallback: u64) -> WorkDigestParams {
+    WorkDigestParams {
+        since_look: Some(true),
+        since_ms: Some(fallback),
+        ..Default::default()
+    }
+}
+
+/// When "since you last looked" began, for its words: the store's look, else the
+/// look an older build kept on this machine; none before either.
+pub fn looked_at(res: &WorkDigestResult, old: Option<u64>) -> Option<u64> {
+    res.look.map(|l| l.at_ms).or(old)
+}
+
 /// The status line: `◆ 2 reported, 1 answered by you since 18:14 · theseus digest`,
-/// printed when there is something since the machine's last look. Best
-/// effort: a daemon that does not answer, or has no `work.digest`, prints
-/// nothing. `quiet` (`--short`, `--json`) prints nothing at all.
+/// printed when there is something since the store's look. Best effort: a
+/// daemon that does not answer, or has no `work.digest`, prints nothing.
+/// `quiet` (`--short`, `--json`) prints nothing at all.
 pub async fn status_line(conn: &mut Conn, quiet: bool) {
     if quiet {
         return;
     }
-    let looked = seen::Seen::default_path()
+    let old = seen::Seen::default_path()
         .as_deref()
-        .map(seen::looked)
-        .unwrap_or_default();
-    // Never looked: there is no "since", and status is not the place to start one.
-    if looked.position == 0 {
-        return;
-    }
-    let params = WorkDigestParams {
-        since: Some(looked.position),
-        ..Default::default()
-    };
+        .and_then(seen::old_look_time);
+    // Never looked, the store reads from now: nothing, and nothing is said.
+    let params = since_look(old.unwrap_or_else(now_unix_ms));
     let Ok(v) = conn
         .call(
             method::WORK_DIGEST,
@@ -122,7 +135,11 @@ pub async fn status_line(conn: &mut Conn, quiet: bool) {
     let Ok(res) = serde_json::from_value::<WorkDigestResult>(v) else {
         return;
     };
-    if let Some(l) = status_text(&res, looked.at_ms, &local_hm) {
+    // Never looked: there is no "since", and status is not the place to start one.
+    let Some(since) = looked_at(&res, old) else {
+        return;
+    };
+    if let Some(l) = status_text(&res, since, &local_hm) {
         println!("{l}");
     }
 }

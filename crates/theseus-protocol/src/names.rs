@@ -143,6 +143,8 @@ pub mod method {
         /// The work board (theseus-hkx30): every root that needs you or works with its open subtree, then
         /// `work.changed` and `work.notice` until `work.unwatch` (`work_watch.rs`). A read.
         WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch", WORK_AGENDA = "work.agenda", WORK_DIGEST = "work.digest",
+        /// The owner was shown the work board at a position: the store's look moves there (issue 46). A write.
+        WORK_LOOK = "work.look",
         /// A running job's last lines (`job_follow.rs`, theseus-e1hu4), and its output followed until `action.unfollow`.
         WORK_PEEK = "work.peek", JOB_STOP = "job.stop", ACTION_OUTPUT = "action.output", ACTION_UNFOLLOW = "action.unfollow",
         /// The counts behind `theseus status --short` (theseus-8kn12), read from the board's O(1) fields: no

@@ -35,7 +35,7 @@ use serde_json::{json, Value};
 use theseus_client::{seen, Conn};
 use theseus_protocol::work::{WorkKind, WorkState};
 use theseus_protocol::{
-    method, notify, DigestKind, Event, Message, SessionKind, SessionListResult, WorkDigestParams,
+    method, notify, now_unix_ms, DigestKind, Event, Message, SessionKind, SessionListResult,
     WorkDigestResult, WorkWatchParams, WorkWatchResult,
 };
 use tokio::time::Instant;
@@ -303,24 +303,18 @@ async fn snapshot(conn: &mut Conn) -> Result<(WorkWatchResult, Vec<(String, Valu
     Ok((serde_json::from_value(v)?, early))
 }
 
-/// How many things happened since the owner last looked at the board on this machine:
-/// the digest's lines after the seen position, bar the owner's own answers. Read only
-/// (the look is not recorded), on a connection of its own so the watch's notifications
-/// are not read past. 0 on a first start, and when the daemon does not answer.
+/// How many things happened since the owner last looked at the board of this store
+/// (issue 46): the digest's lines after the store's look, bar the owner's own answers.
+/// Read only (the look is not moved), on a connection of its own so the watch's
+/// notifications are not read past. 0 on a first start, and when the daemon does not
+/// answer.
 async fn since_looked(socket: &str) -> u32 {
-    let looked = seen::Seen::default_path()
+    let old = seen::Seen::default_path()
         .as_deref()
-        .map(seen::looked)
-        .unwrap_or_default();
-    if looked.position == 0 {
-        return 0;
-    }
+        .and_then(seen::old_look_time);
     let ask = async {
         let mut conn = Conn::socket(socket).await?;
-        let params = WorkDigestParams {
-            since: Some(looked.position),
-            ..Default::default()
-        };
+        let params = crate::digest::since_look(old.unwrap_or_else(now_unix_ms));
         let v = conn
             .call(
                 method::WORK_DIGEST,
@@ -331,7 +325,7 @@ async fn since_looked(socket: &str) -> u32 {
         anyhow::Ok(serde_json::from_value::<WorkDigestResult>(v)?)
     };
     match tokio::time::timeout(Duration::from_secs(2), ask).await {
-        Ok(Ok(res)) => res
+        Ok(Ok(res)) if crate::digest::looked_at(&res, old).is_some() => res
             .lines
             .iter()
             .filter(|l| l.kind != DigestKind::Answered)

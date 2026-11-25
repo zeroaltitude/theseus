@@ -267,6 +267,11 @@ impl Board {
         took
     }
 
+    /// Every view the board holds.
+    pub fn views(&self) -> impl Iterator<Item = &ExecutionView> {
+        self.views.values()
+    }
+
     /// The executions the board holds, by id.
     pub fn execution_ids(&self) -> HashSet<&str> {
         self.views
