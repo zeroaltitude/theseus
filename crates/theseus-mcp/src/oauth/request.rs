@@ -375,8 +375,8 @@ mod tests {
     const CODE: &str = "code-value-0001";
 
     /// The pasted address must be this sign-in's redirect whole; its state,
-    /// its issuer (named, when it must be), each part once, and a code long
-    /// enough to keep from view. Every code it carries is held, refused or not.
+    /// each part once, and a code long enough to keep from view. Every code
+    /// it carries is held, refused or not.
     #[test]
     fn a_redirect_is_this_sign_ins_whole_or_nothing_is_kept() {
         let p = Pkce::new();
@@ -455,6 +455,25 @@ mod tests {
         }
         assert!(held.lock().unwrap().iter().any(|v| v == "other-code-02"));
         assert!(held.lock().unwrap().iter().any(|v| v == "short"));
+        // The listener's own request: the path exactly.
+        let t = format!("/callback?code={CODE}&state={}", p.state);
+        assert_eq!(parse_target(&t, &e, &hold).unwrap().expose(), CODE);
+        let t = format!("/callback/x?code={CODE}&state={}", p.state);
+        assert_eq!(
+            parse_target(&t, &e, &hold).unwrap_err(),
+            RedirectError::NotThisAddress
+        );
+    }
+
+    /// The redirect's issuer: another is refused, one that differs by a `/`
+    /// alone is it, and it must be named when the sign-in needs it; a
+    /// refusal is said by its standard code alone.
+    #[test]
+    fn a_redirect_names_its_issuer_and_a_refusal_its_code() {
+        let p = Pkce::new();
+        let e = expect(&p, false);
+        let (hold, _) = holder();
+        let ok = format!("http://127.0.0.1:4000/callback?code={CODE}&state={}", p.state);
         let other = format!(
             "http://127.0.0.1:4000/callback?code={CODE}&state={}&iss=https%3A%2F%2Fevil.invalid",
             p.state
@@ -491,14 +510,6 @@ mod tests {
         assert_eq!(
             parse_pasted(&own, &e, &hold).unwrap_err().to_string(),
             "the sign-in was not granted (a code of its own)"
-        );
-        // The listener's own request: the path exactly.
-        let t = format!("/callback?code={CODE}&state={}", p.state);
-        assert_eq!(parse_target(&t, &e, &hold).unwrap().expose(), CODE);
-        let t = format!("/callback/x?code={CODE}&state={}", p.state);
-        assert_eq!(
-            parse_target(&t, &e, &hold).unwrap_err(),
-            RedirectError::NotThisAddress
         );
     }
 

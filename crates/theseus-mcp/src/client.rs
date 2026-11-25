@@ -777,10 +777,7 @@ impl Shared {
                         Some(w) => {
                             let _ = w.tx.send(outcome.map_err(Error::from));
                         }
-                        None if self.signed() => {
-                            tracing::debug!("mcp: an answer to no waiting call, dropped")
-                        }
-                        None => tracing::debug!(%id, "mcp: an answer to no waiting call, dropped"),
+                        None => self.dropped(&id),
                     }
                 }
                 Ok(Incoming::Notification { method, params }) => {
@@ -802,12 +799,27 @@ impl Shared {
                     };
                     self.send(answer, None);
                 }
-                Err(_) if self.signed() => {
-                    tracing::warn!("mcp: an unreadable message from the server, skipped")
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "mcp: an unreadable message from the server, skipped")
-                }
+                Err(e) => self.unreadable(&e),
+            }
+        }
+    }
+
+    /// An answer to no waiting call: dropped, and logged without its id for a
+    /// signed-in server (an id is the server's to choose).
+    fn dropped(&self, id: &Value) {
+        match self.signed() {
+            true => tracing::debug!("mcp: an answer to no waiting call, dropped"),
+            false => tracing::debug!(%id, "mcp: an answer to no waiting call, dropped"),
+        }
+    }
+
+    /// A message that does not read: skipped, and logged without the reader's
+    /// words for a signed-in server (they can quote it).
+    fn unreadable(&self, e: &dyn std::fmt::Display) {
+        match self.signed() {
+            true => tracing::warn!("mcp: an unreadable message from the server, skipped"),
+            false => {
+                tracing::warn!(error = %e, "mcp: an unreadable message from the server, skipped")
             }
         }
     }

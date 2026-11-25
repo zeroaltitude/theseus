@@ -59,16 +59,16 @@ fn hold_tokens(reach: &Reach, v: &Value) {
 /// short to keep from view, or an `expires_in` that is not a whole number of
 /// seconds, is a bad answer.
 fn tokens_of(v: &Value) -> Result<Tokens, OauthError> {
-    let bad = OauthError::Undecodable { what: WHAT };
+    let bad = || OauthError::Undecodable { what: WHAT };
     let access = v["access_token"]
         .as_str()
         .filter(|s| s.len() >= MIN_SECRET)
-        .ok_or(bad.clone())?;
+        .ok_or_else(bad)?;
     let refresh = match &v["refresh_token"] {
         Value::Null => None,
         Value::String(s) if s.is_empty() => None,
         Value::String(s) if s.len() >= MIN_SECRET => Some(Zeroizing::new(s.clone())),
-        _ => return Err(bad),
+        _ => return Err(bad()),
     };
     if let Some(kind) = v["token_type"].as_str() {
         if !kind.eq_ignore_ascii_case("bearer") {
@@ -79,10 +79,10 @@ fn tokens_of(v: &Value) -> Result<Tokens, OauthError> {
     }
     let expires_in = match &v["expires_in"] {
         Value::Null => None,
-        Value::Number(n) => Some(n.as_u64().ok_or(bad.clone())?),
+        Value::Number(n) => Some(n.as_u64().ok_or_else(bad)?),
         // Some servers send a number as a string.
-        Value::String(s) => Some(s.trim().parse::<u64>().map_err(|_| bad.clone())?),
-        _ => return Err(bad),
+        Value::String(s) => Some(s.trim().parse::<u64>().map_err(|_| bad())?),
+        _ => return Err(bad()),
     }
     .map(|s| s.min(MAX_EXPIRES_SECS));
     Ok(Tokens {
