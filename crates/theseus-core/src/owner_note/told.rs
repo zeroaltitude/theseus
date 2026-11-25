@@ -346,7 +346,7 @@ mod tests {
                 .outbox
                 .stage_to_operator(
                     None,
-                    json!({"kind": KIND, "text": "ℹ️ FYI · old",
+                    json!({"kind": "told", "text": "ℹ️ FYI · old",
                            "undo": {"method": gone, "id": "x_1"}}),
                 )
                 .unwrap();
