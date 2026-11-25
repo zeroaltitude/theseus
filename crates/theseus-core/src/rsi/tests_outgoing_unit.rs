@@ -4,7 +4,8 @@
 use super::{words, Commit, Heard, Refusal, Source, RUN};
 
 /// Words of a conversation: thirteen, none of them code.
-const SAID: &str = "Kelp oars drift past the third bollard, where the heron waits each grey morning.";
+const SAID: &str =
+    "Kelp oars drift past the third bollard, where the heron waits each grey morning.";
 
 fn heard(text: &str) -> Heard {
     let mut h = Heard::default();
@@ -39,7 +40,11 @@ fn nine_words_pass_and_ten_are_refused() {
     let w: Vec<&str> = SAID.split_whitespace().collect();
     let nine = format!("// {}", w[..9].join(" "));
     assert_eq!(h.check(&commit(&nine), none), Ok(()));
-    let ten = format!("/// {}\n/// {}", w[..5].join(" ").to_uppercase(), w[5..10].join("  "));
+    let ten = format!(
+        "/// {}\n/// {}",
+        w[..5].join(" ").to_uppercase(),
+        w[5..10].join("  ")
+    );
     assert_eq!(
         h.check(&commit(&ten), none),
         Err(Refusal::Words {
@@ -78,7 +83,10 @@ fn a_base_that_cannot_be_read_refuses() {
 fn a_refusal_names_no_word_of_what_matched() {
     let r = heard(SAID).check(&commit(SAID), none).unwrap_err();
     let said = r.to_string();
-    assert!(said.contains("c0ffee00c0ff") && said.contains("a look back"), "{said}");
+    assert!(
+        said.contains("c0ffee00c0ff") && said.contains("a look back"),
+        "{said}"
+    );
     for w in words(SAID).iter().filter(|w| w.len() > 3) {
         assert!(!said.to_lowercase().contains(w.as_str()), "{w}: {said}");
     }
@@ -100,5 +108,8 @@ fn ordinary_words_of_a_change_do_not_trip_it() {
     }
     let base = || Ok(format!("acceptance: vec![\"{STOCK}\".into()],"));
     assert_eq!(h.check(&commit(&format!("// {STOCK}")), base), Ok(()));
-    assert!(h.check(&commit(&format!("// {STOCK}")), none).is_err(), "not in the base: a match");
+    assert!(
+        h.check(&commit(&format!("// {STOCK}")), none).is_err(),
+        "not in the base: a match"
+    );
 }

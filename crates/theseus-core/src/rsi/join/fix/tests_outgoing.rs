@@ -28,7 +28,10 @@ const SAID: &str = "kelp oars drift past the third bollard where the heron waits
 const TELLS: [&str; 4] = ["kelp", "bollard", "heron", "morning"];
 
 /// A clean change the gate passes.
-const CLEAN: &[(&str, &str)] = &[("fix.txt", "fixed\n"), ("tests/fix.sh", "test -f fix.txt\n")];
+const CLEAN: &[(&str, &str)] = &[
+    ("fix.txt", "fixed\n"),
+    ("tests/fix.sh", "test -f fix.txt\n"),
+];
 
 fn holds_none(text: &str) {
     for w in TELLS {
@@ -39,7 +42,8 @@ fn holds_none(text: &str) {
 /// Another conversation in which the owner said `words`: one exchange at its own place; its handle.
 pub(super) fn said_elsewhere(core: &Core, words: &str) -> String {
     use crate::exchange::{exchange_record, touch, Exchange, Opener, Root, OWNER};
-    let other = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    let other =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     core.store.put_session(&other.session_id, &other).unwrap();
     let turn = crate::new_id("trn");
     let place = "local:/harbour";
@@ -113,7 +117,9 @@ pub(super) fn looked_back(core: &Core, sid: &str, source: &str) {
 /// [`looked_back`] at the owner's words in another conversation.
 pub(super) fn read_elsewhere(core: &Core, sid: &str, words: &str) {
     let turn = said_elsewhere(core, words);
-    let x = crate::exchange::exchange(&core.store, &turn).unwrap().unwrap();
+    let x = crate::exchange::exchange(&core.store, &turn)
+        .unwrap()
+        .unwrap();
     looked_back(core, sid, &x.ask.unwrap());
 }
 
@@ -172,7 +178,11 @@ async fn a_copied_run_in_a_commit_message_is_refused() {
     write(&tree_of(&r), CLEAN);
     let why = "Kelp oars drift past the third bollard where the heron waits";
     let said = r
-        .turn(&sid, WIRE, json!({"item": ITEM, "issue": "theseus-sail1", "why": why}))
+        .turn(
+            &sid,
+            WIRE,
+            json!({"item": ITEM, "issue": "theseus-sail1", "why": why}),
+        )
         .await;
     held(&r, &said);
     nothing_left(&r);
@@ -282,7 +292,10 @@ async fn nine_words_of_what_was_read_are_pushed() {
     let head = b["head"].as_str().unwrap();
     let branch = b["branch"].as_str().unwrap();
     assert_eq!(
-        git(&r.f.upstream, &["rev-parse", &format!("refs/heads/{branch}")]),
+        git(
+            &r.f.upstream,
+            &["rev-parse", &format!("refs/heads/{branch}")]
+        ),
         head
     );
 }
@@ -311,8 +324,8 @@ mod join {
     use super::super::tests::{scripted, StandIn};
     use super::super::tests_gate::GATE;
     use super::{holds_none, read_elsewhere, SAID};
-    use crate::rsi::join::tests::{git, rig_on, Rig, PROVED, SONNET};
     use crate::rsi::join::tests::Scripts;
+    use crate::rsi::join::tests::{git, rig_on, Rig, PROVED, SONNET};
     use crate::rsi::join::Seams;
     use crate::rsi::tests_tree::fixture_with;
 
@@ -351,12 +364,14 @@ mod join {
 
     /// The session that built `branch`, as its built row names it.
     fn builder_of(r: &Rig, branch: &str) -> String {
-        (r.core.store.ledger_tail::<crate::ledger::LedgerRow>(100_000))
-            .unwrap()
-            .into_iter()
-            .find(|(_, row)| row.kind == "self.branch.built" && row.data["branch"] == branch)
-            .and_then(|(_, row)| row.session_id)
-            .expect("its built row")
+        (r.core
+            .store
+            .ledger_tail::<crate::ledger::LedgerRow>(100_000))
+        .unwrap()
+        .into_iter()
+        .find(|(_, row)| row.kind == "self.branch.built" && row.data["branch"] == branch)
+        .and_then(|(_, row)| row.session_id)
+        .expect("its built row")
     }
 
     /// The held stop, its row and the owner's card, none holding a word of what matched.

@@ -1423,7 +1423,8 @@ pub fn push(
             });
         }
     }
-    let heard = heard.map_err(|why| Refused::Outgoing(super::outgoing::Refusal::Unresolved(why)))?;
+    let heard =
+        heard.map_err(|why| Refused::Outgoing(super::outgoing::Refusal::Unresolved(why)))?;
     heard
         .check(&commits, || super::outgoing::base_text(p, &tree.dir, &base))
         .map_err(Refused::Outgoing)?;

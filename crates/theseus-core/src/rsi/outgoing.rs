@@ -331,7 +331,9 @@ fn copied(store: &Store, result: &str, via: &str) -> Result<Vec<String>> {
     use crate::graph::{Edge, EdgeKind};
     let prefix = format!("{}|{result}|", EdgeKind::DerivedFrom.as_str());
     let mut out = Vec::new();
-    for r in (store.inner()).first_with_prefix_strict(theseus_store::kinds::EDGE, &prefix, usize::MAX)? {
+    for r in
+        (store.inner()).first_with_prefix_strict(theseus_store::kinds::EDGE, &prefix, usize::MAX)?
+    {
         let e: Edge = r.decode()?;
         if e.via == via && !out.contains(&e.to) {
             out.push(e.to);
@@ -393,7 +395,10 @@ pub fn commits(p: &Place, dir: &std::path::Path, base: &str, tip: &str) -> Resul
     for id in list.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let mut text = p.git_ok(dir, &["log", "-1", "--format=%B", id])?;
         let parent = format!("{id}^1");
-        let has_parent = p.git(dir, &["rev-parse", "-q", "--verify", &parent])?.status.success();
+        let has_parent = p
+            .git(dir, &["rev-parse", "-q", "--verify", &parent])?
+            .status
+            .success();
         let diff = match has_parent {
             true => p.git_ok(dir, &["diff", "--no-color", "-U0", &parent, id])?,
             false => p.git_ok(dir, &["show", "--no-color", "-U0", "--format=", id])?,
@@ -414,7 +419,10 @@ pub fn commits(p: &Place, dir: &std::path::Path, base: &str, tip: &str) -> Resul
 
 /// The text of every file of the tree at `base`, read in `dir`: what the repository already says.
 pub fn base_text(p: &Place, dir: &std::path::Path, base: &str) -> Result<String> {
-    p.git_ok(dir, &["grep", "-h", "-I", "--no-color", "-e", "", base, "--"])
+    p.git_ok(
+        dir,
+        &["grep", "-h", "-I", "--no-color", "-e", "", base, "--"],
+    )
 }
 
 #[cfg(test)]

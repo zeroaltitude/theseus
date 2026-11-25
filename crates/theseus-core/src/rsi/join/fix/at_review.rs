@@ -131,7 +131,10 @@ impl Run<'_> {
             // which the next pass would take as the branch's.
             Err(NotPushed::Held(why, head)) => {
                 self.b.head = head;
-                let lift = format!("run `{}`", theseus_protocol::rsi::retry_command(&self.b.item));
+                let lift = format!(
+                    "run `{}`",
+                    theseus_protocol::rsi::retry_command(&self.b.item)
+                );
                 let text = crate::rsi::pr::withheld_text(&self.b.branch, &self.b.item, &why, &lift);
                 self.card(text);
                 self.hold("push", &why.to_string(), Value::Null);

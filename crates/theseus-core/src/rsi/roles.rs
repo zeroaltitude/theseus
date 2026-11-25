@@ -113,7 +113,10 @@ impl Role {
 
 /// `session`'s role in the store: its own record, else its fork's source's, through every fork between
 /// (`rsi::pr::Board::role_in`, which keeps it).
-pub(crate) fn effective(store: &crate::store::Store, session: &str) -> anyhow::Result<Option<Role>> {
+pub(crate) fn effective(
+    store: &crate::store::Store,
+    session: &str,
+) -> anyhow::Result<Option<Role>> {
     let mut at = session.to_string();
     for _ in 0..=crate::fork::MAX_DEPTH {
         if let Some(role) = store.get_meta::<Role>(&key(&at))? {
@@ -132,7 +135,9 @@ pub(crate) fn effective(store: &crate::store::Store, session: &str) -> anyhow::R
 static UNREAD: LazyLock<Ceiling> = LazyLock::new(|| {
     let mut c = ceiling(
         "a session whose job cannot be read",
-        &["fs.read", "fs.list", "fs.glob", "fs.grep", "git.diff", "git.log"],
+        &[
+            "fs.read", "fs.list", "fs.glob", "fs.grep", "git.diff", "git.log",
+        ],
     );
     c.source = "the self loop's rule while a session's job cannot be read";
     c

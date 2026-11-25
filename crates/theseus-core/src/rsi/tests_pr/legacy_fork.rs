@@ -68,7 +68,11 @@ async fn an_old_fork_of_a_judge_has_its_judges_tools_scope_and_refusal() {
         c.tools.self_pr.forget_roles();
         for (f, who) in [(&once, "an old fork"), (&twice, "a fork of an old fork")] {
             let who = format!("{role:?}, {who}");
-            assert_eq!(c.store.get_meta::<Role>(&key(f)).unwrap(), None, "{who}: no record");
+            assert_eq!(
+                c.store.get_meta::<Role>(&key(f)).unwrap(),
+                None,
+                "{who}: no record"
+            );
             assert_eq!(
                 c.tools.self_pr.role_in(&c.store, f).unwrap(),
                 Some(role),
@@ -76,10 +80,17 @@ async fn an_old_fork_of_a_judge_has_its_judges_tools_scope_and_refusal() {
             );
             let view = c.runner.view_of(f);
             assert!(!view.offered("fs.write", &[]), "{who}: fs.write");
-            assert!(!view.offered("proc.run", &[]) || role == Role::Reviewer, "{who}");
+            assert!(
+                !view.offered("proc.run", &[]) || role == Role::Reviewer,
+                "{who}"
+            );
             assert!(!view.offered("self.propose_change", &[]), "{who}: the verb");
             assert!(!view.offered("context.history", &[]), "{who}: history");
-            assert_eq!(view.offered("fs.read", &[]), role == Role::Reviewer, "{who}");
+            assert_eq!(
+                view.offered("fs.read", &[]),
+                role == Role::Reviewer,
+                "{who}"
+            );
             assert!(
                 Verified::of_session(&c.runner, f).own_place_only(),
                 "{who}: its own place"
@@ -103,7 +114,13 @@ async fn a_role_that_cannot_be_read_fails_closed_in_the_tools_and_the_verb() {
         assert!(c.tools.self_pr.role_in(&c.store, f).is_err(), "{who}");
         let view = c.runner.view_of(f);
         assert!(view.offered("fs.read", &[]), "{who}: the local reads");
-        for t in ["fs.write", "proc.run", "context.history", "self.propose_change", "web.fetch"] {
+        for t in [
+            "fs.write",
+            "proc.run",
+            "context.history",
+            "self.propose_change",
+            "web.fetch",
+        ] {
             assert!(!view.offered(t, &[]), "{who}: {t}");
         }
         let refused = verb(c, f).unwrap_err();

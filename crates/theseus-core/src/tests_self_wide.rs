@@ -128,7 +128,10 @@ async fn a_fork_keeps_its_sources_role_its_tools_and_its_scope() {
     }
     c.tools.self_pr.forget_roles();
     for (role, who, f) in &forks {
-        let record = c.store.get_meta::<Role>(&crate::rsi::roles::key(f)).unwrap();
+        let record = c
+            .store
+            .get_meta::<Role>(&crate::rsi::roles::key(f))
+            .unwrap();
         assert_eq!(record, *role, "{who}: the role written in the fork's frame");
         assert_eq!(c.tools.self_pr.role(f), *role, "{who}: the fork's role");
         let wide = !Verified::of_session(&c.runner, f).own_place_only();

@@ -365,7 +365,11 @@ impl Run<'_> {
             }
             let heard = match Heard::of(&store, &item, &[&builder]) {
                 Ok(h) => h,
-                Err(e) => return Ok(Some(Refused::Outgoing(Refusal::Unresolved(format!("{e:#}"))))),
+                Err(e) => {
+                    return Ok(Some(Refused::Outgoing(Refusal::Unresolved(format!(
+                        "{e:#}"
+                    )))))
+                }
             };
             let checked = heard.check(&commits, || base_text(&p, &dir, &base));
             Ok(checked.err().map(Refused::Outgoing))
@@ -378,8 +382,16 @@ impl Run<'_> {
                 "the commits it would send cannot be read: {e:#}"
             ))),
         };
-        let lift = format!("run `{}`", theseus_protocol::rsi::retry_command(&self.b.item));
-        self.card(crate::rsi::pr::withheld_text(&self.b.branch, &self.b.item, &why, &lift));
+        let lift = format!(
+            "run `{}`",
+            theseus_protocol::rsi::retry_command(&self.b.item)
+        );
+        self.card(crate::rsi::pr::withheld_text(
+            &self.b.branch,
+            &self.b.item,
+            &why,
+            &lift,
+        ));
         self.hold("push", &why.to_string(), Value::Null);
         false
     }
