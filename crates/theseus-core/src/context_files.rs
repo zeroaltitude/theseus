@@ -214,6 +214,9 @@ pub struct ContextFiles {
     /// (`project_context::own_file`), so each is read from the store once a
     /// daemon run.
     accepted: Mutex<HashMap<String, Arc<str>>>,
+    /// What this daemon run could not confirm of the owner's own file
+    /// (`project_context::own_file::Missed`): for the run, never stored.
+    own_missed: Mutex<Option<crate::project_context::own_file::Missed>>,
 }
 
 impl ContextFiles {
@@ -269,6 +272,17 @@ impl ContextFiles {
             });
         }
         (files, unreadable)
+    }
+
+    /// What this daemon run could not confirm of the owner's own file.
+    pub(crate) fn own_missed(&self) -> Option<crate::project_context::own_file::Missed> {
+        *self.own_missed.lock().unwrap()
+    }
+
+    /// Mark what this daemon run could not confirm of the owner's own file;
+    /// it stands for the run.
+    pub(crate) fn set_own_missed(&self, m: crate::project_context::own_file::Missed) {
+        *self.own_missed.lock().unwrap() = Some(m);
     }
 
     /// The text kept under `key`, read by `read` the first time it is asked

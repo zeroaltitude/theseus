@@ -154,15 +154,47 @@ pub enum Accepted {
     /// not decoding, or not holding the body its sum names. Nothing is
     /// carried, and nothing is accepted by itself on top of it.
     Unreadable,
+    /// An accept this daemon run wrote may be in the store without the
+    /// store saying so ([`Missed::Unknown`]): nothing is carried, and every
+    /// accept is refused until a restart reads the store again.
+    Unknown,
     Some(Now),
 }
+
+/// What this daemon run could not confirm of the owner's own file: kept for
+/// the run beside the accepted texts (`ContextFiles::own_missed`), never
+/// stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Missed {
+    /// An accept's frame the log kept and the index did not: it may be
+    /// written.
+    Unknown,
+}
+
+/// Why an accept is refused while [`Missed::Unknown`] stands.
+#[derive(Debug)]
+pub struct Unconfirmed;
+
+impl std::fmt::Display for Unconfirmed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(UNCONFIRMED)
+    }
+}
+
+impl std::error::Error for Unconfirmed {}
+
+/// [`Unconfirmed`]'s words.
+pub const UNCONFIRMED: &str = "an accept of your own instruction file may already be \
+                               written, and this daemon cannot read it back until it is \
+                               restarted: nothing was accepted; restart the daemon, then look \
+                               again";
 
 /// The number the version after `a` takes; none when the store cannot say.
 pub fn seq_after(a: &Accepted) -> Option<u64> {
     match a {
         Accepted::None | Accepted::Unread => Some(1),
         Accepted::Some(n) => Some(n.seq + 1),
-        Accepted::Unreadable => None,
+        Accepted::Unreadable | Accepted::Unknown => None,
     }
 }
 
@@ -344,6 +376,7 @@ impl Look {
     pub fn next_seq(&self) -> Result<u64> {
         match seq_after(&self.accepted) {
             Some(seq) => Ok(seq),
+            None if self.accepted == Accepted::Unknown => bail!(Unconfirmed),
             None => bail!(
                 "the accepted version of {} cannot be read from the store",
                 self.path.display()
@@ -374,6 +407,12 @@ impl Look {
                  so none of it is carried"
                     .to_string(),
             ),
+            Accepted::Unknown => Some(
+                "Your own instruction file: an accept of it may already be written that this \
+                 daemon cannot read back, so none of it is carried and every accept is refused \
+                 until the daemon is restarted"
+                    .to_string(),
+            ),
             _ => None,
         }
     }
@@ -393,7 +432,7 @@ impl Look {
         let size = || crate::narrative::thousands(self.disk.found.as_ref().map_or(0, |f| f.bytes));
         let accept = theseus_protocol::own_file::accept_command();
         let n = match &self.accepted {
-            Accepted::None | Accepted::Unread => {
+            Accepted::None | Accepted::Unread | Accepted::Unknown => {
                 return Carry {
                     section: None,
                     line: self.disk.found.as_ref().map(|_| {
@@ -506,12 +545,17 @@ impl Look {
 /// and [`Version::holds`] what the pointer names, else
 /// [`Accepted::Unreadable`]; and the version's text, none for an absence.
 /// A checked version is kept for the daemon run under its key and the
-/// digest it was read for, so it is read from the store once.
+/// digest it was read for, so it is read from the store once. While this
+/// run's mark stands ([`Missed::Unknown`]), nothing is read:
+/// [`Accepted::Unknown`].
 fn resolve(
     store: &crate::store::Store,
     files: &ContextFiles,
     pid: &str,
 ) -> (Accepted, Option<Arc<str>>) {
+    if files.own_missed() == Some(Missed::Unknown) {
+        return (Accepted::Unknown, None);
+    }
     let n = match read_now(store, pid) {
         Accepted::Some(n) if n.seq == 0 && n.digest.is_none() => return (Accepted::Unread, None),
         Accepted::Some(n) if n.seq == 0 => return (Accepted::Unreadable, None),

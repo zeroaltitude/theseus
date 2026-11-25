@@ -82,6 +82,43 @@ impl Rig {
         ))
         .unwrap()
     }
+
+    /// The core gone and its store closed, then the store's directory
+    /// opened again under a new core: a restart whose index holds only what
+    /// the open replays from the log.
+    pub(crate) async fn reopened(self) -> Rig {
+        let Rig {
+            core,
+            fake,
+            work,
+            state,
+            _dir,
+        } = self;
+        let cfg = (*core.cfg).clone();
+        let dir = core.store.dir().to_path_buf();
+        drop(core);
+        let mut store = Store::open(&dir);
+        for _ in 0..50 {
+            if store.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            store = Store::open(&dir);
+        }
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            fake.clone(),
+            store.unwrap(),
+        ))
+        .unwrap();
+        Rig {
+            core,
+            fake,
+            work,
+            state,
+            _dir,
+        }
+    }
 }
 
 /// What `core` reads of the owner's file now.

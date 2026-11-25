@@ -12,13 +12,15 @@ use theseus_protocol::own_file::{
     OwnFileAcceptParams, OwnFileAcceptResult, OwnFileShowParams, OwnFileShowResult, OwnFileState,
 };
 use theseus_protocol::{error_code, method};
+use theseus_store::store::RetainedFrame;
+use theseus_store::NewRecord;
 
 use super::confirms::Act;
 use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal, Surface};
 use crate::fact::own_file::OwnFileAccepted;
-use crate::project_context::own_file::{self, Accepted, Look, Version};
+use crate::project_context::own_file::{self, Accepted, Look, Missed, Version};
 
 impl Core {
     /// The first start's accept, once the socket answers: what is on disk,
@@ -32,7 +34,9 @@ impl Core {
     /// accept, still records that it happened ([`Accepted::Unread`]):
     /// nothing is carried, one line is logged, and only the owner's accept
     /// sets a version. When even that record cannot be written, the error
-    /// is returned.
+    /// is returned. An accept the store may hold without saying so
+    /// ([`own_file::Unconfirmed`]) writes nothing more: no record that the
+    /// start could not accept.
     pub fn own_file_first_start(&self) -> Result<Option<Version>> {
         let look = Look::of(&self.cfg, &self.store, &self.runner.context_files);
         if look.accepted == Accepted::Unreadable {
@@ -45,8 +49,10 @@ impl Core {
         if !own_file::first_start_due(&look, &self.store) {
             return Ok(None);
         }
-        if let Some(v) = self.own_file_first_accept(&look) {
-            return Ok(Some(v));
+        match self.own_file_first_accept(&look) {
+            First::Kept(v) => return Ok(Some(v)),
+            First::Unconfirmed => return Ok(None),
+            First::Not => {}
         }
         if self.own_file_unread(&look)? {
             tracing::warn!(path = %look.path.display(),
@@ -56,21 +62,25 @@ impl Core {
     }
 
     /// The first start's accept of what is on disk, with its line in the
-    /// log. None when the disk holds a file the reader cannot read, or the
-    /// accept was not written.
-    fn own_file_first_accept(&self, look: &Look) -> Option<Version> {
-        let v = own_file::first_start(look, &self.store, theseus_protocol::now_unix_ms())?;
+    /// log. [`First::Not`] when the disk holds a file the reader cannot
+    /// read, or the accept was not written.
+    fn own_file_first_accept(&self, look: &Look) -> First {
+        let Some(v) = own_file::first_start(look, &self.store, theseus_protocol::now_unix_ms())
+        else {
+            return First::Not;
+        };
         match self.own_file_keep(look, &v) {
             Ok(seq) => {
                 tracing::info!(path = %look.path.display(), bytes = v.bytes, seq,
                     present = v.digest.is_some(),
                     "your own instruction file: what is on disk is accepted, once, at this first start; from now on a change to it waits for `theseus own-file accept`");
-                Some(v)
+                First::Kept(v)
             }
+            Err(e) if e.is::<own_file::Unconfirmed>() => First::Unconfirmed,
             Err(e) => {
                 tracing::warn!(path = %look.path.display(), error = %e,
                     "your own instruction file: the first start's accept was not written, and nothing of it is carried");
-                None
+                First::Not
             }
         }
     }
@@ -116,13 +126,33 @@ impl Core {
         records.push(rec.row(&fact)?);
         {
             let _one = own_file::one_at_a_time();
+            if self.runner.context_files.own_missed() == Some(Missed::Unknown) {
+                bail!(own_file::Unconfirmed);
+            }
             if own_file::seq_after(&own_file::read_now(&self.store, &look.pid)) != Some(seq) {
                 bail!(own_file::CHANGED);
             }
-            self.store.append(&records)?;
+            self.own_file_settle(&records)?;
         }
         rec.announce(&fact);
         Ok(seq)
+    }
+
+    /// Append an accept's `records`, under the accepts' lock. A frame the
+    /// store's log kept while its index did not (`RetainedFrame`) may be
+    /// written: this run's mark is set ([`Missed::Unknown`]), one line is
+    /// logged, and the answer is [`own_file::Unconfirmed`], never "not
+    /// written". Any other error is the append's.
+    fn own_file_settle(&self, records: &[NewRecord]) -> Result<()> {
+        let e = match self.store.append(records) {
+            Ok(_) => return Ok(()),
+            Err(e) if e.is::<RetainedFrame>() => e,
+            Err(e) => return Err(e),
+        };
+        self.runner.context_files.set_own_missed(Missed::Unknown);
+        tracing::error!(error = %e,
+            "your own instruction file: an accept of it may already be written that this run cannot read back, so none of it is carried and every accept is refused until the daemon is restarted");
+        bail!(own_file::Unconfirmed)
     }
 
     /// `theseus health`'s line about the file (`Look::health`).
@@ -173,6 +203,7 @@ impl Core {
         let state = match (&look.accepted, look.differs()) {
             (Accepted::None | Accepted::Unread, _) => OwnFileState::NotAccepted,
             (Accepted::Unreadable, _) => OwnFileState::Unreadable,
+            (Accepted::Unknown, _) => OwnFileState::Unconfirmed,
             (Accepted::Some(_), false) => OwnFileState::Same,
             (Accepted::Some(n), true) => match (&n.digest, &look.disk.found) {
                 (Some(_), Some(_)) => OwnFileState::Differs,
@@ -180,7 +211,7 @@ impl Core {
                 (None, _) => OwnFileState::New,
             },
         };
-        let change = (state != OwnFileState::Unreadable)
+        let change = (!matches!(state, OwnFileState::Unreadable | OwnFileState::Unconfirmed))
             .then(|| {
                 let before = look.accepted_text().unwrap_or_default();
                 let after = look.disk.text.clone().unwrap_or_default();
@@ -298,6 +329,16 @@ impl Core {
         )?;
         Err(r.into())
     }
+}
+
+/// What became of the first start's accept.
+enum First {
+    Kept(Version),
+    /// Not accepted: the disk holds a file the reader cannot read, or the
+    /// accept was not written.
+    Not,
+    /// The store may hold it ([`own_file::Unconfirmed`]).
+    Unconfirmed,
 }
 
 /// A refusal as the wire's `REFUSED`, with its reason; any other error as

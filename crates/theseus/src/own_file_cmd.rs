@@ -55,6 +55,10 @@ pub async fn run(c: &mut Conn, json: bool, cmd: Option<OwnFileCmd>) -> Result<()
         );
         return Ok(());
     }
+    if r.state == OwnFileState::Unconfirmed {
+        println!("Nothing can be accepted until the daemon is restarted.");
+        return Ok(());
+    }
     if r.state == OwnFileState::Same {
         println!("Nothing to accept.");
         return Ok(());
@@ -105,6 +109,10 @@ pub fn shown(r: &OwnFileShowResult, hint: bool) -> String {
         OwnFileState::Unreadable => "Its accepted version cannot be read from the store, so none \
                                      of it is carried."
             .into(),
+        OwnFileState::Unconfirmed => "An accept of it may already be written that the daemon \
+                                      cannot read back until it is restarted, so none of it is \
+                                      carried and nothing can be accepted until then."
+            .into(),
         OwnFileState::Same if r.bytes.is_some() => format!(
             "Version {seq}, accepted on {on}, is what is carried, and the file on disk is the same."
         ),
@@ -130,7 +138,10 @@ pub fn shown(r: &OwnFileShowResult, hint: bool) -> String {
             out.push('\n');
         }
     }
-    let open = !matches!(r.state, OwnFileState::Same | OwnFileState::Unreadable);
+    let open = !matches!(
+        r.state,
+        OwnFileState::Same | OwnFileState::Unreadable | OwnFileState::Unconfirmed
+    );
     if hint && open {
         out.push_str(&format!(
             "Accept what is on disk with `{}` at your terminal.\n",

@@ -28,6 +28,9 @@ pub enum OwnFileState {
     NotAccepted,
     /// The accepted version cannot be read from the store: nothing is carried.
     Unreadable,
+    /// An accept may already be written that the daemon cannot read back until it is restarted:
+    /// nothing is carried, and nothing can be accepted until then.
+    Unconfirmed,
     /// The disk holds the accepted version (or no file, accepted as absent).
     Same,
     /// The disk holds another text than the accepted one.
