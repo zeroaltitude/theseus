@@ -40,9 +40,9 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
-    /// A settings change put back, by its number in the history. It has no
-    /// method of its own (`config.undo` is a tool): the core puts it back by
-    /// the undo's own write (`config_change::told::press`).
+    /// `config.undo` of a settings change, by its number in the history. It
+    /// has no method of its own (`config.undo` is a tool): `told.undo` puts it
+    /// back in the core by the undo's own write (`config_change::told::press`).
     #[serde(rename = "config.undo")]
     ConfigUndo(u32),
 }
@@ -56,7 +56,8 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
-            Undo::ConfigUndo(_) => crate::config_change::undo::UNDO,
+            // No method of its own: the one door's.
+            Undo::ConfigUndo(_) => method::TOLD_UNDO,
         }
     }
 
@@ -69,7 +70,7 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
-            Undo::ConfigUndo(n) => json!({"change": n, "author": author}),
+            Undo::ConfigUndo(n) => json!({"id": n, "author": author}),
         }
     }
 
@@ -203,6 +204,20 @@ mod tests {
             assert_eq!(p["author"], json!("ana"));
             assert_eq!(u.command(), cmd);
         }
+    }
+
+    /// A settings change's undo has no method of its own: it names the one
+    /// door's, and its note's words ask for it (no shell verb puts one back).
+    #[test]
+    fn a_settings_change_undo_names_the_one_door_and_the_words_that_ask() {
+        let u = Undo::ConfigUndo(4);
+        assert_eq!(u.method(), method::TOLD_UNDO);
+        assert_eq!(
+            serde_json::to_value(&u).unwrap(),
+            json!({"method": "config.undo", "id": 4})
+        );
+        assert_eq!(u.params("ana", None), json!({"id": 4, "author": "ana"}));
+        assert_eq!(u.command(), "ask Theseus to undo settings change #4");
     }
 
     /// A restart: the core gone and its store opened again under a new one.
