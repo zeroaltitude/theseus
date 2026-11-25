@@ -43,6 +43,7 @@ use crate::view::sources_store::{author_of, Sessions, StoreSources};
 use crate::view::sources_waiting::StoreWaiting;
 use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
+use crate::view::text::page::memory_page_at;
 use crate::view::text::parts::{self, Seen};
 use crate::view::text::tokens;
 use crate::view::wire::OnceLadder;
@@ -268,19 +269,17 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let sizes = self.cfg.context.sizes();
         let src = sources_of(
             &permit,
             (&sources, &moving),
             &ladder,
             &cards,
-            (&message, sizes),
+            (&message, self.cfg.context.sizes()),
         );
         let renderer = self.renderer(store, &read, &said);
         let who = self.who_am_i(spec);
-        // The memory page, its window the setting's (`[context] here_exchanges`).
-        let page = crate::view::text::page::memory_page_at(sizes.here);
-        let (frame, now) = frame_and_now(spec, (&page, &who), &message, harness);
+        let memory_page = memory_page_at(src.sizes.here).into_owned();
+        let (frame, now) = frame_and_now(spec, (&memory_page, &who), &message, harness);
         let selectors = table(src, frame, now);
         let parts = Parts {
             selectors: &selectors,
@@ -290,7 +289,6 @@ impl TurnRunner {
             since,
         };
         let block = |b: &MarkedBlock| Frozen::block(sid, turn, &b.heading, &b.text);
-        let memory_page = page.into_owned();
         let a = match assemble(&pov, &snap, &parts, budget) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
