@@ -10,11 +10,13 @@
 use std::sync::Arc;
 
 use serde_json::json;
+use theseus_core::approval::{Answerer, Surface};
 use theseus_core::config::discord::Category;
 use theseus_core::config::self_improve::SelfMode;
 use theseus_core::owner_note::{note, Kind};
 use theseus_core::provider::{FakeProvider, Provider};
 use theseus_kernel::ActionState;
+use theseus_protocol::rsi::SelfResumeParams;
 use theseus_sim::fake_discord::{FakeDiscord, Guild, Mode, DEFAULT_GUILD};
 
 use super::{Rig, ANA, ANA_DM, BEN, CY, LAB};
@@ -300,7 +302,19 @@ async fn presses_in_the_notices_place_are_judged_as_any_press_is() {
             }
         }
 
-        // Halt: anyone admitted, here as in the DM.
+        // Halt: anyone admitted, here as in the DM. A store never resumed is
+        // halted, so the owner resumes it first, from his own shell.
+        r.core
+            .self_resume(
+                &SelfResumeParams::default(),
+                &Answerer {
+                    label: "the CLI".into(),
+                    surface: Surface::Cli,
+                    discord: None,
+                    agent: None,
+                },
+            )
+            .unwrap();
         assert!(!r.core.self_state().halted);
         let p = r.press(&join.id, "Halt self-improvement", (BEN, "ben"));
         r.until("ben halted", told(&r, &p, "🛑 Self-improvement halted"))
