@@ -213,7 +213,10 @@ async fn a_told_note_goes_to_the_notices_place_when_one_is_bound_and_else_to_the
         };
         r.until_on(&[to], "the note", || r.posted(to).iter().any(has))
             .await;
-        assert!(!r.posted(not).iter().any(has), "notify={notify}: not in {not}");
+        assert!(
+            !r.posted(not).iter().any(has),
+            "notify={notify}: not in {not}"
+        );
         let m = r.posted(to).into_iter().find(has).unwrap();
         let p = r.press(&m.id, "Undo", (ANA, "ana"));
         told_to(&r, &p, "↩️ Undone.").await;
