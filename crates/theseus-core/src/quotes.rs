@@ -25,6 +25,9 @@ use crate::store::Store;
 
 pub mod cap;
 
+/// The one reader of a stored result kept by reference, under the plan's name (`crate::quoted`).
+pub use crate::quoted::laid;
+
 /// What a quote of a node that was erased since shows, in place of its words.
 pub const ERASED_QUOTE: &str = "[words since erased]";
 /// What a quote that cannot be read as it was written shows, in place of its words.
