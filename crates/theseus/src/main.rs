@@ -80,6 +80,7 @@ mod self_cmd;
 #[cfg(test)]
 mod spawn_args_tests;
 mod standing_cmd;
+mod told_cmd;
 mod status;
 mod status_notify;
 mod status_progress;
@@ -807,6 +808,13 @@ enum Cmd {
     Standing {
         #[command(subcommand)]
         cmd: Option<standing_cmd::StandingCmd>,
+    },
+    /// Undo an act Theseus did without asking, from its note (`told undo POST`, the
+    /// note's own "Undo:" line): the owner's alone, refused inside a job.
+    #[command(hide = true)]
+    Told {
+        #[command(subcommand)]
+        cmd: told_cmd::ToldCmd,
     },
     /// The owner card, proposed from your imported history: `card` lists what
     /// waits as questions (Keep, Edit, Not this), what you kept and declined, and the spend;
@@ -1628,6 +1636,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Told { cmd } => told_cmd::run(c, json, cmd).await,
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd).await,
         cmd @ (Cmd::Undo { .. } | Cmd::Config { .. }) => owner_cmd(c, json, cmd).await,

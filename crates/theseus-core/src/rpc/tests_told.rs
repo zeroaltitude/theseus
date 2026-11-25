@@ -6,10 +6,15 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use theseus_protocol::{StandingAddParams, StandingKind, StandingRevokeParams, StandingScope};
+use serde_json::{json, Value};
+use theseus_protocol::{
+    method, Message, Request, Response, StandingAddParams, StandingKind, StandingRevokeParams,
+    StandingScope,
+};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use super::FAULT_RECEIPT;
-use crate::approval::{Answerer, Surface};
+use super::{ToldUndoResult, FAULT_RECEIPT, PROBED};
+use crate::approval::{Answerer, Client, Surface};
 use crate::owner_note::told::{self, Undo};
 use crate::rpc::Core;
 
@@ -163,4 +168,85 @@ async fn two_presses_at_once_undo_once() {
     let refused = [a, b].into_iter().find_map(Result::err).unwrap();
     assert_eq!(refused.data["undone_by"], "the CLI");
     assert_eq!(ends(&core, &id), 1);
+}
+
+/// A note of the tests' undo with no method of its own: its post id.
+fn probe_note(core: &Core) -> String {
+    let (a, frame) = told::stage(
+        &core.outbox,
+        None,
+        "Theseus took something back",
+        "In “Tides”, without asking you",
+        "",
+        &Undo::Probe("thing_1".into()),
+    )
+    .unwrap();
+    core.store.append(&frame).unwrap();
+    core.outbox.posted(&a);
+    a.correlation_id
+}
+
+/// One request on a connection of `client`'s surface, its whole response.
+async fn call(core: &Arc<Core>, client: Client, m: &str, params: Value) -> Response {
+    let (ours, theirs) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(theirs);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(ours);
+    let req = Request::new(theseus_protocol::Id::Num(1), m, params);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    let out = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break r;
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    out
+}
+
+/// A note of an undo with no method of its own names the door, with its own
+/// post id: "Undo: `theseus told undo <post>`", filled where the note is
+/// read. The stored words keep the mark the id is filled into.
+#[tokio::test]
+async fn a_method_less_notes_undo_line_names_the_verb_with_its_own_post_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::tests_unlabel::core_in(dir.path());
+    let post = probe_note(&core);
+    let (text, undo) = told::of(&core.kernel, &post).unwrap().unwrap();
+    assert_eq!(undo, Undo::Probe("thing_1".into()));
+    assert!(
+        text.ends_with(&format!("\nUndo: `theseus told undo {post}`")),
+        "{text}"
+    );
+    let a = core.kernel.outbox_action(&post).unwrap().unwrap();
+    let stored = crate::outbox::body_of(&a)["text"].clone();
+    assert!(stored.as_str().unwrap().contains(told::THIS_POST), "{stored}");
+}
+
+/// `theseus told undo` from a terminal: `told.undo` on a CLI connection,
+/// naming the note by the end of its post id, undoes once; a second is
+/// refused by the core and runs nothing.
+#[tokio::test]
+async fn told_undo_from_the_cli_surface_undoes_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::tests_unlabel::core_in(dir.path());
+    let post = probe_note(&core);
+    let end = json!({"post": &post[post.len() - 6..]});
+    let cli = || Client::new("test", Surface::Cli);
+    let r = call(&core, cli(), method::TOLD_UNDO, end.clone()).await;
+    assert!(r.error.is_none(), "{:?}", r.error);
+    let done: ToldUndoResult = serde_json::from_value(r.result.unwrap()).unwrap();
+    assert!(done.text.contains("\n↩️ Undone by "), "{}", done.text);
+    assert!(!done.text.contains("Undo: `"), "{}", done.text);
+    assert_eq!(PROBED.load(Ordering::SeqCst), 1);
+    assert!(marked(&core, &post));
+    let r = call(&core, cli(), method::TOLD_UNDO, end).await;
+    let e = r.error.expect("a second undo is refused");
+    assert!(e.data.get("undone_by").is_some(), "{e:?}");
+    assert_eq!(PROBED.load(Ordering::SeqCst), 1, "it ran once");
 }

@@ -49,6 +49,11 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
+    /// An undo with no method of its own, for the tests: its arm in
+    /// `rpc::told` counts the times it ran.
+    #[cfg(test)]
+    #[serde(rename = "test.probe")]
+    Probe(String),
 }
 
 impl Undo {
@@ -60,6 +65,8 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
+            #[cfg(test)]
+            Undo::Probe(_) => method::TOLD_UNDO,
         }
     }
 
@@ -72,18 +79,41 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
+            #[cfg(test)]
+            Undo::Probe(id) => json!({"id": id, "author": author}),
         }
     }
 
-    /// The command that does the same from a shell.
+    /// The command that does the same from a shell. An undo with no method
+    /// of its own answers [`by_door`]: the note's own `theseus told undo`.
     pub fn command(&self) -> String {
         match self {
             Undo::RoutineDelete(id) => format!("theseus routine rm {id}"),
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
+            #[cfg(test)]
+            Undo::Probe(_) => by_door(),
         }
     }
+}
+
+/// Where a note names its own post id. The id is minted when the note is
+/// staged, after its words are written, so the words carry this mark and
+/// every reader of a note fills it ([`filled`]: [`of`], and Discord's send).
+/// The stored words keep the mark.
+pub const THIS_POST: &str = "<this-note>";
+
+/// The command that undoes a note through its own door from a terminal,
+/// `theseus told undo <its post id>`: the `command()` of an undo with no
+/// method of its own.
+pub fn by_door() -> String {
+    format!("theseus told undo {THIS_POST}")
+}
+
+/// A note's words as read: its own post id where they name it.
+pub fn filled(text: &str, post: &str) -> String {
+    text.replace(THIS_POST, post)
 }
 
 /// Stage the note to the operator: `title` (what was done), `by` (which
@@ -117,10 +147,33 @@ pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
         return Ok(None);
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
-    Ok(Some((
-        body["text"].as_str().unwrap_or("").to_string(),
-        undo,
-    )))
+    Ok(Some((filled(body["text"].as_str().unwrap_or(""), post), undo)))
+}
+
+/// The note `name` names: its post id, or the end of one no other told
+/// note's id shares. None when no told note has it.
+pub fn resolve(kernel: &Kernel, name: &str) -> Result<Option<String>> {
+    if of(kernel, name)?.is_some() {
+        return Ok(Some(name.to_string()));
+    }
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let all: Vec<String> = kernel
+        .outbox_actions()?
+        .into_iter()
+        .filter(|a| body_of(a)["kind"] == KIND && a.correlation_id.ends_with(name))
+        .map(|a| a.correlation_id)
+        .collect();
+    match all.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        many => anyhow::bail!(
+            "`{name}` ends {} notes' ids ({}): give more of it",
+            many.len(),
+            many.join(", ")
+        ),
+    }
 }
 
 /// Who undid a note, and when.

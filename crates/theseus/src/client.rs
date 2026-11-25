@@ -399,6 +399,7 @@ pub const OPERATORS: [(&str, &str); 107] = [
     ),
     (method::CARD_DONE, "theseus card done"),
     (method::STANDING_REVOKE, "theseus standing revoke"),
+    (method::TOLD_UNDO, "theseus told undo"),
     (method::STANDING_ANSWER, "theseus standing answer"),
     (method::SELF_DROP, "theseus self drop"),
     (method::SELF_MOVE, "theseus self move"),
