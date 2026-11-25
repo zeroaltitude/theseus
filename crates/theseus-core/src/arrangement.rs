@@ -432,7 +432,12 @@ fn quoted(
         form: Form::Verbatim,
     });
     let read = |_: &Quote| Read::Field(text.to_string());
-    crate::quotes::cap::cap_with(vec![whole], read, PIECE_CHARS, rest, cuts).0
+    let parts = crate::quotes::cap::cap_with(vec![whole], read, PIECE_CHARS, rest, cuts).0;
+    // A range that begins or ends inside a known value is never stored: the piece keeps its words.
+    match crate::quotes::edges_hold_with(&parts, read, cuts) {
+        true => parts,
+        false => Vec::new(),
+    }
 }
 
 /// The pieces as the arrangement node stores them: one kept by reference without its words.

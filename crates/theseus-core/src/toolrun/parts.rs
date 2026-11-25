@@ -50,7 +50,8 @@ impl ToolRuntime {
     /// `r`'s parts (its fit note before them, `fit_noted`) capped as its text would be, the runtime's words after
     /// them (its hint, and `group`, the line of a call that ran in a group); and what they show, and whether the
     /// cap cut. None when `r` is not kept by reference: it gave no parts, or its tool caps by a rule of its own or
-    /// keeps its whole output, whose cut lines name its words and its file.
+    /// keeps its whole output, whose cut lines name its words and its file; or a quote, capped, would begin or end
+    /// inside a known value (`quotes::edges_hold`).
     pub(super) fn capped_parts(
         &self,
         r: &ResultNode<'_>,
@@ -69,13 +70,19 @@ impl ToolRuntime {
             tool.as_ref()
                 .map_or_else(|| REST_NARROWER.into(), |t| t.rest(left))
         };
+        let cuts = self.scrubber.cuts();
         let (parts, truncated) = quotes::cap::cap_parts(
             by_ref.store,
             by_ref.parts.clone(),
             self.result_max_chars,
             rest,
-            &self.scrubber.cuts(),
+            &cuts,
         );
+        // A range that begins or ends inside a known value is never stored: the result keeps its words, capped
+        // as any result's are.
+        if !quotes::edges_hold(by_ref.store, &parts, &cuts) {
+            return None;
+        }
         let parts = quotes::cap::ended(parts, r.hint.as_deref(), group);
         let content = quotes::render_with(&parts, |q| quotes::read(by_ref.store, q));
         let capped = kept::Capped {

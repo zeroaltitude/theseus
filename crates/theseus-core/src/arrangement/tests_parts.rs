@@ -266,3 +266,23 @@ fn a_quote_of_a_look_back_kept_by_reference_finds_it_by_its_rendering() {
     let text = pieces[0].text.clone().expect("the piece's words");
     assert!(text.contains("signal white, two coats"), "{text}");
 }
+
+/// A piece of a message cut at its 16,000 characters inside a known value (the message is the value over and
+/// over): the stored range holds each value whole or none of it, and the piece shows no part of one.
+#[test]
+fn a_pieces_cut_never_begins_or_ends_inside_a_known_value() {
+    let (_d, s) = store();
+    let words = format!("The lamp room. {}", format!("{VALUE} ").repeat(700));
+    let t = transcript(&s, &[user(&words)]);
+    let a = input(json!({"pieces": [{"quote": "The lamp room.", "role": "objective"}]}));
+    let cuts = Scrubber::with_values(vec![(VALUE.into(), "v".into())]).cuts();
+    let pieces = resolve(&a, &t, None, &cuts).unwrap();
+    let parts = &pieces[0].parts;
+    assert!(!parts.is_empty(), "kept by reference");
+    let read = |_: &Quote| Read::Field(words.clone());
+    let through = crate::quotes::cut_through(parts, read, &[VALUE]);
+    assert!(through.is_empty(), "{through:#?}");
+    let shown = crate::quotes::render_with(parts, read);
+    assert!(shown.contains("not shown"), "cut");
+    assert!(crate::quotes::no_part_of(&shown, VALUE));
+}
