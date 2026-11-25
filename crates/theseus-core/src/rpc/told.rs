@@ -171,10 +171,7 @@ impl Core {
                 (!all.iter().any(|r| r.id == *id)).then_some("the routine is gone")
             }
             Undo::WakeCancel(id) => {
-                let pending = self
-                    .kernel
-                    .pending_wakes()
-                    .map_err(|e| RpcFailure::invalid(e.into()))?;
+                let pending = self.kernel.pending_wakes().map_err(RpcFailure::invalid)?;
                 (!pending.iter().any(|(_, w)| w.id == *id))
                     .then_some("the wake is no longer pending")
             }
