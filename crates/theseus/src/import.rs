@@ -487,10 +487,17 @@ pub fn topics(r: &ImportTopicsResult) -> String {
 
 /// The tags, one a line.
 pub fn list(r: &ImportListResult) -> String {
-    if r.tags.is_empty() {
-        return "no imports\n".into();
-    }
     let mut out = String::new();
+    if !r.unread.is_empty() {
+        out.push_str(&format!(
+            "{} records under the tags' prefix could not be read as a tag's counts: left as they are\n",
+            r.unread.len()
+        ));
+    }
+    if r.tags.is_empty() {
+        out.push_str("no imports\n");
+        return out;
+    }
     for t in &r.tags {
         let sources: Vec<String> = t.sources.iter().map(|(s, n)| format!("{s} {n}")).collect();
         out.push_str(&format!(
@@ -508,6 +515,23 @@ pub fn list(r: &ImportListResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The list says how many tag records could not be read and were left as they are (issue 46), before the
+    /// tags that read; with none it says nothing of them.
+    #[test]
+    fn the_list_says_how_many_tag_records_could_not_be_read() {
+        let r = ImportListResult {
+            tags: vec![],
+            unread: vec!["import.tag.a".into(), "import.tag.b".into()],
+        };
+        assert_eq!(
+            list(&r),
+            "2 records under the tags' prefix could not be read as a tag's counts: left as they are\n\
+             no imports\n"
+        );
+        let none = ImportListResult::default();
+        assert_eq!(list(&none), "no imports\n");
+    }
 
     #[tokio::test]
     async fn a_full_final_import_batch_is_marked_final() {

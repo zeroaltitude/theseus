@@ -770,6 +770,8 @@ mod tests_turn_retry;
 #[cfg(test)]
 mod tests_unlabel;
 #[cfg(test)]
+mod tests_unread_logs;
+#[cfg(test)]
 mod tests_view_between;
 #[cfg(test)]
 mod tests_view_compile;

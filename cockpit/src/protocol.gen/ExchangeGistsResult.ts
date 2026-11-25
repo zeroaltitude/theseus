@@ -6,4 +6,11 @@ import type { GistNode } from "./GistNode";
  * A reading sheet: how many lines and first-level nodes exist where it
  * looked, the seed it drew with, and what it drew, oldest first.
  */
-export type ExchangeGistsResult = { place?: string, seed: number, lines_total: number, nodes_total: number, lines: Array<GistLine>, nodes: Array<GistNode>, };
+export type ExchangeGistsResult = { place?: string, seed: number, lines_total: number, nodes_total: number, 
+/**
+ * Records under the summary lines' prefix, and under the fold nodes'
+ * where it looked, that could not be read: passed over, not drawn from,
+ * and left as they are. A line's place is in its record, so every line
+ * record that could not be read is counted, whatever place was asked.
+ */
+lines_unread: number, nodes_unread: number, lines: Array<GistLine>, nodes: Array<GistNode>, };

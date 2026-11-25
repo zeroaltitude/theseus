@@ -384,3 +384,40 @@ mod tests {
         );
     }
 }
+
+/// A tracing writer that keeps what was written while [`Log::capture`] ran, on this thread.
+#[derive(Clone, Default)]
+pub(crate) struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl Log {
+    /// `f`, with every tracing line written on this thread kept.
+    pub(crate) fn capture<T>(&self, f: impl FnOnce() -> T) -> T {
+        let sub = tracing_subscriber::fmt()
+            .with_writer(self.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(sub, f)
+    }
+
+    /// What was kept.
+    pub(crate) fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+impl std::io::Write for Log {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Log {
+    type Writer = Log;
+    fn make_writer(&'a self) -> Log {
+        self.clone()
+    }
+}

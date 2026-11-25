@@ -287,6 +287,12 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
             r.labels_passed_over
         ));
     }
+    if r.touches_passed_over > 0 {
+        s.push_str(&format!(
+            "; {} records under the touches' prefix could not be read as touches: left as they are",
+            r.touches_passed_over
+        ));
+    }
     s
 }
 
@@ -354,6 +360,13 @@ pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> Stri
                  rest when they exist."
             ));
         }
+    }
+    if r.lines_unread + r.nodes_unread > 0 {
+        out.push(format!(
+            "Not read: {} summary line records and {} fold node records could not be read: none is \
+             drawn, and they are left as they are.",
+            r.lines_unread, r.nodes_unread
+        ));
     }
     for (i, l) in r.lines.iter().enumerate() {
         out.push(String::new());
@@ -484,6 +497,25 @@ mod tests {
         );
         let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));
         assert!(!none.contains("labels."), "{none}");
+    }
+
+    /// A rebuild that passed over touch records it could not read says how many, and that they were left as
+    /// they are (issue 46); one that passed over none says nothing of them.
+    #[test]
+    fn a_rebuild_says_how_many_touch_records_it_passed_over() {
+        let of =
+            |v: serde_json::Value| -> ExchangeRebuildResult { serde_json::from_value(v).unwrap() };
+        let line = rebuild_lines(&of(
+            serde_json::json!({"sessions": 1, "touches_passed_over": 2}),
+        ));
+        assert!(
+            line.ends_with(
+                "; 2 records under the touches' prefix could not be read as touches: left as they are"
+            ),
+            "{line}"
+        );
+        let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));
+        assert!(!none.contains("touches' prefix"), "{none}");
     }
 
     #[test]
@@ -653,6 +685,8 @@ mod tests {
             seed: 4711,
             lines_total: 80,
             nodes_total: 1,
+            lines_unread: 0,
+            nodes_unread: 0,
             lines: vec![GistLine {
                 turn_id: "trn_a".into(),
                 place: "local:harbour".into(),
@@ -697,6 +731,26 @@ mod tests {
         );
         assert!(text.contains("-- The node, as the view shows it:\n\"Tide gauges\""));
         assert_eq!(text.matches("Verdict: ____").count(), 2);
+        assert!(!text.contains("Not read"), "{text}");
+    }
+
+    /// A sheet that passed over records it could not read says how many of each, and that they were left as
+    /// they are (issue 46).
+    #[test]
+    fn gists_says_how_many_records_it_could_not_read() {
+        let r = ExchangeGistsResult {
+            lines_unread: 2,
+            nodes_unread: 1,
+            ..ExchangeGistsResult::default()
+        };
+        let text = gists_lines(&ExchangeGistsParams::default(), &r);
+        assert!(
+            text.contains(
+                "Not read: 2 summary line records and 1 fold node records could not be read: none is \
+                 drawn, and they are left as they are."
+            ),
+            "{text}"
+        );
     }
 
     /// The sheet says its material is rebuilt today and substituted as today's writer would, and an

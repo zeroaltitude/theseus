@@ -4,4 +4,9 @@ import type { ImportTagInfo } from "./ImportTagInfo";
 /**
  * `import.list`'s answer.
  */
-export type ImportListResult = { tags: Array<ImportTagInfo>, };
+export type ImportListResult = { tags: Array<ImportTagInfo>, 
+/**
+ * The keys of records under the tags' prefix that could not be read as
+ * a tag's counts: passed over, and left as they are. Absent when none.
+ */
+unread?: Array<string>, };

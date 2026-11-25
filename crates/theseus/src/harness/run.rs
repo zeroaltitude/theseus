@@ -223,8 +223,10 @@ pub(super) fn operator_only(session: Option<&str>) -> Result<()> {
     theseus_client::client::refuse_in_a_job(method::IMPORT_EPISODES, session)
 }
 
-/// The directory and the tag a run uses.
-async fn resolve(
+/// The directory and the tag a run uses. With no tag named, the tag is chosen
+/// from the import's list, so a list with a record it could not read chooses
+/// none: that record may be this source's newest tag.
+pub(super) async fn resolve(
     conn: &mut Conn,
     source: Source,
     dir: Option<PathBuf>,
@@ -249,6 +251,13 @@ async fn resolve(
                 .request(method::IMPORT_LIST, serde_json::Value::Null)
                 .await?;
             let listed: ImportListResult = serde_json::from_value(v)?;
+            if let Some(key) = listed.unread.first() {
+                bail!(
+                    "the record under {key} could not be read as an import tag's counts, so the tag \
+                     this source's sessions are in is not known: no import tag was chosen. Name one \
+                     with --tag."
+                );
+            }
             let today = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
             default_tag(&listed, source, &today)
         }

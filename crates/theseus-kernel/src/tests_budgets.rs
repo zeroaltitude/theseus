@@ -99,3 +99,58 @@ fn an_exhausted_execution_an_earlier_build_migrated_reopens_at_the_next_start() 
     assert_eq!(rep.requeued_interrupted, ["exe_dm"]);
     assert_eq!(rows(&w, "ses_dm", "budget.reopened").len(), 1);
 }
+
+/// Stored executions that are JSON but no object: a string, a number, a list.
+const NO_OBJECTS: [&str; 3] = [r#""words""#, "7", "[1]"];
+
+fn plant_no_objects(w: &World) {
+    let recs: Vec<NewRecord> = NO_OBJECTS
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let v: serde_json::Value = serde_json::from_str(p).unwrap();
+            NewRecord::json(kinds::EXECUTION, Some(&format!("exe_odd{i}")), &v)
+                .unwrap()
+                .scoped("ses_odd")
+        })
+        .collect();
+    w.kernel.store().append(&recs).unwrap();
+}
+
+/// A listing passes over a stored execution that is JSON but no object, and counts it, as any other
+/// that does not read (issue 51); it is not read as an older schema there.
+#[test]
+fn an_execution_that_is_no_object_does_not_read_and_is_passed_over() {
+    let w = world();
+    for p in NO_OBJECTS {
+        assert!(w.kernel.decode_execution(p.as_bytes()).is_err(), "{p}");
+    }
+    let (read, skipped) = w
+        .kernel
+        .decode_executions_skipping([(1, br#""words""#.as_slice()), (2, b"7".as_slice())]);
+    assert_eq!((read.len(), skipped), (0, 2));
+    plant_no_objects(&w);
+    let (read, skipped) = w.kernel.executions_readable().unwrap();
+    assert_eq!((read.len(), skipped), (0, 3));
+}
+
+/// Read by its id, such an execution is read as an older schema, as it was before the listing passed it
+/// over: the read of its budget panics (issue 51 leaves this reader as it was).
+#[test]
+fn an_execution_that_is_no_object_read_by_its_id_is_read_as_before() {
+    let w = world();
+    plant_no_objects(&w);
+    for (i, kind) in ["string", "number", "array"].into_iter().enumerate() {
+        let id = format!("exe_odd{i}");
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = w.kernel.execution(&id);
+        }));
+        let why = read.expect_err(&id);
+        let why = why.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert_eq!(
+            why,
+            format!("cannot access key \"budget\" in JSON {kind}"),
+            "{id}"
+        );
+    }
+}
