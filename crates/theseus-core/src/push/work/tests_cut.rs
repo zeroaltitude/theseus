@@ -187,3 +187,44 @@ fn a_failed_steps_report_line_stops_before_a_known_value() {
     assert_eq!(line, stopped());
     whole_or_absent("the failed step's report line", &line);
 }
+
+/// A job whose command runs past its line's cut, V across it: its title on
+/// the board, built with the board's scrubber's cuts, stops before V.
+#[test]
+fn a_jobs_board_title_stops_before_a_known_value() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = core(&dir);
+    let (mut w, mut d, e) = with_wake(&core);
+    let mut a = super::tests::job_action("act_01cut", ActionState::Dispatched, 10_000, None);
+    a.execution_id = e.id;
+    a.session_id = e.session_id;
+    w.take_action(&super::Board::default(), 10, &a, &mut d);
+    w.acts.get_mut("act_01cut").unwrap().argv =
+        vec!["x".repeat(110), V.into(), "and".into(), "after".into()];
+    let v = w.act_view("act_01cut").expect("the job's view");
+    assert_eq!(v.title, stopped());
+    whole_or_absent("the job's title", &v.title);
+}
+
+/// The agenda's line for a wake whose note runs past its cut, V across it,
+/// stops before V.
+#[test]
+fn a_wakes_agenda_line_stops_before_a_known_value() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = core(&dir);
+    let (w, _, _) = with_wake(&core);
+    let p = theseus_protocol::work::horizon::AgendaParams {
+        from_ms: 0,
+        to_ms: 10_000,
+        roots: None,
+    };
+    let zone = theseus_kernel::TimeZone::posix("UTC0").unwrap();
+    let got = w.agenda(&p, &Scope::default(), &zone);
+    let line = got
+        .lines
+        .iter()
+        .find(|l| l.id == "wak_01cut")
+        .expect("the wake's agenda line");
+    assert_eq!(line.title, stopped());
+    whole_or_absent("the agenda's line", &line.title);
+}

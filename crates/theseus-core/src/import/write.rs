@@ -144,6 +144,8 @@ pub fn import_batch_unless(
     by: &str,
     stopping: impl Fn() -> bool,
 ) -> Result<Batch> {
+    // plain cut: only tests call this wrapper; the daemon's import goes through
+    // `import_batch_gated` with the cuts of its own scrubber
     let none = Cuts::none();
     import_batch_cut(
         store,

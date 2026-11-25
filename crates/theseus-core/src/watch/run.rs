@@ -431,7 +431,7 @@ pub fn shown_value(kernel: &theseus_kernel::Kernel, w: &PendingWake) -> Option<S
             "{} at {}",
             crate::session::title_from(
                 s.last.as_deref().unwrap_or(""),
-                &crate::scrub::Cuts::none()
+                &crate::scrub::Cuts::live()
             ),
             crate::wake::local(s.checked_ms).hm()
         ),

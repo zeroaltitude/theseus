@@ -185,6 +185,7 @@ fn kept(out: &[u8], cap: usize) -> usize {
         Err(_) => return cap,
     };
     let (known, _) = safe::head_bytes(text, cap);
+    // plain cut: a length to compare with, never kept: the cut kept is `known`'s or the cap
     let (plain, _) = safe::head_bytes_with(&Cuts::none(), text, cap);
     if known.len() < plain.len() {
         known.len()

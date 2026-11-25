@@ -361,6 +361,43 @@ async fn a_refused_wakes_list_stops_before_a_known_value() {
     whole_or_absent("the refusal's list", &refused, V);
 }
 
+/// A wake whose note runs past its title's cut: its title in the wake list,
+/// and the narrated lines of its setting and of its cancelling by the CLI,
+/// stop before the value the core's board knows.
+#[tokio::test]
+async fn a_wakes_listed_title_and_narrated_lines_stop_before_a_known_value() {
+    let input = json!({"after": "1h", "note": across()});
+    let r = knowing_core(V, |_| {}, calling("w1", "wake_at", input));
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "remind me").await;
+    let listed = crate::tests_mcp_memory::rpc(&r.core, Surface::Cli, "wake.list", json!({}))
+        .await
+        .unwrap();
+    let title = listed["wakes"][0]["title"].as_str().unwrap_or_default();
+    assert_eq!(title, titled());
+    whole_or_absent("the listed title", title, V);
+    let id = the_wake(&r.core);
+    crate::tests_mcp_memory::rpc(&r.core, Surface::Cli, "wake.cancel", json!({"wake": id}))
+        .await
+        .unwrap();
+    let lines: Vec<String> = r
+        .core
+        .narrator
+        .tail()
+        .into_iter()
+        .map(|l| l.text)
+        .filter(|t| t.starts_with("Wake "))
+        .collect();
+    assert!(lines.iter().any(|l| l.contains(" set ")), "{lines:?}");
+    assert!(
+        lines.iter().any(|l| l.contains("cancelled by")),
+        "{lines:?}"
+    );
+    for l in &lines {
+        whole_or_absent("a wake's narrated line", l, V);
+    }
+}
+
 #[tokio::test]
 async fn a_cancelled_wakes_words_stop_before_a_known_value() {
     let id: Arc<Mutex<String>> = Arc::default();

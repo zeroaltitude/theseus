@@ -376,6 +376,7 @@ fn section(shown: &str, buf: Vec<u8>) -> Held {
         let plain = String::from_utf8_lossy(&buf[..end]).into_owned();
         // A known value that runs across the cap moves the cut to its start.
         let (known, _) = crate::scrub::safe::head_bytes(&all, plain.len());
+        // plain cut: a length to compare with, never kept: the text kept is `known` or `plain`
         let (floor, _) =
             crate::scrub::safe::head_bytes_with(&crate::scrub::Cuts::none(), &all, plain.len());
         if known.len() < floor.len() {

@@ -36,7 +36,6 @@ use theseus_protocol::WaitingOn;
 use super::views::line;
 use super::{ExecIn, Scope, WorkBoard};
 use crate::ledger::LedgerRow;
-use crate::scrub::Cuts;
 
 /// The skipped runs kept for a routine's 30-day count.
 const SKIPS_KEPT: usize = 64;
@@ -191,8 +190,9 @@ impl WorkBoard {
     fn routine_part(&self, v: &mut WorkView, ei: &ExecIn, w: &PendingWake) {
         let held = self.routines.get(&w.id);
         let spec = held.and_then(|r| r.spec.as_ref());
+        let cuts = self.scrubber.cuts();
         if let Some(s) = spec {
-            v.title = line(&s.title, &Cuts::none());
+            v.title = line(&s.title, &cuts);
         }
         let runs: Vec<&WorkView> = self
             .kids
@@ -278,7 +278,7 @@ impl WorkBoard {
             }
         });
         v.routine = Some(RoutineView {
-            schedule: spec.map_or_else(|| line(&w.note, &Cuts::none()), |s| s.schedule.clone()),
+            schedule: spec.map_or_else(|| line(&w.note, &cuts), |s| s.schedule.clone()),
             last: last_view,
             runs_30d: counts,
             month: Month {
@@ -305,7 +305,7 @@ impl WorkBoard {
         v.doing = Some(Doing {
             what: DoingKind::Sleeping,
             label: match (&failing, &spec) {
-                (Some(f), _) => format!("failing: {}", line(f, &Cuts::none())),
+                (Some(f), _) => format!("failing: {}", line(f, &self.scrubber.cuts())),
                 (None, Some(s)) if matches!(s.check, crate::watch::spec::Check::Mail { .. }) => {
                     let day = s.follow_up.as_ref().map(|_| {
                         let d = crate::recall::stamp::day_in(
@@ -402,6 +402,7 @@ impl WorkBoard {
     pub(super) fn agenda(&self, p: &AgendaParams, scope: &Scope, zone: &TimeZone) -> AgendaResult {
         let mut streams: Vec<(AgendaLine, Occurrences)> = Vec::new();
         let mut starts: Vec<AgendaLine> = Vec::new();
+        let cuts = self.scrubber.cuts();
         for ei in self.execs.values() {
             if !scope.sees(&self.root_of(&ei.x.execution_id)) {
                 continue;
@@ -412,11 +413,8 @@ impl WorkBoard {
                         .routines
                         .get(&w.id)
                         .and_then(|r| r.spec.as_ref())
-                        .map_or_else(
-                            || line(&w.note, &Cuts::none()),
-                            |s| line(&s.title, &Cuts::none()),
-                        ),
-                    _ => line(&w.note, &Cuts::none()),
+                        .map_or_else(|| line(&w.note, &cuts), |s| line(&s.title, &cuts)),
+                    _ => line(&w.note, &cuts),
                 };
                 let end_n = (w.purpose == Purpose::Routine)
                     .then(|| self.routines.get(&w.id).and_then(|r| r.spec.as_ref()))
