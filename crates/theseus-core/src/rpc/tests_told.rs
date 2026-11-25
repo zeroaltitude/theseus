@@ -263,7 +263,11 @@ async fn only_the_full_post_id_names_a_note() {
     let post = probe_note(&core);
     for name in [&post[post.len() - 6..], &post[..post.len() - 1], ""] {
         let e = core.told_undo(name, &owner()).await.unwrap_err();
-        assert_eq!(e.code, theseus_protocol::error_code::NOT_FOUND, "{name}: {e:?}");
+        assert_eq!(
+            e.code,
+            theseus_protocol::error_code::NOT_FOUND,
+            "{name}: {e:?}"
+        );
     }
     assert_eq!(PROBED.load(Ordering::SeqCst), 0);
     assert!(!marked(&core, &post));
@@ -290,7 +294,11 @@ async fn an_agent_or_a_jobs_connection_is_refused_and_the_owners_terminal_passes
             let peer = Client::new("test", surface).behind(Behind::Agent(name.into()));
             let r = call(&core, peer, method::TOLD_UNDO, json!({"post": asked})).await;
             let e = r.error.expect("refused");
-            assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{name}: {e:?}");
+            assert_eq!(
+                e.code,
+                theseus_protocol::error_code::REFUSED,
+                "{name}: {e:?}"
+            );
             assert!(e.message.contains("is not an owner"), "{e:?}");
             assert!(e.message.contains("Nothing was undone"), "{e:?}");
             assert!(!e.message.contains(asked), "no word of the note: {e:?}");
@@ -343,7 +351,10 @@ async fn told_undos_copies_over_the_rpc_are_masked() {
     let e = r.error.expect("a repeat is refused");
     let repeat = serde_json::to_string(&e).unwrap();
     assert!(!repeat.contains(SECRET), "{repeat}");
-    assert!(e.data["text"].as_str().unwrap().contains("[redacted:"), "{repeat}");
+    assert!(
+        e.data["text"].as_str().unwrap().contains("[redacted:"),
+        "{repeat}"
+    );
     let (text, _) = told::of(&core.kernel, &post).unwrap().unwrap();
     assert!(text.contains(SECRET), "the stored note keeps its words");
 }

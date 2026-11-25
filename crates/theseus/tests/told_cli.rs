@@ -122,7 +122,7 @@ fn told_undo_json_prints_the_daemons_masked_answer_as_it_came() {
     let (_, out, err, code) = run_with(
         &["--json"],
         "out_0000aa1b2c3d",
-        json!({"result": answer.clone()}),
+        json!({"result": answer}),
         None,
     );
     assert_eq!(code, 0, "{err}");

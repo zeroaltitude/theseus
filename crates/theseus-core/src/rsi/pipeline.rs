@@ -103,8 +103,6 @@ mod tests_named;
 #[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
-mod tests_told_drop;
-#[cfg(test)]
 mod tests_parked;
 #[cfg(test)]
 mod tests_pause;
@@ -114,6 +112,8 @@ mod tests_restart;
 mod tests_sealed_line;
 #[cfg(test)]
 mod tests_stale;
+#[cfg(test)]
+mod tests_told_drop;
 #[cfg(test)]
 mod tests_trees;
 mod view;

@@ -291,8 +291,7 @@ impl Core {
                     author: Some(who.label.clone()),
                     discord: who.discord.clone(),
                 };
-                self.standing_revoke(&p, who.clone())
-                    .map(|_| Effect::Done)
+                self.standing_revoke(&p, who.clone()).map(|_| Effect::Done)
             }
             // A filing's undo, only while the item is still as filed.
             Undo::SelfDrop(id) => match self.self_drop_as_filed(id, who) {

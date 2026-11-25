@@ -45,7 +45,9 @@ fn version(r: &Rig, item: &str) -> u64 {
 }
 
 fn drops(r: &Rig, item: &str) -> usize {
-    let t = crate::task_graph::get(&r.core.store, item).unwrap().unwrap();
+    let t = crate::task_graph::get(&r.core.store, item)
+        .unwrap()
+        .unwrap();
     t.evidence
         .iter()
         .filter(|e| e.identity.starts_with("dropped:"))
@@ -58,10 +60,12 @@ async fn refused_as_moved(r: &Rig, item: &str, post: &str) {
     let before = version(r, item);
     let e = r.core.told_undo(post, &owner()).await.unwrap_err();
     assert_eq!(e.data["moved_on"], true, "{e:?}");
-    assert!(e.message.contains("has moved on since it was filed"), "{e:?}");
     assert!(
-        e.message
-            .contains(&format!("`theseus self drop {item}`")),
+        e.message.contains("has moved on since it was filed"),
+        "{e:?}"
+    );
+    assert!(
+        e.message.contains(&format!("`theseus self drop {item}`")),
         "{e:?}"
     );
     let text = e.data["text"].as_str().unwrap();
@@ -80,7 +84,11 @@ async fn a_filing_still_as_filed_is_dropped_once() {
     let r = rig_with(1, 30.0);
     let (item, post) = filed(&r);
     let done = r.core.told_undo(&post, &owner()).await.unwrap();
-    assert!(done.text.ends_with("↩️ Undone by the CLI."), "{}", done.text);
+    assert!(
+        done.text.ends_with("↩️ Undone by the CLI."),
+        "{}",
+        done.text
+    );
     assert_eq!(r.state(&item), TaskState::Abandoned);
     assert_eq!(drops(&r, &item), 1);
     let again = r.core.told_undo(&post, &owner()).await.unwrap_err();
@@ -93,7 +101,10 @@ async fn a_filing_still_as_filed_is_dropped_once() {
 async fn a_started_filing_refuses_its_undo_and_is_untouched() {
     let r = rig_with(1, 30.0);
     let (item, post) = filed(&r);
-    assert!(r.core.backlog_start_item(&item).unwrap().is_some(), "it started");
+    assert!(
+        r.core.backlog_start_item(&item).unwrap().is_some(),
+        "it started"
+    );
     assert_eq!(r.state(&item), TaskState::InProgress);
     refused_as_moved(&r, &item, &post).await;
     assert_eq!(r.state(&item), TaskState::InProgress);
