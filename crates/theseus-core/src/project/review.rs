@@ -10,7 +10,7 @@ use crate::routine::{self, Book, NewRoutine};
 
 /// The routine's title.
 pub fn title(project_title: &str) -> String {
-    let t: String = project_title.chars().take(60).collect();
+    let (t, _) = crate::scrub::safe::head(project_title, 60);
     format!("Review: {t}")
 }
 

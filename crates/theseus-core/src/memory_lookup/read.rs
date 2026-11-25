@@ -70,13 +70,9 @@ pub(super) fn clipped(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
     }
-    let mut at = max;
-    while !s.is_char_boundary(at) {
-        at -= 1;
-    }
+    let (kept, _) = crate::scrub::safe::head_bytes(s, max);
     format!(
-        "{} […{} more characters: ask with a larger budget_tokens, up to 6000, to read more of it]",
-        &s[..at],
-        s[at..].chars().count()
+        "{kept} […{} more characters: ask with a larger budget_tokens, up to 6000, to read more of it]",
+        s[kept.len()..].chars().count()
     )
 }

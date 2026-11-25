@@ -449,7 +449,7 @@ impl Book {
 pub fn first_line(short: &str, title: &str, o: &Outcome) -> String {
     let line = title.lines().next().unwrap_or("").trim();
     let title = if line.chars().count() > 40 {
-        let cut: String = line.chars().take(39).collect();
+        let (cut, _) = crate::scrub::safe::head(line, 39);
         format!("{}…", cut.trim_end())
     } else {
         line.to_string()
