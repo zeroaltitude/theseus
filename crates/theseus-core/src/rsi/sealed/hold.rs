@@ -39,6 +39,9 @@ use crate::rpc::Core;
 /// a file, so the list cannot rot.
 pub const BEHAVIOUR: &[&str] = &[
     // Prompt and system-text assembly.
+    "crates/theseus-core/src/view/*",
+    "crates/theseus-core/src/turn/view_step.rs",
+    "crates/theseus-core/src/turn/view_step/*",
     "crates/theseus-core/src/turn.rs",
     "crates/theseus-core/src/turn/target.rs",
     "crates/theseus-core/src/turn/catch_up.rs",

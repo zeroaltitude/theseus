@@ -330,9 +330,22 @@ impl Relay {
         let started = Instant::now();
         let (status, usage, whole) = match self.forward(&core, &req, conn).await {
             Ok(sent) => sent,
-            Err(r) => {
-                let _ = core.runner.self_budget.settle(reservation, 0.0);
-                self.release_on_item(hold, 0, false);
+            Err((r, dispatched)) => {
+                let paid = if dispatched { worst } else { 0 };
+                let _ = core
+                    .runner
+                    .self_budget
+                    .settle(reservation, micros_usd(paid));
+                self.release_on_item(hold, paid, dispatched);
+                if dispatched {
+                    self.record(UsageLine {
+                        model: self.model.clone(),
+                        usd: micros_usd(paid),
+                        usage: Usage::default(),
+                        ms: started.elapsed().as_millis() as u64,
+                        status: 502,
+                    });
+                }
                 return Err(r);
             }
         };
@@ -440,8 +453,8 @@ impl Relay {
         core: &Core,
         req: &Request,
         conn: &mut TcpStream,
-    ) -> Result<(u16, Usage, bool), Refusal> {
-        let key = core.secrets.get(&self.key_secret).ok_or(NO_KEY)?;
+    ) -> Result<(u16, Usage, bool), (Refusal, bool)> {
+        let key = core.secrets.get(&self.key_secret).ok_or((NO_KEY, false))?;
         let mut post = self
             .http
             .post(format!("{}/v1/messages", self.upstream))
@@ -456,15 +469,14 @@ impl Relay {
         let mut resp = match post.send().await {
             Ok(resp) => resp,
             Err(e) => {
+                let dispatched = !(e.is_connect() || e.is_builder());
                 tracing::warn!(
                     "the sealed relay's provider did not answer: {}",
                     e.without_url()
                 );
-                return Err(refusal(
-                    502,
-                    "api_error",
-                    "the provider did not answer",
-                    false,
+                return Err((
+                    refusal(502, "api_error", "the provider did not answer", false),
+                    dispatched,
                 ));
             }
         };
