@@ -10,12 +10,15 @@
 
 use zeroize::Zeroizing;
 
-use super::{merged, Scrubber, Substitution, MIN_VALUE};
+use super::{merged, Scrubber, Span, Substitution, MIN_VALUE};
 use crate::secrets::{SecretBoard, SecretState};
 
 /// The values known when it was taken, for placing a cut.
 pub struct Cuts {
     values: Vec<(Zeroizing<String>, String)>,
+    /// Where each board's values end in `values`, for a cut that knows the
+    /// values of more than one board.
+    boards: Vec<usize>,
     /// No value was still loading.
     settled: bool,
 }
@@ -32,7 +35,11 @@ impl Scrubber {
             .board
             .as_ref()
             .is_none_or(|b| ready_values(b, &mut values));
-        Cuts { values, settled }
+        Cuts {
+            values,
+            boards: Vec::new(),
+            settled,
+        }
     }
 }
 
@@ -61,14 +68,22 @@ impl Cuts {
     /// no board has a value still loading. In the daemon the one board is
     /// the scrubber's, so it knows what [`Scrubber::cuts`] knows; with no
     /// board alive it knows nothing and a cut falls where it is asked.
-    /// Knowing more values only moves a cut earlier.
+    /// With more than one board, the spans of each board's values read
+    /// alone are kept beside those of all values read together, so a cut
+    /// never falls later than the one that board's own scrubber places.
     pub fn live() -> Self {
         let mut values = Vec::new();
+        let mut boards = Vec::new();
         let mut settled = true;
         for board in SecretBoard::live() {
             settled &= ready_values(&board, &mut values);
+            boards.push(values.len());
         }
-        Cuts { values, settled }
+        Cuts {
+            values,
+            boards,
+            settled,
+        }
     }
 
     /// Knows no value: a cut falls where it is asked. For text a mask has
@@ -76,23 +91,34 @@ impl Cuts {
     pub fn none() -> Self {
         Self {
             values: Vec::new(),
+            boards: Vec::new(),
             settled: true,
         }
     }
 
     /// The spans the known values take in `text`, sorted, overlapping ones
-    /// merged.
+    /// merged. When values of more than one board are known, each board's
+    /// own spans are added: replacing a longer value first can leave
+    /// another value's encoding unread that its own board's scrubber reads.
     fn spans(&self, text: &str) -> Vec<(usize, usize)> {
         if self.values.is_empty() {
             return Vec::new();
         }
-        let sub = Substitution::new(
-            self.values
-                .iter()
-                .map(|(v, n)| (v.as_str(), n.as_str()))
-                .collect(),
-        );
-        merged(text, sub.spans(text))
+        let mut found = spans_of(text, &self.values);
+        let mut groups = Vec::new();
+        let mut from = 0;
+        for &to in &self.boards {
+            if to > from {
+                groups.push(&self.values[from..to]);
+            }
+            from = to;
+        }
+        if groups.len() > 1 {
+            for group in groups {
+                found.extend(spans_of(text, group));
+            }
+        }
+        merged(text, found)
             .0
             .into_iter()
             .map(|(a, b, _)| (a, b))
@@ -218,6 +244,17 @@ impl theseus_tools::Cut for Cuts {
     fn first_line<'t>(&self, text: &'t str, max: usize, keep: usize) -> (&'t str, bool) {
         Cuts::first_line(self, text, max, keep)
     }
+}
+
+/// Every span `values` take in `text`, read together.
+fn spans_of<'v>(text: &str, values: &'v [(Zeroizing<String>, String)]) -> Vec<Span<'v>> {
+    Substitution::new(
+        values
+            .iter()
+            .map(|(v, n)| (v.as_str(), n.as_str()))
+            .collect(),
+    )
+    .spans(text)
 }
 
 /// Whether a cut at `at` falls at whitespace or an end: a value with no

@@ -321,3 +321,120 @@ fn a_head_bytes_of_a_megabyte_with_twenty_values_is_measured() {
     assert!(took < std::time::Duration::from_secs(30), "took {took:?}");
     drop(board);
 }
+
+/// For every byte of `text`, the live head ends no later, and the live tail
+/// starts no earlier, than the cut of each board's own scrubber.
+fn no_later_than_each_own(text: &str, boards: &[&Arc<SecretBoard>]) {
+    let live = Cuts::live();
+    for (n, board) in boards.iter().enumerate() {
+        let own = Scrubber::from_board(Arc::clone(board)).cuts();
+        for at in 0..=text.len() + 2 {
+            let (b, a) = (live.before(text, at), live.after(text, at));
+            let (ob, oa) = (own.before(text, at), own.after(text, at));
+            assert!(
+                b <= ob,
+                "board {n}: head at {at} ends at {b}, its own at {ob}"
+            );
+            assert!(
+                a >= oa,
+                "board {n}: tail at {at} starts at {a}, its own at {oa}"
+            );
+        }
+    }
+}
+
+/// One board holds a value ending in two backslashes and a second value; the
+/// other holds the first value with four. Read together the longer value is
+/// replaced first, and what is left no longer reads as the second value's
+/// escaped form; each board's own spans are kept, so the cut still stops
+/// where the first board's own scrubber stops it.
+#[test]
+fn two_boards_cut_no_later_than_either_boards_own_scrubber() {
+    let own = SecretBoard::empty();
+    own.hold("a", Secret::new(r"prefixxx\\".into()));
+    own.hold("b", Secret::new("abcdefgh".into()));
+    let core = Scrubber::from_board(own.clone()).cuts();
+    let text = r"prefixxx\\\\u0061bcdefgh";
+    let other = SecretBoard::empty();
+    other.hold("c", Secret::new(r"prefixxx\\\\".into()));
+    let live = Cuts::live();
+    let (b, ob) = (live.before(text, 21), core.before(text, 21));
+    assert!(b <= ob, "head at 21 ends at {b}, the board's own at {ob}");
+    let (a, oa) = (live.after(text, 17), core.after(text, 17));
+    assert!(a >= oa, "tail at 17 starts at {a}, the board's own at {oa}");
+    let (h, cut) = head(text, 21);
+    assert!(cut && h.len() <= ob, "head {h:?}");
+    let (t, cut) = tail(text, 7);
+    assert!(cut && text.len() - t.len() >= oa, "tail {t:?}");
+    no_later_than_each_own(text, &[&own, &other]);
+}
+
+/// The rule for every live board, over values that overlap, values that
+/// touch, encoded values, a dropped board and a ready board beside one still
+/// loading. With one board left the live cut is that board's own.
+#[test]
+fn live_cuts_are_no_later_than_each_live_boards_own() {
+    {
+        let (a, b) = (
+            live_board("overlap-alpha-1234"),
+            live_board("alpha-1234-beta-99"),
+        );
+        let mut text = String::from("lead ");
+        for v in [
+            "overlap-alpha-1234-beta-99",
+            "overlap-alpha-1234",
+            "alpha-1234-beta-99",
+        ] {
+            for (_, form) in forms(v) {
+                text.push_str(&form);
+                text.push(' ');
+            }
+        }
+        no_later_than_each_own(&text, &[&a, &b]);
+    }
+    {
+        let (a, b) = (
+            live_board("touch-left-0001"),
+            live_board("touch-right-0002"),
+        );
+        let mut text = String::from("x ");
+        for ((_, l), (_, r)) in forms("touch-left-0001")
+            .into_iter()
+            .zip(forms("touch-right-0002"))
+        {
+            text.push_str(&format!("{l}{r} \u{3bb}"));
+        }
+        no_later_than_each_own(&text, &[&a, &b]);
+    }
+    {
+        let (a, b) = (live_board(V), live_board(W));
+        let mut text = String::from("lead ");
+        for ((_, v), (_, w)) in forms(V).into_iter().zip(forms(W)) {
+            text.push_str(&format!("{v}{w} {w}\u{3bb}{v} "));
+        }
+        text.push_str(&serde_json::to_string(&format!("{V}{W}")).unwrap());
+        no_later_than_each_own(&text, &[&a, &b]);
+    }
+    {
+        let (a, b, c) = (live_board(V), live_board(W), live_board("third-value-7781"));
+        let text = format!("{V} {W}{} third-value-7781", b64(V));
+        drop(b);
+        no_later_than_each_own(&text, &[&a, &c]);
+        drop(c);
+        let (live, own) = (Cuts::live(), Scrubber::from_board(a).cuts());
+        for at in 0..=text.len() + 2 {
+            let want = (own.before(&text, at), own.after(&text, at));
+            assert_eq!(
+                (live.before(&text, at), live.after(&text, at)),
+                want,
+                "at {at}"
+            );
+        }
+    }
+    {
+        let ready = live_board(V);
+        let loading = SecretBoard::new(["late".to_string()], Instant::now());
+        let text = format!("alpha {V} beta-gamma {} delta", percent(V));
+        no_later_than_each_own(&text, &[&ready, &loading]);
+    }
+}
