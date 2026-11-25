@@ -50,14 +50,18 @@ pub fn short(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
+    // The word or slash is found in the helper's head or tail, and the cut
+    // there is checked again on the whole text: a value the head kept whole
+    // may hold that space or slash.
     let cuts = Cuts::live();
     let (head, _) = safe::head_with(&cuts, s, max.saturating_sub(1));
     if let Some(at) = head.rfind(char::is_whitespace) {
-        return format!("{}…", head[..at].trim_end());
+        return format!("{}…", s[..cuts.before(s, at)].trim_end());
     }
     let (tail, _) = safe::tail_with(&cuts, s, max - 1);
+    let from = s.len() - tail.len();
     match tail.find('/') {
-        Some(at) => format!("…{}", &tail[at..]),
+        Some(at) => format!("…{}", &s[cuts.after(s, from + at)..]),
         None => format!("…{tail}"),
     }
 }
@@ -297,6 +301,27 @@ mod tests {
         );
         assert_eq!(said, "run the whole of the long…");
         assert_eq!(short("short", 30), "short");
+    }
+
+    /// A known value holding the slash, or the space, where the words would
+    /// be cut: the cut moves to the value's edge, and no piece of it is kept.
+    #[test]
+    fn a_word_or_slash_inside_a_known_value_is_no_place_to_cut() {
+        use crate::tests_cut_sites::whole_or_absent;
+        let (slashed, spaced) = ("abcdef/ghijkl", "kelp-0417 ferry-99");
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("slashed", crate::secrets::Secret::new(slashed.into()));
+        board.hold("spaced", crate::secrets::Secret::new(spaced.into()));
+        // One long token: its tail's first slash is inside the value.
+        let token = format!("{}{slashed}{}", "x".repeat(35), "z".repeat(8));
+        let cut = short(&token, 30);
+        assert_eq!(cut, format!("…{}", "z".repeat(8)));
+        whole_or_absent("the tail", &cut, slashed);
+        // Words: the head's last space is inside the value.
+        let words = format!("aaaa {spaced}{}", "b".repeat(40));
+        let cut = short(&words, 30);
+        assert_eq!(cut, "aaaa…");
+        whole_or_absent("the head", &cut, spaced);
     }
 
     /// The line "Ask again" tells the session (`Core::what_of`, these words'

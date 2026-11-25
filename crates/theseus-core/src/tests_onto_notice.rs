@@ -173,6 +173,21 @@ async fn a_message_theseus_wrote_to_itself_is_never_filed() {
     assert!(o.member_list(&person, "topic").is_some(), "a person's is");
 }
 
+/// The title's last space within the cut is inside a known value: the
+/// notice stops before the value. The value is invented.
+#[test]
+fn a_titles_last_space_inside_a_known_value_is_no_place_to_cut() {
+    use crate::secrets::{Secret, SecretBoard};
+    use crate::tests_cut_sites::whole_or_absent;
+    let spaced = "kelp-0417 ferry-99";
+    let board = SecretBoard::empty();
+    board.hold("spaced", Secret::new(spaced.into()));
+    let before = "x".repeat(50);
+    let said = words::in_conversation(Some(&format!("{before} {spaced}{}", "y".repeat(30))));
+    assert_eq!(said, format!("In \"{before}…\""));
+    whole_or_absent("the notice's title", &said, spaced);
+}
+
 /// A long title is cut before a known value it would split, even where the
 /// value follows the title's first word with no space between: the notice
 /// holds the value whole or not at all. The value is invented.

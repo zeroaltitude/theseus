@@ -161,6 +161,18 @@ fn the_chat_s_registry_holds_it_with_the_source_on_and_a_shared_place_never_does
     assert!(!offered(PlaceClass::Shared, OPEN_WORK, &[]));
 }
 
+/// The head's last space is inside a known value: the line stops before it.
+#[test]
+fn a_title_lines_last_space_inside_a_known_value_is_no_place_to_cut() {
+    use crate::tests_cut_sites::whole_or_absent;
+    let spaced = "kelp-0417 ferry-99";
+    let board = crate::secrets::SecretBoard::empty();
+    board.hold("spaced", crate::secrets::Secret::new(spaced.into()));
+    let line = one_line(&format!("{} {spaced}{}", "t".repeat(70), "u".repeat(40)));
+    assert_eq!(line, format!("{}…", "t".repeat(70)));
+    whole_or_absent("the listed title", &line, spaced);
+}
+
 /// A title cut where it is long stops before a value the board knows.
 #[test]
 fn a_long_title_line_stops_before_a_known_value() {

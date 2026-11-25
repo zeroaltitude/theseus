@@ -168,8 +168,12 @@ pub fn capped(text: &str) -> String {
     if text.chars().count() <= POST_CHARS {
         return text.to_string();
     }
-    let (cut, _) = crate::scrub::safe::head(text, POST_CHARS);
+    let cuts = crate::scrub::Cuts::live();
+    let (cut, _) = crate::scrub::safe::head_with(&cuts, text, POST_CHARS);
     let cut = cut.rsplit_once('\n').map_or(cut, |(head, _)| head);
+    // The line end, checked again on the whole text: a known value may hold
+    // the line break.
+    let cut = &text[..cuts.before(text, cut.len())];
     format!("{cut}\n… the rest: `theseus self digest`.")
 }
 
