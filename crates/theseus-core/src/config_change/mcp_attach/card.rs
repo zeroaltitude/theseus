@@ -270,6 +270,12 @@ fn sign_in(name: &str, t: &Tried, s: &McpServerConfig) -> String {
             }
             out
         }
+        // A plaintext server that wants a sign-in (issue 55).
+        None if refused_sign_in(t) && s.url.is_some() && s.auth_secret.is_none() => {
+            "The trial was refused for want of a sign-in (HTTP 401). A server that signs in \
+             must be at an https address, and this one is not: as asked, it will not connect.\n"
+                .to_string()
+        }
         None => String::new(),
     }
 }

@@ -1183,9 +1183,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   A server that signs in (issue 55; `oauth` in its table): `mcp/oauth.rs` keeps what its sign-in gave in
   `<store>/mcp-oauth/<name>.json` (0600, written whole, inside the store directory the floor holds), holds each value
   on the secret board for the scrubber, and is the client's `TokenSource` (renewed before it runs out and once on a
-  401); `mcp/sign_in.rs` is `theseus mcp login`/`logout` (`rpc/mcp_login.rs`, the CLI's surface alone). Never signed
-  in, or its refresh refused for good, a server is `needs sign-in`: not a crash, not retried, told once
-  (`attached.rs`) when it was lost. Tests: `mcp/tests/oauth.rs`.
+  401, under one lock with the file; a loss gives no token until a new sign-in); `mcp/sign_in.rs` is `theseus mcp
+  login`/`logout` (`rpc/mcp_login.rs`, admitted from the CLI's surface alone, as `google.auth.*` are: the surface,
+  the CLI's refusal inside a job, and L1's hidden socket stop a job; an L0 process that reaches the socket is not
+  stopped). Every address a server names is reached by the web fetch's rule (`web::net`: public addresses, `https`
+  alone; `oauth::rule`, whose loopback form only tests build). Never signed in, or its refresh refused for good, a
+  server is `needs sign-in`: not a crash, not retried, told once (`attached.rs`) when it was lost. Tests:
+  `mcp/tests/oauth.rs`, `mcp/tests/oauth_hostile.rs`, `mcp/tests_oauth_kept.rs`.
   **Prompts** (36c, `mcp/prompts.rs`): each server's `prompts/list` is kept with a digest per definition and stored
   as META `mcp.prompts.<server>` (no format bump: a new key), listed again on `prompts/list_changed`; `mcp.prompt.list`
   reads it, and `mcp.list` carries it. `turn.submit { prompt }` resolves the prompt first (`McpBoard::resolve_prompt`:

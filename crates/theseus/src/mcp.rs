@@ -95,7 +95,20 @@ async fn login(conn: &mut Conn, json: bool, name: &str, manual: bool) -> Result<
         )
         .await?;
     let begun: McpLoginBeginResult = serde_json::from_value(v)?;
-    for l in begin_lines(&begun) {
+    for l in host_lines(&begun) {
+        eprintln!("{l}");
+    }
+    let agreed = !begun.elsewhere.is_empty();
+    if agreed && !ask_agree()? {
+        // The daemon is told, and ends the sign-in: nothing was sent.
+        let params = McpLoginFinishParams {
+            login_id: begun.login_id.clone(),
+            ..Default::default()
+        };
+        let _ = conn.request(method::MCP_LOGIN_FINISH, params).await;
+        anyhow::bail!("not signed in: you did not agree, and nothing was sent");
+    }
+    for l in address_lines(&begun) {
         eprintln!("{l}");
     }
     let mut pasted: Option<String> = None;
@@ -105,6 +118,7 @@ async fn login(conn: &mut Conn, json: bool, name: &str, manual: bool) -> Result<
             login_id: begun.login_id.clone(),
             pasted: pasted.take(),
             wait_secs: wait,
+            agreed,
         };
         let r: McpLoginFinishResult =
             serde_json::from_value(conn.request(method::MCP_LOGIN_FINISH, params).await?)?;
@@ -148,9 +162,35 @@ fn ask_paste(name: &str) -> Result<Option<String>> {
     Ok((!line.is_empty()).then_some(line))
 }
 
-pub fn begin_lines(b: &McpLoginBeginResult) -> Vec<String> {
+/// Whether the owner typed `yes` at the terminal. Read from a terminal
+/// alone: no pipe agrees for them.
+fn ask_agree() -> Result<bool> {
+    anyhow::ensure!(
+        io::stdin().is_terminal(),
+        "this sign-in sends what it returns to another host, which is agreed to at a terminal: \
+         run the command in your own terminal"
+    );
+    eprint!("Type yes to go on: ");
+    io::stderr().flush()?;
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    Ok(line.trim() == "yes")
+}
+
+/// Every host the sign-in involves, each on a line of its own, before
+/// anything else: where the owner signs in, and every other host what the
+/// sign-in returns is sent to.
+pub fn host_lines(b: &McpLoginBeginResult) -> Vec<String> {
+    let mut v = vec![format!("You will sign in at {}.", b.host)];
+    for h in &b.elsewhere {
+        v.push(format!("What the sign-in returns is sent to {h}."));
+    }
+    v
+}
+
+/// The address to open, and how the redirect comes back.
+pub fn address_lines(b: &McpLoginBeginResult) -> Vec<String> {
     let mut v = vec![
-        format!("You will sign in at {}.", b.host),
         format!(
             "Open this address in a browser to sign in to the MCP server {}:",
             b.name
@@ -195,13 +235,21 @@ pub fn finish_lines(r: &McpLoginFinishResult) -> Vec<String> {
 }
 
 pub fn logout_lines(r: &McpLogoutResult) -> Vec<String> {
-    let mut v = vec![match (r.forgot, r.revoked) {
-        (true, true) => format!(
+    let mut v = vec![match (r.kept_remains, r.forgot, r.revoked) {
+        (true, _, revoked) => {
+            format!(
+            "The MCP server {} is signed out until the daemon restarts{}, but its kept sign-in \
+             could not be removed, so it is not forgotten.",
+            r.name,
+            if revoked { " and was revoked at its server" } else { "" }
+        )
+        }
+        (false, true, true) => format!(
             "Signed out of the MCP server {}: revoked at its server, and forgotten here.",
             r.name
         ),
-        (true, false) => format!("Signed out of the MCP server {}: forgotten here.", r.name),
-        (false, _) => format!("The MCP server {} had no sign-in kept.", r.name),
+        (false, true, false) => format!("Signed out of the MCP server {}: forgotten here.", r.name),
+        (false, false, _) => format!("The MCP server {} had no sign-in kept.", r.name),
     }];
     if !r.note.is_empty() {
         v.push(r.note.clone());
@@ -217,11 +265,11 @@ pub fn logout_lines(r: &McpLogoutResult) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// The host comes first, on a line of its own, before the address; the
-    /// last line says signed in and how many tools.
+    /// Every host comes first, each on a line of its own, before the
+    /// address; the last line says signed in and how many tools.
     #[test]
     fn the_host_comes_before_the_address_and_the_end_is_plain() {
-        let b = McpLoginBeginResult {
+        let mut b = McpLoginBeginResult {
             login_id: "l".into(),
             name: "docs".into(),
             host: "auth.example.invalid".into(),
@@ -229,8 +277,24 @@ mod tests {
             redirect: "http://127.0.0.1:4000/callback".into(),
             expires_secs: 600,
             paste_after_secs: 90,
+            elsewhere: vec![],
         };
-        let lines = begin_lines(&b);
+        assert_eq!(
+            host_lines(&b),
+            ["You will sign in at auth.example.invalid."]
+        );
+        b.elsewhere = vec!["tokens.example.invalid".into()];
+        assert_eq!(
+            host_lines(&b),
+            [
+                "You will sign in at auth.example.invalid.",
+                "What the sign-in returns is sent to tokens.example.invalid."
+            ]
+        );
+        let lines: Vec<String> = host_lines(&b)
+            .into_iter()
+            .chain(address_lines(&b))
+            .collect();
         assert_eq!(lines[0], "You will sign in at auth.example.invalid.");
         let host_at = lines
             .iter()
@@ -253,12 +317,19 @@ mod tests {
             finish_lines(&r),
             ["Signed in to the MCP server docs at auth.example.invalid: 3 tools found."]
         );
-        let out = McpLogoutResult {
+        let mut out = McpLogoutResult {
             name: "docs".into(),
             forgot: true,
             revoked: true,
             note: String::new(),
+            kept_remains: false,
         };
         assert!(logout_lines(&out)[1].contains("theseus mcp login docs"));
+        // A file that could not be removed is never "forgotten".
+        out.forgot = false;
+        out.kept_remains = true;
+        let l = logout_lines(&out);
+        assert!(l[0].contains("could not be removed"), "{l:?}");
+        assert!(!l[0].contains("forgotten here"), "{l:?}");
     }
 }

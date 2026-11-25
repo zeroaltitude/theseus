@@ -79,12 +79,15 @@ pub(super) const SIGN_IN_BODY: &str =
 /// Serves a stand-in server for each connection: a command whose program is
 /// `broken` exits at once, as a server that needs its secret does, and a
 /// server named in `refusing` answers HTTP 401, as one that wants a sign-in.
+/// A server named in `real` is reached at its address by the real HTTP
+/// client, as the daemon reaches one.
 #[derive(Default)]
 struct Fakes {
     seen: Mutex<Vec<Seen>>,
     served: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     connects: AtomicU64,
     refusing: Mutex<Vec<String>>,
+    real: Mutex<Vec<String>>,
 }
 
 impl Connect for Fakes {
@@ -101,10 +104,21 @@ impl Connect for Fakes {
             server: server.into(),
             cfg: cfg.clone(),
             env,
-            bearer: key.bearer,
+            bearer: key.bearer.clone(),
         });
         let broken = cfg.command.first().is_some_and(|p| p == "broken");
         let refused = self.refusing.lock().unwrap().iter().any(|n| n == server);
+        if self.real.lock().unwrap().iter().any(|n| n == server) {
+            let mut t = theseus_mcp::client::HttpTarget::new(cfg.url.clone().unwrap_or_default());
+            t.bearer = key.bearer;
+            t.token = key.token;
+            return Box::pin(async move {
+                let (client, events) = Client::connect(Transport::Http(t), Default::default())
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Connected { client, events })
+            });
+        }
         let name = server.to_string();
         let served = self.served.clone();
         Box::pin(async move {
@@ -115,7 +129,9 @@ impl Connect for Fakes {
                 return Err(theseus_mcp::Error::Http {
                     status: 401,
                     body: SIGN_IN_BODY.into(),
-                    challenge: Some("Bearer error=\"invalid_token\"".into()),
+                    challenge: Some(theseus_mcp::client::WwwAuthenticate::new(
+                        "Bearer error=\"invalid_token\"",
+                    )),
                 }
                 .to_string());
             }
@@ -277,6 +293,12 @@ impl Rig {
     /// From now on, the server `name` answers HTTP 401 ([`SIGN_IN_BODY`]).
     pub(super) fn refuse(&self, name: &str) {
         self.fakes.refusing.lock().unwrap().push(name.into());
+    }
+
+    /// From now on, the server `name` is reached at its address by the real
+    /// HTTP client.
+    pub(super) fn real(&self, name: &str) {
+        self.fakes.real.lock().unwrap().push(name.into());
     }
 
     async fn run(&self, sid: &str, input: &str, agent: Option<&str>) {

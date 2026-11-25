@@ -6,23 +6,37 @@
 //!    addresses, the server's path inserted first, then the root
 //!    ([`resource_metadata_urls`]). Its `resource` must be this server: the
 //!    same origin, and a path the server's own path starts with.
-//! 3. The authorization servers it names, in order; with no metadata at all,
-//!    the server's own origin (the older revision of the specification).
+//! 3. The authorization servers it names, in order, the first
+//!    [`MAX_ISSUERS`] of them; with no metadata at all, the server's own
+//!    origin (the older revision of the specification).
 //! 4. Each one's metadata (RFC 8414 §3, then OpenID discovery), whose
 //!    `issuer` must be the one asked, whose endpoints are each checked
-//!    ([`super::endpoint`]), and which, when it lists PKCE methods, lists S256.
+//!    ([`Reach::endpoint`]), and which, when it lists PKCE methods, lists S256.
+//!    Its endpoints are on the issuer's own origin; one elsewhere is taken only
+//!    when the metadata says its redirect names its issuer (RFC 9207), and
+//!    then the redirect must name it and the owner is shown every host.
+//!
+//! Every address a server names is reached by the [`Reach`]'s rule. No type
+//! here prints what a server chose in its `Debug`.
 
 use reqwest::Url;
 use serde_json::Value;
 
-use super::{endpoint, get_json, same_origin, OauthError};
+use super::{same_origin, OauthError, Reach, MAX_ISSUERS};
 
 /// What a 401's Bearer challenge says.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct Challenge {
     pub resource_metadata: Option<String>,
     pub scope: Option<String>,
     pub error: Option<String>,
+}
+
+/// What a server chose is not printed.
+impl std::fmt::Debug for Challenge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Challenge(<a server's words>)")
+    }
 }
 
 /// The Bearer challenge of a `WWW-Authenticate` value, among any others it
@@ -117,11 +131,17 @@ fn well_known(at: &Url, name: &str) -> Vec<Url> {
 }
 
 /// A protected resource's metadata, checked.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Resource {
     /// What the server calls itself: the `resource` sent with each request.
     pub resource: String,
     pub authorization_servers: Vec<String>,
+}
+
+impl std::fmt::Debug for Resource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Resource(<a server's words>)")
+    }
 }
 
 /// Whether `named`, a resource's identifier, is `server`: the same origin,
@@ -142,16 +162,17 @@ pub fn names_this_server(named: &str, server: &Url) -> bool {
 /// The resource's metadata, from the challenge's address or the well-known
 /// ones. `Ok(None)`: the server publishes none.
 pub async fn protected_resource(
-    http: &reqwest::Client,
+    reach: &Reach,
     server: &Url,
     challenge: Option<&Challenge>,
 ) -> Result<Option<Resource>, OauthError> {
     const WHAT: &str = "the server's resource metadata";
     let doc = match challenge.and_then(|c| c.resource_metadata.as_deref()) {
         Some(at) => {
-            let url = endpoint(at, "resource metadata address")?;
+            let url = reach.endpoint(at, "resource metadata address")?;
             Some(
-                get_json(http, &url, WHAT)
+                reach
+                    .get_json(&url, WHAT)
                     .await?
                     .ok_or(OauthError::Status {
                         what: WHAT,
@@ -164,7 +185,7 @@ pub async fn protected_resource(
             let mut doc = None;
             for url in resource_metadata_urls(server) {
                 // A fallback that fails is passed over for the next.
-                if let Ok(Some(v)) = get_json(http, &url, WHAT).await {
+                if let Ok(Some(v)) = reach.get_json(&url, WHAT).await {
                     doc = Some(v);
                     break;
                 }
@@ -189,6 +210,7 @@ pub async fn protected_resource(
         .map(|a| {
             a.iter()
                 .filter_map(Value::as_str)
+                .take(MAX_ISSUERS)
                 .map(String::from)
                 .collect()
         })
@@ -205,13 +227,24 @@ pub async fn protected_resource(
 }
 
 /// An authorization server's metadata, checked.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AuthServer {
     pub issuer: String,
     pub authorization_endpoint: Url,
     pub token_endpoint: Url,
     pub registration_endpoint: Option<Url>,
     pub revocation_endpoint: Option<Url>,
+    /// Its metadata says its redirect names its issuer (`iss`, RFC 9207).
+    pub iss_in_redirect: bool,
+    /// The origins of its endpoints that are not the issuer's own, in order:
+    /// the owner is shown each, and the redirect must name the issuer.
+    pub elsewhere: Vec<String>,
+}
+
+impl std::fmt::Debug for AuthServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AuthServer(<a server's words>)")
+    }
 }
 
 /// Where an issuer's metadata is looked for, in order: RFC 8414's address
@@ -242,15 +275,12 @@ fn same_issuer(a: &str, b: &str) -> bool {
 
 /// The metadata of the authorization server `issuer`, from the first address
 /// of [`metadata_urls`] that has it.
-pub async fn authorization_server(
-    http: &reqwest::Client,
-    issuer: &str,
-) -> Result<AuthServer, OauthError> {
+pub async fn authorization_server(reach: &Reach, issuer: &str) -> Result<AuthServer, OauthError> {
     const WHAT: &str = "the authorization server's metadata";
-    let at = endpoint(issuer, "authorization server")?;
+    let at = reach.endpoint(issuer, "authorization server")?;
     let (mut doc, mut failed) = (None, None);
     for url in metadata_urls(&at) {
-        match get_json(http, &url, WHAT).await {
+        match reach.get_json(&url, WHAT).await {
             Ok(Some(v)) => {
                 doc = Some(v);
                 break;
@@ -262,10 +292,9 @@ pub async fn authorization_server(
     }
     let Some(doc) = doc else {
         return Err(failed.unwrap_or_else(|| {
-            OauthError::Refused(format!(
-                "the authorization server {} publishes no metadata: nothing to sign in at",
-                at.host_str().unwrap_or("?")
-            ))
+            OauthError::Refused(
+                "the authorization server publishes no metadata: nothing to sign in at".into(),
+            )
         }));
     };
     if !doc["issuer"]
@@ -284,23 +313,58 @@ pub async fn authorization_server(
         }
     }
     let required = |key: &str, what: &str| match doc[key].as_str() {
-        Some(u) => endpoint(u, what),
+        Some(u) => reach.endpoint(u, what),
         None => Err(OauthError::Refused(format!(
             "the authorization server's metadata has no {what}"
         ))),
     };
-    let optional = |key: &str, what: &str| doc[key].as_str().map(|u| endpoint(u, what)).transpose();
+    let optional = |key: &str, what: &str| {
+        doc[key]
+            .as_str()
+            .map(|u| reach.endpoint(u, what))
+            .transpose()
+    };
+    let authorization_endpoint = required("authorization_endpoint", "authorization endpoint")?;
+    let token_endpoint = required("token_endpoint", "token endpoint")?;
+    let registration_endpoint = optional("registration_endpoint", "registration endpoint")?;
+    let revocation_endpoint = optional("revocation_endpoint", "revocation endpoint")?;
+    let iss_in_redirect =
+        doc["authorization_response_iss_parameter_supported"] == Value::Bool(true);
+    let mut elsewhere: Vec<String> = Vec::new();
+    for u in [Some(&authorization_endpoint), Some(&token_endpoint)]
+        .into_iter()
+        .chain([registration_endpoint.as_ref(), revocation_endpoint.as_ref()])
+        .flatten()
+    {
+        let origin = u.origin().ascii_serialization();
+        if !same_origin(u, &at) && !elsewhere.contains(&origin) {
+            elsewhere.push(origin);
+        }
+    }
+    // A mix-up: a metadata document that names another server's endpoints
+    // could have the code, the verifier and the client's secret sent where
+    // it chose. Taken only when the redirect names its issuer, so a code
+    // from another authorization server is refused before it is sent.
+    if !elsewhere.is_empty() && !iss_in_redirect {
+        return Err(OauthError::Refused(
+            "the authorization server's endpoints are not on its own address, and it does not \
+             say its redirect names it: refused"
+                .into(),
+        ));
+    }
     Ok(AuthServer {
         issuer: issuer.to_string(),
-        authorization_endpoint: required("authorization_endpoint", "authorization endpoint")?,
-        token_endpoint: required("token_endpoint", "token endpoint")?,
-        registration_endpoint: optional("registration_endpoint", "registration endpoint")?,
-        revocation_endpoint: optional("revocation_endpoint", "revocation endpoint")?,
+        authorization_endpoint,
+        token_endpoint,
+        registration_endpoint,
+        revocation_endpoint,
+        iss_in_redirect,
+        elsewhere,
     })
 }
 
 /// Everything a sign-in needs from discovery.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Discovered {
     /// The resource to name in the request and the exchange (RFC 8707).
     pub resource: String,
@@ -309,20 +373,26 @@ pub struct Discovered {
     pub scope: Option<String>,
 }
 
+impl std::fmt::Debug for Discovered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Discovered(<a server's words>)")
+    }
+}
+
 /// From a server's address and its 401 challenge to its authorization
 /// server: each one the resource names is tried in order, and the first whose
 /// metadata passes is taken.
 pub async fn discover(
-    http: &reqwest::Client,
+    reach: &Reach,
     server: &Url,
     challenge: Option<&Challenge>,
 ) -> Result<Discovered, OauthError> {
     let scope = challenge.and_then(|c| c.scope.clone());
-    let Some(r) = protected_resource(http, server, challenge).await? else {
+    let Some(r) = protected_resource(reach, server, challenge).await? else {
         // No resource metadata: the server's own origin is its authorization
         // server (the specification's revision of 2025-03-26).
         let origin = server.origin().ascii_serialization();
-        let as_ = authorization_server(http, &origin).await?;
+        let as_ = authorization_server(reach, &origin).await?;
         return Ok(Discovered {
             resource: server.to_string(),
             server: as_,
@@ -331,7 +401,7 @@ pub async fn discover(
     };
     let mut last = None;
     for issuer in &r.authorization_servers {
-        match authorization_server(http, issuer).await {
+        match authorization_server(reach, issuer).await {
             Ok(as_) => {
                 return Ok(Discovered {
                     resource: r.resource,

@@ -257,6 +257,12 @@ impl Fake {
         h.streams.clear();
     }
 
+    /// HTTP: end every session's own stream, keeping the sessions: a client
+    /// opens it again with a GET.
+    pub fn end_streams(&self) {
+        lock(&self.http).streams.clear();
+    }
+
     fn record(&self, f: impl FnOnce(&mut Seen)) {
         f(&mut lock(&self.seen));
         self.changed.notify_waiters();
@@ -300,6 +306,12 @@ impl Fake {
     ) -> Outcome {
         let ok = |result: Value| Outcome::Answer(jsonrpc::response(id.clone(), result));
         let err = |c: i64, m: &str| Outcome::Answer(jsonrpc::error_response(id.clone(), c, m));
+        // A hostile server that signs in: the token it was sent, echoed in
+        // its error's message and data (issue 55).
+        if let Some(t) = self.config().oauth.and_then(|a| a.echo_for(&method)) {
+            return Outcome::Answer(json!({"jsonrpc": "2.0", "id": id,
+                "error": {"code": -32001, "message": t, "data": {"token": t}}}));
+        }
         match method.as_str() {
             "initialize" => {
                 self.record(|s| s.initializes += 1);
@@ -650,11 +662,14 @@ impl Fake {
                 .await;
             }
             if path == "/mcp" {
-                let ok = head
+                let given = head
                     .headers
                     .get("authorization")
-                    .and_then(|g| g.strip_prefix("Bearer "))
-                    .is_some_and(|t| auth.valid(t));
+                    .and_then(|g| g.strip_prefix("Bearer "));
+                if let Some(t) = given {
+                    auth.note_bearer(t);
+                }
+                let ok = given.is_some_and(|t| auth.valid(t));
                 if !ok {
                     self.record(|s| s.unauthorized += 1);
                     let body = r#"{"error":"invalid_token","error_description":"the harbour portal wants you"}"#;

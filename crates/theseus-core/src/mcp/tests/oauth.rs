@@ -37,16 +37,25 @@ fn script(req: &ProviderRequest) -> Scripted {
     )
 }
 
-struct Rig {
-    core: Arc<Core>,
-    auth: Arc<FakeAuth>,
-    fake: Arc<Fake>,
-    dir: tempfile::TempDir,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
+    pub(super) auth: Arc<FakeAuth>,
+    pub(super) fake: Arc<Fake>,
+    pub(super) dir: tempfile::TempDir,
 }
 
 /// A core whose server `docs` signs in at a fake authorization server.
 /// `setup` runs on the store directory before the core is built.
-async fn rig_on(auth: Arc<FakeAuth>, setup: impl FnOnce(&std::path::Path)) -> Rig {
+pub(super) async fn rig_on(auth: Arc<FakeAuth>, setup: impl FnOnce(&std::path::Path)) -> Rig {
+    rig_with(auth, McpOauth::default(), setup).await
+}
+
+/// [`rig_on`], with the server's `oauth` settings.
+pub(super) async fn rig_with(
+    auth: Arc<FakeAuth>,
+    oauth: McpOauth,
+    setup: impl FnOnce(&std::path::Path),
+) -> Rig {
     let fake = Fake::new(fake::Config {
         oauth: Some(auth.clone()),
         name: "docs".into(),
@@ -68,7 +77,7 @@ async fn rig_on(auth: Arc<FakeAuth>, setup: impl FnOnce(&std::path::Path)) -> Ri
             env: Default::default(),
             url: Some(format!("http://{addr}/mcp")),
             auth_secret: None,
-            oauth: Some(McpOauth::default()),
+            oauth: Some(oauth),
             read: vec![],
             sandbox: Default::default(),
             egress: vec![],
@@ -95,17 +104,17 @@ async fn rig_on(auth: Arc<FakeAuth>, setup: impl FnOnce(&std::path::Path)) -> Ri
     }
 }
 
-async fn rig() -> Rig {
+pub(super) async fn rig() -> Rig {
     rig_on(FakeAuth::start(AuthConfig::default()).await, |_| {}).await
 }
 
-fn kept_file(dir: &std::path::Path) -> std::path::PathBuf {
+pub(super) fn kept_file(dir: &std::path::Path) -> std::path::PathBuf {
     crate::mcp::oauth::file(&crate::mcp::oauth::dir(&dir.join("store")), "docs")
 }
 
 /// One protocol call over a connection of `surface`: its result, or its error
 /// as `{"error": {code, message}}`.
-async fn call(core: &Arc<Core>, surface: Surface, method: &str, params: Value) -> Value {
+pub(super) async fn call(core: &Arc<Core>, surface: Surface, method: &str, params: Value) -> Value {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let (client, server) = tokio::io::duplex(64 * 1024);
     let (sr, sw) = tokio::io::split(server);
@@ -134,7 +143,7 @@ async fn call(core: &Arc<Core>, surface: Surface, method: &str, params: Value) -
     out
 }
 
-fn status(r: &Rig) -> theseus_protocol::mcp::McpServerStatus {
+pub(super) fn status(r: &Rig) -> theseus_protocol::mcp::McpServerStatus {
     r.core
         .mcp
         .status()
@@ -145,7 +154,7 @@ fn status(r: &Rig) -> theseus_protocol::mcp::McpServerStatus {
 
 /// `theseus mcp login docs`, as the CLI makes it: begin, the owner's browser,
 /// finish. Returns what finish said, and every word the CLI was shown.
-async fn login(r: &Rig) -> (Value, Vec<String>) {
+pub(super) async fn login(r: &Rig) -> (Value, Vec<String>) {
     let begun = call(
         &r.core,
         Surface::Cli,
@@ -168,7 +177,7 @@ async fn login(r: &Rig) -> (Value, Vec<String>) {
     (done.clone(), vec![begun.to_string(), done.to_string()])
 }
 
-fn notes(r: &Rig, sid: &str) -> Vec<String> {
+pub(super) fn notes(r: &Rig, sid: &str) -> Vec<String> {
     r.core
         .store
         .session_nodes(sid)
@@ -183,7 +192,7 @@ fn notes(r: &Rig, sid: &str) -> Vec<String> {
 }
 
 /// The conversation `sid` attached `docs`, as the attach's yes records it.
-fn attached_by(r: &Rig, sid: &str) {
+pub(super) fn attached_by(r: &Rig, sid: &str) {
     let mut set = AttachedSet::new();
     set.insert(
         "docs".into(),
@@ -354,8 +363,11 @@ async fn a_restart_reads_what_was_kept() {
         .url
         .clone()
         .unwrap();
+    // The kept sign-in is bound to its server: its address and its resource
+    // move with it.
     let mut k: crate::mcp::oauth::Kept = serde_json::from_slice(&kept).unwrap();
-    k.url = s;
+    k.url = s.clone();
+    k.resource = s;
     crate::mcp::oauth::write(&kept_file(second.dir.path()), &k).unwrap();
     second.core.mcp.start();
     until("ready from the kept sign-in", || {
@@ -593,7 +605,7 @@ async fn no_value_is_anywhere_it_must_not_be() {
 }
 
 #[derive(Clone)]
-struct Sink(Arc<Mutex<Vec<u8>>>);
+pub(super) struct Sink(pub(super) Arc<Mutex<Vec<u8>>>);
 
 impl std::io::Write for Sink {
     fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {

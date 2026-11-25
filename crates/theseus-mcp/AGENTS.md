@@ -30,7 +30,10 @@ Key modules: `client.rs`, `fake.rs`, `names.rs`, `oauth/`, `types.rs`, `server.r
 
 - **No core.** What a core needs on top (the board, the `Tool` contract, the gate, the store) is the core's.
 - **No sign-in value in words.** No error or log line of `oauth/` holds a token, a code, a verifier, a client
-  secret or a response's body: a refusal is its status and a standard OAuth code (`oauth::CODES`).
+  secret or a response's body: a refusal is its status and a standard OAuth code (`oauth::CODES`). A signed-in
+  connection's errors leave the client reduced (`Error::reduced`): no server words, no `WWW-Authenticate`. No type
+  that holds what a server chose prints it in `Debug`. Every value is given to the daemon's `Holder` where it is
+  first read. Every call goes by the `Rule` the daemon gives (`Reach`); this crate builds no rule but tests'.
 - **A call's outcome is unknown** after a timeout or a lost connection (`Error::outcome_unknown`), never "not sent".
 
 ## Tests

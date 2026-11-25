@@ -1,13 +1,14 @@
 //! A client of our own (RFC 7591), when the authorization server offers
 //! registration: a public client (no secret asked for), for the authorization
 //! code and the refresh, with this sign-in's loopback redirect. A server that
-//! gives a secret anyway is answered with it as it asks.
+//! gives a secret anyway is answered with it as it asks. A secret is held
+//! where it is first read; one too short to keep from view is a bad answer.
 
 use reqwest::Url;
 use serde_json::json;
 use zeroize::Zeroizing;
 
-use super::{post, OauthError};
+use super::{OauthError, Reach, MIN_SECRET};
 
 /// The client a sign-in uses.
 #[derive(Clone)]
@@ -30,43 +31,53 @@ impl ClientId {
     }
 }
 
-/// Never prints the secret.
+/// Never prints the secret, nor the id a server chose.
 impl std::fmt::Debug for ClientId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClientId")
-            .field("id", &self.id)
             .field("secret", &self.secret.as_ref().map(|_| "(set)"))
             .field("basic", &self.basic)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
+
+/// The longest client id taken.
+const MAX_ID: usize = 512;
 
 /// The name a registration gives.
 pub const CLIENT_NAME: &str = "Theseus";
 
 /// Register a client at `endpoint` for `redirect`.
 pub async fn register(
-    http: &reqwest::Client,
+    reach: &Reach,
     endpoint: &Url,
     redirect: &str,
 ) -> Result<ClientId, OauthError> {
     const WHAT: &str = "the registration endpoint";
-    let req = http.post(endpoint.clone()).json(&json!({
+    let req = reach.client().post(endpoint.clone()).json(&json!({
         "client_name": CLIENT_NAME,
         "redirect_uris": [redirect],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }));
-    let (_, v) = post(req, WHAT).await?;
+    let hold = |v: &serde_json::Value| {
+        if let Some(s) = v["client_secret"].as_str() {
+            reach.hold("client", s);
+        }
+    };
+    let (_, v) = reach.post(req, WHAT, hold).await?;
+    let bad = OauthError::Undecodable { what: WHAT };
     let id = v["client_id"]
         .as_str()
-        .filter(|s| !s.is_empty())
-        .ok_or(OauthError::Undecodable { what: WHAT })?;
-    let secret = v["client_secret"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(|s| Zeroizing::new(s.to_string()));
+        .filter(|s| !s.is_empty() && s.len() <= MAX_ID)
+        .ok_or(bad.clone())?;
+    let secret = match &v["client_secret"] {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) if s.is_empty() => None,
+        serde_json::Value::String(s) if s.len() >= MIN_SECRET => Some(Zeroizing::new(s.clone())),
+        _ => return Err(bad),
+    };
     let basic =
         secret.is_some() && v["token_endpoint_auth_method"].as_str() == Some("client_secret_basic");
     Ok(ClientId {

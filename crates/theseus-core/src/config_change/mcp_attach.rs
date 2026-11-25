@@ -284,15 +284,22 @@ impl Spec {
     }
 
     /// A server over HTTP asked for with no key, whose trial was refused with
-    /// HTTP 401, wants a sign-in (issue 55): it is attached as one that signs
-    /// in (`oauth`), and its card says so. True when that changed the table.
+    /// HTTP 401, wants a sign-in (issue 55): at an `https` address, it is
+    /// attached as one that signs in (`oauth`), and its card says so. True
+    /// when that changed the table. One at a plaintext address is written as
+    /// asked, and its card says why it will not connect.
     fn signs_in_after(&mut self, tried: &card::Tried) -> bool {
         let refused = tried
             .error
             .as_deref()
             .is_some_and(|e| e.starts_with("HTTP 401"));
         let w = &mut self.wanted;
-        if !refused || w.url.is_none() || w.auth_secret.is_some() || w.oauth.is_some() {
+        let https = w
+            .url
+            .as_deref()
+            .and_then(|u| reqwest::Url::parse(u).ok())
+            .is_some_and(|u| crate::mcp::oauth::signs_in_at(&u));
+        if !refused || !https || w.auth_secret.is_some() || w.oauth.is_some() {
             return false;
         }
         w.oauth = Some(crate::config::mcp::McpOauth::default());

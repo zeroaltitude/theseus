@@ -1,28 +1,38 @@
 //! What a server's sign-in gave, kept (issue 55): one file per server,
-//! `<store>/mcp-oauth/<name>.json`, mode 0600, written by the daemon alone and
-//! whole (a file of its own, synced, renamed over the old one), as the owner's
-//! second proof is (`owner_proof/file.rs`). It is inside the store directory,
-//! which the floor holds whole, as `config_change`'s directory is: no tool
-//! reads or writes it and no L1 view shows it. Read at the server's first
-//! start, renewed before the access token runs out and once on a 401, and
-//! written back whole, unattended, when a refresh rotates the refresh token.
+//! `<store>/mcp-oauth/<name>.json`, mode 0600, in a directory of the daemon's
+//! own at 0700, written by the daemon alone and whole (a file of its own made
+//! new, synced, renamed over the old one, the directory synced), as the
+//! owner's second proof is (`owner_proof/file.rs`). It is inside the store
+//! directory, which the floor holds whole, as `config_change`'s directory is:
+//! no tool reads or writes it and no L1 view shows it. Read at the server's
+//! first start and checked for meaning before it is used; renewed before the
+//! access token runs out and once on a 401, and written back whole,
+//! unattended, when a refresh rotates the refresh token. Every change of it,
+//! in memory and on disk, is made under one lock: a sign-in, a renewal and a
+//! sign-out never interleave.
 //!
-//! Every value (the access and refresh tokens, a client secret) is put on the
-//! secret board the moment it exists (`SecretBoard::hold`), so the scrubber
-//! knows it, as the vault's values are. A refresh the server refuses for good
-//! leaves the sign-in lost: [`Signed::lost`] says why, and the board leaves
-//! the server `needs sign-in` until the owner signs in again.
+//! Every value (the access and refresh tokens, a client secret, a code, a
+//! verifier) is put on the secret board where it is first read, and stays
+//! there for the daemon's life ([`Held`]), so the scrubber knows each one,
+//! a spent one included. A refresh the server refuses for good loses the
+//! sign-in: from then no token is given and nothing is renewed until the
+//! owner signs in again, and the board leaves the server `needs sign-in`.
 
-use std::io::Write as _;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::collections::HashSet;
+use std::io::{Read as _, Write as _};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use theseus_mcp::oauth::exchange::{self, Renewal, Tokens};
 use theseus_mcp::oauth::register::ClientId;
+use theseus_mcp::oauth::{discover, same_origin, Reach, Rule, MAX_EXPIRES_SECS, MIN_SECRET};
 use tokio::sync::watch;
 use zeroize::Zeroize;
 
@@ -41,14 +51,103 @@ pub fn file(dir: &Path, server: &str) -> PathBuf {
 /// An access token this close to its end is renewed before it is sent.
 pub const RENEW_BEFORE: Duration = Duration::from_secs(60);
 
-/// How many of each kind of value stay held: a renewal holds its new token
-/// beside the last ones, so a token just spent is still known to the
-/// scrubber.
-pub const HELD_EACH: u32 = 4;
+/// The largest kept file read.
+const MAX_FILE: u64 = 64 * 1024;
 
-/// The name a value is held under on the secret board: its kind and its slot.
-pub fn held_name(server: &str, what: &str, slot: u32) -> String {
-    format!("mcp-oauth:{server}:{what}:{}", slot % HELD_EACH)
+/// The words for a kept file that is not used, whatever is wrong with it:
+/// none of its contents is shown.
+const NOT_VALID: &str = "the kept sign-in is not valid, so it is not used";
+
+/// Where a sign-in's calls may go: the web fetch's own rule (`web::net`), so
+/// an address a server names is reached only at a public address, and only
+/// over `https`. A daemon's tests build theirs with [`rule_for_tests`].
+pub fn rule() -> Rule {
+    #[cfg(test)]
+    {
+        rule_for_tests()
+    }
+    #[cfg(not(test))]
+    {
+        daemon_rule()
+    }
+}
+
+/// The daemon's rule: the web fetch's checking resolver and its test of a
+/// host, and no `http` at all.
+pub fn daemon_rule() -> Rule {
+    Rule {
+        resolver: Arc::new(crate::web::net::Dns::checked()),
+        private_host: crate::web::net::private_host,
+        refused: |e| crate::web::net::refused_in(e).is_some(),
+        plaintext: |_| false,
+    }
+}
+
+/// Tests' rule, which product code cannot build: a test's server on this
+/// machine over `http`, and no address checked.
+#[cfg(test)]
+pub(crate) fn rule_for_tests() -> Rule {
+    Rule {
+        resolver: Arc::new(crate::web::net::Dns::default()),
+        private_host: |_| None,
+        refused: |_| false,
+        plaintext: theseus_mcp::oauth::is_loopback,
+    }
+}
+
+/// Whether `url` may be a server that signs in: `https`, or, in a daemon's
+/// tests alone, a test's server on this machine.
+pub fn signs_in_at(url: &Url) -> bool {
+    signs_in_at_by(url, cfg!(test))
+}
+
+/// [`signs_in_at`], with whether this is a daemon's test said.
+fn signs_in_at_by(url: &Url, tests: bool) -> bool {
+    url.scheme() == "https"
+        || (tests && url.scheme() == "http" && theseus_mcp::oauth::is_loopback(url))
+}
+
+/// Every value of the daemon's sign-ins, on the secret board for the
+/// daemon's life: each under a name of its own, never reused, so no later
+/// value takes an earlier one's place and the scrubber forgets none.
+pub(crate) struct Held {
+    server: String,
+    secrets: Arc<SecretBoard>,
+    /// The digests of the values held, so a value is held once.
+    seen: std::sync::Mutex<HashSet<[u8; 32]>>,
+}
+
+/// The next name's number, across every server and every sign-in.
+static NEXT_HELD: AtomicU64 = AtomicU64::new(0);
+
+impl Held {
+    fn new(server: &str, secrets: Arc<SecretBoard>) -> Arc<Self> {
+        Arc::new(Self {
+            server: server.to_string(),
+            secrets,
+            seen: std::sync::Mutex::default(),
+        })
+    }
+
+    /// Hold `value`, of kind `what`: the scrubber knows it from now on.
+    pub(crate) fn hold(&self, what: &str, value: &str) {
+        if value.is_empty() {
+            return;
+        }
+        let digest: [u8; 32] = Sha256::digest(value.as_bytes()).into();
+        let new = self
+            .seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(digest);
+        if new {
+            let n = NEXT_HELD.fetch_add(1, Ordering::SeqCst);
+            self.secrets.hold(
+                &format!("mcp-oauth:{}:{what}:{n}", self.server),
+                Secret::new(value.to_string()),
+            );
+        }
+    }
 }
 
 /// What one sign-in gave, as the file keeps it.
@@ -62,6 +161,10 @@ pub struct Kept {
     pub token_endpoint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revocation_endpoint: Option<String>,
+    /// The origins of its endpoints that are not the issuer's, each shown
+    /// to the owner and agreed to at the sign-in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elsewhere: Vec<String>,
     pub client_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
@@ -86,19 +189,22 @@ impl Kept {
     }
 
     /// Take `t`, a renewal's answer: a refresh token it gives replaces the
-    /// one kept, and none keeps it.
+    /// one kept, and none keeps it. Its expiry is bounded, and the sum cannot
+    /// overflow.
     pub fn renewed(&mut self, t: &Tokens, now_ms: u64) {
         self.access_token = t.access.to_string();
         if let Some(r) = &t.refresh {
             self.refresh_token = Some(r.to_string());
         }
-        self.expires_at_ms = t.expires_in.map(|s| now_ms + s * 1000);
+        self.expires_at_ms = t
+            .expires_in
+            .map(|s| now_ms.saturating_add(s.min(MAX_EXPIRES_SECS).saturating_mul(1000)));
     }
 
     /// Whether the access token runs out within [`RENEW_BEFORE`] of `now_ms`.
     fn due(&self, now_ms: u64) -> bool {
         self.expires_at_ms
-            .is_some_and(|at| at <= now_ms + RENEW_BEFORE.as_millis() as u64)
+            .is_some_and(|at| at <= now_ms.saturating_add(RENEW_BEFORE.as_millis() as u64))
     }
 
     /// Every value in it, by what it is.
@@ -111,6 +217,52 @@ impl Kept {
             v.push(("client", s));
         }
         v
+    }
+
+    /// Whether it may be used for the server at `url`, read by `reach`'s
+    /// rule: for this address; its resource this server; its issuer and
+    /// endpoints addresses the rule reaches, the endpoints on the issuer's
+    /// origin or one the owner agreed to; its values long enough to keep from
+    /// view; its expiry within a year of now.
+    fn check(&self, url: &str, reach: &Reach, now_ms: u64) -> Result<(), &'static str> {
+        if self.url != url {
+            return Err("the kept sign-in is for another address, so it is not used");
+        }
+        let server = Url::parse(url).map_err(|_| NOT_VALID)?;
+        if !discover::names_this_server(&self.resource, &server) {
+            return Err(NOT_VALID);
+        }
+        let issuer = reach
+            .endpoint(&self.issuer, "issuer")
+            .map_err(|_| NOT_VALID)?;
+        let on_its_own = |text: &str| {
+            reach.endpoint(text, "endpoint").ok().is_some_and(|u| {
+                same_origin(&u, &issuer)
+                    || self.elsewhere.contains(&u.origin().ascii_serialization())
+            })
+        };
+        if !on_its_own(&self.token_endpoint)
+            || self
+                .revocation_endpoint
+                .as_deref()
+                .is_some_and(|r| !on_its_own(r))
+        {
+            return Err(NOT_VALID);
+        }
+        let short = |v: &Option<String>| v.as_ref().is_some_and(|s| s.len() < MIN_SECRET);
+        if self.client_id.is_empty()
+            || self.client_id.len() > 512
+            || self.access_token.len() < MIN_SECRET
+            || short(&self.refresh_token)
+            || short(&self.client_secret)
+        {
+            return Err(NOT_VALID);
+        }
+        let latest = now_ms.saturating_add(MAX_EXPIRES_SECS.saturating_mul(1000));
+        if self.expires_at_ms.is_some_and(|at| at > latest) {
+            return Err(NOT_VALID);
+        }
+        Ok(())
     }
 }
 
@@ -126,58 +278,94 @@ impl Drop for Kept {
     }
 }
 
-/// Never prints a value.
+/// Never prints a value, nor what a server chose.
 impl std::fmt::Debug for Kept {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Kept")
-            .field("url", &self.url)
-            .field("issuer", &self.issuer)
-            .field("client_id", &self.client_id)
             .field("expires_at_ms", &self.expires_at_ms)
             .finish_non_exhaustive()
     }
 }
 
 /// The file at `path`: `Ok(None)` when there is none; an error, without its
-/// contents, when it is there and cannot be trusted (it does not parse, or
-/// another user may read it).
+/// contents, when it is there and cannot be trusted (it is not a file of its
+/// own, another user may read it, it is too large, it does not parse).
 pub fn read(path: &Path) -> Result<Option<Kept>, String> {
-    let meta = match std::fs::metadata(path) {
+    let meta = match std::fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("the kept sign-in cannot be read".into()),
     };
+    if !meta.file_type().is_file() {
+        return Err("the kept sign-in is not a file of its own, so it is not used".into());
+    }
     if meta.permissions().mode() & 0o077 != 0 {
         return Err("the kept sign-in is readable by others, so it is not used".into());
     }
-    let mut bytes = std::fs::read(path).map_err(|_| "the kept sign-in cannot be read")?;
+    if meta.len() > MAX_FILE {
+        return Err("the kept sign-in is too large, so it is not used".into());
+    }
+    let mut bytes = Vec::new();
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .and_then(|f| f.take(MAX_FILE).read_to_end(&mut bytes))
+        .map_err(|_| "the kept sign-in cannot be read")?;
     let kept = serde_json::from_slice::<Kept>(&bytes)
         .map_err(|_| "the kept sign-in does not parse".to_string());
     bytes.zeroize();
     kept.map(Some)
 }
 
-/// Write `kept` whole: a file of its own at 0600, synced, then renamed over
-/// `path`, so a crash leaves the old file or the new one, never half.
-pub fn write(path: &Path, kept: &Kept) -> std::io::Result<()> {
-    if let Some(d) = path.parent() {
-        std::fs::create_dir_all(d)?;
-        let _ = std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700));
+/// `dir`, a directory of the daemon's own: made at 0700 if it is not there;
+/// refused when it is not a directory (a link), or another user's; its mode
+/// set to 0700.
+fn private_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    let meta = std::fs::symlink_metadata(dir)?;
+    if !meta.file_type().is_dir() || meta.uid() != crate::peer::own_uid() {
+        return Err(std::io::Error::other(
+            "the sign-ins' directory is not a directory of the daemon's own",
+        ));
     }
-    let new = path.with_extension("json.new");
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
+/// Make what was renamed or removed in `dir` last a crash.
+fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::File::open(dir)?.sync_all()
+}
+
+/// Write `kept` whole: a file made new beside `path` (never one that was
+/// there, never through a link) at 0600, synced, renamed over `path`, and
+/// the directory synced; a crash leaves the old file or the new one.
+pub fn write(path: &Path, kept: &Kept) -> std::io::Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("a kept sign-in needs a directory"))?;
+    private_dir(dir)?;
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| std::io::Error::other("a kept sign-in needs a name"))?;
+    let new = dir.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4().simple()));
     let mut bytes = serde_json::to_vec(kept)?;
     let wrote = (|| {
         let mut f = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(&new)?;
-        // A stray file of that name keeps its own mode: set it whatever was there.
-        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         f.write_all(&bytes)?;
         f.sync_all()?;
-        std::fs::rename(&new, path)
+        drop(f);
+        std::fs::rename(&new, path)?;
+        sync_dir(dir)
     })();
     bytes.zeroize();
     if wrote.is_err() {
@@ -186,11 +374,12 @@ pub fn write(path: &Path, kept: &Kept) -> std::io::Result<()> {
     wrote
 }
 
-/// Take the file away.
+/// Take the file away, and make that last a crash.
 pub fn remove(path: &Path) -> std::io::Result<()> {
     match std::fs::remove_file(path) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-        _ => Ok(()),
+        Err(_) => Ok(()),
+        Ok(()) => path.parent().map_or(Ok(()), sync_dir),
     }
 }
 
@@ -198,90 +387,91 @@ fn now_ms() -> u64 {
     theseus_protocol::now_unix_ms()
 }
 
+/// A sign-in's state, under its one lock.
+#[derive(Default)]
+struct Slot {
+    kept: Option<Kept>,
+    /// Why the sign-in is lost (a refresh refused for good), while it is:
+    /// no token is given and nothing is renewed until a new sign-in.
+    lost: Option<String>,
+}
+
 /// One server's sign-in, as the board uses it: the kept values, the file
 /// they are written to, and whether the sign-in is lost.
 pub struct Signed {
     server: String,
+    url: String,
     path: Option<PathBuf>,
-    secrets: Arc<SecretBoard>,
-    http: reqwest::Client,
-    kept: tokio::sync::Mutex<Option<Kept>>,
-    /// Why the sign-in is lost (a refresh refused for good), while it is.
+    held: Arc<Held>,
+    /// None when its client could not start: the sign-in is lost.
+    reach: Option<Reach>,
+    slot: tokio::sync::Mutex<Slot>,
+    /// The loss, for the board to wake on.
     lost: watch::Sender<Option<String>>,
-    /// The next slot of each kind of value held ([`held_name`]).
-    slots: std::sync::Mutex<std::collections::BTreeMap<String, u32>>,
 }
 
 impl Signed {
     /// The sign-in of `server` at `url`, read from `path` (none: in memory
-    /// only). A kept sign-in for another address is not used.
+    /// only), its calls by `rule`. A kept sign-in that is not valid for this
+    /// address is not used, and none of it is shown.
     pub fn load(
         server: &str,
         url: &str,
         path: Option<PathBuf>,
         secrets: Arc<SecretBoard>,
+        rule: Rule,
     ) -> Arc<Self> {
-        let loopback = reqwest::Url::parse(url).is_ok_and(|u| theseus_mcp::oauth::is_loopback(&u));
-        let kept = match path.as_deref().map(read) {
-            Some(Ok(Some(k))) if k.url == url => Some(k),
-            Some(Err(why)) => {
-                tracing::warn!(server, why = %why, "an MCP server's kept sign-in was not used");
-                None
+        let held = Held::new(server, secrets);
+        let h = held.clone();
+        let reach = Reach::new(rule, Arc::new(move |what, v| h.hold(what, v))).ok();
+        let mut slot = Slot::default();
+        match (path.as_deref().map(read), &reach) {
+            (Some(Ok(Some(k))), Some(reach)) => {
+                for (what, v) in k.values() {
+                    held.hold(what, v);
+                }
+                match k.check(url, reach, now_ms()) {
+                    Ok(()) => slot.kept = Some(k),
+                    Err(why) => {
+                        tracing::warn!(server, why, "an MCP server's kept sign-in was not used")
+                    }
+                }
             }
-            _ => None,
-        };
-        let me = Arc::new(Self {
-            server: server.into(),
-            path,
-            secrets,
-            http: theseus_mcp::oauth::http(loopback),
-            kept: tokio::sync::Mutex::new(None),
-            lost: watch::Sender::new(None),
-            slots: std::sync::Mutex::default(),
-        });
-        if let Some(k) = kept {
-            me.hold(&k);
-            *me.kept.try_lock().expect("a new lock") = Some(k);
+            (Some(Err(why)), _) => {
+                tracing::warn!(server, why = %why, "an MCP server's kept sign-in was not used");
+            }
+            _ => {}
         }
-        me
+        if reach.is_none() {
+            slot.lost = Some("its sign-in's HTTP client could not start".into());
+        }
+        let lost = watch::Sender::new(slot.lost.clone());
+        Arc::new(Self {
+            server: server.into(),
+            url: url.into(),
+            path,
+            held,
+            reach,
+            slot: tokio::sync::Mutex::new(slot),
+            lost,
+        })
+    }
+
+    /// Its calls; None when its client could not start.
+    pub fn reach(&self) -> Option<&Reach> {
+        self.reach.as_ref()
     }
 
     /// Put `value` on the secret board as `what` of this server's: the
-    /// scrubber knows it from now on.
+    /// scrubber knows it from now on, for the daemon's life.
     pub fn hold_value(&self, what: &str, value: &str) {
-        let slot = {
-            let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
-            let n = slots.entry(what.to_string()).or_insert(0);
-            *n += 1;
-            *n - 1
-        };
-        self.secrets.hold(
-            &held_name(&self.server, what, slot),
-            Secret::new(value.to_string()),
-        );
+        self.held.hold(what, value);
     }
 
-    /// Hold `k`'s values: each one not already held in its kind's last slot.
-    fn hold(&self, k: &Kept) {
-        for (what, v) in k.values() {
-            let last = {
-                let slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
-                slots
-                    .get(what)
-                    .map(|n| held_name(&self.server, what, n.wrapping_sub(1)))
-            };
-            let same = last
-                .and_then(|name| self.secrets.get(&name))
-                .is_some_and(|held| held.expose() == v);
-            if !same {
-                self.hold_value(what, v);
-            }
-        }
-    }
-
-    /// Whether a sign-in is kept.
+    /// Whether a sign-in is kept, and not lost.
     pub async fn signed_in(&self) -> bool {
-        self.kept.lock().await.is_some()
+        let slot = self.slot.lock().await;
+        slot.kept.is_some() && slot.lost.is_none()
     }
 
     /// Why the sign-in is lost, while it is.
@@ -294,52 +484,84 @@ impl Signed {
         self.lost.subscribe()
     }
 
-    /// A new sign-in: held, written whole, and the loss forgotten.
+    /// A new sign-in, checked as a kept one is, then written whole; only once
+    /// it is written does it replace what was kept, and the loss is
+    /// forgotten. A sign-in that cannot be written is not used: the error
+    /// says why, and what was kept before stays as it was.
     pub async fn put(&self, k: Kept) -> std::io::Result<()> {
-        self.hold(&k);
+        for (what, v) in k.values() {
+            self.held.hold(what, v);
+        }
+        let reach = self
+            .reach
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("its sign-in's HTTP client could not start"))?;
+        k.check(&self.url, reach, now_ms())
+            .map_err(std::io::Error::other)?;
+        let mut slot = self.slot.lock().await;
         if let Some(p) = &self.path {
             write(p, &k)?;
         }
-        *self.kept.lock().await = Some(k);
+        slot.kept = Some(k);
+        slot.lost = None;
         self.lost.send_replace(None);
         Ok(())
     }
 
-    /// Forget the sign-in: the file is removed. What was kept is returned,
-    /// for a revoke.
+    /// Forget the sign-in: the file removed, under the lock. What was kept is
+    /// returned, for a revoke, with whether the file is gone.
     pub async fn forget(&self) -> (Option<Kept>, std::io::Result<()>) {
-        let k = self.kept.lock().await.take();
+        let mut slot = self.slot.lock().await;
         let removed = self.path.as_deref().map_or(Ok(()), remove);
+        let k = slot.kept.take();
+        slot.lost = None;
+        self.lost.send_replace(None);
         (k, removed)
     }
 
-    /// Renew `k` with its refresh token: written back whole when it is. A
-    /// refusal for good loses the sign-in; one that may pass leaves it.
-    async fn renew(&self, slot: &mut Option<Kept>) -> bool {
-        let Some(k) = slot.as_mut() else { return false };
-        let Some(refresh) = k.refresh_token.clone() else {
-            self.lose("its token ran out or was refused, and it gave no way to renew it");
+    /// Renew the kept sign-in with its refresh token: written back whole when
+    /// it is. A refusal for good loses the sign-in; one that may pass leaves
+    /// it. Nothing is renewed once it is lost.
+    async fn renew(&self, slot: &mut Slot) -> bool {
+        if slot.lost.is_some() {
+            return false;
+        }
+        let Some(k) = slot.kept.as_ref() else {
             return false;
         };
-        let Ok(endpoint) = reqwest::Url::parse(&k.token_endpoint) else {
-            self.lose("the kept token endpoint is not an address");
+        let Some(reach) = &self.reach else {
             return false;
         };
-        match exchange::refresh(&self.http, &endpoint, &k.client(), &refresh, &k.resource).await {
+        let Some(refresh) = k.refresh_token.clone().map(zeroize::Zeroizing::new) else {
+            self.lose(
+                slot,
+                "its token ran out or was refused, and it gave no way to renew it",
+            );
+            return false;
+        };
+        let Ok(endpoint) = Url::parse(&k.token_endpoint) else {
+            self.lose(slot, NOT_VALID);
+            return false;
+        };
+        match exchange::refresh(reach, &endpoint, &k.client(), &refresh, &k.resource).await {
             Renewal::Renewed(t) => {
-                k.renewed(&t, now_ms());
-                self.hold(k);
+                let mut next = k.clone();
+                next.renewed(&t, now_ms());
                 if let Some(p) = &self.path {
-                    if let Err(e) = write(p, k) {
+                    if let Err(e) = write(p, &next) {
                         tracing::warn!(server = %self.server, error = %e,
                             "an MCP server's renewed sign-in was not written; it is held in memory");
                     }
                 }
+                slot.kept = Some(next);
                 tracing::info!(server = %self.server, "an MCP server's sign-in was renewed");
                 true
             }
             Renewal::ForGood(why) => {
-                self.lose(&format!("its sign-in was refused when renewed ({why})"));
+                self.lose(
+                    slot,
+                    &format!("its sign-in was refused when renewed ({why})"),
+                );
                 false
             }
             Renewal::Passing(e) => {
@@ -350,8 +572,10 @@ impl Signed {
         }
     }
 
-    fn lose(&self, why: &str) {
+    /// Lose the sign-in, under its lock: no token from now on.
+    fn lose(&self, slot: &mut Slot, why: &str) {
         tracing::warn!(server = %self.server, why, "an MCP server's sign-in is lost");
+        slot.lost = Some(why.to_string());
         self.lost.send_replace(Some(why.to_string()));
     }
 }
@@ -359,19 +583,28 @@ impl Signed {
 impl theseus_mcp::TokenSource for Signed {
     fn token(&self) -> BoxFuture<'_, Option<String>> {
         Box::pin(async move {
-            let mut slot = self.kept.lock().await;
-            if slot.as_ref().is_some_and(|k| k.due(now_ms())) {
+            let mut slot = self.slot.lock().await;
+            if slot.lost.is_some() {
+                return None;
+            }
+            if slot.kept.as_ref().is_some_and(|k| k.due(now_ms())) {
                 // A renewal that may pass sends the old token: the server says.
                 self.renew(&mut slot).await;
             }
-            slot.as_ref().map(|k| k.access_token.clone())
+            match slot.lost {
+                Some(_) => None,
+                None => slot.kept.as_ref().map(|k| k.access_token.clone()),
+            }
         })
     }
 
     fn refused<'a>(&'a self, sent: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async move {
-            let mut slot = self.kept.lock().await;
-            match slot.as_ref() {
+            let mut slot = self.slot.lock().await;
+            if slot.lost.is_some() {
+                return false;
+            }
+            match slot.kept.as_ref() {
                 None => false,
                 // Renewed since that request went: try the new one.
                 Some(k) if k.access_token != sent => true,
@@ -382,115 +615,5 @@ impl theseus_mcp::TokenSource for Signed {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn kept() -> Kept {
-        Kept {
-            url: "https://docs.example.invalid/mcp".into(),
-            resource: "https://docs.example.invalid/mcp".into(),
-            issuer: "https://as.example.invalid".into(),
-            token_endpoint: "https://as.example.invalid/token".into(),
-            client_id: "c-1".into(),
-            access_token: "access-value-0001".into(),
-            refresh_token: Some("refresh-value-0001".into()),
-            expires_at_ms: Some(1_000),
-            signed_in_at_ms: 1,
-            revocation_endpoint: None,
-            client_secret: None,
-            client_basic: false,
-        }
-    }
-
-    /// Written whole at 0600 in a 0700 directory; read back; a file others
-    /// may read is not used; a half-written file never replaces the old one.
-    #[test]
-    fn the_file_is_private_and_written_whole() {
-        let d = tempfile::tempdir().unwrap();
-        let p = file(&dir(d.path()), "docs");
-        write(&p, &kept()).unwrap();
-        let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
-        let dmode = std::fs::metadata(p.parent().unwrap())
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(dmode, 0o700);
-        let back = read(&p).unwrap().unwrap();
-        assert_eq!(back.access_token, "access-value-0001");
-        assert!(!format!("{back:?}").contains("access-value"));
-        // A stray temporary file is not the kept one.
-        std::fs::write(p.with_extension("json.new"), b"{half").unwrap();
-        assert_eq!(read(&p).unwrap().unwrap().client_id, "c-1");
-        write(&p, &kept()).unwrap();
-        assert!(!p.with_extension("json.new").exists());
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
-        let e = read(&p).unwrap_err();
-        assert!(e.contains("readable by others"), "{e}");
-        assert!(!e.contains("access-value"));
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
-        std::fs::write(&p, b"not json").unwrap();
-        assert_eq!(read(&p).unwrap_err(), "the kept sign-in does not parse");
-        remove(&p).unwrap();
-        remove(&p).unwrap();
-        assert_eq!(read(&p).unwrap().map(|k| k.url.clone()), None);
-    }
-
-    /// A renewal's refresh token replaces the kept one; a renewal with none
-    /// keeps it.
-    #[test]
-    fn a_rotated_refresh_token_replaces_the_kept_one() {
-        let mut k = kept();
-        let t = Tokens {
-            access: "access-value-0002".to_string().into(),
-            refresh: Some("refresh-value-0002".to_string().into()),
-            expires_in: Some(30),
-            scope: None,
-        };
-        k.renewed(&t, 10_000);
-        assert_eq!(k.refresh_token.as_deref(), Some("refresh-value-0002"));
-        assert_eq!(k.expires_at_ms, Some(40_000));
-        assert!(k.due(0));
-        let t = Tokens {
-            access: "access-value-0003".to_string().into(),
-            refresh: None,
-            expires_in: None,
-            scope: None,
-        };
-        k.renewed(&t, 0);
-        assert_eq!(k.refresh_token.as_deref(), Some("refresh-value-0002"));
-        assert!(!k.due(u64::MAX / 2));
-    }
-
-    /// A kept sign-in's values are on the secret board at once, and a sign-in
-    /// for another address is not used.
-    #[tokio::test]
-    async fn a_kept_sign_in_is_read_held_and_bound_to_its_address() {
-        let d = tempfile::tempdir().unwrap();
-        let p = file(&dir(d.path()), "docs");
-        write(&p, &kept()).unwrap();
-        let board = SecretBoard::empty();
-        let s = Signed::load(
-            "docs",
-            "https://docs.example.invalid/mcp",
-            Some(p.clone()),
-            board.clone(),
-        );
-        assert!(s.signed_in().await);
-        assert_eq!(
-            board
-                .get(&held_name("docs", "refresh", 0))
-                .unwrap()
-                .expose(),
-            "refresh-value-0001"
-        );
-        let other = Signed::load(
-            "docs",
-            "https://moved.example.invalid/mcp",
-            Some(p),
-            SecretBoard::empty(),
-        );
-        assert!(!other.signed_in().await);
-    }
-}
+#[path = "tests_oauth_kept.rs"]
+mod tests;

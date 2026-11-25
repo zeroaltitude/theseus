@@ -13,10 +13,15 @@
 //! a client secret or a response's body: a refusal is said by its status and
 //! a standard OAuth code alone.
 //!
-//! What comes from outside is checked before it is used: every endpoint is
-//! `https`, or `http` on a loopback host; no redirect is followed off its own
-//! origin; the authorization server's `issuer` is the one asked; the
-//! resource's metadata names this server.
+//! What comes from outside is checked before it is used: every address a
+//! server names is `https` (a test's loopback server alone may be `http`, by
+//! a rule only tests build) and is reached only at a public address, by the
+//! web fetch's own rule ([`Rule`]); no redirect is followed off its own
+//! origin; the authorization server's `issuer` is the one asked, and its
+//! endpoints are on its own origin unless its redirect names it; the
+//! resource's metadata names this server. Every value is given to the
+//! daemon's [`Holder`] where it is first read, before any check of it can
+//! return, so the scrubber knows it from the moment it exists.
 
 pub mod discover;
 pub mod exchange;
@@ -24,6 +29,7 @@ pub mod fake;
 pub mod register;
 pub mod request;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::Url;
@@ -50,7 +56,23 @@ pub fn standard_code(code: &str) -> Option<&'static str> {
     CODES.iter().find(|c| **c == code).copied()
 }
 
-/// Why a step of a sign-in failed, in the daemon's words.
+/// The shortest token, code or secret taken: a shorter one could not be kept
+/// from view (the daemon's scrubber does not mask a value this short), so it
+/// is a bad answer and never used.
+pub const MIN_SECRET: usize = 8;
+
+/// The longest address a server may name.
+pub const MAX_URL: usize = 2048;
+
+/// The most authorization servers a resource's metadata may have tried.
+pub const MAX_ISSUERS: usize = 4;
+
+/// The longest an access token is taken to last: a longer `expires_in` is
+/// read as this.
+pub const MAX_EXPIRES_SECS: u64 = 366 * 24 * 3600;
+
+/// Why a step of a sign-in failed, in the daemon's words. No variant holds a
+/// value, a body or an address a server chose.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum OauthError {
     /// A check of what came from outside refused it.
@@ -69,30 +91,230 @@ pub enum OauthError {
     Undecodable { what: &'static str },
 }
 
-/// The client every sign-in call goes through: it follows a redirect only
-/// on its own origin (a 307 would carry a code or a refresh token to wherever
-/// it pointed), at most three, and never to another scheme. A loopback
-/// server's calls skip any proxy from the environment, as the MCP client's do.
-pub fn http(loopback: bool) -> reqwest::Client {
-    let policy = reqwest::redirect::Policy::custom(|attempt| {
-        let same = attempt
-            .previous()
-            .last()
-            .is_some_and(|p| same_origin(p, attempt.url()));
-        if attempt.previous().len() > 3 || !same {
-            attempt.stop()
-        } else {
-            attempt.follow()
-        }
-    });
-    let mut b = reqwest::Client::builder()
-        .redirect(policy)
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30));
-    if loopback {
-        b = b.no_proxy();
+/// Told each value of a sign-in where it is first read: its kind (`access`,
+/// `refresh`, `code`, `client`, `verifier`) and the value. The daemon puts it
+/// on its secret board, so the scrubber knows it.
+pub type Holder = Arc<dyn Fn(&'static str, &str) + Send + Sync>;
+
+/// Where a sign-in's calls may go: the daemon's rule for an address, the web
+/// fetch's own (`theseus-core`'s `web::net`), given to this crate whole.
+#[derive(Clone)]
+pub struct Rule {
+    /// Resolves every name a call reaches; it refuses one that resolves to an
+    /// address that is not public, and the connection uses the very answer it
+    /// checked (nothing is resolved twice).
+    pub resolver: Arc<dyn reqwest::dns::Resolve>,
+    /// Why an address's host, as written, is not reached (a private address,
+    /// `localhost`), or None.
+    pub private_host: fn(&Url) -> Option<String>,
+    /// Whether a failed request was the resolver's refusal.
+    pub refused: fn(&(dyn std::error::Error + 'static)) -> bool,
+    /// Whether `http` is taken for this address: never in the daemon; a test's
+    /// loopback server, by the rule its tests build.
+    pub plaintext: fn(&Url) -> bool,
+}
+
+/// `Rule::resolver` behind the `Sized` resolver reqwest takes.
+struct Via(Arc<dyn reqwest::dns::Resolve>);
+
+impl reqwest::dns::Resolve for Via {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        self.0.resolve(name)
     }
-    b.build().unwrap_or_default()
+}
+
+/// A sign-in's calls: the client every one goes through, the rule it keeps,
+/// and the daemon's holder.
+#[derive(Clone)]
+pub struct Reach {
+    client: reqwest::Client,
+    rule: Rule,
+    hold: Holder,
+}
+
+impl Reach {
+    /// The client of `rule`: it follows a redirect only on its own origin (a
+    /// 307 would carry a code or a refresh token to wherever it pointed), at
+    /// most three; it resolves every name through the rule's resolver, so a
+    /// same-origin redirect is checked again; and no proxy resolves a name
+    /// past it. A client that cannot be built is a refusal, never a client
+    /// with fewer limits.
+    pub fn new(rule: Rule, hold: Holder) -> Result<Self, OauthError> {
+        let policy = reqwest::redirect::Policy::custom(|attempt| {
+            let same = attempt
+                .previous()
+                .last()
+                .is_some_and(|p| same_origin(p, attempt.url()));
+            if attempt.previous().len() > 3 || !same {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        });
+        let client = reqwest::Client::builder()
+            .redirect(policy)
+            .no_proxy()
+            .dns_resolver(Arc::new(Via(rule.resolver.clone())))
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|_| OauthError::Refused("the sign-in's HTTP client could not start".into()))?;
+        Ok(Self { client, rule, hold })
+    }
+
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    /// Give `value`, of kind `what`, to the daemon's holder.
+    pub fn hold(&self, what: &'static str, value: &str) {
+        if !value.is_empty() {
+            (self.hold)(what, value);
+        }
+    }
+
+    pub fn holder(&self) -> Holder {
+        self.hold.clone()
+    }
+
+    /// `text` as an address a sign-in may reach: at most [`MAX_URL`] long,
+    /// `https` (or `http` where the rule takes it), with no name or key before
+    /// an `@` and no fragment, and not at a host that is not public.
+    pub fn endpoint(&self, text: &str, what: &str) -> Result<Url, OauthError> {
+        if text.len() > MAX_URL {
+            return Err(OauthError::Refused(format!(
+                "the sign-in's {what} is too long: refused"
+            )));
+        }
+        let u = Url::parse(text)
+            .map_err(|_| OauthError::Refused(format!("the sign-in's {what} is not an address")))?;
+        let scheme_ok = match u.scheme() {
+            "https" => true,
+            "http" => (self.rule.plaintext)(&u),
+            _ => false,
+        };
+        if !scheme_ok {
+            return Err(OauthError::Refused(format!(
+                "the sign-in's {what} is not https: refused"
+            )));
+        }
+        if !u.username().is_empty() || u.password().is_some() || u.fragment().is_some() {
+            return Err(OauthError::Refused(format!(
+                "the sign-in's {what} carries a name, a key or a fragment: refused"
+            )));
+        }
+        if (self.rule.private_host)(&u).is_some() {
+            return Err(OauthError::Refused(format!(
+                "the sign-in's {what} is at an address that is not public: refused"
+            )));
+        }
+        Ok(u)
+    }
+
+    /// A send's failure, without its address (an address can carry a query)
+    /// and without what the resolver found.
+    fn unreachable(&self, what: &'static str, e: reqwest::Error) -> OauthError {
+        if (self.rule.refused)(&e) {
+            return OauthError::Refused(format!(
+                "{what} is at an address that is not public: refused"
+            ));
+        }
+        let why = if e.is_timeout() {
+            "no answer in time"
+        } else if e.is_connect() {
+            "no connection"
+        } else if e.is_redirect() {
+            "too many redirects"
+        } else {
+            "the request failed"
+        };
+        OauthError::Unreachable {
+            what,
+            why: why.into(),
+        }
+    }
+
+    async fn body_of(
+        &self,
+        what: &'static str,
+        resp: reqwest::Response,
+    ) -> Result<Vec<u8>, OauthError> {
+        let mut resp = resp;
+        let mut out = Vec::new();
+        while let Some(chunk) = resp.chunk().await.map_err(|e| self.unreachable(what, e))? {
+            if out.len() + chunk.len() > MAX_BODY {
+                return Err(OauthError::Undecodable { what });
+            }
+            out.extend_from_slice(&chunk);
+        }
+        Ok(out)
+    }
+
+    /// GET a JSON document. `Ok(None)`: the server has none there (404 or 410).
+    pub async fn get_json(
+        &self,
+        url: &Url,
+        what: &'static str,
+    ) -> Result<Option<Value>, OauthError> {
+        let resp = self
+            .client
+            .get(url.clone())
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|e| self.unreachable(what, e))?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::GONE {
+            return Ok(None);
+        }
+        let body = self.body_of(what, resp).await?;
+        if !status.is_success() {
+            return Err(refusal(what, status, &body));
+        }
+        match serde_json::from_slice::<Value>(&body) {
+            Ok(v) if v.is_object() => Ok(Some(v)),
+            _ => Err(OauthError::Undecodable { what }),
+        }
+    }
+
+    /// POST a request body and read a JSON object back: `(status, object)`,
+    /// or the refusal of a status that is not success. `first` is told the
+    /// object before anything checks it.
+    pub(crate) async fn post(
+        &self,
+        req: reqwest::RequestBuilder,
+        what: &'static str,
+        first: impl FnOnce(&Value),
+    ) -> Result<(u16, Value), OauthError> {
+        let resp = req
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|e| self.unreachable(what, e))?;
+        let status = resp.status();
+        let body = self.body_of(what, resp).await?;
+        let v = serde_json::from_slice::<Value>(&body).ok();
+        if let Some(v) = &v {
+            first(v);
+        }
+        if !status.is_success() {
+            return Err(refusal(what, status, &body));
+        }
+        match v {
+            Some(v) if v.is_object() => Ok((status.as_u16(), v)),
+            _ => Err(OauthError::Undecodable { what }),
+        }
+    }
+
+    /// POST with no answer read but its status: the revoke.
+    pub(crate) async fn send(
+        &self,
+        req: reqwest::RequestBuilder,
+        what: &'static str,
+    ) -> Result<u16, OauthError> {
+        let resp = req.send().await.map_err(|e| self.unreachable(what, e))?;
+        Ok(resp.status().as_u16())
+    }
 }
 
 /// Whether two addresses have one scheme, host and port.
@@ -110,46 +332,6 @@ pub fn is_loopback(u: &Url) -> bool {
             || h.parse::<std::net::IpAddr>()
                 .is_ok_and(|ip| ip.is_loopback())
     })
-}
-
-/// `text` as an endpoint a sign-in may use: `https`, or `http` on a loopback
-/// host, with no name or key before an `@` and no fragment.
-pub fn endpoint(text: &str, what: &str) -> Result<Url, OauthError> {
-    let u = Url::parse(text)
-        .map_err(|_| OauthError::Refused(format!("the sign-in's {what} is not an address")))?;
-    let scheme_ok = match u.scheme() {
-        "https" => true,
-        "http" => is_loopback(&u),
-        _ => false,
-    };
-    if !scheme_ok {
-        return Err(OauthError::Refused(format!(
-            "the sign-in's {what} is not https: refused"
-        )));
-    }
-    if !u.username().is_empty() || u.password().is_some() || u.fragment().is_some() {
-        return Err(OauthError::Refused(format!(
-            "the sign-in's {what} carries a name, a key or a fragment: refused"
-        )));
-    }
-    Ok(u)
-}
-
-/// A send's failure, without its address (an address can carry a query).
-fn unreachable(what: &'static str, e: reqwest::Error) -> OauthError {
-    let why = if e.is_timeout() {
-        "no answer in time"
-    } else if e.is_connect() {
-        "no connection"
-    } else if e.is_redirect() {
-        "too many redirects"
-    } else {
-        "the request failed"
-    };
-    OauthError::Unreachable {
-        what,
-        why: why.into(),
-    }
 }
 
 /// A non-success answer's status and standard code; a redirect that was not
@@ -173,63 +355,46 @@ fn refusal(what: &'static str, status: reqwest::StatusCode, body: &[u8]) -> Oaut
 /// The most of an answer read.
 const MAX_BODY: usize = 256 * 1024;
 
-async fn body_of(what: &'static str, resp: reqwest::Response) -> Result<Vec<u8>, OauthError> {
-    let mut resp = resp;
-    let mut out = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| unreachable(what, e))? {
-        out.extend_from_slice(&chunk);
-        if out.len() > MAX_BODY {
-            return Err(OauthError::Undecodable { what });
+/// Tests' rules, which product code cannot build: `loopback` takes a test's
+/// `http` server on this machine and checks no address; `strict` is the
+/// daemon's shape, with this machine as the address that is not public.
+#[cfg(test)]
+pub(crate) mod rules {
+    use super::*;
+
+    struct System;
+
+    impl reqwest::dns::Resolve for System {
+        fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+            let host = name.as_str().to_string();
+            Box::pin(async move {
+                let addrs: Vec<std::net::SocketAddr> =
+                    tokio::net::lookup_host((host.as_str(), 0)).await?.collect();
+                Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+            })
         }
     }
-    Ok(out)
-}
 
-/// GET a JSON document. `Ok(None)`: the server has none there (404 or 410).
-pub async fn get_json(
-    http: &reqwest::Client,
-    url: &Url,
-    what: &'static str,
-) -> Result<Option<Value>, OauthError> {
-    let resp = http
-        .get(url.clone())
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|e| unreachable(what, e))?;
-    let status = resp.status();
-    if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::GONE {
-        return Ok(None);
+    pub fn loopback() -> Rule {
+        Rule {
+            resolver: Arc::new(System),
+            private_host: |_| None,
+            refused: |_| false,
+            plaintext: is_loopback,
+        }
     }
-    let body = body_of(what, resp).await?;
-    if !status.is_success() {
-        return Err(refusal(what, status, &body));
-    }
-    match serde_json::from_slice::<Value>(&body) {
-        Ok(v) if v.is_object() => Ok(Some(v)),
-        _ => Err(OauthError::Undecodable { what }),
-    }
-}
 
-/// POST a request body and read a JSON object back: `(status, object)`, or
-/// the refusal of a status that is not success.
-pub(crate) async fn post(
-    req: reqwest::RequestBuilder,
-    what: &'static str,
-) -> Result<(u16, Value), OauthError> {
-    let resp = req
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|e| unreachable(what, e))?;
-    let status = resp.status();
-    let body = body_of(what, resp).await?;
-    if !status.is_success() {
-        return Err(refusal(what, status, &body));
+    pub fn strict() -> Rule {
+        Rule {
+            resolver: Arc::new(System),
+            private_host: |u| is_loopback(u).then(|| "this machine".to_string()),
+            refused: |_| false,
+            plaintext: |_| false,
+        }
     }
-    match serde_json::from_slice::<Value>(&body) {
-        Ok(v) if v.is_object() => Ok((status.as_u16(), v)),
-        _ => Err(OauthError::Undecodable { what }),
+
+    pub fn reach(rule: Rule) -> Reach {
+        Reach::new(rule, Arc::new(|_, _| {})).unwrap()
     }
 }
 
@@ -237,23 +402,45 @@ pub(crate) async fn post(
 mod tests {
     use super::*;
 
+    /// The daemon's shape: `https` alone, at a public address; a test's rule
+    /// takes `http` on this machine, and nothing else more.
     #[test]
-    fn only_https_or_a_loopback_http_endpoint_is_used() {
-        assert!(endpoint("https://as.example.invalid/token", "token endpoint").is_ok());
-        assert!(endpoint("http://127.0.0.1:9/token", "token endpoint").is_ok());
-        assert!(endpoint("http://localhost:9/token", "token endpoint").is_ok());
+    fn only_https_at_a_public_address_and_a_tests_loopback() {
+        let strict = rules::reach(rules::strict());
+        assert!(strict
+            .endpoint("https://as.example.invalid/token", "token endpoint")
+            .is_ok());
+        for (bad, says) in [
+            ("http://127.0.0.1:9/token", "is not https"),
+            ("https://127.0.0.1:9/token", "not public"),
+            ("https://localhost/token", "not public"),
+            ("http://as.example.invalid/token", "is not https"),
+        ] {
+            let e = strict.endpoint(bad, "token endpoint").unwrap_err();
+            assert!(e.to_string().contains(says), "{bad}: {e}");
+        }
+        let tests = rules::reach(rules::loopback());
+        assert!(tests
+            .endpoint("http://127.0.0.1:9/token", "token endpoint")
+            .is_ok());
+        assert!(tests
+            .endpoint("http://localhost:9/token", "token endpoint")
+            .is_ok());
+        let long = format!("https://as.example.invalid/{}", "a".repeat(MAX_URL));
         for bad in [
             "http://as.example.invalid/token",
             "ftp://as.example.invalid/token",
             "https://user:key@as.example.invalid/token",
             "https://as.example.invalid/token#x",
             "not an address",
+            long.as_str(),
         ] {
-            let e = endpoint(bad, "token endpoint").unwrap_err();
+            let e = tests.endpoint(bad, "token endpoint").unwrap_err();
             assert!(matches!(e, OauthError::Refused(_)), "{bad}: {e}");
         }
         assert_eq!(
-            endpoint("http://as.example.invalid/t", "token endpoint")
+            tests
+                .endpoint("http://as.example.invalid/t", "token endpoint")
                 .unwrap_err()
                 .to_string(),
             "the sign-in's token endpoint is not https: refused"

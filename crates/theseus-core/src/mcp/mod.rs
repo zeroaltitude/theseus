@@ -619,7 +619,7 @@ impl McpBoard {
         let mut all = self.signed.lock().unwrap_or_else(PoisonError::into_inner);
         let found = all.entry(s.name.clone()).or_insert_with(|| {
             let path = self.oauth_dir.get().map(|d| oauth::file(d, &s.name));
-            oauth::Signed::load(&s.name, url, path, self.secrets.clone())
+            oauth::Signed::load(&s.name, url, path, self.secrets.clone(), oauth::rule())
         });
         Some(found.clone())
     }
@@ -815,11 +815,12 @@ impl McpBoard {
             attempt += 1;
             if let Some(signed) = self.signed(&s) {
                 if !signed.signed_in().await {
-                    // Never signed in: said in health, told to no one.
-                    if !self
-                        .needs_sign_in(&s, "it has not been signed in", false)
-                        .await
-                    {
+                    // Never signed in, or lost and already told: said in
+                    // health, told to no one, and nothing is tried.
+                    let why = signed
+                        .lost()
+                        .unwrap_or_else(|| "it has not been signed in".into());
+                    if !self.needs_sign_in(&s, &why, false).await {
                         return;
                     }
                     continue;

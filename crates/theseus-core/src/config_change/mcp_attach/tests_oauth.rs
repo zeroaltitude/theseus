@@ -107,3 +107,80 @@ fn the_card_says_how_it_signs_in_and_what_comes_next() {
     assert!(!c.contains("sign-in"), "{c}");
     assert!(c.contains("offered from your next message"), "{c}");
 }
+
+/// A real 401, through the whole of it: a server that signs in, asked for at
+/// its address with no key, is tried by the real HTTP client and refused with
+/// HTTP 401; the card says, before the yes, that it signs in and what the
+/// owner runs next, and it needs the second proof; the yes writes `oauth = {}`
+/// in its table, and the server is loaded `needs sign-in`.
+#[tokio::test]
+async fn a_real_401_goes_through_attach_the_card_the_proof_and_the_write() {
+    use theseus_mcp::fake::{self, Fake};
+    use theseus_mcp::oauth::fake::{AuthConfig, FakeAuth};
+    let auth = FakeAuth::start(AuthConfig::default()).await;
+    let server = Fake::new(fake::Config {
+        oauth: Some(auth.clone()),
+        name: "docs".into(),
+        ..Default::default()
+    });
+    let addr = server.clone().serve_http(0).await.unwrap();
+    let url = format!("http://{addr}/mcp");
+    let r = super::tests::rig();
+    // The trial connects as `try-docs`; the server, once loaded, as `docs`.
+    r.real("try-docs");
+    r.real("docs");
+    r.core.proofs.open_stand_in_window("cli");
+    let sid = r.session();
+    r.turn(&sid, "mcp_attach", json!({"name": "docs", "url": url}))
+        .await;
+    assert!(server.seen().unauthorized >= 1, "the trial met a real 401");
+    let q = r.asked().remove(0);
+    assert!(q.needs_proof, "{q:?}");
+    assert!(
+        q.reason
+            .contains("The trial was refused for want of a sign-in (HTTP 401)"),
+        "{}",
+        q.reason
+    );
+    assert!(
+        q.reason.contains("run `theseus mcp login docs`"),
+        "{}",
+        q.reason
+    );
+    let done = r
+        .core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    assert!(done.approved);
+    let (cfg, _) = crate::Config::parse(&r.file_text()).unwrap();
+    assert_eq!(
+        cfg.mcp.servers["docs"].oauth,
+        Some(crate::config::mcp::McpOauth::default())
+    );
+    assert!(cfg.mcp.servers["docs"].auth_secret.is_none());
+    assert!(r.core.mcp.is_loaded("docs"));
+    // Started, the loaded server waits for its sign-in: no crash.
+    r.core.mcp.start();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let st = r.core.mcp.status();
+        if st
+            .iter()
+            .any(|s| s.name == "docs" && s.state == "needs sign-in")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{:?}",
+            st.iter().find(|s| s.name == "docs")
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    // A plaintext server that wants a sign-in is written as asked, and its
+    // card says it will not connect.
+    let mut plain = spec(json!({"name": "p", "url": "http://p.example.invalid/mcp"}));
+    assert!(!plain.signs_in_after(&refused()));
+    let c = card_of(&plain, &refused());
+    assert!(c.contains("must be at an https address"), "{c}");
+}

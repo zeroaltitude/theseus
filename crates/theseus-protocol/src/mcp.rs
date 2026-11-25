@@ -176,8 +176,8 @@ pub struct McpRestartResult {
 }
 
 /// `mcp.login.begin` (issue 55): start the sign-in of a server that signs in
-/// (`oauth`). The CLI's alone. `manual` skips the wait for the redirect and
-/// goes straight to the paste.
+/// (`oauth`). Admitted from the CLI's surface alone. `manual` skips the wait
+/// for the redirect and goes straight to the paste.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct McpLoginBeginParams {
@@ -188,7 +188,8 @@ pub struct McpLoginBeginParams {
 
 /// The address the owner opens, which holds no secret (a client id, a PKCE
 /// challenge, a state), the host it signs in at, and how the redirect comes.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Its `Debug` prints none of what a server chose.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct McpLoginBeginResult {
     /// Names this sign-in for `mcp.login.finish`.
@@ -203,11 +204,28 @@ pub struct McpLoginBeginResult {
     /// the paste.
     pub expires_secs: u64,
     pub paste_after_secs: u64,
+    /// Every other host what the sign-in returns is sent to (its endpoints
+    /// are not on the issuer's own address): the CLI names each and asks the
+    /// owner to agree before it shows the address.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub elsewhere: Vec<String>,
+}
+
+impl std::fmt::Debug for McpLoginBeginResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpLoginBeginResult")
+            .field("login_id", &self.login_id)
+            .field("name", &self.name)
+            .field("expires_secs", &self.expires_secs)
+            .field("paste_after_secs", &self.paste_after_secs)
+            .finish_non_exhaustive()
+    }
 }
 
 /// `mcp.login.finish`: wait for the redirect (`pasted` empty), or take the
 /// address the owner's browser was sent to, pasted.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct McpLoginFinishParams {
     pub login_id: String,
@@ -218,10 +236,26 @@ pub struct McpLoginFinishParams {
     /// `waiting`.
     #[serde(default)]
     pub wait_secs: u64,
+    /// The owner agreed to the other hosts `elsewhere` named.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agreed: bool,
 }
 
-/// What the sign-in came to. No token, code or secret is in it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The pasted address carries the code: never printed.
+impl std::fmt::Debug for McpLoginFinishParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpLoginFinishParams")
+            .field("login_id", &self.login_id)
+            .field("pasted", &self.pasted.as_ref().map(|_| "(hidden)"))
+            .field("wait_secs", &self.wait_secs)
+            .field("agreed", &self.agreed)
+            .finish()
+    }
+}
+
+/// What the sign-in came to. No token, code or secret is in it; its `Debug`
+/// prints no host a server chose.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct McpLoginFinishResult {
     /// `done`, or `waiting` (no redirect yet: paste the address).
@@ -235,8 +269,19 @@ pub struct McpLoginFinishResult {
     pub note: String,
 }
 
+impl std::fmt::Debug for McpLoginFinishResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpLoginFinishResult")
+            .field("state", &self.state)
+            .field("name", &self.name)
+            .field("connected", &self.connected)
+            .field("tools", &self.tools)
+            .finish_non_exhaustive()
+    }
+}
+
 /// `mcp.logout`: forget a server's sign-in, revoked at its server when it
-/// offers that. The CLI's alone.
+/// offers that. Admitted from the CLI's surface alone.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct McpLogoutParams {
@@ -252,4 +297,8 @@ pub struct McpLogoutResult {
     pub revoked: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// Its kept file could not be removed: it would be used again when the
+    /// daemon next starts.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kept_remains: bool,
 }

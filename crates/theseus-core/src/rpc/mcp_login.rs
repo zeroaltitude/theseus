@@ -1,9 +1,12 @@
-//! `mcp.login.begin`, `mcp.login.finish` and `mcp.logout` (issue 55): the
-//! owner's, from the CLI on this machine. Refused from Discord, from the web
-//! UI and from an MCP client, as `google.auth.*` are; the CLI refuses them
-//! inside a Theseus job (`OPERATORS`), a speed bump, L1 the boundary. The
-//! paste travels here in a param, never an argument; no answer holds a
-//! token, a code or a secret.
+//! `mcp.login.begin`, `mcp.login.finish` and `mcp.logout` (issue 55): admitted
+//! from the CLI's surface alone, as `google.auth.*` are, and refused from
+//! Discord, from the web UI and from an MCP client. What stops an agent's job
+//! is exactly that: the surface; the CLI's own refusal inside a job
+//! (`OPERATORS`, which a process can step around by clearing its
+//! environment); and the L1 sandbox, which hides this socket from a
+//! sandboxed job. A process at L0 that reaches the socket is the CLI's
+//! surface, and nothing here asks whose it is. The paste travels here in a
+//! param, never an argument; no answer holds a token, a code or a secret.
 
 use std::sync::Arc;
 

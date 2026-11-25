@@ -268,6 +268,16 @@ fn validate_oauth(at: &str, s: &McpServerConfig) -> Result<()> {
              signs in, not both"
         );
     }
+    let https = s
+        .url
+        .as_deref()
+        .and_then(|u| reqwest::Url::parse(u).ok())
+        .is_some_and(|u| crate::mcp::oauth::signs_in_at(&u));
+    if !https {
+        anyhow::bail!(
+            "{at} signs in (`oauth`), and a server that signs in must be at an https address"
+        );
+    }
     if o.client_id.as_ref().is_some_and(|c| c.trim().is_empty()) {
         anyhow::bail!("{at}.oauth.client_id is empty");
     }
@@ -451,6 +461,10 @@ mod tests {
             (
                 "[mcp.servers.a]\nurl = \"https://h/\"\noauth = { scopes = [\"a b\"] }",
                 "with a space",
+            ),
+            (
+                "[mcp.servers.a]\nurl = \"http://h.example.invalid/mcp\"\noauth = {}",
+                "must be at an https address",
             ),
         ] {
             let e = format!("{:#}", with(toml).unwrap_err());

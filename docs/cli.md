@@ -174,11 +174,15 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   `theseus content remove SESSION FLAG` (or `--all`) removes one, and is yours alone to run. In Discord, `/trust`
   removes the conversation's `injection` label and nothing else.
 - **`mcp`**: the MCP servers the config attaches: state, tools, postures. `theseus mcp`; `mcp restart NAME`;
-  `mcp login NAME [--manual]` signs in to a server that signs in in a browser (its table has `oauth`): it prints the
-  host you sign in at, then the address to open, waits for the redirect on 127.0.0.1 (or takes the address the browser
-  was sent to, pasted), and ends with the tools found. The daemon keeps the sign-in in a private file inside its store
-  and renews it; `mcp logout NAME` forgets it, revoked at the server when it offers that. A server whose sign-in is
-  refused for good shows `needs sign-in` and is not retried until you sign in again.
+  `mcp login NAME [--manual]` signs in to a server that signs in in a browser (its table has `oauth`; its address is
+  `https`): it prints the host you sign in at, and every other host what the sign-in returns is sent to (then you type
+  `yes` at the terminal), then the address to open, waits for the redirect on 127.0.0.1 (or takes the whole address
+  the browser was sent to, pasted), and ends with the tools found. The daemon keeps the sign-in in a private file
+  inside its store and renews it; `mcp logout NAME` forgets it, revoked at the server when it offers that, and says
+  so when the file could not be removed. A server whose sign-in is refused for good shows `needs sign-in` and is not
+  retried until you sign in again. `login` and `logout` are admitted from the CLI's surface alone, as `google auth`
+  is; the CLI refuses them inside a Theseus job, and L1 hides the socket from a sandboxed job, but a process at L0
+  that reaches the socket is not stopped.
 - **`extend`**: extensions: proposals with their state and frozen digest, and the loaded ones. `theseus extend list`;
   `extend revoke NAME`.
 - **`aws`**: Theseus's AWS account: `bootstrap` plans its first stacks read-only and applies them on your yes.

@@ -65,6 +65,25 @@ pub struct AuthConfig {
     /// Keys left out of its metadata and the resource's, to test what a
     /// server may leave out.
     pub omit: Vec<String>,
+    /// Registration gives a client secret (sent in the form).
+    pub client_secret: bool,
+    /// A hostile server: the fake MCP server echoes the token it was sent in
+    /// its 401's `WWW-Authenticate`, and in a JSON-RPC error's message and
+    /// data to `tools/list` and `tools/call`.
+    pub echo: bool,
+    /// The redirect names the issuer (`iss`).
+    pub iss: bool,
+    /// Its metadata says the redirect names the issuer.
+    pub iss_supported: bool,
+    /// Its authorization endpoint, when not its own `/authorize`.
+    pub authorization_endpoint: Option<String>,
+    /// The `token_type` its token answers name.
+    pub token_type: String,
+    /// Its access tokens are this short, too short to keep from view.
+    pub short_access: bool,
+    /// The resource's metadata names this many authorization servers before
+    /// the fake itself, none of which publishes metadata.
+    pub decoys: usize,
 }
 
 impl Default for AuthConfig {
@@ -82,6 +101,14 @@ impl Default for AuthConfig {
             resource: None,
             metadata_at: MetadataAt::Header,
             omit: Vec::new(),
+            client_secret: false,
+            echo: false,
+            iss: true,
+            iss_supported: false,
+            authorization_endpoint: None,
+            token_type: "Bearer".into(),
+            short_access: false,
+            decoys: 0,
         }
     }
 }
@@ -129,6 +156,8 @@ pub struct FakeAuth {
     tokens: Mutex<Tokens>,
     next: AtomicU64,
     addr: OnceLock<SocketAddr>,
+    /// The last token the fake MCP server was sent.
+    last_bearer: Mutex<Option<String>>,
 }
 
 impl std::fmt::Debug for FakeAuth {
@@ -152,6 +181,7 @@ impl FakeAuth {
             tokens: Mutex::default(),
             next: AtomicU64::new(1),
             addr: OnceLock::new(),
+            last_bearer: Mutex::default(),
         });
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
         let _ = me.addr.set(listener.local_addr().expect("an address"));
@@ -211,15 +241,33 @@ impl FakeAuth {
         v
     }
 
+    /// The fake MCP server was sent `token`.
+    pub fn note_bearer(&self, token: &str) {
+        *lock(&self.last_bearer) = Some(token.to_string());
+    }
+
+    /// With `echo`: the token the fake MCP server was last sent, which it
+    /// echoes in its answer to `method`.
+    pub fn echo_for(&self, method: &str) -> Option<String> {
+        let echoes = self.config().echo && matches!(method, "tools/list" | "tools/call");
+        echoes.then(|| lock(&self.last_bearer).clone()).flatten()
+    }
+
     /// The fake MCP server's 401 header, for a server at `mcp` (its own
-    /// `http://host:port`).
+    /// `http://host:port`); with `echo`, the token it was sent is in it.
     pub fn challenge(&self, mcp: &str) -> String {
-        match self.config().metadata_at {
+        let mut h = match self.config().metadata_at {
             MetadataAt::Header => format!(
                 "Bearer error=\"invalid_token\", resource_metadata=\"{mcp}/.well-known/oauth-protected-resource/mcp\""
             ),
             _ => "Bearer error=\"invalid_token\"".into(),
+        };
+        if self.config().echo {
+            if let Some(t) = lock(&self.last_bearer).clone() {
+                h.push_str(&format!(", error_description=\"{t}\""));
+            }
         }
+        h
     }
 
     /// The resource metadata the fake MCP server at `mcp` serves at `path`,
@@ -234,9 +282,14 @@ impl FakeAuth {
             MetadataAt::Nowhere => false,
         };
         serves.then(|| {
+            let base = self.base();
+            let mut servers: Vec<String> = (0..cfg.decoys)
+                .map(|i| format!("{base}/decoy-{i}"))
+                .collect();
+            servers.push(base);
             let mut doc = json!({
                 "resource": cfg.resource.clone().unwrap_or(format!("{mcp}/mcp")),
-                "authorization_servers": [self.base()],
+                "authorization_servers": servers,
                 "scopes_supported": ["tools"],
             });
             if let Some(o) = doc.as_object_mut() {
@@ -253,7 +306,7 @@ impl FakeAuth {
         let base = self.base();
         let mut m = json!({
             "issuer": cfg.issuer.clone().unwrap_or(base.clone()),
-            "authorization_endpoint": format!("{base}/authorize"),
+            "authorization_endpoint": cfg.authorization_endpoint.clone().unwrap_or(format!("{base}/authorize")),
             "token_endpoint": cfg.token_endpoint.clone().unwrap_or(format!("{base}/token")),
             "revocation_endpoint": format!("{base}/revoke"),
             "response_types_supported": ["code"],
@@ -261,6 +314,9 @@ impl FakeAuth {
         });
         if cfg.register {
             m["registration_endpoint"] = json!(format!("{base}/register"));
+        }
+        if cfg.iss_supported {
+            m["authorization_response_iss_parameter_supported"] = json!(true);
         }
         if let Some(o) = m.as_object_mut() {
             for k in &cfg.omit {
@@ -403,11 +459,12 @@ impl FakeAuth {
         let id = format!("fake-client-{}", self.next.fetch_add(1, Ordering::SeqCst));
         lock(&self.tokens).clients.insert(id.clone());
         lock(&self.seen).registrations += 1;
-        (
-            201,
-            vec![],
-            Some(json!({"client_id": id, "token_endpoint_auth_method": "none"})),
-        )
+        let answer = match self.config().client_secret {
+            true => json!({"client_id": id, "client_secret": self.mint("cs"),
+                "token_endpoint_auth_method": "client_secret_post"}),
+            false => json!({"client_id": id, "token_endpoint_auth_method": "none"}),
+        };
+        (201, vec![], Some(answer))
     }
 
     fn authorize(&self, query: &str) -> (u16, Vec<(String, String)>, Option<Value>) {
@@ -432,8 +489,11 @@ impl FakeAuth {
         let mut to = Url::parse(&get("redirect_uri")).expect("a redirect");
         to.query_pairs_mut()
             .append_pair("code", &code)
-            .append_pair("state", &get("state"))
-            .append_pair("iss", &self.config().issuer.unwrap_or(self.base()));
+            .append_pair("state", &get("state"));
+        if self.config().iss {
+            to.query_pairs_mut()
+                .append_pair("iss", &self.config().issuer.unwrap_or(self.base()));
+        }
         (302, vec![("location".into(), to.to_string())], None)
     }
 
@@ -503,11 +563,14 @@ impl FakeAuth {
     }
 
     fn issue(&self, refresh: Option<&str>) -> Value {
-        let access = self.mint("at");
+        let access = match self.config().short_access {
+            true => "tiny".to_string(),
+            false => self.mint("at"),
+        };
         lock(&self.tokens).access.insert(access.clone());
         let mut v = json!({
             "access_token": access,
-            "token_type": "Bearer",
+            "token_type": self.config().token_type,
             "expires_in": self.config().access_ttl,
             "scope": "tools",
         });

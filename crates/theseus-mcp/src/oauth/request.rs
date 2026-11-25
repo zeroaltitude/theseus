@@ -17,7 +17,7 @@ use tokio::net::{TcpListener, TcpStream};
 use zeroize::Zeroizing;
 
 use super::discover::AuthServer;
-use super::standard_code;
+use super::{standard_code, Holder, MIN_SECRET};
 
 /// How long a sign-in's listener waits for the redirect.
 pub const LISTEN_FOR: Duration = Duration::from_secs(600);
@@ -108,6 +108,17 @@ pub enum RedirectError {
     StateMismatch,
     #[error("the redirect names another issuer: nothing was kept")]
     IssuerMismatch,
+    #[error("the redirect does not name its issuer, which this sign-in needs: nothing was kept")]
+    NoIssuer,
+    #[error("the redirect repeats a part of it: nothing was kept")]
+    Repeated,
+    #[error("the redirect's code is too short to keep from view: nothing was kept")]
+    ShortCode,
+    #[error(
+        "the address is not this sign-in's redirect: paste the whole address your browser was \
+         sent to"
+    )]
+    NotThisAddress,
     #[error("the address holds no code: paste the whole address your browser was sent to")]
     NoCode,
     #[error("the sign-in was not granted ({0})")]
@@ -118,31 +129,76 @@ pub enum RedirectError {
     Listener,
 }
 
-/// The code in a redirect: the whole address, or its query alone. The state
-/// must be this sign-in's, and an `iss` the redirect carries must be `issuer`.
-pub fn parse_redirect(text: &str, state: &str, issuer: &str) -> Result<Code, RedirectError> {
-    let text = text.trim();
-    let query = match text.contains("://") {
-        true => Url::parse(text)
-            .map_err(|_| RedirectError::NoCode)?
-            .query()
-            .unwrap_or("")
-            .to_string(),
-        false => text
-            .rsplit_once('?')
-            .map_or(text, |(_, q)| q)
-            .trim_start_matches(['?', '/'])
-            .to_string(),
-    };
-    let pairs: Vec<(String, String)> = url_pairs(&query);
+/// What a redirect must be to be this sign-in's: the exact address the
+/// listener is on, the `state`, and the issuer, which it must name when
+/// `iss_required` (an authorization server whose endpoints are elsewhere).
+pub struct Expect {
+    pub redirect: Url,
+    pub state: String,
+    pub issuer: String,
+    pub iss_required: bool,
+}
+
+/// The parts of a redirect that are read, each of which may come once.
+const READ: [&str; 4] = ["code", "state", "iss", "error"];
+
+/// The code in the address the owner pasted: it must be this sign-in's
+/// redirect whole (its scheme, host, port and path), with its query.
+pub fn parse_pasted(text: &str, expect: &Expect, hold: &Holder) -> Result<Code, RedirectError> {
+    let u = Url::parse(text.trim()).map_err(|_| RedirectError::NotThisAddress)?;
+    // Every code it carries is held first, whatever it turns out to be.
+    hold_codes(u.query().unwrap_or(""), hold);
+    let r = &expect.redirect;
+    if u.scheme() != r.scheme()
+        || u.host_str() != r.host_str()
+        || u.port_or_known_default() != r.port_or_known_default()
+        || u.path() != r.path()
+        || u.fragment().is_some()
+    {
+        return Err(RedirectError::NotThisAddress);
+    }
+    parse_query(u.query().unwrap_or(""), expect)
+}
+
+/// The code in a request the listener took: its target's path must be the
+/// redirect's exactly.
+fn parse_target(target: &str, expect: &Expect, hold: &Holder) -> Result<Code, RedirectError> {
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    hold_codes(query, hold);
+    if path != expect.redirect.path() {
+        return Err(RedirectError::NotThisAddress);
+    }
+    parse_query(query, expect)
+}
+
+fn hold_codes(query: &str, hold: &Holder) {
+    for (k, v) in url_pairs(query) {
+        if k == "code" && !v.is_empty() {
+            hold("code", &v);
+        }
+    }
+}
+
+/// The code in a redirect's query: each part read comes once, the state is
+/// this sign-in's, the issuer the one asked (and named, when it must be).
+fn parse_query(query: &str, expect: &Expect) -> Result<Code, RedirectError> {
+    let pairs: Vec<(String, String)> = url_pairs(query);
+    if READ
+        .iter()
+        .any(|k| pairs.iter().filter(|(n, _)| n == k).count() > 1)
+    {
+        return Err(RedirectError::Repeated);
+    }
     let get = |k: &str| pairs.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
-    if get("state") != Some(state) {
+    if get("state") != Some(expect.state.as_str()) {
         return Err(RedirectError::StateMismatch);
     }
-    if let Some(iss) = get("iss") {
-        if iss.trim_end_matches('/') != issuer.trim_end_matches('/') {
-            return Err(RedirectError::IssuerMismatch);
+    match get("iss") {
+        Some(iss) if iss.trim_end_matches('/') != expect.issuer.trim_end_matches('/') => {
+            return Err(RedirectError::IssuerMismatch)
         }
+        None if expect.iss_required => return Err(RedirectError::NoIssuer),
+        _ => {}
     }
     if let Some(e) = get("error") {
         return Err(RedirectError::Denied(
@@ -150,7 +206,8 @@ pub fn parse_redirect(text: &str, state: &str, issuer: &str) -> Result<Code, Red
         ));
     }
     match get("code") {
-        Some(c) if !c.is_empty() => Ok(Code(Zeroizing::new(c.to_string()))),
+        Some(c) if c.len() >= MIN_SECRET => Ok(Code(Zeroizing::new(c.to_string()))),
+        Some(c) if !c.is_empty() => Err(RedirectError::ShortCode),
         _ => Err(RedirectError::NoCode),
     }
 }
@@ -183,13 +240,25 @@ impl Loopback {
         format!("http://127.0.0.1:{}{CALLBACK}", self.port)
     }
 
+    /// What a redirect to this listener must be, for `pkce`'s sign-in at
+    /// `server`.
+    pub fn expect(&self, pkce: &Pkce, server: &AuthServer) -> Expect {
+        Expect {
+            redirect: Url::parse(&self.redirect()).expect("a loopback address"),
+            state: pkce.state.clone(),
+            issuer: server.issuer.clone(),
+            iss_required: !server.elsewhere.is_empty(),
+        }
+    }
+
     /// The code from the first redirect with this sign-in's state, or why
     /// there was none. A stray request (a favicon, a probe, another state)
-    /// is answered and waited past. The listener closes when this returns.
+    /// is answered and waited past; a code any request carries is held. The
+    /// listener closes when this returns, or when its task is dropped.
     pub async fn wait(
         self,
-        state: &str,
-        issuer: &str,
+        expect: Expect,
+        hold: Holder,
         within: Duration,
     ) -> Result<Code, RedirectError> {
         let run = async {
@@ -202,16 +271,15 @@ impl Loopback {
                 let Some(target) = read_target(&mut stream).await else {
                     continue;
                 };
-                if !target.starts_with(CALLBACK) {
-                    respond(&mut stream, 404, "Not found.").await;
-                    continue;
-                }
-                match parse_redirect(&target, state, issuer) {
+                match parse_target(&target, &expect, &hold) {
                     Ok(code) => {
                         respond(&mut stream, 200, "Signed in. You can close this tab.").await;
                         return Ok(code);
                     }
-                    Err(RedirectError::StateMismatch) => {
+                    Err(RedirectError::NotThisAddress) => {
+                        respond(&mut stream, 404, "Not found.").await;
+                    }
+                    Err(RedirectError::StateMismatch | RedirectError::Repeated) => {
                         respond(&mut stream, 400, "That redirect is not for this sign-in.").await;
                     }
                     Err(e) => {
@@ -270,6 +338,8 @@ async fn respond(stream: &mut TcpStream, status: u16, words: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
 
     fn server() -> AuthServer {
@@ -279,54 +349,156 @@ mod tests {
             token_endpoint: Url::parse("https://as.example.invalid/token").unwrap(),
             registration_endpoint: None,
             revocation_endpoint: None,
+            iss_in_redirect: false,
+            elsewhere: vec![],
         }
     }
 
-    #[test]
-    fn a_state_that_is_not_this_sign_ins_is_refused() {
-        let p = Pkce::new();
-        let iss = "https://as.example.invalid";
-        let ok = format!("http://127.0.0.1:4000/callback?code=abc&state={}", p.state);
-        assert_eq!(parse_redirect(&ok, &p.state, iss).unwrap().expose(), "abc");
-        for bad in [
-            "http://127.0.0.1:4000/callback?code=abc&state=someone-elses".to_string(),
-            "http://127.0.0.1:4000/callback?code=abc".to_string(),
-            "hello".to_string(),
-        ] {
-            assert_eq!(
-                parse_redirect(&bad, &p.state, iss).unwrap_err(),
-                RedirectError::StateMismatch,
-                "{bad}"
-            );
+    fn expect(p: &Pkce, iss_required: bool) -> Expect {
+        Expect {
+            redirect: Url::parse("http://127.0.0.1:4000/callback").unwrap(),
+            state: p.state.clone(),
+            issuer: "https://as.example.invalid".into(),
+            iss_required,
         }
+    }
+
+    fn holder() -> (Holder, Arc<Mutex<Vec<String>>>) {
+        let held = Arc::new(Mutex::new(Vec::new()));
+        let h = held.clone();
+        (
+            Arc::new(move |_, v: &str| h.lock().unwrap().push(v.to_string())),
+            held,
+        )
+    }
+
+    const CODE: &str = "code-value-0001";
+
+    /// The pasted address must be this sign-in's redirect whole; its state,
+    /// its issuer (named, when it must be), each part once, and a code long
+    /// enough to keep from view. Every code it carries is held, refused or not.
+    #[test]
+    fn a_redirect_is_this_sign_ins_whole_or_nothing_is_kept() {
+        let p = Pkce::new();
+        let e = expect(&p, false);
+        let (hold, held) = holder();
+        let ok = format!(
+            "http://127.0.0.1:4000/callback?code={CODE}&state={}",
+            p.state
+        );
+        assert_eq!(parse_pasted(&ok, &e, &hold).unwrap().expose(), CODE);
+        for (bad, why) in [
+            (
+                format!("http://127.0.0.1:4000/callback?code={CODE}&state=someone-elses"),
+                RedirectError::StateMismatch,
+            ),
+            (
+                format!("http://127.0.0.1:4000/callback?code={CODE}"),
+                RedirectError::StateMismatch,
+            ),
+            (
+                format!(
+                    "http://127.0.0.1:4001/callback?code={CODE}&state={}",
+                    p.state
+                ),
+                RedirectError::NotThisAddress,
+            ),
+            (
+                format!(
+                    "http://127.0.0.1:4000/callbackx?code={CODE}&state={}",
+                    p.state
+                ),
+                RedirectError::NotThisAddress,
+            ),
+            (
+                format!(
+                    "https://127.0.0.1:4000/callback?code={CODE}&state={}",
+                    p.state
+                ),
+                RedirectError::NotThisAddress,
+            ),
+            (
+                format!(
+                    "http://localhost:4000/callback?code={CODE}&state={}",
+                    p.state
+                ),
+                RedirectError::NotThisAddress,
+            ),
+            (
+                format!("?code={CODE}&state={}", p.state),
+                RedirectError::NotThisAddress,
+            ),
+            (
+                format!(
+                    "http://127.0.0.1:4000/callback?code={CODE}&code=other-code-02&state={}",
+                    p.state
+                ),
+                RedirectError::Repeated,
+            ),
+            (
+                format!(
+                    "http://127.0.0.1:4000/callback?code={CODE}&state={0}&state={0}",
+                    p.state
+                ),
+                RedirectError::Repeated,
+            ),
+            (
+                format!(
+                    "http://127.0.0.1:4000/callback?code=short&state={}",
+                    p.state
+                ),
+                RedirectError::ShortCode,
+            ),
+            ("hello".to_string(), RedirectError::NotThisAddress),
+        ] {
+            assert_eq!(parse_pasted(&bad, &e, &hold).unwrap_err(), why, "{bad}");
+        }
+        assert!(held.lock().unwrap().iter().any(|v| v == "other-code-02"));
+        assert!(held.lock().unwrap().iter().any(|v| v == "short"));
         let other = format!(
-            "http://127.0.0.1:4000/callback?code=abc&state={}&iss=https%3A%2F%2Fevil.invalid",
+            "http://127.0.0.1:4000/callback?code={CODE}&state={}&iss=https%3A%2F%2Fevil.invalid",
             p.state
         );
         assert_eq!(
-            parse_redirect(&other, &p.state, iss).unwrap_err(),
+            parse_pasted(&other, &e, &hold).unwrap_err(),
             RedirectError::IssuerMismatch
         );
         let same = format!(
-            "/callback?code=abc&state={}&iss=https%3A%2F%2Fas.example.invalid%2F",
+            "http://127.0.0.1:4000/callback?code={CODE}&state={}&iss=https%3A%2F%2Fas.example.invalid%2F",
             p.state
         );
+        assert_eq!(parse_pasted(&same, &e, &hold).unwrap().expose(), CODE);
+        // An authorization server whose endpoints are elsewhere: the issuer
+        // must be named.
+        let must = expect(&p, true);
         assert_eq!(
-            parse_redirect(&same, &p.state, iss).unwrap().expose(),
-            "abc"
+            parse_pasted(&ok, &must, &hold).unwrap_err(),
+            RedirectError::NoIssuer
         );
+        assert_eq!(parse_pasted(&same, &must, &hold).unwrap().expose(), CODE);
         let denied = format!(
-            "?error=access_denied&error_description=no+way&state={}",
+            "http://127.0.0.1:4000/callback?error=access_denied&error_description=no+way&state={}",
             p.state
         );
         assert_eq!(
-            parse_redirect(&denied, &p.state, iss).unwrap_err(),
+            parse_pasted(&denied, &e, &hold).unwrap_err(),
             RedirectError::Denied("access_denied".into())
         );
-        let own = format!("?error=nope&state={}", p.state);
+        let own = format!(
+            "http://127.0.0.1:4000/callback?error=nope&state={}",
+            p.state
+        );
         assert_eq!(
-            parse_redirect(&own, &p.state, iss).unwrap_err().to_string(),
+            parse_pasted(&own, &e, &hold).unwrap_err().to_string(),
             "the sign-in was not granted (a code of its own)"
+        );
+        // The listener's own request: the path exactly.
+        let t = format!("/callback?code={CODE}&state={}", p.state);
+        assert_eq!(parse_target(&t, &e, &hold).unwrap().expose(), CODE);
+        let t = format!("/callback/x?code={CODE}&state={}", p.state);
+        assert_eq!(
+            parse_target(&t, &e, &hold).unwrap_err(),
+            RedirectError::NotThisAddress
         );
     }
 

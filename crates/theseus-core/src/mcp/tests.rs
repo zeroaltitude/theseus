@@ -1191,6 +1191,7 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
 
 mod ceilings;
 mod oauth;
+mod oauth_hostile;
 
 #[tokio::test]
 async fn a_protocol_error_is_still_the_servers_outside_text() {
