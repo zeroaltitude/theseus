@@ -94,10 +94,8 @@ async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
     assert_eq!(n.len(), 1, "{n:?}");
     assert_eq!(
         n[0],
-        format!(
-            "ℹ️ FYI · Moved a Drive file to the Trash\nDone unasked in conversation {sid}\n\
+        "ℹ️ FYI · Moved a Drive file to the Trash\nIn “trash it”, without asking you\n\
              Moved Drive file doc1 to the Trash.\nUndo restores it."
-        )
     );
     // Its undo puts back exactly what was: the file out of the Trash, all else as it was.
     let out = ok(&r, "drive.share", trash).await;
@@ -140,12 +138,10 @@ async fn a_drive_revoke_runs_unasked_and_says_how_to_give_it_back_and_a_grant_st
     assert_eq!(n.len(), 1, "{n:?}");
     assert_eq!(
         n[0],
-        format!(
-            "ℹ️ FYI · Stopped sharing a Drive file\nDone unasked in conversation {sid}\n\
+        "ℹ️ FYI · Stopped sharing a Drive file\nIn “stop sharing it”, without asking you\n\
              Removed collaborator@example.test's access (writer) to Drive file doc1.\n\
              To give it back, ask Theseus to share Drive file doc1 with \
              collaborator@example.test as writer: that asks you first."
-        )
     );
     // No button: giving access back is a grant, and a grant asks at every posture.
     let out = ok(&r, "drive.share", grant.clone()).await;
@@ -229,10 +225,8 @@ async fn a_mail_trash_runs_unasked_is_told_once_and_its_undo_restores_the_labels
     assert_eq!(n.len(), 1, "{n:?}");
     assert_eq!(
         n[0],
-        format!(
-            "ℹ️ FYI · Moved mail to the Trash\nDone unasked in conversation {sid}\n\
+        "ℹ️ FYI · Moved mail to the Trash\nIn “clear out my inbox”, without asking you\n\
              Moved 2 Gmail thread(s) to the Trash: t1, p2.\nUndo takes them out of the Trash."
-        )
     );
     // The undo names the kind that took each id: a thread, and a message.
     let out = ok(&r, "gmail.label", trash).await;
@@ -269,11 +263,9 @@ async fn a_google_call_trash_runs_unasked_and_its_undo_is_the_untrash() {
     assert_eq!(n.len(), 1, "{n:?}");
     assert_eq!(
         n[0],
-        format!(
-            "ℹ️ FYI · A Google call was made\nDone unasked in conversation {sid}\n\
+        "ℹ️ FYI · A Google call was made\nIn “trash that thread”, without asking you\n\
              gmail.users.threads.trash: POST /gmail/v1/users/me/threads/t1/trash \
              (moves to or from the trash).\nUndo runs its opposite."
-        )
     );
     let out = ok(&r, "google.call", trash).await;
     undo(&r, &out).await;

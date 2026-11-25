@@ -127,8 +127,8 @@ pub fn text(told: &Value, session_id: &str, title: Option<&str>) -> Option<Strin
     let did = told.get("did")?.as_str()?;
     let back = told.get("back").and_then(Value::as_str).unwrap_or_default();
     let in_ = match title.map(str::trim).filter(|t| !t.is_empty()) {
-        Some(t) => format!("Done unasked in the conversation «{}»", one_line(t)),
-        None => format!("Done unasked in conversation {session_id}"),
+        Some(t) => format!("In “{}”, without asking you", one_line(t)),
+        None => format!("In conversation {session_id}, without asking you"),
     };
     let body = [did, back]
         .into_iter()
@@ -189,9 +189,9 @@ mod tests {
             let s = text(&t, "ses_1", Some("tidy my inbox")).unwrap();
             assert!(crate::owner_note::is_headed(&s), "{s}");
             assert!(s.starts_with("ℹ️ FYI · "), "{s}");
-            assert!(s.contains("«tidy my inbox»"), "{s}");
+            assert!(s.contains("In “tidy my inbox”, without asking you"), "{s}");
             let s = text(&t, "ses_1", None).unwrap();
-            assert!(s.contains("conversation ses_1"), "{s}");
+            assert!(s.contains("In conversation ses_1, without asking you"), "{s}");
         }
         assert_eq!(text(&json!({"x": 1}), "ses_1", None), None);
     }
