@@ -274,8 +274,11 @@ impl Core {
         if let Some(sha) = t.args["candidate_sha256"].as_str() {
             write::drop_candidate(&self.tools.config_change.state, sha);
         }
-        let body = json!({"kind": "notice", "text": note, crate::outbox::ANNOUNCE_KEY: true});
-        if let Err(e) = self.outbox.to_operator(Some(t.session_id), body) {
+        // To the notices place when one is bound (`outbox::ANNOUNCE_KEY`).
+        if let Err(e) = self.outbox.to_operator(
+            Some(t.session_id),
+            json!({"kind": "notice", "text": note, "announce": true}),
+        ) {
             tracing::warn!(error = %format!("{e:#}"), "the owner's note about a settings act was not written");
         }
         if let Some(l) = live {
