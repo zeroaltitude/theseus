@@ -317,15 +317,21 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
     s
 }
 
-/// The reading sheet: what exists and what was drawn, the seed, what its material is and what a sample
-/// holds, fewer than asked said so, then each item numbered: its warnings, its writer's material rebuilt
-/// today, it as the view shows it, and a blank verdict.
-pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> String {
-    let whence = match &r.place {
-        Some(p) => format!("in {p}"),
-        None => "in every place".to_string(),
-    };
-    let mut out = vec![
+/// The sheet's header: what it is, how many items follow, what is drawn and from what, what each mark and
+/// label means, and the owner's bar.
+fn gists_header(whence: &str, r: &ExchangeGistsResult) -> Vec<String> {
+    vec![
+        "What this sheet is: the one-line notes Theseus wrote about its own past work, and the longer \
+         summaries it wrote of runs of exchanges, each shown beside the material it was written from, \
+         so you can check each one against its source."
+            .to_string(),
+        format!(
+            "Items that follow: {} in all, {} of them one-line notes (each headed \"Summary\") and {} of \
+             them longer summaries (each headed \"Fold node\").",
+            r.lines.len() + r.nodes.len(),
+            r.lines.len(),
+            r.nodes.len()
+        ),
         format!(
             "Reading sheet, {whence}: {} of {} one-line summaries and {} of {} first-level fold nodes \
              (seed {}; --seed {} draws the same ones again while no more are written).",
@@ -345,11 +351,38 @@ pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> Stri
          none is named: it can include exchanges opened by a guest or by an agent's process, and \
          lines from before a /new."
             .to_string(),
-        "Mark each one: wrong number/name/choice, other error, or ok. An item marked !! may not show \
-         what its writer was given: skip it, or judge it knowing that. Nothing here is stored; keep \
+        "What each mark and label means: a line starting \"==\" heads an item (which one it is, where and \
+         when it was written, by which model, and by which version of the writer: \"writer 1\" is older \
+         than today's). \"-- Its writer's material, rebuilt today\" is what the note or summary was \
+         written from. \"-- The summary, as the view shows it\" (or \"The node\") is the note or \
+         summary itself, as Theseus sees it. The blank \"Verdict\" line ending each item is yours to \
+         fill in."
+            .to_string(),
+        "A line starting \"!!\", right under an item's heading, is a warning: that item's material may \
+         not be what its writer was given (an older writer, or a source gone from the store). Skip \
+         it, or judge it knowing that."
+            .to_string(),
+        "Mark each one: wrong number/name/choice, other error, or ok. Nothing here is stored; keep \
          your counts."
             .to_string(),
-    ];
+        "Your bar: of 50 notes, at most 1 with a wrong number, name or choice and at most 5 with any \
+         other error; of 10 summaries, none with a wrong number, name or choice and at most 1 with \
+         any other error. The notes are the items headed \"Summary\"; the summaries are the items \
+         headed \"Fold node\"."
+            .to_string(),
+    ]
+}
+
+/// The reading sheet: a plain header (what the sheet is, how many items follow, what each mark and label
+/// means, and the owner's bar), what exists and what was drawn, the seed, what its material is and what a
+/// sample holds, fewer than asked said so, then each item numbered: its warnings, its writer's material rebuilt
+/// today, it as the view shows it, and a blank verdict.
+pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> String {
+    let whence = match &r.place {
+        Some(p) => format!("in {p}"),
+        None => "in every place".to_string(),
+    };
+    let mut out = gists_header(&whence, r);
     for (what, total, want) in [
         ("One-line summaries", r.lines_total, asked.lines),
         ("First-level fold nodes", r.nodes_total, asked.nodes),
@@ -823,6 +856,61 @@ mod tests {
             "{text}"
         );
         assert_eq!(text.matches("Verdict: ____").count(), 1, "{text}");
+    }
+
+    /// The sheet opens for a reader who is not an engineer: what it is, how many items follow, what each
+    /// mark and label means (the `!!` mark included), and how to read it against his bar. The header comes
+    /// before the first item.
+    #[test]
+    fn the_sheet_opens_with_a_plain_header_and_its_legend() {
+        theseus_client::render::time::pin_for_tests();
+        let r = ExchangeGistsResult {
+            seed: 7,
+            lines_total: 2,
+            nodes_total: 1,
+            lines: vec![
+                GistLine {
+                    turn_id: "trn_a".into(),
+                    ..GistLine::default()
+                },
+                GistLine {
+                    turn_id: "trn_b".into(),
+                    ..GistLine::default()
+                },
+            ],
+            nodes: vec![GistNode {
+                id: "fld_a".into(),
+                ..GistNode::default()
+            }],
+            ..ExchangeGistsResult::default()
+        };
+        let text = gists_lines(&ExchangeGistsParams::default(), &r);
+        let first_item = text.find("== Summary 1 of 2").unwrap();
+        for said in [
+            "What this sheet is: the one-line notes Theseus wrote about its own past work, and the longer \
+             summaries it wrote of runs of exchanges, each shown beside the material it was written from, \
+             so you can check each one against its source.",
+            "Items that follow: 3 in all, 2 of them one-line notes (each headed \"Summary\") and 1 of \
+             them longer summaries (each headed \"Fold node\").",
+            "What each mark and label means: a line starting \"==\" heads an item",
+            "\"writer 1\" is older than today's",
+            "\"-- Its writer's material, rebuilt today\" is what the note or summary was written from",
+            "\"-- The summary, as the view shows it\" (or \"The node\") is the note or summary itself",
+            "The blank \"Verdict\" line ending each item is yours to fill in",
+            "A line starting \"!!\", right under an item's heading, is a warning: that item's material \
+             may not be what its writer was given (an older writer, or a source gone from the store). \
+             Skip it, or judge it knowing that.",
+            "Mark each one: wrong number/name/choice, other error, or ok.",
+            "Your bar: of 50 notes, at most 1 with a wrong number, name or choice and at most 5 with any \
+             other error; of 10 summaries, none with a wrong number, name or choice and at most 1 with \
+             any other error.",
+        ] {
+            let at = text.find(said);
+            assert!(
+                at.is_some_and(|a| a < first_item),
+                "{said:?} before the first item in {text}"
+            );
+        }
     }
 
     /// The command prints counts and dollars, whole and in order: the cap in

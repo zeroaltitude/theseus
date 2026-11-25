@@ -59,9 +59,9 @@
 //! be asked, and a label is not something a convenience gets to wave
 //! through. The hold is `ask`'s own, reused rather than rebuilt -- the new
 //! text waits, the unchanged files are carried as before, what the owner
-//! read does not move forward, and his `untrust` then `trust` is the yes
-//! that releases it. Only the sentence in the block differs, because the
-//! reason differs.
+//! read does not move forward, and his `theseus project trust` on the
+//! repository is the yes that releases it. Only the sentence in the block
+//! differs, because the reason differs.
 //!
 //! **There are TWO keys, and they are not the same key.**
 //!
@@ -286,26 +286,24 @@ impl Observed {
         Some(if let Some(h) = &self.held {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
-                 They are {}, so their new text is not here for any session: he grants \
-                 the repository again (`theseus project untrust`, then `theseus project \
-                 trust` naming this session's directory) once he has read it.",
+                 They are {}, so their new text is not here for any session: he accepts \
+                 what is there with `theseus project trust` naming this session's \
+                 directory, once he has read it.",
                 held_since(&h.by)
             )
         } else if self.flagged {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
                  This session carries the `injection` label, so their new text is not \
-                 here: he grants the repository again (`theseus project untrust`, then \
-                 `theseus project trust` naming this session's directory) once he has \
-                 read it."
+                 here: he accepts what is there with `theseus project trust` naming this \
+                 session's directory, once he has read it."
             )
         } else if self.ask {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
                  He asks to see a change before it is read, so their new text is not \
-                 here: he grants the repository again (`theseus project untrust`, then \
-                 `theseus project trust` naming this session's directory) once he has \
-                 read it."
+                 here: he accepts what is there with `theseus project trust` naming this \
+                 session's directory, once he has read it."
             )
         } else {
             format!(
