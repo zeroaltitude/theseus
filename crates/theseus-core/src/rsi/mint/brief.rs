@@ -113,12 +113,10 @@ pub fn brief(skeleton: &serde_json::Value, kind: Kind, build: &[&Occurrence]) ->
          better: a model is never told to use a tool.\n\n\
          The skeleton the miner wrote (evidence is counts and costs):\n{skeleton}\n\n\
          The recorded instances you may look at, by id ({n}):\n{ids}\n\n\
-         Other recorded instances are held back to check the tool; you do not see them.\n\n\
-         {testimony}\n",
+         Other recorded instances are held back to check the tool; you do not see them.\n",
         kind = kind.name(),
         n = ids.len(),
         ids = ids.join("\n"),
-        testimony = crate::rsi::backlog::brief::TESTIMONY,
     )
 }
 
