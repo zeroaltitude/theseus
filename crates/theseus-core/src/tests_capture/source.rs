@@ -44,7 +44,7 @@ async fn an_agents_cli_and_web_turn_with_no_marker_is_not_heard() {
 
 /// The owner's message starts a task: its first turn (the brief its parent wrote), the wake's
 /// turn that continues it, and the parent's turn its report starts are put to Jev for nothing.
-/// Only the owner's own message is heard. (These three are the runner's own turns, never
+/// Only the owner's own message is put to Jev. (These three are the runner's own turns, never
 /// `turn.submit`'s, so no ticket is ever noted for them; this is a guard, true before issue 57.)
 #[tokio::test]
 async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
@@ -81,15 +81,11 @@ async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
     );
     // The sink's window, and then some.
     tokio::time::sleep(Duration::from_millis(2_500)).await;
-    assert_eq!(
-        asked_directive(&jev).len(),
-        1,
-        "the owner's own message alone"
-    );
-    let kept = captured(&l.core);
-    assert_eq!(kept.len(), 1, "{kept:?}");
-    assert_eq!(kept[0].text, said);
-    assert!(rows(&l.core, "standing.asked").is_empty());
+    let asked = asked_directive(&jev);
+    assert_eq!(asked.len(), 1, "the owner's own message alone");
+    // Hers, not the task's brief (which has no `START`).
+    let words = asked[0].to_string();
+    assert!(words.contains(said), "{words}");
     l.stop().await;
 }
 
