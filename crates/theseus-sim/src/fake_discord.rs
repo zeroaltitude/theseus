@@ -603,6 +603,9 @@ struct State {
     /// A voice channel's status answers 403, as Discord does a bot without
     /// Set Voice Channel Status (theseus-arp9l).
     refuse_voice_status: bool,
+    /// A message create in a channel named here answers its status, and
+    /// nothing lands (`fail_creates_in`).
+    fail_creates: BTreeMap<u64, u16>,
     /// Each voice-status write that landed, in order: (when, channel, text).
     voice_statuses: Vec<(u64, String, String)>,
     /// The file the guild is read from again at every request (M4 19c), so a
@@ -1427,6 +1430,23 @@ impl FakeDiscord {
         mode: Mode,
     ) -> std::io::Result<()> {
         let now = now_ms();
+        let failed = channel
+            .parse()
+            .ok()
+            .and_then(|c: u64| self.state.lock().unwrap().fail_creates.get(&c).copied());
+        if let Some(status) = failed {
+            self.record(seen(
+                "POST",
+                &format!("/channels/{channel}/messages"),
+                "failed",
+            ));
+            let (message, code) = match status {
+                403 => ("Missing Permissions", 50013),
+                404 => ("Unknown Channel", 10003),
+                _ => ("Service Unavailable (fake)", 0),
+            };
+            return reply(stream, status, &json!({"message": message, "code": code}));
+        }
         if let Some(why) = v2_refusal(
             body["flags"].as_u64().unwrap_or(0),
             &body["content"],

@@ -95,6 +95,17 @@ impl FakeDiscord {
         self.state.lock().unwrap().refuse_channels = refuse;
     }
 
+    /// A message create in `channel` answers `status` (403 Missing
+    /// Permissions, 404 Unknown Channel, or a 5xx) and lands nothing, until
+    /// `None` lets creates there through again; other channels are untouched.
+    pub fn fail_creates_in(&self, channel: u64, status: Option<u16>) {
+        let mut st = self.state.lock().unwrap();
+        match status {
+            Some(s) => st.fail_creates.insert(channel, s),
+            None => st.fail_creates.remove(&channel),
+        };
+    }
+
     /// Whether `id` is a channel or category the bot made.
     fn is_made_channel(&self, id: &str) -> bool {
         let c: u64 = id.parse().unwrap_or(0);
