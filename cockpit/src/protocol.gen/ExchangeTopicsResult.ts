@@ -33,6 +33,16 @@ unproven: number, unproven_not_acting: number,
  */
 declared: number, unplaced: number, 
 /**
+ * Of the declared, those in a channel bound private, where its listed
+ * members' words arrive too and nothing stored tells theirs from his.
+ */
+private_channel: number, 
+/**
+ * Of the unproven, those in a direct message no stored record shows to
+ * be his (the place code is written for every bound DM): out.
+ */
+unshown_dm: number, 
+/**
  * The run counted his declaration (`include_unmarked`).
  */
 include_unmarked: boolean, 
