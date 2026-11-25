@@ -124,6 +124,11 @@ impl Core {
                 };
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
+            // No method of its own: the settings undo's own write, in the core.
+            Undo::ConfigUndo(n) => self
+                .undo_change_pressed(*n, &who.label, &who.via())
+                .map(drop)
+                .map_err(|e| RpcFailure::invalid(anyhow::anyhow!(e))),
         }
     }
 }
