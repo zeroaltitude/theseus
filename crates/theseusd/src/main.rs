@@ -1304,6 +1304,19 @@ fn own_file_first_start(core: &Core) {
     }
 }
 
+/// The first of what runs once the socket answers: the ladder's warm read
+/// begun, then the serving rows. The ladder (M5 26a): each pack's mode, read
+/// once the socket answers, and the adoptions it lacks written then, never on
+/// the start path. Begun first, on the blocking pool: until it has read, every
+/// pack that would act judges in shadow, so the steps after it that write (the
+/// own file's first start passes the store's barrier) would hold a fresh
+/// daemon's first message out of routing.
+fn serving_begins(core: &Arc<Core>, serving: u64) {
+    tracing::info!(serving_ms = serving / 1000, "serving");
+    core.warm_ladder();
+    core.announce_serving(serving);
+}
+
 /// What runs once the socket answers: the kernel's startup report and the
 /// start path's phases in the ledger (one frame), the kernel's counts in the
 /// log, the index tender (the socket daemon's, row 51), and the GitHub token
@@ -1323,15 +1336,7 @@ async fn after_serving(
     mode: &'static str,
 ) {
     let serving = core.startup_log.us(Instant::now());
-    tracing::info!(serving_ms = serving / 1000, "serving");
-    // The ladder (M5 26a): each pack's mode, read once the socket answers,
-    // and the adoptions it lacks written then, never on the start path. Begun
-    // first, on the blocking pool: until it has read, every pack that would
-    // act judges in shadow, so the steps below that write (the own file's
-    // first start passes the store's barrier) would hold a fresh daemon's
-    // first message out of routing.
-    core.warm_ladder();
-    core.announce_serving(serving);
+    serving_begins(&core, serving);
     // The crash file the last run left, if it panicked: said and kept.
     core.report_crash(&state_dir, mode);
     // A test's planted panic (a debug build's `THESEUS_TEST_PANIC`).
