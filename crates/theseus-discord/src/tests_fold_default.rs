@@ -327,8 +327,10 @@ async fn a_place_that_silences_tool_lines_creates_its_fold_silent() {
 }
 
 /// A value the vault resolved, in a call's input and in the thinking: it is
-/// in no version of the fold, closed, opened by a press, or edited live
-/// while open; the open fold shows the call's line, masked.
+/// in no version of the fold. The fold is opened while a command holds at a
+/// gate, so an open version shows it running; the gate opens, and a later
+/// open version, edited live, shows it done. Every version, closed, opened by
+/// the press and edited live while open, is masked.
 #[tokio::test]
 async fn a_vault_value_is_in_no_version_of_a_fold() {
     const VALUE: &str = "jev-test-key-0123456789";
@@ -337,8 +339,11 @@ async fn a_vault_value_is_in_no_version_of_a_fold() {
             std::fs::create_dir_all(dir.join("work")).unwrap();
             let p = dir.join("work").join(format!("{VALUE}.txt"));
             std::fs::write(&p, "x\n").unwrap();
-            let q = dir.join("work").join(format!("again-{VALUE}.txt"));
-            std::fs::write(&q, "x\n").unwrap();
+            let gate = dir.join("work").join("gate");
+            let wait = format!(
+                "while [ ! -f {} ]; do sleep 0.1; done; echo {VALUE}",
+                gate.to_string_lossy()
+            );
             vec![
                 Scripted::Blocks {
                     blocks: vec![
@@ -350,7 +355,7 @@ async fn a_vault_value_is_in_no_version_of_a_fold() {
                 },
                 Scripted::tools(
                     "",
-                    &[("v2", "proc_run", json!({"argv": ["sh", "-c", format!("sleep 2; cat {}", q.to_string_lossy())]}))],
+                    &[("v2", "proc_run", json!({"argv": ["sh", "-c", wait]}))],
                 ),
                 Scripted::text("Read it."),
             ]
@@ -359,39 +364,32 @@ async fn a_vault_value_is_in_no_version_of_a_fold() {
     )
     .await;
     r.say((ANA, "ana"), None, "Read the key file.");
-    r.until("the fold of the first call", || {
+    r.until("the fold, the command running", || {
         folds(&r, ANA_DM)
             .first()
-            .is_some_and(|f| f.content.contains("1 read"))
+            .is_some_and(|f| f.content.contains("1 command"))
     })
     .await;
     let f = folds(&r, ANA_DM).remove(0);
     r.press(&f.id, "Show steps", (ANA, "ana"));
-    r.until("open while the turn runs, then its last state", || {
+    r.until("open, the command still held", || {
         let m = message(&r, ANA_DM, &f.id);
-        m.content.contains("`fs.read`")
-            && r.posted(ANA_DM)
-                .iter()
-                .any(|m| m.content.contains("Read it."))
-            && r.core.outbox.status("discord").pending == 0
+        m.content.contains("`proc.run`") && m.content.contains('⏳')
     })
     .await;
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    let held = message(&r, ANA_DM, &f.id);
+    std::fs::write(r.dir.path().join("work").join("gate"), "").unwrap();
+    r.until("a later open version, the command done", || {
+        let m = message(&r, ANA_DM, &f.id);
+        m.versions.len() > held.versions.len() && m.content.contains("✅ `proc.run`")
+    })
+    .await;
     let m = message(&r, ANA_DM, &f.id);
-    assert!(m.versions.len() >= 3, "closed, opened, edited: {m:#?}");
+    assert_ne!(m.content, held.content, "edited live while open");
+    assert!(labels(&m).contains(&"Hide steps".to_string()), "{m:#?}");
     for v in &m.versions {
         assert!(!v.contains(VALUE), "the value left in {v:?}");
     }
-    assert!(m.content.contains("`fs.read`"), "{m:#?}");
-    r.press(&f.id, "Hide steps", (ANA, "ana"));
-    r.until("closed", || {
-        labels(&message(&r, ANA_DM, &f.id)).contains(&"Show steps".to_string())
-    })
-    .await;
-    assert!(message(&r, ANA_DM, &f.id)
-        .versions
-        .iter()
-        .all(|v| !v.contains(VALUE)));
 }
 
 /// A call that waits for approval: the fold is written before the card,

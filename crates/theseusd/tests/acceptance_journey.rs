@@ -18,6 +18,7 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -443,7 +444,25 @@ impl Rig {
             .collect()
     }
 
-    /// The bot's message whose first text holds `needle`, as it reads now.
+    /// The messages the binding wrote as a turn's fold, by its own record: the Discord ledger's
+    /// rows whose key (`part`) is `<turn>:fold`, the lane's key for that message (issue 56).
+    fn fold_ids(&self) -> BTreeSet<String> {
+        let t = common::rpc::call(
+            &self.s.path("sock"),
+            "ledger.tail",
+            json!({"n": 5000, "kind": "discord.message.out"}),
+        )
+        .expect("the Discord ledger's rows");
+        t["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| r["data"]["part"].as_str().is_some_and(|p| p.ends_with(":fold")))
+            .filter_map(|r| r["data"]["message_id"].as_str().map(str::to_string))
+            .collect()
+    }
+
+        /// The bot's message whose first text holds `needle`, as it reads now.
     fn latest(&self, needle: &str) -> Option<Msg> {
         self.bot_messages()
             .into_iter()
@@ -593,13 +612,11 @@ fn is_tool_fold(rest: &str) -> bool {
     tail.len() < after.len() && tail.starts_with(" earlier call(s)")
 }
 
-/// A turn's folded steps (issue 56, `render/fold.rs`): one closed line per turn, the default
-/// layout, that counts the turn's calls -- `N step(s): <families>`, after the thinking's
-/// `💭 thought for N s · ` or `💭 thinking · ` when the turn thought -- and nothing more. It is
-/// tool activity and nothing else: the line is built only from the calls, so it rings as the tool
-/// lines it stands for did. Matched by its whole head, digits then ` step: ` or ` steps: `, so a
-/// fold of thinking alone (`-# 💭 thought for 1 s`) stays what it was, held silent, and no other
-/// subtext that opens with a number (`-# 2 turns · …`) is taken for one.
+/// The head of a turn's folded steps (issue 56, `render/fold.rs`), the default layout: one closed
+/// line per turn that counts the turn's calls -- `N step(s): <families>`, after the thinking's
+/// `💭 thought for N s · ` or `💭 thinking · ` when the turn thought. Text alone never makes a
+/// message a fold: the model can write these very bytes in an answer, and a notice can quote
+/// them. `kind` asks this only of a message the binding's own record says is a fold.
 fn is_steps_fold(rest: &str) -> bool {
     let rest = ["💭 thinking · "]
         .into_iter()
@@ -613,6 +630,31 @@ fn is_steps_fold(rest: &str) -> bool {
         .unwrap_or(rest);
     let tail = rest.trim_start_matches(|c: char| c.is_ascii_digit());
     tail.len() < rest.len() && (tail.starts_with(" step: ") || tail.starts_with(" steps: "))
+}
+
+/// What kind of interrupt a bot message is: `kind_of` its first words, except that a message the
+/// binding wrote as a turn's fold (`fold`: the Discord ledger's row for it names the key
+/// `<turn>:fold`, the lane's own record of what it wrote there) whose text has the fold's head is
+/// tool activity. Both, never one: a fold's provenance with other text, or the fold's text in a
+/// message that is no fold (an answer or a notice that begins with it), is whatever `kind_of` says.
+fn kind(text: &str, fold: bool) -> &'static str {
+    let folded = fold && text.strip_prefix(SUBTEXT).is_some_and(is_steps_fold);
+    if folded {
+        "tool"
+    } else {
+        kind_of(text)
+    }
+}
+
+/// Of the bot's first texts, each with whether its record says it is a fold and whether it was
+/// created silent: how many are tool activity, and how many of those rang.
+fn tool_activity(lines: &[(&str, bool, bool)]) -> (usize, usize) {
+    let tools: Vec<&(&str, bool, bool)> = lines
+        .iter()
+        .filter(|(t, fold, _)| kind(t, *fold) == "tool")
+        .collect();
+    let rang = tools.iter().filter(|(_, _, silent)| !silent).count();
+    (tools.len(), rang)
 }
 
 /// Every bot message as one block, for a failure to be read against: it is the dump each of the
@@ -644,9 +686,10 @@ fn kind_of(text: &str) -> &'static str {
         "finish"
     } else if text.contains('❌') && text.contains("Task") {
         "failure"
-    } else if text.strip_prefix(SUBTEXT).is_some_and(|rest| {
-        TOOL_MARKS.iter().any(|m| rest.starts_with(m)) || is_tool_fold(rest) || is_steps_fold(rest)
-    }) {
+    } else if text
+        .strip_prefix(SUBTEXT)
+        .is_some_and(|rest| TOOL_MARKS.iter().any(|m| rest.starts_with(m)) || is_tool_fold(rest))
+    {
         "tool"
     } else {
         "chat"
@@ -988,14 +1031,14 @@ impl Journey {
     /// (CLOUD_REPORT.md). Returns the rings' counts and the closest two in one conversation.
     /// What is created silent, and the tool lines that are not. Returns how many tool activity
     /// lines the journey made and how many of them rang, for the script's report.
-    fn created_silent(&self, all: &[Msg]) -> (usize, usize) {
+    fn created_silent(&self, all: &[Msg], folds: &BTreeSet<String>) -> (usize, usize) {
         for m in all {
             let t = &m.versions[0];
             // Subtext this clause was written for: the pointers and the notices. A tool line is
             // subtext too since theseus-sju2s, so the prefix is no longer the whole test -- the
             // kind is (see `kind_of`), and tool activity goes on ringing as it did before that
             // commit. Widening this back to the bare prefix is the red of 2026-11-13.
-            let incidental = t.starts_with(SUBTEXT) && kind_of(t) != "tool";
+            let incidental = t.starts_with(SUBTEXT) && kind(t, folds.contains(&m.id)) != "tool";
             if t.starts_with("📋 **Tasks**")
                 || t.starts_with('🧵')
                 || incidental
@@ -1010,17 +1053,17 @@ impl Journey {
         // is allowed to ring, a pointer is not. If the daemon ever silences tool lines by default,
         // this fails on purpose -- that is a behaviour change on a surface the owner watches, and
         // it is to be made deliberately, not inherited from a quiet default.
-        let tools: Vec<&Msg> = all
+        let lines: Vec<(&str, bool, bool)> = all
             .iter()
-            .filter(|m| kind_of(&m.versions[0]) == "tool")
+            .map(|m| (m.versions[0].as_str(), folds.contains(&m.id), m.silent()))
             .collect();
+        let (tools, rang) = tool_activity(&lines);
         assert!(
-            !tools.is_empty(),
+            tools > 0,
             "h9tu1 3: the journey made no tool activity line, so the subtext exemption is \
              untested; the bot's messages:\n{}",
             dump(all)
         );
-        let rang = tools.iter().filter(|m| !m.silent()).count();
         assert!(
             rang >= 1,
             "h9tu1 3: every tool line was created silent; a tool line rings unless its place \
@@ -1028,17 +1071,18 @@ impl Journey {
              the bot's messages:\n{}",
             dump(all)
         );
-        (tools.len(), rang)
+        (tools, rang)
     }
 
     fn interrupts(&self) -> Value {
         let all = self.r.bot_messages();
-        let (tool_lines, tools_rang) = self.created_silent(&all);
+        let folds = self.r.fold_ids();
+        let (tool_lines, tools_rang) = self.created_silent(&all, &folds);
         let rings: Vec<&Msg> = all.iter().filter(|m| !m.silent()).collect();
         let count = |k: &str| {
             rings
                 .iter()
-                .filter(|m| kind_of(&m.versions[0]) == k)
+                .filter(|m| kind(&m.versions[0], folds.contains(&m.id)) == k)
                 .count()
         };
         let (questions, finishes, failures) =
@@ -1053,7 +1097,7 @@ impl Journey {
         // card of a question in its channel inside the window before it.
         let cards: Vec<&Msg> = all
             .iter()
-            .filter(|m| kind_of(&m.versions[0]) == "question")
+            .filter(|m| kind(&m.versions[0], folds.contains(&m.id)) == "question")
             .collect();
         assert_eq!(
             cards.len(),
@@ -1088,7 +1132,7 @@ impl Journey {
         // counted in `tool_lines_rang` instead, which says the same thing more exactly.
         let chat: Vec<String> = rings
             .iter()
-            .filter(|m| kind_of(&m.versions[0]) == "chat")
+            .filter(|m| kind(&m.versions[0], folds.contains(&m.id)) == "chat")
             .map(|m| {
                 format!(
                     "{}: {}",
@@ -1103,7 +1147,7 @@ impl Journey {
         // about the interrupts a task path makes. The set here is what `!= "chat"` meant before.
         for m in rings
             .iter()
-            .filter(|m| matches!(kind_of(&m.versions[0]), "question" | "finish" | "failure"))
+            .filter(|m| matches!(kind(&m.versions[0], folds.contains(&m.id)), "question" | "finish" | "failure"))
         {
             by_channel
                 .entry(m.channel.as_str())
@@ -1216,10 +1260,6 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
         "-# … 3 earlier call(s) · 🔔 2 notified",
         "-# … 1 earlier call(s)",
         "-# … 12 earlier call(s)",
-        "-# 3 steps: 2 reads, 1 search",
-        "-# 1 step: 1 edit · 1 waiting for approval",
-        "-# 💭 thought for 6 s · 1 step: 1 read",
-        "-# 💭 thinking · 2 steps: 1 command, 1 other call · 1 in the background",
     ] {
         assert_eq!(kind_of(t), "tool", "tool activity, free to ring: {t}");
     }
@@ -1247,10 +1287,6 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
         // being asserted.
         "-# …cut; `theseus agenda` has the rest",
         "-# … (25 more characters)",
-        // Near the fold's line and not it: a number that counts no steps, and steps no number counts.
-        "-# 3 stepsisters",
-        "-# steps: 2 reads",
-        "-# 💭 thought for 6 s",
     ] {
         assert!(
             t.starts_with(SUBTEXT),
@@ -1262,6 +1298,45 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
             "a pointer or a notice, which the journey still holds silent: {t}"
         );
     }
+    // A turn's fold (issue 56): tool activity only when the binding's own record says the message
+    // is a fold AND its text has the fold's head; either alone is not one.
+    let folds = [
+        "-# 3 steps: 2 reads, 1 search",
+        "-# 1 step: 1 edit · 1 waiting for approval",
+        "-# 💭 thought for 6 s · 1 step: 1 read",
+        "-# 💭 thinking · 2 steps: 1 command, 1 other call · 1 in the background",
+    ];
+    for t in folds {
+        assert_eq!(kind(t, true), "tool", "a fold, by its record and its head: {t}");
+        assert_ne!(kind(t, false), "tool", "the head alone is no fold: {t}");
+    }
+    for t in [
+        "-# 3 stepsisters",
+        "-# steps: 2 reads",
+        "-# 💭 thought for 6 s",
+        "-# moved to <#2>",
+    ] {
+        assert_ne!(kind(t, true), "tool", "a fold's record, not its head: {t}");
+    }
+    // An ordinary answer and a notice that begin with a fold's exact text: neither is tool
+    // activity, and neither satisfies "one of them rang"; the real fold beside them does.
+    let answer = "-# 1 step: 1 other call\nLow tide by the north chart is at 06:12.";
+    let notice = "-# 1 step: 1 other call · this task works in <#2>.";
+    for t in [answer, notice] {
+        assert_ne!(kind(t, false), "tool", "no fold: {t}");
+    }
+    assert_eq!(
+        tool_activity(&[(answer, false, false), (notice, false, false)]),
+        (0, 0)
+    );
+    assert_eq!(
+        tool_activity(&[
+            (answer, false, false),
+            (notice, false, false),
+            ("-# 1 step: 1 other call", true, false),
+        ]),
+        (1, 1)
+    );
 }
 
 /// The journey, step by step. Each step's assertions are named after it.

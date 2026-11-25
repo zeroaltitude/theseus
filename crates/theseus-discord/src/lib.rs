@@ -42,6 +42,8 @@ mod tests_fold;
 #[cfg(test)]
 mod tests_fold_default;
 #[cfg(test)]
+mod tests_fold_outage;
+#[cfg(test)]
 mod tests_fold_press;
 #[cfg(test)]
 mod tests_forum_archive;
