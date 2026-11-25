@@ -69,8 +69,14 @@ fn trial(model: &FakeModel, jev: &FakeJev, spend_limit_usd: f64) -> tempfile::Te
 /// `theseus --spawn <theseusd> <args>` in a trial's directory, as the
 /// adapter's run script runs it, with both keys in its environment.
 fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
+    theseus_with(dir, args, &[])
+}
+
+/// [`theseus`], with more of the environment.
+fn theseus_with(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> (i32, String, String) {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let out = Command::new(common::cli_bin())
+        .envs(env.iter().copied())
         .arg("--spawn")
         .arg(&theseusd)
         .arg("--json")
@@ -177,6 +183,22 @@ fn the_first_message_of_a_fresh_daemon_is_routed_live() {
         seen.iter().all(|s| s.bearer_len == Some(JEV.len())),
         "{seen:?}"
     );
+}
+
+/// The first message of a fresh daemon is routed live when the steps after
+/// serving that write are slow: the ladder's read, which a pack waits for
+/// before it acts, goes before them.
+#[test]
+fn the_first_message_is_routed_live_while_the_steps_after_serving_are_slow() {
+    let model = FakeModel::start(no_calls);
+    let jev = FakeJev::start().unwrap();
+    script_pick(&jev, "opus", 0.95);
+    let dir = trial(&model, &jev, ROUTED_LIMIT);
+    let slow = [("THESEUS_TEST_SLOW_AFTER_SERVING_MS", "1500")];
+    let (code, out, err) = theseus_with(dir.path(), &["ask", "fix the failing build"], &slow);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let turn: Value = serde_json::from_str(&out).unwrap_or(Value::Null);
+    assert_eq!(turn["profile"], "opus", "{out}\n{err}");
 }
 
 /// The Jev key is in no file, no row, no output, and no request to the model.
