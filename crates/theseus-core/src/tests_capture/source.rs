@@ -69,10 +69,17 @@ async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
     .await;
     assert!(res.error.is_none(), "{:?}", res.error);
     let waits = res.result.as_ref().map(|v| v["awaiting_confirm"].clone());
-    assert!(waits.as_ref().is_some_and(Value::is_null), "{:?}", res.result);
+    assert!(
+        waits.as_ref().is_some_and(Value::is_null),
+        "{:?}",
+        res.result
+    );
     let tasks = |core: &Core| {
         let rec: crate::session::SessionRecord = core.store.get_session(&parent).unwrap().unwrap();
-        core.kernel.tasks(rec.execution_id.as_deref()).unwrap().len()
+        core.kernel
+            .tasks(rec.execution_id.as_deref())
+            .unwrap()
+            .len()
     };
     within("the task", 10, || tasks(&l.core) == 1).await;
     let task = only_task(&l.core, &parent);
