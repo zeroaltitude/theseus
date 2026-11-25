@@ -230,7 +230,7 @@ fn a_keep_goes_from_the_card_through_the_real_program_into_the_vault() {
 
     let (code, out) = r.at_a_terminal(
         &["vault", "keep"],
-        &[(CODE_PROMPT, "{code:0}"), (VALUE_PROMPT, VALUE)],
+        &[(VALUE_PROMPT, VALUE)],
         "\n",
     );
     assert_eq!(code, 0, "{out}\n{}", r.s.log());
@@ -290,22 +290,19 @@ fn the_terminal_says_why_nothing_waits_and_leaves_a_row() {
     assert!(listed.iter().all(|l| l["pid"].is_u64() && l["cards"] == 0));
 }
 
-/// No authenticator app is enrolled: said before any prompt, from the daemon's
-/// answer to the first question. No code is asked, no value is asked.
+/// No authenticator app is enrolled, and a keep card takes no code (issue 54):
+/// nothing is said of one, no code is asked, and the value is asked for and
+/// kept.
 #[test]
-fn no_authenticator_is_said_before_any_prompt() {
+fn no_authenticator_is_needed_for_a_keep_card() {
     let r = Rig::start();
     r.card();
-    let (code, out) = r.at_a_terminal(&["vault", "keep"], &[], "");
-    assert_eq!(code, 1, "{out}");
-    assert!(out.contains("none is enrolled yet"), "{out}");
-    assert!(out.contains("theseus owner proof enroll"), "{out}");
-    assert!(
-        !out.contains(CODE_PROMPT) && !out.contains(VALUE_PROMPT),
-        "{out}"
-    );
-    assert_eq!(r.keep_rows("listed")[0]["why"], "blocked");
-    assert!(r.keep_rows("kept").is_empty());
+    let (code, out) = r.at_a_terminal(&["vault", "keep"], &[(VALUE_PROMPT, VALUE)], "");
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("none is enrolled yet"), "{out}");
+    assert!(!out.contains(CODE_PROMPT), "{out}");
+    assert_eq!(r.keep_rows("kept").len(), 1);
+    r.value_nowhere(&out);
 }
 
 /// A vault the account may not write in gets no card, and the owner is told
@@ -349,11 +346,7 @@ fn a_run_that_ends_at_a_prompt_says_how_and_leaves_a_row() {
     let card = r.card();
     let (code, out) = r.at_a_terminal(
         &["vault", "keep"],
-        &[
-            (CODE_PROMPT, "{code:0}"),
-            (VALUE_PROMPT, ""),
-            (VALUE_PROMPT, ""),
-        ],
+        &[(VALUE_PROMPT, ""), (VALUE_PROMPT, "")],
         "",
     );
     assert_eq!(code, 1, "{out}");
@@ -364,7 +357,7 @@ fn a_run_that_ends_at_a_prompt_says_how_and_leaves_a_row() {
     );
     let (code, out) = r.at_a_terminal(
         &["vault", "keep"],
-        &[(CODE_PROMPT, "{code:1}"), (VALUE_PROMPT, "<EOF>")],
+        &[(VALUE_PROMPT, "<EOF>")],
         "",
     );
     assert_eq!(code, 1, "{out}");
@@ -394,7 +387,9 @@ fn a_keep_asks_no_code_even_with_an_authenticator_paired() {
     assert_eq!(r.keep_rows("kept").len(), 1);
     assert!(r.cards().is_empty());
     assert_eq!(
-        common::vault::stored(r.vault.path()).as_deref().map(str::trim),
+        common::vault::stored(r.vault.path())
+            .as_deref()
+            .map(str::trim),
         Some(VALUE)
     );
     r.value_nowhere(&out);

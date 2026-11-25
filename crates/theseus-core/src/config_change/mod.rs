@@ -342,6 +342,7 @@ pub fn flag_way_in(place: Option<&str>, session_id: &str) -> String {
         }
         _ => {
             let n = session_id.chars().count();
+            // plain cut: a session id's last four characters
             let tail: String = session_id.chars().skip(n.saturating_sub(4)).collect();
             format!("`theseus content remove {tail} injection`")
         }

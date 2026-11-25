@@ -5,7 +5,8 @@
 or a replaced value alike. A card asked before that change keeps the mark it was asked with. Everything else below stands:
 the value is typed only where the owner alone sees it, an item Theseus's own settings read is never replaced by a turn, an
 agent's process is refused (`keep_wall`), and the owner's terminal `vault.keep` with no card still takes a fresh code. Where
-the text below speaks of the card's code, it describes cards asked before issue 54.
+the text below speaks of the card's code, it describes cards asked before issue 54. The terminal and the Discord form read the card's own mark: a card
+asked with none asks no code at either, and needs no authenticator app paired (`rpc/vault_keep_waiting.rs`).
 
 The owner asks Theseus to keep a secret (a provider's key, say). Its value must reach the vault without passing through a
 turn, a card, a record or a log: a value typed in chat goes to the model's provider and into the store, where it cannot be
