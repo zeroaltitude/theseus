@@ -4,4 +4,9 @@ export type McpLogoutResult = { name: string,
 /**
  * Whether a sign-in was kept, and is now forgotten.
  */
-forgot: boolean, revoked: boolean, note?: string, };
+forgot: boolean, revoked: boolean, note?: string, 
+/**
+ * Its kept file could not be removed: it would be used again when the
+ * daemon next starts.
+ */
+kept_remains?: boolean, };

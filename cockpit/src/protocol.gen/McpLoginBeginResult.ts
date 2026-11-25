@@ -3,6 +3,7 @@
 /**
  * The address the owner opens, which holds no secret (a client id, a PKCE
  * challenge, a state), the host it signs in at, and how the redirect comes.
+ * Its `Debug` prints none of what a server chose.
  */
 export type McpLoginBeginResult = { 
 /**
@@ -21,4 +22,10 @@ redirect: string,
  * How long the sign-in stays open, in seconds, and when the CLI offers
  * the paste.
  */
-expires_secs: number, paste_after_secs: number, };
+expires_secs: number, paste_after_secs: number, 
+/**
+ * Every other host what the sign-in returns is sent to (its endpoints
+ * are not on the issuer's own address): the CLI names each and asks the
+ * owner to agree before it shows the address.
+ */
+elsewhere?: Array<string>, };

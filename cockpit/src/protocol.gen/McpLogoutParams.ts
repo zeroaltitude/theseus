@@ -2,6 +2,6 @@
 
 /**
  * `mcp.logout`: forget a server's sign-in, revoked at its server when it
- * offers that. The CLI's alone.
+ * offers that. Admitted from the CLI's surface alone.
  */
 export type McpLogoutParams = { name: string, };

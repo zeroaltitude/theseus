@@ -9,4 +9,8 @@ export type McpLoginFinishParams = { login_id: string, pasted?: string,
  * With no paste: wait this long for the redirect (seconds), then answer
  * `waiting`.
  */
-wait_secs: number, };
+wait_secs: number, 
+/**
+ * The owner agreed to the other hosts `elsewhere` named.
+ */
+agreed?: boolean, };

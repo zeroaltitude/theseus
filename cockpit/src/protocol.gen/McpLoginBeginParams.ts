@@ -2,7 +2,7 @@
 
 /**
  * `mcp.login.begin` (issue 55): start the sign-in of a server that signs in
- * (`oauth`). The CLI's alone. `manual` skips the wait for the redirect and
- * goes straight to the paste.
+ * (`oauth`). Admitted from the CLI's surface alone. `manual` skips the wait
+ * for the redirect and goes straight to the paste.
  */
 export type McpLoginBeginParams = { name: string, manual: boolean, };
