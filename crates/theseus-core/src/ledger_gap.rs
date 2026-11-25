@@ -201,9 +201,8 @@ mod tests {
     #[test]
     fn the_gap_watcher_holds_the_core_at_normal_priority() {
         let (_d, core) = crate::startup::tests::core();
-        let idle = crate::startup::tests::asked_in_idle(&core, |w| {
-            watch(&w, Duration::from_millis(1))
-        });
+        let idle =
+            crate::startup::tests::asked_in_idle(&core, |w| watch(&w, Duration::from_millis(1)));
         assert!(!idle, "the watcher asked for the core in SCHED_IDLE");
     }
 
@@ -212,9 +211,8 @@ mod tests {
     #[test]
     fn a_gap_watcher_takes_no_core_once_the_stop_has_begun() {
         let (_d, core) = crate::startup::tests::core();
-        let got = crate::startup::tests::ends_at_the_stop(&core, |w| {
-            watch(&w, Duration::from_millis(1))
-        });
+        let got =
+            crate::startup::tests::ends_at_the_stop(&core, |w| watch(&w, Duration::from_millis(1)));
         assert_eq!(got, Ok(()));
     }
 }

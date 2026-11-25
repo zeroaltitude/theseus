@@ -181,12 +181,18 @@ pub(crate) mod tests {
     /// Runs a background thread's body over `core` on a thread of its own
     /// until one of its units has asked for the core: whether one asked from
     /// `SCHED_IDLE`. The thread is left to the process's end.
-    pub(crate) fn asked_in_idle(core: &Arc<Core>, body: impl FnOnce(Weak<Core>) + Send + 'static) -> bool {
+    pub(crate) fn asked_in_idle(
+        core: &Arc<Core>,
+        body: impl FnOnce(Weak<Core>) + Send + 'static,
+    ) -> bool {
         let weak = Arc::downgrade(core);
         std::thread::spawn(move || body(weak));
         let t0 = std::time::Instant::now();
         while ASKED.load(Ordering::SeqCst) == 0 {
-            assert!(t0.elapsed() < Duration::from_secs(60), "no unit ever asked for the core");
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "no unit ever asked for the core"
+            );
             std::thread::sleep(Duration::from_millis(1));
         }
         ASKED_IN_IDLE.load(Ordering::SeqCst)
@@ -214,7 +220,10 @@ pub(crate) mod tests {
             if ended.try_recv().is_ok() {
                 return Ok(());
             }
-            assert!(t0.elapsed() < Duration::from_secs(60), "the body neither ended nor took the core");
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "the body neither ended nor took the core"
+            );
             std::thread::sleep(Duration::from_millis(1));
         }
     }

@@ -8,8 +8,9 @@
 //! - **Where.** On a thread of its own (`learning`), at nice 19, not in
 //!   `SCHED_IDLE` (issue 51: the run holds the core, and an idle-class thread
 //!   starved on a saturated machine held it past the stop's wait; it was
-//!   idle-class from theseus-tood), and at about 5% of a core: after each pack's stretch of
-//!   work it sleeps 19 times as long, as the store's history check does.
+//!   idle-class from theseus-tood), and at about 5% of a core: after each
+//!   pack's stretch of work it sleeps 19 times as long, as the store's
+//!   history check does.
 //!   Before each next pack it also waits while the machine is busy, up to
 //!   `theseus_store::pressure::BOUND`. The tender's task holds the core
 //!   weakly, and the thread holds it only for its run.
