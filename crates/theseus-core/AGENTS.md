@@ -1647,7 +1647,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `ontology.write:<judgment>`, `added_by jev:<judgment>`), an `onto.filed` row and the owner's cards to the judgment's own frame;
     the snapshot is held only after that frame is written. A mint (`new` at the act band with a `<kind>_name` at the act band,
     which files under a same-named category instead of minting twice) sends one `onto_card` post to the owner's DM with its undo;
-    a confirm-band answer sends one asking and writes nothing; a plain filing sends none; below the confirm band nothing
+    a confirm-band answer is written as an act-band one is (a `new` when its name reaches the confirm band; none, nothing)
+    and sends one `onto_card` with its undo (issue 57: told, not asked); a confirm-band project is still asked, writing
+    nothing; a plain filing sends none; below the confirm band nothing
     but the judgment's row. The operator's entries are never changed: a list full of them refuses Jev's, a refusal is a step
     in the `onto.filed` row (`disagrees`), never a panic. **The naming call** (`onto/name.rs`): `new` at the act band and no mined
     name fits, one call to `[ontology] name_profile` for three names and a line, reserved on the day ceiling, an `onto.named` row

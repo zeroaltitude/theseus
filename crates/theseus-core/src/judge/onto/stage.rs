@@ -87,9 +87,15 @@ pub fn attach(core: &Core, session: &str, project: &str) {
     }
 }
 
-/// The card a step sends, if it sends one: a mint says so with an undo; a
-/// question asks, and writes nothing; a plain filing sends none.
-fn card(plan: &Plan, step: &Step, title: Option<&str>) -> Option<serde_json::Value> {
+/// The card a step sends, if it sends one: a mint says so with an undo, and
+/// so does a filing below the act band (issue 57: it is told, not asked); a
+/// project's question asks, and writes nothing; a plain filing sends none.
+fn card(
+    plan: &Plan,
+    step: &Step,
+    title: Option<&str>,
+    bands: Bands,
+) -> Option<serde_json::Value> {
     match step {
         Step::Filed {
             kind,
@@ -100,6 +106,16 @@ fn card(plan: &Plan, step: &Step, title: Option<&str>) -> Option<serde_json::Val
         } => Some(json!({
             "kind": "onto_card", "write": plan.judgment, "undo": true,
             "text": words::minted_text(title, kind, path, *confidence, &plan.judgment),
+        })),
+        Step::Filed {
+            kind,
+            path,
+            minted: false,
+            confidence,
+            ..
+        } if *confidence < bands.act => Some(json!({
+            "kind": "onto_card", "write": plan.judgment, "undo": true,
+            "text": words::linked_text(title, kind, path, *confidence, &plan.judgment),
         })),
         Step::Ask {
             kind,
@@ -168,7 +184,8 @@ pub fn stage<'a>(core: &'a Core, batch: &[Judgment]) -> Option<Pending<'a>> {
                     .scoped(&scope(&j.id)),
             );
             for step in &plan.steps {
-                if let Some(body) = card(&plan, step, title_of(core, &plan.session).as_deref()) {
+                let title = title_of(core, &plan.session);
+                if let Some(body) = card(&plan, step, title.as_deref(), bands) {
                     let (post, more) = core.outbox.stage_to_operator(None, body)?;
                     rows.extend(more);
                     posts.push(post);
