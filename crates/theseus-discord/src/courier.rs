@@ -25,6 +25,7 @@ pub(crate) mod ask;
 mod board;
 mod catchup;
 mod held;
+mod notices;
 mod offer;
 mod recall;
 mod subagent;
@@ -893,10 +894,13 @@ impl Lane {
             "settle" => Ok(self.settled(&body)),
             "notice" | "hands_alert" => {
                 // The operator lane has no place of its own: its notices go
-                // where approvals go, as `restarted`'s do (theseus-haw2b).
+                // where approvals go, as `restarted`'s do (theseus-haw2b), and an
+                // FYI to the notices place when one is bound.
                 let (channel, extra) = match self.kind {
                     "operator" => {
-                        let (channel, place) = self.operator_channel(&body).await?;
+                        let dm = self.operator_channel(&body).await?;
+                        let t = body["text"].as_str().unwrap_or("");
+                        let (channel, place) = self.informed(kind_of(a), &body, t, dm);
                         (channel, json!({"place": place}))
                     }
                     _ => (self.place_channel().await?, json!({})),
@@ -964,7 +968,8 @@ impl Lane {
                     .filter_map(|t| t.as_str().map(str::to_string))
                     .collect();
                 let t = render::restarted(body["at_unix_ms"].as_u64().unwrap_or(0), &tables);
-                let (channel, place) = self.operator_channel(&body).await?;
+                let dm = self.operator_channel(&body).await?;
+                let (channel, place) = self.informed("restarted", &body, &t, dm);
                 Ok(Plan {
                     writes: vec![text(
                         t,
@@ -983,7 +988,8 @@ impl Lane {
             // 36b, 36c): the owner hears it.
             "mcp_changed" | "mcp_prompt_changed" => {
                 let t = mcp_note(&body);
-                let (channel, place) = self.operator_channel(&body).await?;
+                let dm = self.operator_channel(&body).await?;
+                let (channel, place) = self.informed(kind_of(a), &body, &t, dm);
                 Ok(Plan {
                     writes: vec![text(t, format!("note:{corr}"), channel, None, Event::Mcp)],
                     extra: json!({"place": place}),
@@ -1622,7 +1628,8 @@ impl Lane {
     async fn disk_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
         let t = crate::diskwords::disk_note(body);
         let ping = self.pings(policy::of_disk(body));
-        let (channel, place) = self.operator_channel(body).await?;
+        let dm = self.operator_channel(body).await?;
+        let (channel, place) = self.informed("disk", body, &t, dm);
         Ok(Plan {
             writes: vec![Write {
                 key: format!("note:{corr}"),
@@ -1642,7 +1649,6 @@ impl Lane {
     /// under its judgment's key, with its right / wrong / noise.
     async fn jev_post(&mut self, a: &Action, body: &Value) -> Result<Plan, SendErr> {
         let dm = self.owner_dm().await?;
-        let (channel, place) = self.announced(body, dm);
         let (content, key, buttons) = match kind_of(a) {
             "jev_notice" => {
                 let judgment = body["judgment"].as_str().unwrap_or(&a.correlation_id);
@@ -1710,6 +1716,7 @@ impl Lane {
                 (t, format!("note:{}", a.correlation_id), Buttons::Keep)
             }
         };
+        let (channel, place) = self.informed(kind_of(a), body, &content, dm);
         Ok(Plan {
             writes: vec![Write {
                 key,
@@ -1734,20 +1741,13 @@ impl Lane {
     /// With no announcement place bound this is `dm` itself, byte for byte,
     /// which is why a daemon that binds none writes exactly what it wrote
     /// before. The post still travels the operator's own lane — one writer,
-    /// in order — and only the channel it writes to moves.
+    /// in order — and only the channel it writes to moves. An FYI note goes
+    /// there too, by [`Lane::informed`].
     fn announced(&self, body: &Value, dm: (u64, String)) -> (u64, String) {
         if !theseus_core::outbox::announces(body) {
             return dm;
         }
-        // The owner's own word first (`notify here`, theseus-nuqut), then the
-        // bindings file's `notify = true`, then the DM.
-        if let Some(c) = self.shared.notify_said() {
-            return (c, format!("discord:channel:{c}"));
-        }
-        if self.shared.notify_dm() {
-            return dm;
-        }
-        self.shared.place_bits.notify_place().unwrap_or(dm)
+        self.notices_place(dm)
     }
 
     /// Where a Jev notice goes: the owner's DM, the one approvals go to,

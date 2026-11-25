@@ -270,3 +270,120 @@ async fn notify_off_overrides_the_file_announcement_channel() {
     assert!(!carries(&r, NOTIFY, "explicit DM announcement"));
     r.stop();
 }
+
+/// A channel the bindings file does not name.
+const UNBOUND: u64 = 900_000_000_000_000_030;
+
+/// The ontology's mint, as the core words it: an FYI with its Undo.
+fn mint(text: &str) -> serde_json::Value {
+    use theseus_core::owner_note::{note, Kind};
+    json!({"kind": "onto_card", "write": "jdg_mint", "undo": true,
+           "text": note(Kind::Fyi, "Theseus started keeping track of something new",
+                        "In \"pier\", this topic came up and Theseus had no record of it:",
+                        &format!("{text}\nUndo: `theseus ontology undo jdg_mint`"))})
+}
+
+/// An FYI the core stages as a plain notice (a sweep's stop, the persona move).
+fn fyi_notice(text: &str) -> serde_json::Value {
+    use theseus_core::owner_note::{note, Kind};
+    json!({"kind": "notice", "text": note(Kind::Fyi, "The tide sweep has stopped for today",
+                                         "its day budget", text)})
+}
+
+/// The disk came back: an FYI the binding words itself.
+fn disk_back() -> serde_json::Value {
+    json!({"kind": "disk", "state": "ok", "free_mb": 90_000, "total_mb": 100_000,
+           "warn_mb": 5_120, "floor_mb": 1_024})
+}
+
+/// With the notices place bound, an FYI that answers no conversation goes there
+/// and not to the DM, the mint keeping its Undo: the note the owner named, a plain
+/// FYI notice and one the binding words itself. A question, an alert, a card and
+/// the kept-standing note (his own words just said in his DM, answered there)
+/// stay in the DM. Both sides are counted, so an empty run cannot pass.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn with_a_notices_place_bound_an_fyi_goes_there_and_what_needs_the_owner_stays_in_the_dm()
+{
+    use theseus_core::owner_note::{note, Kind};
+    let r = rig(true).await;
+    stage(&r, mint("fyi-mint-pier"));
+    stage(&r, fyi_notice("fyi-sweep-stopped"));
+    stage(&r, disk_back());
+    let ask = note(Kind::Decision, "Is this a topic?", "a word came up", "dm-onto-ask");
+    stage(
+        &r,
+        json!({"kind": "onto_card", "write": "jdg_ask", "undo": false, "text": ask}),
+    );
+    let alert = note(Kind::Alert, "A hand ran away", "its spend", "dm-hands-alert");
+    stage(&r, json!({"kind": "hands_alert", "text": alert}));
+    let retraction = note(Kind::Decision, "Run two tasks again?", "a retraction", "dm-retraction");
+    stage(&r, json!({"kind": "retraction", "text": retraction}));
+    let kept = theseus_core::capture::kept_card("dm-kept-standing");
+    stage(
+        &r,
+        json!({"kind": "standing_card", "text": kept, "card": {"mode": "kept", "id": "std_1"}}),
+    );
+    let moved = ["fyi-mint-pier", "fyi-sweep-stopped", "back to normal"];
+    for text in moved {
+        landed(&r, NOTIFY, text).await;
+        assert!(!carries(&r, ANA_DM, text), "{text:?} only informs: not in the DM");
+    }
+    let kept_dm = ["dm-onto-ask", "dm-hands-alert", "dm-retraction", "dm-kept-standing"];
+    for text in kept_dm {
+        landed(&r, ANA_DM, text).await;
+        assert!(!carries(&r, NOTIFY, text), "{text:?} stays in the DM");
+    }
+    let posted = r.posted(NOTIFY);
+    let mint = posted
+        .iter()
+        .find(|m| m.versions[0].contains("fyi-mint-pier"))
+        .unwrap();
+    assert!(mint.versions[0].contains("started keeping track of something new"));
+    let labels: Vec<&str> = mint.buttons.iter().map(|b| b.label.as_str()).collect();
+    assert_eq!(labels, ["Undo"], "the mint keeps its undo: {mint:?}");
+    assert_eq!(mint.buttons[0].custom_id, "onto:undo:jdg_mint");
+    assert_eq!(notes(&r, NOTIFY), moved.len());
+    assert_eq!(notes(&r, ANA_DM), kept_dm.len());
+    r.stop();
+}
+
+/// With no notices place bound, every FYI is in the owner's DM, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn with_no_notices_place_bound_an_fyi_keeps_the_owners_dm() {
+    let r = rig(false).await;
+    stage(&r, mint("fyi-mint-pier"));
+    stage(&r, fyi_notice("fyi-sweep-stopped"));
+    stage(&r, disk_back());
+    for text in ["fyi-mint-pier", "fyi-sweep-stopped", "back to normal"] {
+        landed(&r, ANA_DM, text).await;
+    }
+    assert_eq!(notes(&r, ANA_DM), 3);
+    assert_eq!(notes(&r, NOTIFY), 0, "the channel took no FYI");
+    r.stop();
+}
+
+/// The place named from chat is one the bindings no longer name: the binding
+/// cannot post there, so an FYI falls back to the owner's DM and is not lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_fyi_whose_notices_place_is_not_bound_falls_back_to_the_dm() {
+    let r = Rig::start_tweaked(
+        model,
+        guild().private_channel(UNBOUND, "gone", &[ANA]),
+        &file(false),
+        &[],
+        |c| {
+            c.places.owner = Some(vec![format!("discord:{ANA}")]);
+        },
+    )
+    .await;
+    r.core
+        .store
+        .put_meta("discord.notify_place", &UNBOUND.to_string())
+        .unwrap();
+    assert_eq!(r.shared_notify_said(), Some(UNBOUND));
+    stage(&r, mint("fyi-mint-pier"));
+    landed(&r, ANA_DM, "fyi-mint-pier").await;
+    assert!(!carries(&r, UNBOUND, "fyi-mint-pier"));
+    assert_eq!(notes(&r, NOTIFY), 0);
+    r.stop();
+}
