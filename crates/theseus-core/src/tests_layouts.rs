@@ -1315,6 +1315,85 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
     );
 }
 
+/// A store of format 60 (the build before step 61: references, issue 44, and the store's look, issue 46) opens with
+/// no META `look` and its results with no parts, and opening writes nothing. Its first write, the owner's first look,
+/// moves the manifest to 61, which an older build then refuses; it then holds both, the look and a result kept by
+/// reference, whose quote reads the words its source first said. The result from before still reads with its words.
+#[test]
+fn a_format_60_store_opens_with_no_look_and_no_parts_and_takes_both() {
+    use crate::copies::since::Since;
+    use crate::node::Body;
+    use crate::quotes::{Field, Form, Part, Quote};
+    use theseus_protocol::Looked;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    let sid = rec.session_id.clone();
+    let said = Node::user(&sid, Some("turn_1"), "owner", "the heron nests by the old weir");
+    let old: Node = serde_json::from_str(TOOL_RESULT_AT_60).unwrap();
+    let at = {
+        let store = crate::store::Store::open(&path).unwrap();
+        store.put_session(&sid, &rec).unwrap();
+        let at = store.append(&[said.record().unwrap()]).unwrap()[0];
+        store.append(&[old.record().unwrap()]).unwrap();
+        at
+    };
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 60, "engine": "redb"}"#).unwrap();
+    let store = crate::store::Store::open(&path).unwrap();
+    assert_eq!(store.get_meta::<Looked>("look").unwrap(), None, "no look yet");
+    let (_, read) = store.get_node(&old.id).unwrap().unwrap();
+    let Body::ToolResult { parts, content, .. } = &read.body else {
+        panic!("it reads as a tool result");
+    };
+    assert!(parts.is_empty(), "{parts:?}");
+    assert!(content.contains("the heron nests by the old weir"), "{content}");
+    let opened: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(opened["format"], 60, "opening writes nothing");
+
+    let look = Looked {
+        position: store.last_position(),
+        at_ms: 1_790_000_000_700,
+    };
+    store.put_meta("look", &look).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 61, "the first look moved it");
+    let mut kept = read.clone();
+    kept.id = "trs_00000000000000000000000000000611".into();
+    let Body::ToolResult { parts, content, .. } = &mut kept.body else {
+        unreachable!()
+    };
+    content.clear();
+    *parts = vec![
+        Part::Code("- the owner: \u{ab}".into()),
+        Part::Quote(Quote {
+            node: said.id.clone(),
+            position: at,
+            field: Field::Text,
+            from: 0,
+            to: 31,
+            form: Form::Flat1,
+        }),
+        Part::Code("\u{bb}".into()),
+    ];
+    store.append(&[kept.record().unwrap()]).unwrap();
+    drop(store);
+
+    let again = crate::store::Store::open(&path).unwrap();
+    assert_eq!(again.get_meta::<Looked>("look").unwrap(), Some(look));
+    let (_, back) = again.get_node(&kept.id).unwrap().unwrap();
+    assert_eq!(back, kept);
+    let Body::ToolResult { parts, .. } = &back.body else {
+        unreachable!()
+    };
+    let marked = std::collections::BTreeSet::new();
+    assert_eq!(
+        crate::quotes::render(&again, parts, &Since::new(&again, &marked)).unwrap(),
+        "- the owner: \u{ab}the heron nests by the old weir\u{bb}"
+    );
+    assert_eq!(again.get_node(&old.id).unwrap().unwrap().1, old);
+}
+
 /// A message that records its surface (format 34) writes the code beside its
 /// author and reads it back; a node written before it has none, and keeps
 /// its bytes whatever the build (the sample above).

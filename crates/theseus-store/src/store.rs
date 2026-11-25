@@ -829,6 +829,8 @@ const BULK: usize = 4096;
 /// before reads them empty and writes back byte for byte; the sample is `tests_layouts::TOOL_RESULT_AT_60`, written
 /// by hand. A record whose parts are not empty holds no words of its own, which a build before this one would read
 /// as a result that said nothing: the number is what makes it refuse the store.
+/// (2) and the META key `look` (`{position, at_ms}`: where the owner last looked at this store's work board), written by
+/// `work.look` (issue 46). A store from before has none until the owner's first look, and nothing reads it at open.
 pub const MANIFEST_FORMAT: u32 = 61;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
