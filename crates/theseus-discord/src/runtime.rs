@@ -130,6 +130,8 @@ mod tests_command_reply;
 #[cfg(test)]
 mod tests_held;
 #[cfg(test)]
+mod tests_lane_back;
+#[cfg(test)]
 mod tests_steer;
 #[cfg(test)]
 mod tests_succession;
