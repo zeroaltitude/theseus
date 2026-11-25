@@ -389,7 +389,9 @@ pub fn hidden_of(catalog: &[Value], sent: &[Value]) -> Vec<HiddenTool> {
             Some(HiddenTool {
                 wire: name.to_string(),
                 family: family::of_wire(name),
-                line: crate::scrub::safe::head_with(&cuts, line, 160).0.to_string(),
+                line: crate::scrub::safe::head_with(&cuts, line, 160)
+                    .0
+                    .to_string(),
             })
         })
         .collect()
