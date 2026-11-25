@@ -17,7 +17,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use theseus_protocol::term::words;
 use theseus_protocol::LedgerKind;
 
 use serde_json::{json, Value};
@@ -269,7 +268,11 @@ fn entry(why: Row, count: u64, last: Value) -> LedgerRow {
 /// A request's header, as a ledger row keeps it: text, at most 200 characters.
 pub fn clip(v: Option<&[u8]>) -> Value {
     v.map_or(Value::Null, |b| {
-        Value::String(words::clip(&String::from_utf8_lossy(b), 200))
+        let s = String::from_utf8_lossy(b);
+        Value::String(match s.chars().count() {
+            0..=200 => s.into_owned(),
+            _ => crate::scrub::safe::head_marked(&s, 199),
+        })
     })
 }
 
@@ -449,5 +452,19 @@ mod tests {
             200
         );
         assert_eq!(clip(Some(&[0xff, b'a'])), "\u{fffd}a");
+    }
+
+    #[test]
+    fn a_header_clipped_into_a_row_holds_a_value_whole_or_not_at_all() {
+        const V: &str = "wick-2087-soba-6610-plen";
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        let path = format!("/{}{V}/after", "p".repeat(189));
+        let kept = clip(Some(path.as_bytes()));
+        let kept = kept.as_str().unwrap();
+        assert!(kept.ends_with('…'), "{kept:?}");
+        crate::tests_cut_sites::whole_or_absent("the header", kept, V);
+        let exact = "h".repeat(200);
+        assert_eq!(clip(Some(exact.as_bytes())), exact.as_str());
     }
 }

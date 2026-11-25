@@ -47,7 +47,7 @@ fn cut(s: &str) -> String {
     if s.chars().count() <= MAX {
         return s.to_string();
     }
-    let t: String = s.chars().take(MAX - 1).collect();
+    let (t, _) = crate::scrub::safe::head(s, MAX - 1);
     format!("{}…", t.trim_end())
 }
 

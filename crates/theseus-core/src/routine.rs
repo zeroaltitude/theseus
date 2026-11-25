@@ -291,11 +291,7 @@ pub fn first_line(text: &str) -> String {
         .map(str::trim)
         .find(|l| !l.is_empty())
         .unwrap_or("");
-    let mut out: String = l.chars().take(160).collect();
-    if l.chars().count() > 160 {
-        out.push('…');
-    }
-    out
+    crate::scrub::safe::head_marked(l, 160)
 }
 
 /// What the owner or the model asks for.
@@ -1234,9 +1230,9 @@ fn clip(text: &str, max: usize) -> String {
     }
     let head = max * 2 / 3;
     let from = (n - max / 3).max(head);
-    let out: String = text.chars().take(head).collect();
-    let tail: String = text.chars().skip(from).collect();
-    format!("{out}\n[… {} characters left out …]\n{tail}", from - head)
+    let (out, tail, _) = crate::scrub::safe::ends(text, head, n - from);
+    let left = n - out.chars().count() - tail.chars().count();
+    format!("{out}\n[… {left} characters left out …]\n{tail}")
 }
 
 /// Whether a finished run's report is not posted: its routine speaks only when
@@ -1283,3 +1279,6 @@ pub fn lines(kernel: &Kernel, specs: &[Arc<RoutineSpec>]) -> Vec<String> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests_cut;

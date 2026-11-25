@@ -153,7 +153,7 @@ fn strip_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
 /// them a handle says nothing about what was held.
 fn where_it_points(s: &str) -> String {
     let whole = s.chars().count();
-    let shown: String = s.split('?').next().unwrap_or(s).chars().take(160).collect();
+    let (shown, _) = crate::scrub::safe::head(s.split('?').next().unwrap_or(s), 160);
     format!("a presigned URL, {shown}?<signature withheld>, {whole} characters")
 }
 

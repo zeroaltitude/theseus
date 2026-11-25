@@ -52,8 +52,11 @@ pub fn tail(s: &str, n: usize) -> String {
     if count <= n {
         return s.to_string();
     }
-    let kept: String = s.chars().skip(count - n).collect();
-    format!("[… {} characters left out]\n{kept}", count - n)
+    let (kept, _) = crate::scrub::safe::tail(s, n);
+    format!(
+        "[… {} characters left out]\n{kept}",
+        count - kept.chars().count()
+    )
 }
 
 /// What a run knows as it goes.
@@ -459,5 +462,16 @@ mod result_tests {
         assert_eq!(result.1, "the actual output");
         assert!(stored_result(&store, "ses_flow", "missing").is_err());
         assert!(stored_result(&store, "other_session", &node.id).is_err());
+    }
+
+    #[test]
+    fn a_flows_tail_starts_after_a_known_value() {
+        const V: &str = "gwel-8813-pazo-2265-trik";
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        let text = format!("before {V}{}", ".".repeat(40));
+        let kept = tail(&text, 50);
+        assert!(kept.starts_with("[… "), "{kept:?}");
+        crate::tests_cut_sites::whole_or_absent("the flow's tail", &kept, V);
     }
 }

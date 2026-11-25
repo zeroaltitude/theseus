@@ -592,7 +592,7 @@ fn judged(spec: TestSpec, text: &str, is_error: bool) -> TestRun {
     TestRun {
         spec,
         passed: why.is_none(),
-        got: Some(text.chars().take(GOT_CHARS).collect()),
+        got: Some(crate::scrub::safe::head(text, GOT_CHARS).0.to_string()),
         why,
     }
 }

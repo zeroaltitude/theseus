@@ -45,8 +45,9 @@ pub(crate) fn strings(v: &Value, out: &mut Vec<String>) {
 
 /// A description cut to [`DESCRIPTION_MAX`] characters, saying so.
 pub fn cap_description(d: &mut String) {
-    if let Some((i, _)) = d.char_indices().nth(DESCRIPTION_MAX) {
-        d.truncate(i);
+    if let (kept, true) = crate::scrub::safe::head(d, DESCRIPTION_MAX) {
+        let at = kept.len();
+        d.truncate(at);
         d.push_str(" …[cut at 2,000 characters]");
     }
 }
@@ -276,3 +277,7 @@ impl Tool for McpTool {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "tests_tool_cut.rs"]
+mod tests_cut;

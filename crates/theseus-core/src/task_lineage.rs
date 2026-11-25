@@ -55,15 +55,6 @@ pub fn cycle_refusal(ancestor: &Ancestor, depth: usize) -> String {
     )
 }
 
-/// Cut `s` to `max` characters, with an ellipsis when it was longer.
-fn cut(s: &str, max: usize) -> String {
-    let s = s.trim();
-    match s.char_indices().nth(max) {
-        None => s.to_string(),
-        Some((at, _)) => format!("{}…", &s[..at]),
-    }
-}
-
 /// The brief inside a task's first node: what follows the header paragraph
 /// (`task::brief_text` writes one paragraph, then the brief).
 pub fn brief_of(first_node_text: &str) -> &str {
@@ -153,6 +144,8 @@ impl Lineage {
                 self.depth, self.limit
             );
         };
+        let cuts = crate::scrub::Cuts::live();
+        let cut = |s: &str, max: usize| crate::scrub::safe::head_marked_with(&cuts, s.trim(), max);
         let chain: Vec<String> = self
             .above
             .iter()
