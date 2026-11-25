@@ -55,27 +55,44 @@ impl ToolRuntime {
 
     /// A tidy Google act the owner did not approve is told to him once, in
     /// its result's frame (issue 57, `google::told`): never to the session's
-    /// own place, which may be shared.
+    /// own place, which may be shared. One with an exact opposite carries its
+    /// Undo (`owner_note::told`), named by this result node.
     fn tell_google(
         tc: &TurnCtx<'_>,
         node: &Node,
         frame: &mut Vec<theseus_store::NewRecord>,
     ) -> Result<Option<theseus_kernel::Action>> {
+        use crate::google::told;
         let crate::node::Body::ToolResult { meta, status, .. } = &node.body else {
             return Ok(None);
         };
-        let told = &meta[crate::google::told::KEY];
         if *status != crate::node::ResultStatus::Ok || !crate::google::private::marked(meta) {
             return Ok(None);
         }
         let session: Option<crate::session::SessionRecord> =
             tc.store.get_session(tc.session_id).ok().flatten();
         let title = session.and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
-        let Some(text) = crate::google::told::text(told, tc.session_id, title.as_deref()) else {
+        let Some(p) = told::parts(&meta[told::KEY], title.as_deref()) else {
             return Ok(None);
         };
-        let body = serde_json::json!({"kind": "notice", "text": text, "announce": true});
-        let (post, more) = tc.outbox.stage_to_operator(None, body)?;
+        let (post, more) = match told::undo_calls(node) {
+            Some(_) => {
+                let undo = crate::owner_note::told::Undo::GoogleUndo(node.id.clone());
+                crate::owner_note::told::stage(tc.outbox, None, &p.title, &p.by, &p.body, &undo)?
+            }
+            None => {
+                let text = crate::owner_note::note(
+                    crate::owner_note::Kind::Fyi,
+                    &p.title,
+                    &p.by,
+                    &p.body,
+                );
+                tc.outbox.stage_to_operator(
+                    None,
+                    serde_json::json!({"kind": "notice", "text": text, "announce": true}),
+                )?
+            }
+        };
         frame.extend(more);
         Ok(Some(post))
     }

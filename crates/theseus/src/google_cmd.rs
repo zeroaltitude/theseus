@@ -1,5 +1,6 @@
-//! `theseus google auth [--manual] | status | revoke` (the Google design,
-//! §2.2): the one-time consent, the status, and the revoke. The consent URL
+//! `theseus google auth [--manual] | status | revoke | undo ID` (the Google
+//! design, §2.2): the one-time consent, the status, the revoke, and taking
+//! back a tidy act Theseus did unasked (issue 57). The consent URL
 //! holds no secret, so it is printed; the paste (the address bar of the page
 //! that failed to load, which carries the authorization code) is read from the
 //! terminal and sent over the socket, never taken as an argument, so it is in
@@ -34,6 +35,12 @@ pub enum GoogleCmd {
     /// Revoke the grant at Google, clear the stored token, and turn the tools off until
     /// `theseus google auth` is run again.
     Revoke,
+    /// Take back a trash, an untrash or a restore Theseus did without asking: the id its
+    /// note names.
+    Undo {
+        /// The act's id, as its note's `Undo:` line gives it.
+        id: String,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: GoogleCmd) -> Result<()> {
@@ -46,6 +53,18 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: GoogleCmd) -> Result<()> {
             output(json, v, |s: GoogleStatus| {
                 for l in theseus_client::render::google_status_lines(&s) {
                     println!("{l}");
+                }
+                Ok(())
+            })
+        }
+        GoogleCmd::Undo { id } => {
+            let v = conn
+                .request(method::GOOGLE_UNDO, serde_json::json!({"id": id}))
+                .await?;
+            output(json, v, |r: serde_json::Value| {
+                println!("↩️ Undone: {}", r["undone"].as_str().unwrap_or_default());
+                for c in r["calls"].as_array().into_iter().flatten() {
+                    println!("  {}", c.as_str().unwrap_or_default());
                 }
                 Ok(())
             })

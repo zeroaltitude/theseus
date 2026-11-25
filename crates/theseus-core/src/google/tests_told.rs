@@ -33,8 +33,9 @@ fn plan(r: &Rig, name: &str, input: Value) -> theseus_tools::Plan {
         .unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
-/// The FYI notes staged to the operator, by their text.
-fn notes(r: &Rig) -> Vec<String> {
+/// The FYI notes staged to the operator: each one's text, and the id its
+/// Undo names (`owner_note::told`), or none for a note told without one.
+fn notes(r: &Rig) -> Vec<(String, Option<String>)> {
     r.core
         .outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
@@ -46,11 +47,72 @@ fn notes(r: &Rig) -> Vec<String> {
                 .is_some_and(|t| t.starts_with("ℹ️ FYI · "))
         })
         .map(|b| {
-            assert_eq!(b["kind"], "notice", "{b}");
-            assert_eq!(b["announce"], true, "{b}");
-            b["text"].as_str().unwrap().to_string()
+            let text = b["text"].as_str().unwrap().to_string();
+            match b["kind"].as_str() {
+                Some("told") => {
+                    assert_eq!(b["undo"]["method"], "google.undo", "{b}");
+                    let id = b["undo"]["id"].as_str().unwrap().to_string();
+                    let line = format!("\nUndo: `theseus google undo {id}`");
+                    assert!(text.ends_with(&line), "{text}");
+                    (text.strip_suffix(&line).unwrap().to_string(), Some(id))
+                }
+                _ => {
+                    assert_eq!(b["kind"], "notice", "{b}");
+                    assert_eq!(b["announce"], true, "{b}");
+                    (text, None)
+                }
+            }
         })
         .collect()
+}
+
+/// The owner on the CLI of this machine: a private place.
+fn owner() -> crate::approval::Answerer {
+    crate::approval::Answerer {
+        label: "the CLI".into(),
+        surface: crate::approval::Surface::Cli,
+        discord: None,
+        agent: None,
+    }
+}
+
+/// Someone in a shared place who is not the owner, and an agent's process on
+/// the CLI: neither counts.
+fn not_the_owner() -> [crate::approval::Answerer; 2] {
+    [
+        crate::approval::Answerer {
+            label: "discord:777".into(),
+            surface: crate::approval::Surface::Discord,
+            discord: Some(theseus_protocol::DiscordOrigin {
+                user_id: "777".into(),
+                channel_id: "42".into(),
+                guild_id: Some("7".into()),
+            }),
+            agent: None,
+        },
+        crate::approval::Answerer {
+            label: "agent:helper".into(),
+            surface: crate::approval::Surface::Cli,
+            discord: None,
+            agent: Some("helper".into()),
+        },
+    ]
+}
+
+/// The one note a turn staged, its words and its Undo's id: a press by
+/// anyone but the owner in a private place changes nothing in Google (`same`
+/// still holds after each), and the owner's runs the act's opposite.
+async fn press(r: &Rig, words: &str, same: impl Fn() -> bool) {
+    let n = notes(r);
+    assert_eq!(n.len(), 1, "{n:?}");
+    assert_eq!(n[0].0, words);
+    let id = n[0].1.clone().expect("an Undo");
+    for who in not_the_owner() {
+        let e = r.core.google_undo(&id, &who).await.unwrap_err();
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{}", e.message);
+        assert!(same(), "{} changed nothing", who.label);
+    }
+    r.core.google_undo(&id, &owner()).await.unwrap();
 }
 
 /// Each call a note's undo carries, run as its press would: through
@@ -101,17 +163,14 @@ async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
     assert!(ledgered(&r.core, "tool.confirm_requested").is_empty());
     assert!(drive.file("doc1").unwrap().trashed);
-    let n = notes(&r);
-    assert_eq!(n.len(), 1, "{n:?}");
-    assert_eq!(
-        n[0],
-        "ℹ️ FYI · Moved a Drive file to the Trash\nIn “trash it”, without asking you\n\
-             Moved Drive file doc1 to the Trash.\nUndo restores it."
-    );
     // Its undo puts back exactly what was: the file out of the Trash, all else as it was.
-    let out = ok(&r, "drive.share", trash).await;
-    assert!(drive.file("doc1").unwrap().trashed);
-    undo(&r, &out).await;
+    press(
+        &r,
+        "ℹ️ FYI · Moved a Drive file to the Trash\nIn \"trash it\", without asking you\n\
+             Moved Drive file doc1 to the Trash.\nUndo restores it.",
+        || drive.file("doc1").unwrap().trashed,
+    )
+    .await;
     let after = drive.file("doc1").unwrap();
     assert!(!after.trashed);
     assert_eq!(
@@ -156,9 +215,10 @@ async fn a_drive_revoke_runs_unasked_and_says_how_to_give_it_back_and_a_grant_st
     assert!(drive.file("doc1").unwrap().permissions.is_empty());
     let n = notes(&r);
     assert_eq!(n.len(), 1, "{n:?}");
+    assert_eq!(n[0].1, None, "no Undo: giving it back asks");
     assert_eq!(
-        n[0],
-        "ℹ️ FYI · Stopped sharing a Drive file\nIn “stop sharing it”, without asking you\n\
+        n[0].0,
+        "ℹ️ FYI · Stopped sharing a Drive file\nIn \"stop sharing it\", without asking you\n\
              Removed collaborator@example.test's access (writer) to Drive file doc1.\n\
              To give it back, ask Theseus to share Drive file doc1 with \
              collaborator@example.test as writer: that asks you first."
@@ -249,13 +309,15 @@ async fn a_mail_trash_runs_unasked_is_told_once_and_its_undo_restores_the_labels
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
     assert!(sorted("m1").contains(&"TRASH".to_string()));
     assert!(sorted("p2").contains(&"TRASH".to_string()));
-    let n = notes(&r);
-    assert_eq!(n.len(), 1, "{n:?}");
-    assert_eq!(
-        n[0],
-        "ℹ️ FYI · Moved mail to the Trash\nIn “clear out my inbox”, without asking you\n\
-             Moved 2 Gmail thread(s) to the Trash: t1, p2.\nUndo takes them out of the Trash."
-    );
+    let trashed = (sorted("m1"), sorted("p1"), sorted("p2"));
+    press(
+        &r,
+        "ℹ️ FYI · Moved mail to the Trash\nIn \"clear out my inbox\", without asking you\n\
+             Moved 2 Gmail thread(s) to the Trash: t1, p2.\nUndo takes them out of the Trash.",
+        || (sorted("m1"), sorted("p1"), sorted("p2")) == trashed,
+    )
+    .await;
+    assert_eq!((sorted("m1"), sorted("p1"), sorted("p2")), before);
     // The undo names the kind that took each id: a thread, and a message.
     let out = ok(&r, "gmail.label", trash).await;
     assert_eq!(
@@ -265,8 +327,6 @@ async fn a_mail_trash_runs_unasked_is_told_once_and_its_undo_restores_the_labels
             {"method": "POST /gmail/v1/users/me/messages/p2/untrash"}
         ])
     );
-    undo(&r, &out).await;
-    assert_eq!((sorted("m1"), sorted("p1"), sorted("p2")), before);
 }
 
 // ------------------------------------------------------------------ google.call
@@ -287,17 +347,28 @@ async fn a_google_call_trash_runs_unasked_and_its_undo_is_the_untrash() {
     let res = turn(&r.core, &sid, "trash that thread").await;
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
     assert_eq!(r.fake.mail().labels_of("m1"), vec!["TRASH".to_string()]);
-    let n = notes(&r);
-    assert_eq!(n.len(), 1, "{n:?}");
-    assert_eq!(
-        n[0],
-        "ℹ️ FYI · A Google call was made\nIn “trash that thread”, without asking you\n\
+    press(
+        &r,
+        "ℹ️ FYI · A Google call was made\nIn \"trash that thread\", without asking you\n\
              gmail.users.threads.trash: POST /gmail/v1/users/me/threads/t1/trash \
-             (moves to or from the trash).\nUndo runs its opposite."
-    );
-    let out = ok(&r, "google.call", trash).await;
-    undo(&r, &out).await;
+             (moves to or from the trash).\nUndo runs its opposite.",
+        || r.fake.mail().labels_of("m1") == ["TRASH"],
+    )
+    .await;
     assert_eq!(r.fake.mail().labels_of("m1"), vec!["INBOX".to_string()]);
+    // The undo's own call is in the ledger, as any Google call is.
+    let called = ledgered(&r.core, "google.called");
+    assert!(
+        called
+            .iter()
+            .any(|c| c["method"].as_str().is_some_and(|m| m.contains("untrash"))),
+        "{called:?}"
+    );
+    // A node that is no tidy act's is refused, and so is an unknown one.
+    for id in ["nod_nothing", ""] {
+        let e = r.core.google_undo(id, &owner()).await.unwrap_err();
+        assert!(e.message.contains("no Google act"), "{}", e.message);
+    }
 }
 
 #[tokio::test]
@@ -311,7 +382,7 @@ async fn a_message_put_in_or_a_calendar_made_is_told_with_how_to_take_it_back() 
     r.fake.json(
         "POST",
         "/calendar/v3/calendars",
-        json!({"id": "cal9@group.calendar.google.com", "summary": "x"}),
+        json!({"id": "cal9@group.example.test", "summary": "x"}),
     );
     let insert = json!({"method": "gmail.users.messages.insert", "body": {"raw": "eA"}});
     assert!(plan(&r, "google.call", insert.clone()).authority.is_none());
@@ -329,7 +400,7 @@ async fn a_message_put_in_or_a_calendar_made_is_told_with_how_to_take_it_back() 
     assert_eq!(told["undo"], json!([]));
     assert_eq!(
         told["back"],
-        "To take it back, delete calendar cal9@group.calendar.google.com: that asks you first."
+        "To take it back, delete calendar cal9@group.example.test: that asks you first."
     );
     // That delete, and every other KEEP call, still asks at every posture.
     let t = tool(&r, "google.call");

@@ -39,6 +39,10 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
+    /// `google.undo`: a tidy Google act's own opposite runs, named by the
+    /// act's result node (`google::told`).
+    #[serde(rename = "google.undo")]
+    GoogleUndo(String),
 }
 
 impl Undo {
@@ -50,6 +54,7 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
+            Undo::GoogleUndo(_) => method::GOOGLE_UNDO,
         }
     }
 
@@ -57,7 +62,7 @@ impl Undo {
     /// pressed wherever the method takes it.
     pub fn params(&self, author: &str, discord: Option<DiscordOrigin>) -> Value {
         match self {
-            Undo::RoutineDelete(id) | Undo::StandingRevoke(id) => {
+            Undo::RoutineDelete(id) | Undo::StandingRevoke(id) | Undo::GoogleUndo(id) => {
                 json!({"id": id, "author": author, "discord": discord})
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
@@ -72,6 +77,7 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
+            Undo::GoogleUndo(id) => format!("theseus google undo {id}"),
         }
     }
 }
@@ -179,6 +185,12 @@ mod tests {
                 method::SELF_DROP,
                 "item",
                 "theseus self drop rtn_1",
+            ),
+            (
+                Undo::GoogleUndo(id.clone()),
+                method::GOOGLE_UNDO,
+                "id",
+                "theseus google undo rtn_1",
             ),
         ];
         for (u, m, field, cmd) in cases {

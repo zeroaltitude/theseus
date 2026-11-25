@@ -272,6 +272,8 @@ pub mod method {
         SELF_NARROW = "self.narrow",
         /// Google Workspace (`google`): the one-time consent, the revoke, and the status. The CLI's alone.
         GOOGLE_AUTH_BEGIN = "google.auth.begin", GOOGLE_AUTH_FINISH = "google.auth.finish", GOOGLE_REVOKE = "google.revoke", GOOGLE_STATUS = "google.status",
+        /// A tidy Google act taken back (issue 57): a trash, an untrash or a restore Theseus did unasked, by its result's id. The owner, in a private place: a note's Undo, or `theseus google undo`.
+        GOOGLE_UNDO = "google.undo",
         /// The calendars over a window, for the owner's page (`calendar::CalendarWindowResult`); its `calendar.changed` carries no content. The owner, in a private place.
         CALENDAR_WINDOW = "calendar.window",
     }

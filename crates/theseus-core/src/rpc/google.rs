@@ -5,6 +5,12 @@
 //! (theseus-zmgb), a speed bump; L1 is the boundary. The paste, when there is
 //! one, is read from the terminal and travels here in a param, never an
 //! argument; none of these answers holds a token, a code or a secret.
+//!
+//! `google.undo` (issue 57) takes back a tidy act Theseus did unasked: the
+//! owner's, from a private place (a note's Undo, or `theseus google undo`),
+//! judged as a routine's delete is. It runs only the calls the act's own
+//! result recorded (`google::told`), each through `google.call` and each one
+//! that asks nobody; anything that would ask is refused.
 
 use std::sync::Arc;
 
@@ -14,9 +20,21 @@ use theseus_protocol::google::{
     GoogleRevokeParams, GoogleRevokeResult, GoogleStatus, GoogleStatusParams,
 };
 
+use super::confirms::Act;
 use super::server::{Conn, RpcFailure};
-use crate::approval::Surface;
+use crate::approval::{Answerer, Surface};
 use crate::google::Google;
+
+/// `google.undo`'s params: the act's result node, and who pressed, from where.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GoogleUndoParams {
+    pub id: String,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub discord: Option<theseus_protocol::DiscordOrigin>,
+}
 
 fn cli_only(conn: &Conn<'_>, method: &str, verb: &str) -> Result<(), RpcFailure> {
     if conn.surface != Surface::Cli {
@@ -47,12 +65,80 @@ impl crate::Core {
             }
             method::GOOGLE_REVOKE => reply(self.google_revoke(parse(params)?, conn).await?),
             method::GOOGLE_STATUS => reply(self.google_status(parse(params)?, conn)?),
+            method::GOOGLE_UNDO => {
+                let p: GoogleUndoParams = parse(params)?;
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                reply(self.google_undo(&p.id, &who).await?)
+            }
             method::CALENDAR_WINDOW => reply(self.calendar_window(parse(params)?, conn).await?),
             other => Err(RpcFailure::new(
                 error_code::METHOD_NOT_FOUND,
                 format!("unknown method {other:?}"),
             )),
         }
+    }
+
+    /// `google.undo`: the owner's, from a private place. Each call the act's
+    /// result recorded runs through `google.call`, as the owner approved it;
+    /// one whose plan would ask anybody is refused, and nothing after it runs.
+    pub(crate) async fn google_undo(
+        &self,
+        id: &str,
+        who: &Answerer,
+    ) -> Result<serde_json::Value, RpcFailure> {
+        let what = format!("the undo of {id}");
+        let method = theseus_protocol::method::GOOGLE_UNDO;
+        self.judge_act(who, Act::Google { method, what: &what })
+            .map_err(refused)?;
+        let node = self.store.get_node(id).map_err(RpcFailure::invalid)?;
+        let Some(calls) = node.and_then(|(_, n)| crate::google::told::undo_calls(&n)) else {
+            return Err(RpcFailure::new(
+                error_code::INVALID_PARAMS,
+                format!("{id} is no Google act Theseus can take back"),
+            ));
+        };
+        self.google()?;
+        let tool = self
+            .tools
+            .registry
+            .get(crate::google::call::NAME)
+            .cloned()
+            .ok_or_else(|| RpcFailure::new(error_code::INVALID_PARAMS, "google.call is not here"))?;
+        let ctx = theseus_tools::ToolCtx {
+            approved: true,
+            ..Default::default()
+        };
+        let mut done = Vec::new();
+        for call in &calls {
+            let plan = tool
+                .plan(call, &ctx)
+                .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))?;
+            if plan.authority.is_some() {
+                return Err(RpcFailure::new(
+                    error_code::REFUSED,
+                    format!("{}: it would ask, so an undo does not run it", plan.summary),
+                ));
+            }
+            let ran = tool.run_async(call, &ctx).await;
+            let meta = match &ran {
+                Ok((out, _)) => &out.meta,
+                Err(f) => &f.meta,
+            };
+            let also = meta["google_called_also"].as_array().into_iter().flatten();
+            for row in also.chain(meta.get("google_called")) {
+                self.google_row(&crate::fact::google::GoogleCalled { row });
+            }
+            match ran {
+                Ok(_) => done.push(plan.summary),
+                Err(f) => {
+                    return Err(RpcFailure::new(
+                        error_code::INVALID_PARAMS,
+                        format!("{}: {}", plan.summary, f.message),
+                    ))
+                }
+            }
+        }
+        Ok(serde_json::json!({"undone": id, "calls": done}))
     }
 
     fn google(&self) -> Result<Arc<Google>, RpcFailure> {
@@ -114,5 +200,21 @@ impl crate::Core {
     ) -> Result<GoogleStatus, RpcFailure> {
         cli_only(&conn, "google.status", "status")?;
         Ok(self.google()?.status())
+    }
+}
+
+/// A refused undo on the wire is `REFUSED`, with who and why; anything else
+/// is invalid input.
+fn refused(e: anyhow::Error) -> RpcFailure {
+    match e.downcast::<crate::approval::Refusal>() {
+        Ok(r) => RpcFailure {
+            code: error_code::REFUSED,
+            message: format!(
+                "an undo from {} does not count: {}. Nothing in Google was changed.",
+                r.who, r.why
+            ),
+            data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+        },
+        Err(e) => RpcFailure::invalid(e),
     }
 }

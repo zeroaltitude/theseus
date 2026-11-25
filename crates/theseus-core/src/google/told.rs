@@ -115,6 +115,19 @@ pub fn called(tidy: &str, label: &str, verb: &str, path: &str, echo: &Value) -> 
     told("A Google call was made", did, back, undo)
 }
 
+/// The calls that take back the act a result node tells of: its note's
+/// `undo`. None for a node that is no succeeded Google result with one.
+pub fn undo_calls(node: &crate::node::Node) -> Option<Vec<Value>> {
+    let crate::node::Body::ToolResult { meta, status, .. } = &node.body else {
+        return None;
+    };
+    if *status != crate::node::ResultStatus::Ok || !super::private::marked(meta) {
+        return None;
+    }
+    let calls = meta[KEY]["undo"].as_array()?;
+    (!calls.is_empty()).then(|| calls.clone())
+}
+
 /// The path of a trash's opposite: `…/trash` is `…/untrash` and back, as a
 /// last segment or a `:verb`. None for any other path.
 fn swap_trash(path: &str) -> Option<String> {
@@ -129,37 +142,45 @@ fn swap_trash(path: &str) -> Option<String> {
     None
 }
 
-/// The note as it posts: an FYI head, the conversation it was done in (its
-/// label or title when it has one, else its id), what was done and how to
-/// take it back. None for a value that is not a told note.
-pub fn text(told: &Value, session_id: &str, title: Option<&str>) -> Option<String> {
+/// A note's three parts, as `owner_note` heads them: its title, the
+/// conversation it was done in (by its title, as the ontology's notes name
+/// it), and what was done and how to take it back.
+pub struct Parts {
+    pub title: String,
+    pub by: String,
+    pub body: String,
+}
+
+/// The note's parts. None for a value that is not a told note.
+pub fn parts(told: &Value, title: Option<&str>) -> Option<Parts> {
     let head = told.get("title")?.as_str()?;
     let did = told.get("did")?.as_str()?;
     let back = told.get("back").and_then(Value::as_str).unwrap_or_default();
-    let in_ = match title.map(str::trim).filter(|t| !t.is_empty()) {
-        Some(t) => format!("In “{}”, without asking you", one_line(t)),
-        None => format!("In conversation {session_id}, without asking you"),
-    };
+    let by = format!(
+        "{}, without asking you",
+        crate::judge::onto::words::in_conversation(title)
+    );
     let body = [did, back]
         .into_iter()
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    Some(crate::owner_note::note(
-        crate::owner_note::Kind::Fyi,
-        head,
-        &in_,
-        &body,
-    ))
+    Some(Parts {
+        title: head.to_string(),
+        by,
+        body,
+    })
 }
 
-/// A title on one line, cut to 60 characters.
-fn one_line(t: &str) -> String {
-    let flat: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
-    match flat.char_indices().nth(60) {
-        Some((i, _)) => format!("{}…", &flat[..i]),
-        None => flat,
-    }
+/// The note as it posts when it carries no Undo: an FYI head, then its body.
+pub fn text(told: &Value, title: Option<&str>) -> Option<String> {
+    let p = parts(told, title)?;
+    Some(crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        &p.title,
+        &p.by,
+        &p.body,
+    ))
 }
 
 #[cfg(test)]
@@ -196,16 +217,16 @@ mod tests {
                 &json!({"id": "c9"}),
             ),
         ] {
-            let s = text(&t, "ses_1", Some("tidy my inbox")).unwrap();
+            let s = text(&t, Some("tidy my inbox")).unwrap();
             assert!(crate::owner_note::is_headed(&s), "{s}");
             assert!(s.starts_with("ℹ️ FYI · "), "{s}");
-            assert!(s.contains("In “tidy my inbox”, without asking you"), "{s}");
-            let s = text(&t, "ses_1", None).unwrap();
+            assert!(s.contains("\nIn \"tidy my inbox\", without asking you\n"), "{s}");
+            let s = text(&t, None).unwrap();
             assert!(
-                s.contains("In conversation ses_1, without asking you"),
+                s.contains("\nIn a conversation with no title yet, without asking you\n"),
                 "{s}"
             );
         }
-        assert_eq!(text(&json!({"x": 1}), "ses_1", None), None);
+        assert_eq!(text(&json!({"x": 1}), None), None);
     }
 }

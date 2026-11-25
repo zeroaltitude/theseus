@@ -211,6 +211,7 @@ impl ActRefused<'_> {
             | Act::Trust { .. }
             | Act::Routine { .. }
             | Act::Watch { .. }
+            | Act::Google { .. }
             | Act::UndoAllow { .. }
             | Act::Settings { .. } => None,
         }
@@ -253,6 +254,7 @@ impl Fact for ActRefused<'_> {
             | Act::Trust { what, .. }
             | Act::Routine { what, .. }
             | Act::Watch { what, .. }
+            | Act::Google { what, .. }
             | Act::UndoAllow { what }
             | Act::Settings { what } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
@@ -338,6 +340,10 @@ impl Fact for ActRefused<'_> {
             ),
             Act::Watch { what, .. } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. No watch was made."
+            ),
+            Act::Google { what, .. } => format!(
+                "{what}, from {who} through {via}, did not count: {why}. Nothing in Google was \
+                 changed."
             ),
             Act::Standing { what, .. } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. The owner's standing \
