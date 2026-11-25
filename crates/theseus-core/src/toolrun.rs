@@ -490,9 +490,32 @@ pub fn cut_points(text: &str, max: usize, cuts: &Cuts) -> Option<(usize, usize)>
     Some(cuts.around(text, h, t))
 }
 
+/// The runtime's words before a result's text: its call's fit note, on a line of its own (`fit_noted`). The cap
+/// may cut it, as it cuts the text.
+pub fn noted(note: &str) -> String {
+    format!("{note}\n")
+}
+
+/// The runtime's words after a result's capped text, each on a line of its own: the hint that names the native call
+/// a job of the daemon's own CLI stands in for, then the line of a call that ran in a group.
+pub fn ended(hint: Option<&str>, group: Option<&str>) -> String {
+    hint.into_iter()
+        .chain(group)
+        .map(|line| format!("\n{line}"))
+        .collect()
+}
+
 /// `text` cut at [`cut_points`] `h` and `t`: its head, the line that says what is not shown (and how to get
 /// it, as `rest` says), and its tail.
 fn capped(text: &str, h: usize, t: usize, rest: impl FnOnce(&str) -> String) -> String {
+    let head = text[..h].strip_suffix('\n').unwrap_or(&text[..h]);
+    format!("{head}{}{}", seam(text, h, t, rest), &text[t..])
+}
+
+/// The line [`capped`] puts between the head and the tail of `text` cut at `h` and `t`, with its line breaks: what
+/// is not shown, and how to get it, as `rest` says. The cap over a rendering kept by reference writes it too
+/// (`quotes::cap`).
+pub fn seam(text: &str, h: usize, t: usize, rest: impl FnOnce(&str) -> String) -> String {
     let whole = [h, t]
         .iter()
         .filter(|at| text[..**at].ends_with('\n'))
@@ -510,8 +533,7 @@ fn capped(text: &str, h: usize, t: usize, rest: impl FnOnce(&str) -> String) -> 
         r if r.is_empty() => r,
         r => format!(": {r}"),
     };
-    let head = text[..h].strip_suffix('\n').unwrap_or(&text[..h]);
-    format!("{head}\n…[{size} not shown{how}]…\n{}", &text[t..])
+    format!("\n…[{size} not shown{how}]…\n")
 }
 
 impl ToolRuntime {
@@ -856,17 +878,11 @@ impl ToolRuntime {
             payload,
         } = self.capped(session_id, &r, &r.text);
         // A job of the daemon's own CLI names the native call that does it,
-        // after the cap so no cut takes it (theseus-8c8s).
-        let content = match &r.hint {
-            Some(h) => format!("{content}\n{h}"),
-            None => content,
-        };
-        // A call that ran in a group says so, so the model learns what one
-        // response may hold (theseus-da46).
-        let content = match parallel::beside_line() {
-            Some(line) if !r.late => format!("{content}\n{line}"),
-            _ => content,
-        };
+        // after the cap so no cut takes it (theseus-8c8s); and a call that
+        // ran in a group says so, so the model learns what one response may
+        // hold (theseus-da46).
+        let group = parallel::beside_line().filter(|_| !r.late);
+        let content = content + &ended(r.hint.as_deref(), group.as_deref());
         Node::tool_result(
             session_id,
             turn_id,

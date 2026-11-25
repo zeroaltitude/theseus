@@ -23,6 +23,8 @@ use crate::ladder::did::{DidLine, DID_PREFIX};
 use crate::node::{AttachmentContent, Body, Node};
 use crate::store::Store;
 
+pub mod cap;
+
 /// What a quote of a node that was erased since shows, in place of its words.
 pub const ERASED_QUOTE: &str = "[words since erased]";
 /// What a quote that cannot be read as it was written shows, in place of its words.
