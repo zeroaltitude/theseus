@@ -1457,8 +1457,10 @@ fn topic_block(s: &Store, message: &str) -> Vec<(Band, String)> {
 
 #[test]
 fn topic_lays_the_task_card_then_named_then_in_play_then_recall() {
-    let mut s = Store::default();
-    s.task = true;
+    let mut s = Store {
+        task: true,
+        ..Store::default()
+    };
     s.ex.push(ex("t1", "local", 1));
     s.named.push(("t1".into(), "issue:44".into()));
     s.filed.push(("t1".into(), "topic:ledger".into()));

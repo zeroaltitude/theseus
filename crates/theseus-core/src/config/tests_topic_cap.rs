@@ -23,7 +23,10 @@ fn the_topic_cap_defaults_to_eight_thousand_and_reads_as_set() {
 
 #[test]
 fn an_out_of_range_topic_cap_is_refused_at_load_with_its_range() {
-    let (low, high) = (*TOPIC_MAX_TOKENS_RANGE.start(), *TOPIC_MAX_TOKENS_RANGE.end());
+    let (low, high) = (
+        *TOPIC_MAX_TOKENS_RANGE.start(),
+        *TOPIC_MAX_TOKENS_RANGE.end(),
+    );
     assert_eq!((low, high), (1_000, 20_000));
     for n in [low - 1, high + 1, 0] {
         let e = cap(&format!("[context]\ntopic_max_tokens = {n}")).unwrap_err();
@@ -36,6 +39,9 @@ fn an_out_of_range_topic_cap_is_refused_at_load_with_its_range() {
         );
     }
     for n in [low, high] {
-        assert_eq!(cap(&format!("[context]\ntopic_max_tokens = {n}")).unwrap(), n);
+        assert_eq!(
+            cap(&format!("[context]\ntopic_max_tokens = {n}")).unwrap(),
+            n
+        );
     }
 }

@@ -33,7 +33,9 @@ async fn filed(n: usize, tweak: impl FnOnce(&mut crate::config::Config)) -> (Rig
     let first = turn_as(c, &sid, FIRST, true).await;
     let ex = (exchange::exchange(&c.store, &first.turn_id).unwrap()).expect("the first exchange");
     let touches: Vec<_> = (ids.iter())
-        .filter_map(|id| exchange::touch(Root::Thing(id.as_str()), &first.turn_id, &sid, ex.start_ms))
+        .filter_map(|id| {
+            exchange::touch(Root::Thing(id.as_str()), &first.turn_id, &sid, ex.start_ms)
+        })
         .collect();
     c.store.append(&touches).unwrap();
     let next = turn_as(c, &sid, NEXT, true).await;
