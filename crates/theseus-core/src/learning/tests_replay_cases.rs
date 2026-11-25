@@ -360,7 +360,11 @@ async fn the_replay_stays_where_decide_stays() {
     let cases = out.cases.unwrap();
     let w15 = cases.cases.iter().find(|c| c.id == "W15").unwrap();
     assert_eq!(
-        (w15.model.got.as_str(), w15.model.sub_confirm, w15.model.agrees),
+        (
+            w15.model.got.as_str(),
+            w15.model.sub_confirm,
+            w15.model.agrees
+        ),
         ("parent", true, true)
     );
     assert!(w15.must);

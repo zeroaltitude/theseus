@@ -67,8 +67,8 @@ pub(crate) fn ignored_with_cases(p: &JudgeReplayParams) -> Option<String> {
 /// stays on the turn's own model): its `current_model` through the one option table. `None` for a
 /// case on no model.
 pub(crate) fn stays(c: &route_cases::Case) -> Option<&'static str> {
-    let on = crate::routing::model::OPTIONS.iter();
-    on.find(|(_, model)| *model == c.state.current_model)
+    (crate::routing::model::OPTIONS.iter())
+        .find(|(_, model)| *model == c.state.current_model)
         .map(|(option, _)| *option)
 }
 

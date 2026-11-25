@@ -848,14 +848,24 @@ fn a_stay_on_the_labelled_model_is_the_label() {
         (l3.want.model.as_str(), l3.state.current_model.as_str()),
         ("sonnet", "claude-sonnet-5-5")
     );
-    let g = grade(&p, l3, Some(&judged(l3, &[("model", "haiku", 0.35)])), Some("sonnet"));
+    let g = grade(
+        &p,
+        l3,
+        Some(&judged(l3, &[("model", "haiku", 0.35)])),
+        Some("sonnet"),
+    );
     assert_eq!(
         graded_q(&g, "model"),
         ("parent".into(), true, "haiku".into(), true)
     );
     assert!(g.model.close && !g.model.raw_agrees);
     // Jev's own `parent` above the bar is the same stay.
-    let g = grade(&p, l3, Some(&judged(l3, &[("model", "parent", 0.9)])), Some("sonnet"));
+    let g = grade(
+        &p,
+        l3,
+        Some(&judged(l3, &[("model", "parent", 0.9)])),
+        Some("sonnet"),
+    );
     assert_eq!(
         graded_q(&g, "model"),
         ("parent".into(), false, "parent".into(), true)
