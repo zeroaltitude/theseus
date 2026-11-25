@@ -33,8 +33,8 @@ fn stored(core: &Core, copy: &str) -> (String, Vec<Part>) {
 }
 
 /// That `copy` is stored as references: no words of its own, no range that begins or ends inside `value`, `value`
-/// whole in one quote, and no part of it in what is stored; its rendering the text the reader was given, each line of `value` in it; and
-/// that the reader's next request lays it.
+/// whole in one quote, and no part of it in what is stored; its rendering the text the reader was given, each line
+/// of `value` in it; and that the reader's next request lays it.
 async fn as_parts(r: &Rig, reader: &str, copy: &str, kept: &str, value: &str) {
     let (content, parts) = stored(&r.core, copy);
     assert!(
