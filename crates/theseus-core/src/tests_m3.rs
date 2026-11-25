@@ -7439,9 +7439,7 @@ mod web {
         assert_eq!(asked.len(), 1);
         assert_eq!(
             asked[0]["reason"],
-            json!(format!(
-                "fetch {url}: http.fetch — approve (enforcement = approve)"
-            ))
+            json!(format!("fetch {url}: http.fetch — approve (enforcement = approve)"))
         );
         r.core
             .confirm_action(&corr, false, Some("not that one"), "test")
