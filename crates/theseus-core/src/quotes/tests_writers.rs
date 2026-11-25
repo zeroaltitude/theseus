@@ -13,10 +13,10 @@ use crate::quoted::tests::{product, walk};
 /// (`cap_with`, `cap_parts`), which makes new edges. The checking file calls `edges_hold` or `edges_hold_with`
 /// on what is written; where the check fails, the record keeps its words instead.
 const WRITERS: &[&str] = &[
-    "theseus-core/src/arrangement.rs 2 theseus-core/src/arrangement.rs a task's piece: a message's or a reply's \
-     quote, capped and checked (`quoted`), stored by `resolve`",
+    "theseus-core/src/arrangement.rs 3 theseus-core/src/arrangement.rs a task's piece: a message's or a reply's \
+     quote, or a look back's own quotes (issue 52), capped and checked (`quoted`), stored by `resolve`",
     "theseus-core/src/quotes/cap.rs 1 theseus-core/src/toolrun/parts.rs `cap_parts`, the cap over the store: its \
-     one caller, the runtime's `capped_parts`, checks",
+     callers, the runtime's `capped_parts` and a task's piece of a look back (`arrangement`), each check",
     "theseus-core/src/toolrun.rs 1 theseus-core/src/toolrun/parts.rs a look back's result, its parts from \
      `capped_parts`, which checks them",
     "theseus-core/src/toolrun/parts.rs 1 theseus-core/src/toolrun/parts.rs a look back's parts, capped and \
