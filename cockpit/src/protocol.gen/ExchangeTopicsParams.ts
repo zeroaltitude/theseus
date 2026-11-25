@@ -14,4 +14,11 @@ dry_run: boolean,
  * The most this run may spend, in dollars (none: the default, $10).
  * [`topics_cap`] holds what it may be, at the CLI and at the daemon.
  */
-cap_usd?: number, };
+cap_usd?: number, 
+/**
+ * His declaration (issue 51): count as his the old exchanges no mark
+ * proves whose opening message arrived in one of his own places, by
+ * the place stored on the message (his terminal, the web UI, his DM, a
+ * channel bound private). Their stored author is not changed.
+ */
+include_unmarked: boolean, };

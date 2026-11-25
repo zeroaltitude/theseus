@@ -26,6 +26,17 @@ not_owner: number,
  */
 unproven: number, unproven_not_acting: number, 
 /**
+ * Of the unproven, those whose opening message arrived in one of his
+ * own places (what his declaration counts as his, whether or not this
+ * run makes it), and those whose message has no recorded place (from
+ * before places were recorded), which no declaration counts.
+ */
+declared: number, unplaced: number, 
+/**
+ * The run counted his declaration (`include_unmarked`).
+ */
+include_unmarked: boolean, 
+/**
  * Those opened by no person's message that can be read: a wake, a
  * task's brief, Theseus's own turn among them.
  */
