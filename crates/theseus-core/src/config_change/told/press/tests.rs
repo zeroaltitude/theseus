@@ -162,8 +162,7 @@ async fn a_note_whose_change_was_already_put_back_writes_nothing_again() {
     back(&r);
     let post = note_post(&r);
     let sid = r.session();
-    r.turn_with("config_undo", &sid, json!({"change": n}))
-        .await;
+    r.turn_with("config_undo", &sid, json!({"change": n})).await;
     assert_eq!(r.file_text(), FILE, "put back in words");
     assert!(r.core.settings_change_undone(n as u32));
     back(&r);
