@@ -239,6 +239,11 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
                 let end = tail.bytes().take_while(u8::is_ascii_digit).count();
                 out.push_str("as of @<row>");
                 rest = &tail[end..];
+            } else if let Some(tail) = rest.strip_prefix(r#"\"at_ms\":"#) {
+                // A pager's cursor (`before`): the time its exchange was said.
+                let end = tail.bytes().take_while(u8::is_ascii_digit).count();
+                out.push_str(r#"\"at_ms\":<ms>"#);
+                rest = &tail[end..];
             } else {
                 let ch = rest.chars().next().unwrap();
                 out.push(ch);
