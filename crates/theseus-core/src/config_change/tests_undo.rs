@@ -143,9 +143,11 @@ impl Rig {
         self.run(sid, Some("change a setting")).await;
         // Under `approve` the gate asks for the call itself first: the owner says
         // yes from their own terminal, and the call that waited runs.
-        while let Some(q) = self.asked().into_iter().find(|q| {
-            super::tests::ASKING.contains(&q.tool.as_str()) && q.session_id == sid
-        }) {
+        while let Some(q) = self
+            .asked()
+            .into_iter()
+            .find(|q| super::tests::ASKING.contains(&q.tool.as_str()) && q.session_id == sid)
+        {
             if self
                 .core
                 .confirm_action(&q.correlation_id, true, None, "cli")

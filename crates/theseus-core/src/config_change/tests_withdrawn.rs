@@ -87,8 +87,7 @@ async fn a_settings_question_withdraws_the_standing_order_question_for_the_same_
             Done::Asked(_)
         ));
     });
-    r.turn(&sid, asks_always())
-        .await;
+    r.turn(&sid, asks_always()).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     assert_eq!(r.asked().len(), 1, "the settings question is asked");
@@ -113,8 +112,7 @@ async fn a_settings_question_ends_the_record_kept_from_the_same_message() {
             Done::Kept(_)
         ));
     });
-    r.turn(&sid, asks_always())
-        .await;
+    r.turn(&sid, asks_always()).await;
     assert_eq!(r.asked().len(), 1);
     assert_eq!(held(&r), (vec![], vec![]));
     let rows = r.rows("standing.revoked");
@@ -139,8 +137,7 @@ async fn a_settings_question_ends_the_record_kept_from_the_same_message() {
 async fn a_verdict_that_comes_after_the_settings_question_makes_nothing() {
     let r = rig_told();
     let sid = r.session();
-    r.turn(&sid, asks_always())
-        .await;
+    r.turn(&sid, asks_always()).await;
     let node = input_node(&r.core, &sid);
     assert_eq!(
         hear(&r.core, &sid, &node, SETTING, Heard::Order),
@@ -188,8 +185,7 @@ async fn what_capture_made_of_another_message_is_left_alone() {
         let node = input_node(&core, &id);
         hear(&core, &id, &node, SETTING, Heard::Order);
     });
-    r.turn(&sid, asks_always())
-        .await;
+    r.turn(&sid, asks_always()).await;
     let (asks, kept) = held(&r);
     assert_eq!(
         asks,
