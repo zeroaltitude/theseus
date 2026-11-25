@@ -194,7 +194,7 @@ async fn an_imported_message_opened_by_its_session_is_found_from_it() {
     } = &mut old.body
     {
         *tool_use_id = "h_old".into();
-        *content = text.clone();
+        *content = text;
         parts.clear();
     }
     r.core.store.append(&[old.record().unwrap()]).unwrap();

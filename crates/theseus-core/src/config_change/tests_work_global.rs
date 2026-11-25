@@ -62,7 +62,8 @@ pub(super) fn task(
     opened
 }
 
-/// The last result in `sid`: each turn of a conversation answers its own call.
+/// The last result in `sid`: each turn of a conversation answers its own call. Its words, its parts rendered
+/// when it is kept by reference.
 pub(super) fn latest(r: &Rig, sid: &str) -> (ResultStatus, String) {
     r.core
         .store
@@ -72,8 +73,14 @@ pub(super) fn latest(r: &Rig, sid: &str) -> (ResultStatus, String) {
         .rev()
         .find_map(|(_, n)| match n.body {
             Body::ToolResult {
-                status, content, ..
-            } => Some((status, content)),
+                status,
+                content,
+                parts,
+                ..
+            } => Some((
+                status,
+                crate::tests_places::kept_text(&r.core, content, &parts),
+            )),
             _ => None,
         })
         .expect("a result")

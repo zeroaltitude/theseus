@@ -59,8 +59,8 @@ fn at(i: usize) -> String {
 /// and `sid` for the session it names.
 fn golden(text: &str, sid: &str) -> String {
     let mut g = text.to_string();
-    for i in 0..T.len() {
-        let said = crate::recall::stamp::said_in(T[i], &crate::recall::stamp::system);
+    for (i, t) in T.iter().enumerate() {
+        let said = crate::recall::stamp::said_in(*t, &crate::recall::stamp::system);
         g = g.replace(&format!("<AT{i}>"), &at(i));
         g = g.replace(&format!("<SAID{i}>"), &said);
     }
