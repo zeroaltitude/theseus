@@ -2,7 +2,8 @@
 //! exchanges, merged in the touch index's own order (newest first, then by turn id ascending within one
 //! millisecond), each line naming its place, history whose place was never recorded marked so. A bare call
 //! still reads here; the self loop's scope, a fork's cut and an erased message's newest record hold on every
-//! line; and a page costs about its hundred reads and a small chunk a place, never a hundred a place.
+//! line; and a page costs about its hundred reads and a small chunk a place, never a hundred a place. `place:
+//! "*"` asks every place outright, with nothing to narrow it.
 
 use std::collections::HashSet;
 
@@ -293,4 +294,82 @@ async fn words_and_a_past_span_find_a_hit_in_another_place() {
     assert!(page.contains("turn_0001"), "{page}");
     assert!(page.contains("turn_0002"), "another place: {page}");
     assert!(!page.contains("turn_0003"), "outside the span: {page}");
+}
+
+/// `place: "*"`, bare, reads every place: here, a DM and a channel, newest first, each line naming its place,
+/// the page headed as every place's.
+#[tokio::test]
+async fn a_bare_every_place_call_pages_every_place_newest_first() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    let other = session(&r.core, None);
+    for (i, place, session) in [(1, HERE, &me), (2, DM, &other), (3, LOBBY, &other)] {
+        put(&r.core.store, &ex(i, place, session));
+    }
+    let page = call(&r.core, &me, HERE, json!({"place": "*"})).await;
+    let at: Vec<usize> = (1..=3)
+        .map(|i| {
+            page.find(&format!("message {i}"))
+                .unwrap_or_else(|| panic!("message {i}: {page}"))
+        })
+        .collect();
+    assert!(at.windows(2).all(|w| w[0] > w[1]), "newest first: {page}");
+    assert!(page.contains("every place's history"), "{page}");
+    for place in [HERE, DM, LOBBY] {
+        assert!(page.contains(&format!(" · {place} · ")), "{place}: {page}");
+    }
+}
+
+/// Every place's pages, asked by `place: "*"` with no span and no words, go on from the cursor each was given
+/// with no gap and no repeat, in the index's own order.
+#[test]
+fn an_every_place_page_resumes_before_the_cursor_it_was_given_with_no_gap_or_repeat() {
+    let (_d, s) = store();
+    let places = ["local:/a", "local:/ab", DM, LOBBY];
+    let mut want: Vec<(u64, String)> = Vec::new();
+    for i in 0..250u64 {
+        let turn = format!("turn_{:04}", (i * 7_919) % 10_000);
+        let e = Ex {
+            turn: turn.clone(),
+            at: 1_000_000 + (i / 3) * 1_000,
+            ..ex(i, places[(i % 4) as usize], "ses_a")
+        };
+        put(&s, &e);
+        want.push((e.at, turn));
+    }
+    want.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let want: Vec<String> = want.into_iter().map(|(_, t)| t).collect();
+    let l = lens(&s, "local:/a");
+    let every = args(json!({"place": "*"}));
+    let (mut got, mut before, mut looks) = (Vec::<String>::new(), None::<Cursor>, 0);
+    loop {
+        let p = walk(&l, &every, before.clone(), looks);
+        got.extend(turns(&p));
+        looks += 1;
+        match p.next {
+            Some(c) if looks < 5 => before = Some(c),
+            _ => break,
+        }
+    }
+    assert_eq!(got.len(), 250, "{got:?}");
+    assert_eq!(got.iter().collect::<HashSet<_>>().len(), 250, "no repeat");
+    assert_eq!(got, want, "the index's own order, no gap");
+}
+
+/// A session the self loop opened, asking every place, keeps to its own place, as a bare call does.
+#[tokio::test]
+async fn a_self_loop_session_asking_every_place_keeps_to_its_own() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = self_session(&r.core);
+    let mine =
+        crate::view_gate::place_name(&r.core.runner, &me).unwrap_or_else(|| "unknown".into());
+    let other = session(&r.core, None);
+    put(&r.core.store, &ex(1, &mine, &me));
+    put(&r.core.store, &ex(2, DM, &other));
+    let page = call(&r.core, &me, &mine, json!({"place": "*"})).await;
+    assert!(page.contains("turn_0001"), "its own: {page}");
+    assert!(!page.contains("turn_0002"), "another place: {page}");
+    assert!(!page.contains("every place"), "{page}");
 }
