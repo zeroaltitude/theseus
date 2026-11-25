@@ -466,9 +466,19 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
         false => format!("a run with a cap of ${cap}\n"),
     };
     s.push_str(&format!(
-        "{} exchanges: {} already touch a topic, {} are not yours, {} were asked before, {} open \
-         with no message of yours, {} are in places the ontology's judge does not act on now",
-        r.exchanges, r.touched_before, r.not_owner, r.asked_before, r.no_message, r.not_acting
+        "{} exchanges: {} already touch a topic, {} are not yours ({} someone else's, {} whose \
+         author no stored record proves, {} of these in places the ontology's judge does not act \
+         on now), {} were asked before, {} open with no message of yours, {} of yours are in \
+         places the ontology's judge does not act on now",
+        r.exchanges,
+        r.touched_before,
+        r.not_owner,
+        r.not_owner.saturating_sub(r.unproven),
+        r.unproven,
+        r.unproven_not_acting,
+        r.asked_before,
+        r.no_message,
+        r.not_acting
     ));
     match r.dry_run {
         true => s.push_str(&format!(
@@ -914,16 +924,20 @@ mod tests {
     }
 
     /// The command prints counts and dollars, whole and in order: the cap in
-    /// use first, then what the ledger holds, what the dry run would ask and
-    /// its worst case, what a run asked and spent, and why it stopped.
+    /// use first, then what the ledger holds (of what is not his, someone
+    /// else's and what no record proves, and of that, what the judge would
+    /// not act on), what the dry run would ask and its worst case, what a run
+    /// asked and spent, and why it stopped.
     #[test]
     fn the_topics_lines_are_counts_and_dollars() {
         let dry = ExchangeTopicsResult {
             dry_run: true,
             cap_usd: 10.0,
-            exchanges: 9,
+            exchanges: 11,
             touched_before: 2,
-            not_owner: 1,
+            not_owner: 3,
+            unproven: 2,
+            unproven_not_acting: 1,
             asked_before: 1,
             no_message: 2,
             not_acting: 0,
@@ -933,10 +947,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&dry),
-            "a dry run for a cap of $10.00 a run: nothing is asked\n9 exchanges: 2 already touch \
-             a topic, 1 are not yours, 1 were asked before, 2 open with no message of yours, 0 are \
-             in places the ontology's judge does not act on now\nwould ask 3: $0.0012 at worst \
-             for all 3 of them (it may be more than the cap); a run stops at its cap of $10.00"
+            "a dry run for a cap of $10.00 a run: nothing is asked\n11 exchanges: 2 already touch \
+             a topic, 3 are not yours (1 someone else's, 2 whose author no stored record proves, 1 \
+             of these in places the ontology's judge does not act on now), 1 were asked before, 2 \
+             open with no message of yours, 0 of yours are in places the ontology's judge does not \
+             act on now\nwould ask 3: $0.0012 at worst for all 3 of them (it may be more than \
+             the cap); a run stops at its cap of $10.00"
         );
         let run = ExchangeTopicsResult {
             dry_run: false,
@@ -951,10 +967,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&run),
-            "a run with a cap of $10.00\n9 exchanges: 2 already touch a topic, 1 are not yours, 1 \
-             were asked before, 2 open with no message of yours, 0 are in places the ontology's \
-             judge does not act on now\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 \
-             touches; spent $0.0003 of a cap of $10.00\nstopped: stopped at the cap"
+            "a run with a cap of $10.00\n11 exchanges: 2 already touch a topic, 3 are not yours (1 \
+             someone else's, 2 whose author no stored record proves, 1 of these in places the \
+             ontology's judge does not act on now), 1 were asked before, 2 open with no message \
+             of yours, 0 of yours are in places the ontology's judge does not act on now\nasked \
+             1 of 3 (1 answered): 1 exchanges filed with 2 touches; spent $0.0003 of a cap of \
+             $10.00\nstopped: stopped at the cap"
         );
         // A cap under a cent is shown with its decimals, never as $0.00;
         // one of a cent or more, to the cent.
@@ -965,10 +983,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&small),
-            "a run with a cap of $0.000001\n9 exchanges: 2 already touch a topic, 1 are not yours, \
-             1 were asked before, 2 open with no message of yours, 0 are in places the \
-             ontology's judge does not act on now\nasked 1 of 3 (1 answered): 1 exchanges filed \
-             with 2 touches; spent $0.0003 of a cap of $0.000001"
+            "a run with a cap of $0.000001\n11 exchanges: 2 already touch a topic, 3 are not \
+             yours (1 someone else's, 2 whose author no stored record proves, 1 of these in places \
+             the ontology's judge does not act on now), 1 were asked before, 2 open with no \
+             message of yours, 0 of yours are in places the ontology's judge does not act on \
+             now\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 touches; spent $0.0003 of \
+             a cap of $0.000001"
         );
         let dry_small = ExchangeTopicsResult {
             cap_usd: 0.0025,
@@ -976,10 +996,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&dry_small),
-            "a dry run for a cap of $0.0025 a run: nothing is asked\n9 exchanges: 2 already touch \
-             a topic, 1 are not yours, 1 were asked before, 2 open with no message of yours, 0 are \
-             in places the ontology's judge does not act on now\nwould ask 3: $0.0012 at worst \
-             for all 3 of them (it may be more than the cap); a run stops at its cap of $0.0025"
+            "a dry run for a cap of $0.0025 a run: nothing is asked\n11 exchanges: 2 already touch \
+             a topic, 3 are not yours (1 someone else's, 2 whose author no stored record proves, 1 \
+             of these in places the ontology's judge does not act on now), 1 were asked before, 2 \
+             open with no message of yours, 0 of yours are in places the ontology's judge does not \
+             act on now\nwould ask 3: $0.0012 at worst for all 3 of them (it may be more than \
+             the cap); a run stops at its cap of $0.0025"
         );
         let cent = ExchangeTopicsResult {
             cap_usd: 0.01,

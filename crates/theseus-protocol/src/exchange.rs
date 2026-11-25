@@ -315,11 +315,17 @@ pub struct ExchangeTopicsResult {
     /// Those that already touch a topic, and those this job asked before.
     pub touched_before: u64,
     pub asked_before: u64,
-    /// Those opened by someone other than the owner: a guest in a shared
-    /// place, or a person no record proves. His decision was about his own
-    /// history, so they are never sent.
+    /// Those a person's typed message opened that is not the owner's: a
+    /// guest's, an agent's, or one whose author no record proves. His
+    /// decision was about his own history, so they are never sent.
     pub not_owner: u64,
-    /// Those opened by no person's message that can be read.
+    /// Of those, the ones whose author no record proves (no person, and no
+    /// mark on the message), and of these, the ones in places the
+    /// ontology's judge would not act on now.
+    pub unproven: u64,
+    pub unproven_not_acting: u64,
+    /// Those opened by no person's message that can be read: a wake, a
+    /// task's brief, Theseus's own turn among them.
     pub no_message: u64,
     /// Those the ontology's judge would not act on now (off, or in shadow).
     pub not_acting: u64,
