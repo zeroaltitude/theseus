@@ -269,13 +269,7 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let src = sources_of(
-            &permit,
-            (&sources, &moving),
-            &ladder,
-            &cards,
-            (&message, self.cfg.context.sizes()),
-        );
+        let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, &message);
         let renderer = self.renderer(store, &read, &said);
         let who = self.who_am_i(spec);
         let memory_page = memory_page_at(src.sizes.here).into_owned();
@@ -364,6 +358,7 @@ impl TurnRunner {
                 cuts: self.tools.scrubber.cuts(),
                 since: Some(said),
             },
+            sizes: self.cfg.context.sizes(),
         })
     }
 
@@ -565,6 +560,8 @@ struct Moving<'a> {
     called: Option<Called<'a>>,
     waiting: StoreWaiting<'a>,
     people: StorePeople<'a>,
+    /// The look-backs' sizes, `[context]`'s.
+    sizes: crate::config::context::Sizes,
 }
 
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
@@ -575,7 +572,7 @@ fn sources_of<'a, 'b>(
     (store, moving): (&'a StoreSources<'b>, &'a Moving<'b>),
     ladder: &'a dyn crate::view::fold::Ladder,
     cards: &'a StoreCards<'b>,
-    (message, sizes): (&'a str, crate::config::context::Sizes),
+    message: &'a str,
 ) -> Sources<'a> {
     let (things, names): (&dyn Things, &dyn Names) = match &moving.called {
         Some(c) => (c, c),
@@ -594,7 +591,7 @@ fn sources_of<'a, 'b>(
         recall: store,
         people: &moving.people,
         message,
-        sizes,
+        sizes: moving.sizes,
     }
 }
 
