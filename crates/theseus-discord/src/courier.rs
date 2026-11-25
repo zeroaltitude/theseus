@@ -366,6 +366,8 @@ pub(crate) struct Lane {
     pub v2: v2::State,
     /// The outage this lane is coming back from (theseus-ss36w).
     catchup: catchup::State,
+    /// The FYIs waiting on the notices place (`notices.rs`).
+    notices: notices::State,
 }
 
 impl Lane {
@@ -409,6 +411,7 @@ impl Lane {
             seek_stale: false,
             v2: v2::State::default(),
             catchup: catchup::State::default(),
+            notices: notices::State::default(),
         }
     }
 
@@ -421,6 +424,7 @@ impl Lane {
                 .into_iter()
                 .chain(self.held.as_ref().map(|h| h.1))
                 .chain(self.v2.due())
+                .chain(self.notices.wake())
                 .min();
             let msg = match wake {
                 Some(at) => tokio::select! {
@@ -622,7 +626,7 @@ impl Lane {
             if self.shared.is_retired(&self.target) {
                 return false;
             }
-            let Some(a) = self.shared.core.outbox.next_for(&self.target) else {
+            let Some(a) = self.next_post() else {
                 return true;
             };
             // It waits, and the posts after it wait behind it; the stream
@@ -701,10 +705,13 @@ impl Lane {
     /// One post: planned into writes, dispatched, written, settled. An error
     /// back means Discord is away (or the store would not take the settle)
     /// and the post waits, dispatched; a refusal settles it as failed, and the
-    /// lane goes on.
+    /// lane goes on. An FYI for the notices place that meets an absent Discord
+    /// waits aside and Ok comes back; one Discord refuses there for good is
+    /// written to the DM instead (`notices.rs`).
     async fn deliver(&mut self, a: &Action) -> Result<(), SendErr> {
         let t0 = std::time::Instant::now();
-        let plan = match self.plan(a).await {
+        self.notices.dm = None;
+        let mut plan = match self.plan(a).await {
             Ok(p) => p,
             Err(e) if e.away => return Err(e),
             Err(e) => {
@@ -718,6 +725,11 @@ impl Lane {
                 );
             }
         };
+        // An FYI for the notices place: its DM, or it went aside untried.
+        let (mut notices, aside) = self.take_notices_dm(a);
+        if aside {
+            return Ok(());
+        }
         if plan.writes.is_empty() {
             // Nothing to send (`Plan::nothing`): the post ends well and
             // reached no channel.
@@ -769,7 +781,22 @@ impl Lane {
             {
                 w.content = format!("{}\n{}", w.content, render::RESENT);
             }
-            match self.write(&w).await {
+            let mut wrote = self.write(&w).await;
+            let create = w.message.is_none() && !self.msgs.contains_key(&w.key);
+            if let (Err(e), Some(dm)) = (&wrote, &notices) {
+                if e.away {
+                    // The notices place is away: the FYI waits aside.
+                    self.park(a, e);
+                    return Ok(());
+                }
+                if create && !maybe_landed {
+                    wrote = self.refused_to_dm(a, &w, dm, e).await;
+                    plan.extra["place"] = json!(dm.1);
+                    plan.extra["notices_refused"] = json!(true);
+                    notices = None;
+                }
+            }
+            match wrote {
                 Ok(Some((c, m))) => messages.push((w.key.clone(), c, m)),
                 Ok(None) => {}
                 Err(e) if e.away => return Err(e),
@@ -788,6 +815,9 @@ impl Lane {
                     );
                 }
             }
+        }
+        if notices.is_some() {
+            self.notices_ok();
         }
         let mut extra = plan.extra;
         extra["ms"] = json!(t0.elapsed().as_millis() as u64);
