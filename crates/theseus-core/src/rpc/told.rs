@@ -199,16 +199,13 @@ impl Core {
                 .self_item_closed(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item has left the backlog"),
-<<<<<<< ours
             Undo::TaskUndo { task, version } => {
                 crate::task_graph::undo::undone(&self.store, task, *version)
                     .map_err(RpcFailure::invalid)?
                     .then_some("the task is back as it was")
             }
-=======
             #[cfg(test)]
             Undo::Probe(_) => None,
->>>>>>> theirs
         })
     }
 
@@ -247,16 +244,13 @@ impl Core {
                 };
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
-<<<<<<< ours
             // An internal one: the task's record before the change, written back.
             Undo::TaskUndo { task, version } => self.task_undo_as(task, *version, who).map(drop),
-=======
             #[cfg(test)]
             Undo::Probe(_) => {
                 PROBED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(())
             }
->>>>>>> theirs
         }
     }
 }

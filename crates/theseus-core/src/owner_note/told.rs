@@ -49,18 +49,15 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
-<<<<<<< ours
     /// `task.undo`: the owner's task gets back the record it had before the
     /// change that made `version`, while it has not moved since.
     #[serde(rename = "task.undo")]
     TaskUndo { task: String, version: u64 },
-=======
     /// An undo with no method of its own, for the tests: its arm in
     /// `rpc::told` counts the times it ran.
     #[cfg(test)]
     #[serde(rename = "test.probe")]
     Probe(String),
->>>>>>> theirs
 }
 
 impl Undo {
@@ -72,12 +69,9 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
-<<<<<<< ours
             Undo::TaskUndo { .. } => method::TASK_UNDO,
-=======
             #[cfg(test)]
             Undo::Probe(_) => method::TOLD_UNDO,
->>>>>>> theirs
         }
     }
 
@@ -90,14 +84,11 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
-<<<<<<< ours
             Undo::TaskUndo { task, version } => {
                 json!({"id": task, "version": version, "author": author, "discord": discord})
             }
-=======
             #[cfg(test)]
             Undo::Probe(id) => json!({"id": id, "author": author}),
->>>>>>> theirs
         }
     }
 
@@ -109,12 +100,9 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-<<<<<<< ours
             Undo::TaskUndo { task, version } => format!("theseus task undo {task} {version}"),
-=======
             #[cfg(test)]
             Undo::Probe(_) => by_door(),
->>>>>>> theirs
         }
     }
 }
