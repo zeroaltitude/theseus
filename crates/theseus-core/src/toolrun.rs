@@ -1756,12 +1756,9 @@ impl ToolRuntime {
         // A task edit's records ride in the frame that settles it, under its
         // task's lock (39a).
         let mut edit = crate::task_graph::tools::Done::default();
-        // A routine made without the owner's yes waits before its first run
-        // (issue 57): he is told of it first.
-        let hold_ms = match ran_at {
-            Posture::Approve => 0,
-            _ => crate::routine::TOLD_HOLD_MS,
-        };
+        // A routine or a watch made without the owner's yes is told (issue
+        // 57), and a routine's first run waits until he can see that.
+        let told = ran_at != Posture::Approve;
         let done = match tool.name() {
             crate::task::CREATE => crate::task::create_call(
                 tc,
@@ -1769,7 +1766,7 @@ impl ToolRuntime {
                 correlation_id,
                 (&self.profiles, (&self.routines, &self.projects)),
                 &self.forecasts,
-                hold_ms,
+                told,
             )
             .map(|c| edit.take(c)),
             crate::project_tool::ATTACH => crate::project_tool::attach(tc, &call.input),
@@ -1777,7 +1774,7 @@ impl ToolRuntime {
             crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
             crate::routine_tool::CREATE => {
-                crate::routine_tool::run(tc, &self.routines, &call.input, hold_ms, &|t| {
+                crate::routine_tool::run(tc, &self.routines, &call.input, told, &|t| {
                     self.registry.get(t).is_some()
                 })
             }
@@ -1787,7 +1784,7 @@ impl ToolRuntime {
                 &self.watches_cfg,
                 self.google.as_ref().map(|g| &g.cfg),
                 &call.input,
-                correlation_id,
+                (correlation_id, told),
             ),
             crate::ask::OWNER_ASK => crate::ask::result(tc, &call.input, correlation_id),
             name if crate::policy::modes::is_plan(name) => self
@@ -1918,6 +1915,9 @@ impl ToolRuntime {
         records.append(&mut edit.records);
         tc.kernel.accept_completion_with(&c, records)?;
         drop(edit.locks);
+        for a in &edit.posts {
+            tc.outbox.posted(a);
+        }
         for (_, c) in &edit.changes {
             self.leases.note(&c.task);
         }

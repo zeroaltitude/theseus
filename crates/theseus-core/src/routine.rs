@@ -728,6 +728,40 @@ pub fn prepare(
 /// minutes he has to see that note.
 pub const TOLD_HOLD_MS: u64 = 10 * 60_000;
 
+/// The note that tells the owner of a routine made without his yes (issue
+/// 57), staged for the frame that makes it: `title` what was set up, in which
+/// conversation, its schedule, its money and its first run, and its Delete. It
+/// quotes neither its title nor its brief, which the model wrote.
+pub fn told(
+    outbox: &Outbox,
+    session: &str,
+    title: &str,
+    spec: &RoutineSpec,
+    first_ms: u64,
+    zone: &TimeZone,
+) -> Result<(theseus_kernel::Action, Vec<NewRecord>)> {
+    crate::owner_note::told::stage(
+        outbox,
+        Some(session),
+        title,
+        &format!(
+            "In conversation {}, without asking you",
+            crate::narrative::short(session)
+        ),
+        &format!(
+            "Routine {} runs {}, each run a fresh task with up to ${:.2}, from ${:.2} a month. \
+             Its first run is {}, at least ten minutes after it was set up. What a run spends \
+             does not come back.",
+            short(&spec.session_id),
+            spec.schedule,
+            theseus_kernel::micros_to_usd(spec.run_micros),
+            theseus_kernel::micros_to_usd(spec.month_micros),
+            when(zone, first_ms)
+        ),
+        &crate::owner_note::told::Undo::RoutineDelete(spec.session_id.clone()),
+    )
+}
+
 /// `p` with its first run no sooner than `hold_ms` from now: the schedule read
 /// again from then, as a `start` reads it. A stop that is a time and comes
 /// before that first run would run nothing, and says so.
@@ -761,6 +795,19 @@ pub fn create(
     book: &Book,
     p: Prepared,
     by: &str,
+) -> Result<RoutineSpec> {
+    create_with(kernel, store, book, p, by, |_| Ok(vec![]))
+}
+
+/// [`create`], with `also`'s records in the frame that makes its wake: the
+/// note that tells the owner of it (issue 57), so no run can come before it.
+pub fn create_with(
+    kernel: &Kernel,
+    store: &Store,
+    book: &Book,
+    p: Prepared,
+    by: &str,
+    also: impl FnOnce(&RoutineSpec) -> Result<Vec<NewRecord>>,
 ) -> Result<RoutineSpec> {
     let live = book.all(store)?.len();
     if live >= book.cfg.max_routines {
@@ -815,13 +862,9 @@ pub fn create(
             tools: p.grant,
         }),
     };
-    kernel.create_wake_with(
-        &exec.id,
-        Some(spec.wake_id.clone()),
-        new,
-        by,
-        vec![spec_record(&spec)?, row],
-    )?;
+    let mut records = vec![spec_record(&spec)?, row];
+    records.extend(also(&spec)?);
+    kernel.create_wake_with(&exec.id, Some(spec.wake_id.clone()), new, by, records)?;
     book.set(&spec);
     Ok(spec)
 }

@@ -516,7 +516,7 @@ fn open_all(core: &Core, tc: &TurnCtx<'_>, call_id: &str, a: &Args) -> Result<Op
                 (&core.tools.routines, &core.tools.projects),
             ),
             &core.tools.forecasts,
-            (None, crate::routine::TOLD_HOLD_MS),
+            (None, true),
         );
         match done {
             Ok(d) => {

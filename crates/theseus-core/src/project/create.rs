@@ -190,8 +190,11 @@ impl Long {
             }
             let new = super::review::request(cfg, (&rec.id, &rec.title), item.review, None);
             let by = format!("model:{}", tc.session_id);
-            let held = (by.as_str(), Some(tc.session_id), item.hold_ms);
-            let spec = super::review::make(tc.kernel, tc.store, book, &new, held)?;
+            let told = (by.as_str(), Some(tc.session_id), item.told.then_some(tc.outbox));
+            let (spec, post) = super::review::make(tc.kernel, tc.store, book, &new, told)?;
+            if let Some(a) = &post {
+                tc.outbox.posted(a);
+            }
             said = format!(
                 " Its weekly review is routine {} ({}): `theseus routine runs {}` is the project's history.",
                 crate::routine::short(&spec.session_id),

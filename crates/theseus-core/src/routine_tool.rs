@@ -24,7 +24,7 @@ use theseus_kernel::TimeZone;
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::config::RoutinesConfig;
-use crate::routine::{create, prepare, NewRoutine};
+use crate::routine::{prepare, NewRoutine};
 use crate::toolrun::TurnCtx;
 
 pub const CREATE: &str = "routine.create";
@@ -185,13 +185,14 @@ impl Tool for RoutineCreate {
     }
 }
 
-/// Run `routine.create` (the harness's side): its first run at least `hold_ms`
-/// away (`routine::held`; none once the owner said yes).
+/// Run `routine.create` (the harness's side). `told`: the owner did not say
+/// yes, so he is told in the frame that makes it, and its first run is at
+/// least `routine::TOLD_HOLD_MS` away (`routine::held`).
 pub fn run(
     tc: &TurnCtx<'_>,
     book: &crate::routine::Book,
     input: &Value,
-    hold_ms: u64,
+    told: bool,
     known: &dyn Fn(&str) -> bool,
 ) -> Result<(String, Value), String> {
     // A task may propose one: the owner's yes on its card is the gate, as for a
@@ -204,8 +205,23 @@ pub fn run(
     let mut new = i.new_routine();
     new.grant = crate::routine::grant::check(&new.grant, known)?;
     let prepared = prepare(tc.kernel, &book.cfg, &new, &by, Some(tc.session_id))?;
+    let hold_ms = if told { crate::routine::TOLD_HOLD_MS } else { 0 };
     let prepared = crate::routine::held(tc.kernel, prepared, hold_ms)?;
-    let spec = create(tc.kernel, tc.store, book, prepared, &by).map_err(|e| format!("{e:#}"))?;
+    let (first_ms, zone) = (prepared.first_ms, tc.kernel.config().zone.clone());
+    let mut post = None;
+    let spec = crate::routine::create_with(tc.kernel, tc.store, book, prepared, &by, |spec| {
+        if !told {
+            return Ok(vec![]);
+        }
+        let title = "A routine was set up";
+        let (a, records) = crate::routine::told(tc.outbox, tc.session_id, title, spec, first_ms, &zone)?;
+        post = Some(a);
+        Ok(records)
+    })
+    .map_err(|e| format!("{e:#}"))?;
+    if let Some(a) = &post {
+        tc.outbox.posted(a);
+    }
     let zone = &tc.kernel.config().zone;
     let first = tc
         .kernel

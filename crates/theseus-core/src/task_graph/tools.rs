@@ -650,12 +650,14 @@ impl Tool for TaskClose {
 
 /// What an edit did: the call's result, the records its frame writes (the
 /// task records and their rows), the changes to announce once that frame is
-/// written, and the locks held until then.
+/// written, the notes it stages for the owner (posted once it is), and the
+/// locks held until then.
 pub struct Done<'a> {
     pub text: String,
     pub meta: Value,
     pub records: Vec<NewRecord>,
     pub changes: Vec<(&'static str, Change)>,
+    pub posts: Vec<theseus_kernel::Action>,
     pub locks: Vec<SessionLock<'a>>,
 }
 
@@ -666,6 +668,7 @@ impl Default for Done<'_> {
             meta: Value::Null,
             records: vec![],
             changes: vec![],
+            posts: vec![],
             locks: vec![],
         }
     }
@@ -676,6 +679,7 @@ impl<'a> Done<'a> {
     pub fn take(&mut self, mut d: Done<'a>) -> (String, Value) {
         self.records.append(&mut d.records);
         self.changes.append(&mut d.changes);
+        self.posts.append(&mut d.posts);
         self.locks.append(&mut d.locks);
         (d.text, d.meta)
     }
@@ -804,6 +808,7 @@ fn update<'a>(
         }
     }
     let from = rec.version;
+    let (i_objective, i_acceptance) = (i.patch.objective.is_some(), i.patch.acceptance.is_some());
     let (fields, retitled) = patched(tc, &mut rec, i.patch)?;
     if touches_layer1 {
         rec.proposal = None;
@@ -846,6 +851,12 @@ fn update<'a>(
         if let Some(row) = done.records.last_mut() {
             super::undo::key(row, &rec);
         }
+        let what = match (i_objective, i_acceptance) {
+            (true, true) => "Your task's objective and acceptance were changed",
+            (true, false) => "Your task's objective was changed",
+            _ => "Your task's acceptance was changed",
+        };
+        super::undo::tell_owner(tc, &rec, what, &mut done)?;
     }
     done.records.extend(retitled);
     if let Some(w) = &kept {
@@ -1120,6 +1131,7 @@ fn close<'a>(
         if let Some(row) = done.records.last_mut() {
             super::undo::key(row, &rec);
         }
+        super::undo::tell_owner(tc, &rec, "Your task was abandoned", &mut done)?;
     }
     done.text = format!(
         "Closed task {} {} (v{from} → v{}), with {}.",
@@ -1157,8 +1169,9 @@ pub struct Item<'i> {
     pub arrangement: Option<&'i crate::arrangement::Input>,
     /// Who started it (theseus-o1h3f.1); none is the owner's.
     pub own: Option<&'i crate::task_self::Own>,
-    /// The least wait before a project's review's first run (`routine::held`).
-    pub hold_ms: u64,
+    /// The owner did not say yes to the call: a project's review routine tells
+    /// him, and its first run waits (issue 57).
+    pub told: bool,
 }
 
 /// The record a task's objective and acceptance take from its pieces, else

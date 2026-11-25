@@ -222,12 +222,12 @@ impl Core {
         if p.review.as_deref().map(str::trim) != Some("none") {
             let new =
                 project::review::request(cfg, (&id, title), p.review.as_deref(), p.review_usd);
-            let spec = project::review::make(
+            let (spec, _) = project::review::make(
                 &self.kernel,
                 &self.store,
                 &self.runner.tools.routines,
                 &new,
-                (&who.label, None, 0),
+                (&who.label, None, None),
             )
             .map_err(invalid)?;
             review = Some(spec.session_id);

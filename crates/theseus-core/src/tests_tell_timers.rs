@@ -9,11 +9,11 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::approval::Surface;
 use crate::policy::Posture;
 use crate::provider::{ProviderRequest, Scripted};
-use crate::tests_m3::{rpc_as, surface};
+use crate::owner_note::told::Undo;
 use crate::tests_tasks::{answers_a_call, rig, turn, until, Rig};
+use crate::tests_tell_tasks::{notes, press};
 use crate::{Config, Core};
 
 const BRIEF: &str = "Read the tide table and say when the next high tide is.";
@@ -91,13 +91,17 @@ async fn a_routine_is_made_unasked_its_first_run_waits_and_its_delete_ends_it() 
         first_run(&r, &made[0].execution_id) >= t0 + HOLD_MS,
         "the first run waits ten minutes"
     );
-    let gone = rpc_as(
-        &r.core,
-        surface("sock#1", Surface::Cli),
-        "routine.delete",
-        json!({"id": made[0].session_id}),
-    )
-    .await;
+    let told = notes(&r.core);
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    let (text, how) = &told[0];
+    assert!(text.starts_with("ℹ️ FYI · A routine was set up\nIn conversation "), "{text}");
+    assert!(
+        text.contains("without asking you") && text.contains("runs every 1m") && text.contains("$0.50"),
+        "{text}"
+    );
+    assert!(!text.contains("Tide check") && !text.contains("tide table"), "{text}");
+    assert_eq!(*how, Undo::RoutineDelete(made[0].session_id.clone()));
+    let gone = press(&r.core, how).await;
     assert!(gone.is_ok(), "{gone:?}");
     assert!(routines(&r).is_empty(), "its delete ends it");
 }
@@ -132,6 +136,7 @@ async fn his_approve_on_routine_create_asks_and_his_yes_keeps_its_schedule() {
         first_run(&r, &routines(&r)[0].execution_id) < t0 + HOLD_MS,
         "his yes holds nothing back"
     );
+    assert!(notes(&r.core).is_empty(), "asked, not told");
 }
 
 /// With nothing set on `task.create`, a project with a review every minute
@@ -155,4 +160,12 @@ async fn a_projects_review_is_made_unasked_and_its_first_run_waits() {
         first_run(&r, &made[0].execution_id) >= t0 + HOLD_MS,
         "the first run waits ten minutes"
     );
+    let told = notes(&r.core);
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    assert!(
+        told[0].0.starts_with("ℹ️ FYI · A project's weekly review was set up\n"),
+        "{}",
+        told[0].0
+    );
+    assert_eq!(told[0].1, Undo::RoutineDelete(made[0].session_id.clone()));
 }

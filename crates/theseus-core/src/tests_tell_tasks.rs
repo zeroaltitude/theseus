@@ -8,6 +8,7 @@
 use serde_json::{json, Value};
 
 use crate::approval::Surface;
+use crate::owner_note::told::Undo;
 use crate::policy::Posture;
 use crate::task_graph::{TaskRecord, TaskState};
 use crate::tests_m3::{rpc_as, surface};
@@ -50,6 +51,29 @@ fn told(r: &Rig, kind: &str) -> Vec<Value> {
         .map(|row| row.data)
         .filter(|d| d["told"] == true)
         .collect()
+}
+
+/// The notes told to the owner: each one's text and its undo.
+pub(crate) fn notes(core: &crate::Core) -> Vec<(String, Undo)> {
+    crate::tests_tasks::posts(core, crate::owner_note::told::KIND)
+        .iter()
+        .map(|a| crate::owner_note::told::of(&core.kernel, &a.correlation_id).unwrap().unwrap())
+        .collect()
+}
+
+/// A note's undo pressed by the owner at his terminal: its own method and
+/// params, as a press sends them.
+pub(crate) async fn press(
+    core: &std::sync::Arc<crate::Core>,
+    undo: &Undo,
+) -> Result<Value, theseus_protocol::RpcError> {
+    rpc_as(
+        core,
+        surface("sock#1", Surface::Cli),
+        undo.method(),
+        undo.params("the CLI", None),
+    )
+    .await
 }
 
 /// `task.undo` from the owner's own terminal.
@@ -114,12 +138,32 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
         rows(&r.core, "task.change_accepted").is_empty(),
         "nobody accepted it"
     );
+    let told = notes(&r.core);
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    let (text, how) = &told[0];
+    assert!(
+        text.starts_with("ℹ️ FYI · Your task's objective and acceptance were changed\nIn conversation "),
+        "{text}"
+    );
+    assert!(text.contains("without asking you") && text.contains(&t.id), "{text}");
+    assert!(
+        text.contains(&format!("Undo: `theseus task undo {} {}`", t.id, changed.version)),
+        "{text}"
+    );
+    assert!(!text.contains("inner"), "it quotes nothing the change wrote: {text}");
+    assert_eq!(
+        *how,
+        Undo::TaskUndo {
+            task: t.id.clone(),
+            version: changed.version
+        }
+    );
 
     let refused = undo_by_a_stranger(&r, &t.id, changed.version).await;
     assert!(refused.is_err(), "{refused:?}");
     assert_eq!(r.task(&t.id), changed, "a stranger's press undoes nothing");
 
-    let back = undo(&r, &t.id, changed.version).await.unwrap();
+    let back = press(&r.core, how).await.unwrap();
     assert_eq!(back["restored"], json!(before.version), "{back}");
     let now = r.task(&t.id);
     assert_eq!(content(&now), content(&before), "exactly as it was");
@@ -161,6 +205,7 @@ async fn his_approve_on_task_update_still_asks_with_the_cards_words() {
     assert_eq!(now.objective, t.objective);
     assert!(now.proposal.is_some());
     assert!(told(&r, "task.updated").is_empty());
+    assert!(notes(&r.core).is_empty(), "asked, not told");
     stop_holding(&r);
 }
 
@@ -184,8 +229,15 @@ async fn his_task_abandoned_runs_unasked_and_his_undo_reopens_it_exactly() {
     let said = told(&r, "task.closed");
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(rows(&r.core, "task.change_accepted").is_empty());
+    let told = notes(&r.core);
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    assert!(
+        told[0].0.starts_with("ℹ️ FYI · Your task was abandoned\n"),
+        "{}",
+        told[0].0
+    );
 
-    undo(&r, &t.id, closed.version).await.unwrap();
+    press(&r.core, &told[0].1).await.unwrap();
     let now = r.task(&t.id);
     assert_eq!(content(&now), content(&before), "reopened exactly");
     assert_ne!(now.state, TaskState::Abandoned);
@@ -247,4 +299,5 @@ async fn abandoning_a_self_loop_item_keeps_its_card() {
     assert_eq!(asked.len(), 1, "{asked:?}");
     assert!(asked[0].reason.contains("abandoning"), "{}", asked[0].reason);
     assert_eq!(r.task(&item.id).state, TaskState::Proposed);
+    assert!(notes(&r.core).is_empty());
 }

@@ -164,15 +164,16 @@ fn params_of(input: &Value) -> Result<WatchCreateParams, String> {
 }
 
 /// Run `watch` for the call `correlation_id` of the turn `tc` (the harness's
-/// side): set the watch and say what it will do. An error is the result the
-/// model reads.
+/// side): set the watch and say what it will do. `told`: the owner did not say
+/// yes, so a watch that would have asked him tells him, with its cancel (issue
+/// 57). An error is the result the model reads.
 pub fn set(
     tc: &TurnCtx<'_>,
     board: &Board,
     cfg: &WatchesConfig,
     google: Option<&GoogleConfig>,
     input: &Value,
-    correlation_id: &str,
+    (correlation_id, told): (&str, bool),
 ) -> Result<(String, Value), String> {
     if tc.task.is_some() {
         return Err(TASK_REFUSAL.into());
@@ -205,6 +206,15 @@ pub fn set(
     }
     let s = crate::task::short(&w.id);
     let spec = Spec::of(w).map_err(|e| format!("Not set: {e}"))?;
+    let asked_before = !matches!(spec.check, spec::Check::Fetch { .. } | spec::Check::File { .. });
+    if told && set.set && asked_before {
+        if let Err(e) = tell(tc, &spec, &w.id, now) {
+            let _ = tc.kernel.cancel_wake(tc.execution_id, &w.id, "watch: untold");
+            return Err(format!(
+                "Not set: the owner could not be told of it ({e:#}), so it was cancelled"
+            ));
+        }
+    }
     if set.set {
         board.insert(Entry::seed(
             tc.execution_id.to_string(),
@@ -238,4 +248,41 @@ pub fn set(
         "every_ms": spec.every_ms, "expires_at_ms": spec.expires_ms, "then": spec.then.word(),
     });
     Ok((text, meta))
+}
+
+/// The note that tells the owner of a watch set without his yes (issue 57):
+/// in which conversation, what it reads or runs and for how long, and its
+/// cancel. It quotes neither the command nor the query, which the model wrote.
+fn tell(tc: &TurnCtx<'_>, s: &Spec, wake: &str, now: u64) -> anyhow::Result<()> {
+    let most = span(s.expires_ms.saturating_sub(now));
+    let every = crate::watch::spec::every_word(s.every_ms);
+    let what = match &s.check {
+        spec::Check::Reply { place, .. } => format!(
+            "It reads each new message in {place} and tells you of one that matches, for at \
+             most {most}."
+        ),
+        spec::Check::Mail { .. } => format!(
+            "It searches your mailbox every {every} and tells you of new mail that matches, \
+             for at most {most}."
+        ),
+        _ => format!(
+            "It runs a command in the sandbox every {every} until its condition holds, for at \
+             most {most}, then a {}.",
+            s.then.word()
+        ),
+    };
+    let (post, records) = crate::owner_note::told::stage(
+        tc.outbox,
+        Some(tc.session_id),
+        "A watch was set",
+        &format!(
+            "In conversation {}, without asking you",
+            crate::narrative::short(tc.session_id)
+        ),
+        &what,
+        &crate::owner_note::told::Undo::WakeCancel(wake.into()),
+    )?;
+    tc.store.append(&records)?;
+    tc.outbox.posted(&post);
+    Ok(())
 }

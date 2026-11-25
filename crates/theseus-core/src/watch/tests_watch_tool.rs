@@ -310,7 +310,14 @@ async fn a_command_watch_runs_unasked_and_its_cancel_ends_it() {
     .await;
     let given: Vec<String> = ["gh", "pr", "view", "123"].map(String::from).to_vec();
     assert!(calls.lock().unwrap().iter().all(|a| *a == given));
-    rpc(&r.core, "wake.cancel", json!({"wake": id})).await.unwrap();
+    let told = crate::tests_tell_tasks::notes(&r.core);
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    let (text, how) = &told[0];
+    assert!(text.starts_with("ℹ️ FYI · A watch was set\nIn conversation "), "{text}");
+    assert!(text.contains("runs a command in the sandbox every 5m"), "{text}");
+    assert!(!text.contains("gh pr"), "it quotes no command: {text}");
+    assert_eq!(*how, crate::owner_note::told::Undo::WakeCancel(id.clone()));
+    crate::tests_tell_tasks::press(&r.core, how).await.unwrap();
     assert_eq!(pending_watches(&r.core), 0, "its cancel ends it");
 }
 
@@ -330,6 +337,7 @@ async fn a_reply_watch_asks_only_where_watch_is_set_to() {
     let res = turn(&asks.core, &sid, "WATCH REPLY").await;
     assert!(res.awaiting_confirm.is_some(), "its setting asks");
     assert_eq!(pending_watches(&asks.core), 0);
+    assert!(crate::tests_tell_tasks::notes(&asks.core).is_empty());
 
     let r = rig_scripted(|_| {}, script);
     let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
@@ -337,6 +345,9 @@ async fn a_reply_watch_asks_only_where_watch_is_set_to() {
     assert!(res.awaiting_confirm.is_none(), "nothing is asked");
     assert_eq!(pending_watches(&r.core), 1);
     let id = exec_of(&r.core, &sid).wakes[0].id.clone();
-    rpc(&r.core, "wake.cancel", json!({"wake": id})).await.unwrap();
+    let told = crate::tests_tell_tasks::notes(&r.core);
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    assert!(told[0].0.contains("reads each new message in discord:channel:777"), "{}", told[0].0);
+    crate::tests_tell_tasks::press(&r.core, &told[0].1).await.unwrap();
     assert_eq!(pending_watches(&r.core), 0, "its cancel ends it");
 }

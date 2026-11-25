@@ -61,18 +61,33 @@ pub fn request(
     }
 }
 
-/// Make the review routine (the same functions the routine verbs call), its
-/// first run at least `hold_ms` away (`routine::held`; none for the owner's).
+/// Make the review routine (the same functions the routine verbs call). With
+/// `told` (an outbox, and the conversation that made it without the owner's
+/// yes), its note rides the frame that makes it and its first run is at least
+/// `routine::TOLD_HOLD_MS` away (issue 57); the note to post is returned.
 pub fn make(
     kernel: &theseus_kernel::Kernel,
     store: &crate::store::Store,
     book: &Book,
     new: &NewRoutine,
-    (by, created_in, hold_ms): (&str, Option<&str>, u64),
-) -> Result<RoutineSpec, String> {
+    (by, created_in, told): (&str, Option<&str>, Option<&crate::outbox::Outbox>),
+) -> Result<(RoutineSpec, Option<theseus_kernel::Action>), String> {
     let prepared = routine::prepare(kernel, &book.cfg, new, by, created_in)?;
+    let hold_ms = if told.is_some() { routine::TOLD_HOLD_MS } else { 0 };
     let prepared = routine::held(kernel, prepared, hold_ms)?;
-    routine::create(kernel, store, book, prepared, by).map_err(|e| format!("{e:#}"))
+    let (first_ms, zone) = (prepared.first_ms, kernel.config().zone.clone());
+    let mut post = None;
+    let spec = routine::create_with(kernel, store, book, prepared, by, |spec| {
+        let (Some(outbox), Some(session)) = (told, created_in) else {
+            return Ok(vec![]);
+        };
+        let title = "A project's weekly review was set up";
+        let (a, records) = routine::told(outbox, session, title, spec, first_ms, &zone)?;
+        post = Some(a);
+        Ok(records)
+    })
+    .map_err(|e| format!("{e:#}"))?;
+    Ok((spec, post))
 }
 
 #[test]

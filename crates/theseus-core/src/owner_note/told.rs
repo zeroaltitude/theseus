@@ -39,6 +39,10 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
+    /// `task.undo`: the owner's task gets back the record it had before the
+    /// change that made `version`, while it has not moved since.
+    #[serde(rename = "task.undo")]
+    TaskUndo { task: String, version: u64 },
 }
 
 impl Undo {
@@ -50,6 +54,7 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
+            Undo::TaskUndo { .. } => method::TASK_UNDO,
         }
     }
 
@@ -62,6 +67,9 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
+            Undo::TaskUndo { task, version } => {
+                json!({"id": task, "version": version, "author": author, "discord": discord})
+            }
         }
     }
 
@@ -72,6 +80,7 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
+            Undo::TaskUndo { task, version } => format!("theseus task undo {task} {version}"),
         }
     }
 }
@@ -193,6 +202,24 @@ mod tests {
             assert_eq!(p["author"], json!("ana"));
             assert_eq!(u.command(), cmd);
         }
+    }
+
+    /// A task change's undo names the task and the version the change made.
+    #[test]
+    fn a_task_changes_undo_names_the_task_and_its_version() {
+        let u = Undo::TaskUndo {
+            task: "tsk_1".into(),
+            version: 4,
+        };
+        assert_eq!(u.method(), method::TASK_UNDO);
+        assert!(method::ALL.contains(&u.method()));
+        assert_eq!(
+            serde_json::to_value(&u).unwrap(),
+            json!({"method": "task.undo", "id": {"task": "tsk_1", "version": 4}})
+        );
+        let p = u.params("ana", None);
+        assert_eq!((p["id"].clone(), p["version"].clone()), (json!("tsk_1"), json!(4)));
+        assert_eq!(u.command(), "theseus task undo tsk_1 4");
     }
 
     /// A restart: the core gone and its store opened again under a new one.

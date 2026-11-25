@@ -50,6 +50,47 @@ pub(super) fn key(row: &mut NewRecord, task: &TaskRecord) {
     row.key = Some(told_key(&task.id, task.version));
 }
 
+/// Stage the note that tells the owner of a told change (`title`, what was
+/// done), into the change's own frame (`done`): in which conversation, the
+/// task by its id (and its title only where the title is his own words), and
+/// its undo. It quotes nothing the change wrote.
+pub(super) fn tell_owner(
+    tc: &crate::toolrun::TurnCtx<'_>,
+    rec: &TaskRecord,
+    title: &str,
+    done: &mut super::tools::Done<'_>,
+) -> Result<(), String> {
+    let named = match super::title_hand(tc.store, rec) {
+        Ok(crate::content::Hand::Owner) => format!(" (\"{}\")", rec.title),
+        _ => String::new(),
+    };
+    let undo = crate::owner_note::told::Undo::TaskUndo {
+        task: rec.id.clone(),
+        version: rec.version,
+    };
+    let (post, records) = crate::owner_note::told::stage(
+        tc.outbox,
+        Some(tc.session_id),
+        title,
+        &format!(
+            "In conversation {}, without asking you",
+            crate::narrative::short(tc.session_id)
+        ),
+        &format!(
+            "Task {}{named} is at version {}. The undo puts version {} back, as long as \
+             nothing has changed the task since.",
+            rec.id,
+            rec.version,
+            rec.version - 1
+        ),
+        &undo,
+    )
+    .map_err(|e| format!("{e:#}"))?;
+    done.records.extend(records);
+    done.posts.push(post);
+    Ok(())
+}
+
 /// The record before the told change that made `version` of `task`: none when
 /// no told change made it.
 pub fn before(store: &Store, task: &str, version: u64) -> Result<Option<TaskRecord>> {

@@ -524,7 +524,7 @@ pub fn create_call<'a>(
         crate::project::Ext<'_>,
     ),
     b: &crate::forecast::Book,
-    hold_ms: u64,
+    told: bool,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     create(
         tc,
@@ -532,7 +532,7 @@ pub fn create_call<'a>(
         (correlation_id, correlation_id, None),
         a,
         b,
-        (None, hold_ms),
+        (None, told),
     )
 }
 
@@ -547,8 +547,8 @@ pub fn create_call<'a>(
 /// for every other task. It is an argument and not a field of the input, so no call a model
 /// writes can name one: only a tool that has judged the profile passes it. The task is pinned to
 /// it (no brief verdict picks its model) and carries the marker that makes its end speak in the
-/// conversation (`profile_tool::run`). `hold_ms`: the least wait before the
-/// first run of a project's review routine (`routine::held`).
+/// conversation (`profile_tool::run`). `told`: the owner did not say yes to
+/// the call, so a project's review routine tells him (issue 57).
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn create<'a>(
     tc: &TurnCtx<'a>,
@@ -559,7 +559,7 @@ pub fn create<'a>(
         crate::project::Ext<'_>,
     ),
     forecasts: &crate::forecast::Book,
-    (on, hold_ms): (Option<&TargetRef>, u64),
+    (on, told): (Option<&TargetRef>, bool),
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -580,7 +580,7 @@ pub fn create<'a>(
                 deps: &i.deps,
                 arrangement: i.arrangement.as_ref(),
                 own: Some(&own),
-                hold_ms,
+                told,
             },
             call_id,
         );
