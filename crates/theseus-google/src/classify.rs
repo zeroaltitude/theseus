@@ -352,13 +352,15 @@ mod tests {
         assert_eq!(normal("/"), "/");
     }
 
+    /// A call that is no told act: it asks.
+    fn asks(m: &str, p: Value, b: Option<Value>) {
+        let c = resolved(m, p.clone(), b.clone());
+        assert_eq!(c.class, Class::Authority, "{m} {p} {b:?}");
+        assert_eq!(c.tidy, None, "{m}");
+    }
+
     #[test]
-    fn a_told_act_that_carries_anything_more_asks() {
-        let asks = |m: &str, p: Value, b: Option<Value>| {
-            let c = resolved(m, p.clone(), b.clone());
-            assert_eq!(c.class, Class::Authority, "{m} {p} {b:?}");
-            assert_eq!(c.tidy, None, "{m}");
-        };
+    fn a_drive_trash_that_carries_anything_more_asks() {
         // A Drive trash with a parent move, another field, a query, or no trash.
         let f = || json!({"fileId": "f1"});
         asks(
@@ -394,6 +396,10 @@ mod tests {
             json!({}),
             Some(json!({"trashed": true})),
         );
+    }
+
+    #[test]
+    fn a_gmail_trash_of_a_thread_or_with_anything_more_asks() {
         // A Gmail trash of a thread, of someone else's mailbox, with a body
         // or a query.
         asks("gmail.users.threads.trash", json!({"id": "t1"}), None);
@@ -413,6 +419,10 @@ mod tests {
             json!({"id": "m1", "fields": "id"}),
             None,
         );
+    }
+
+    #[test]
+    fn label_and_settings_writes_ask() {
         // Labels can hide mail.
         asks(
             "gmail.users.messages.modify",
@@ -455,6 +465,10 @@ mod tests {
         ] {
             asks(m, json!({}), Some(b));
         }
+    }
+
+    #[test]
+    fn events_with_people_and_calendars_with_more_ask() {
         // Events with attendees or a notification, whatever its value.
         let attendees = json!({"summary": "x", "attendees": [{"email": "a@example.test"}]});
         asks("calendar.events.insert", json!({}), Some(attendees.clone()));

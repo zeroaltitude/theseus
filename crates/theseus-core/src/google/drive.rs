@@ -1462,6 +1462,39 @@ impl Sharing {
         }
     }
 
+    /// A trash (`t`) or restore, the file's state read before it: what it
+    /// tells the owner, which his Undo puts back exactly (issue 57).
+    async fn trash(&self, g: &Google, t: bool, rows: &mut Vec<Value>) -> Result<Value, ToolFailure> {
+        let id = self.id.as_str();
+        let was = match super::take_back::drive_trashed(g, rows, SHARE, id).await {
+            Ok(Some(w)) => w,
+            Ok(None) => {
+                let said = format!("{}: no such file", self.summary());
+                return Err(refused(said, std::mem::take(rows)));
+            }
+            Err(f) => {
+                rows.pop();
+                return Err(failed(f, std::mem::take(rows), "reading the file first: "));
+            }
+        };
+        let req = sent(
+            Service::Drive,
+            "PATCH",
+            format!("/drive/v3/files/{id}"),
+            &[("fields", "id,name,trashed"), ("supportsAllDrives", "true")],
+            Body::Json(json!({"trashed": t})),
+            Repeat::Safe,
+        );
+        call(
+            g,
+            rows,
+            meta(SHARE, "drive.files.update", Some(id), "write"),
+            req,
+        )
+        .await?;
+        Ok(super::told::drive_trashed(id, t, was))
+    }
+
     /// The change, and for a trash or restore what it tells the owner unless
     /// he `approved` it: the file's state read before it, which his Undo puts
     /// back exactly (issue 57).
@@ -1471,35 +1504,7 @@ impl Sharing {
         let mut rows = Vec::new();
         let mut told = None;
         match &self.change {
-            Change::Trash(t) => {
-                let was = match super::take_back::drive_trashed(g, &mut rows, SHARE, id).await {
-                    Ok(Some(w)) => w,
-                    Ok(None) => {
-                        let said = format!("{}: no such file", self.summary());
-                        return Err(refused(said, rows));
-                    }
-                    Err(f) => {
-                        rows.pop();
-                        return Err(failed(f, rows, "reading the file first: "));
-                    }
-                };
-                let req = sent(
-                    Service::Drive,
-                    "PATCH",
-                    files,
-                    &[("fields", "id,name,trashed"), ("supportsAllDrives", "true")],
-                    Body::Json(json!({"trashed": t})),
-                    Repeat::Safe,
-                );
-                call(
-                    g,
-                    &mut rows,
-                    meta(SHARE, "drive.files.update", Some(id), "write"),
-                    req,
-                )
-                .await?;
-                told = Some(super::told::drive_trashed(id, *t, was));
-            }
+            Change::Trash(t) => told = Some(self.trash(g, *t, &mut rows).await?),
             Change::Grant { who, role, notify } => {
                 let body = match who {
                     Who::User(e) => json!({"type": "user", "role": role, "emailAddress": e}),
