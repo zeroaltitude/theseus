@@ -233,6 +233,23 @@ impl Core {
         Ok(true)
     }
 
+    /// Whether the item `item` names has left the backlog (dropped, or
+    /// closed some other way), so a drop would change nothing. False when it
+    /// names no item. Issue 57's Undo door reads it to find a drop already
+    /// done; it only reads.
+    pub(crate) fn self_item_closed(&self, item: &str) -> Result<bool> {
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let w = self.backlog_work()?;
+        let Ok(id) = Self::backlog_item(&w, item) else {
+            return Ok(false);
+        };
+        Ok(w.tasks[&id].state.is_closed())
+    }
+
     /// `self_file_in_chat_told` with no note: a test's filing as chat files it.
     #[cfg(test)]
     pub(crate) fn self_file_in_chat(
