@@ -5,6 +5,8 @@
 //! board, the forum, the approval and question cards, the budget question and
 //! the task reports) is locked and does not use it.
 
+pub mod told;
+
 /// What the owner is meant to do with a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {

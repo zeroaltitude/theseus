@@ -108,6 +108,8 @@ pub const OPERATOR_KINDS: &[&str] = &[
     "home_size",
     "persona_soul",
     "card_question",
+    // An act done unasked, with its Undo (issue 57, `owner_note::told`).
+    "told",
 ];
 /// The downstream key of a post that creates messages: Discord's nonce.
 pub const NONCE_KEY: &str = "discord.nonce";
