@@ -794,7 +794,8 @@ async fn neither_file_is_reachable_at_any_posture_or_by_argument() {
     }
 }
 
-/// The floor holds the `AGENTS.md` session block 3 actually reads, and it is
+/// The floor holds the `AGENTS.md` whose accepted version session block 3
+/// carries (`project_context::own_file`), and it is
 /// the same file by construction, not by coincidence (theseus-3i6d1, the
 /// floor review's F2; `b6floor-probe.sh` probe 2 is this test's shape).
 ///

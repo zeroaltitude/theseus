@@ -111,6 +111,16 @@ impl Rig {
         }
     }
 
+    /// The daemon's log lines of each card it wrote, for a failure's message.
+    fn card_lines(&self) -> String {
+        let log = self.log();
+        let lines: Vec<&str> = log
+            .lines()
+            .filter(|l| l.contains("the schedule card"))
+            .collect();
+        lines.join("\n")
+    }
+
     /// What the fake holds, for a failure's message: each message's channel,
     /// flags and first words.
     fn held(&self) -> String {
@@ -241,10 +251,16 @@ fn a_restart_keeps_one_card_and_one_post_each_in_their_true_states() {
     assert_eq!(
         r.cards("tide check").len(),
         1,
-        "{:?}",
-        r.cards("tide check")
+        "{:?}\nthe fake holds:\n{}",
+        r.cards("tide check"),
+        r.held()
     );
-    assert_eq!(r.cards("Paint the buoy").len(), 1);
+    assert_eq!(
+        r.cards("Paint the buoy").len(),
+        1,
+        "the fake holds:\n{}",
+        r.held()
+    );
     assert_eq!(r.posts("tide check").len(), 1);
     assert_eq!(r.posts("Paint the buoy").len(), 1);
     let task = &r.cards("Paint the buoy")[0];
@@ -351,7 +367,13 @@ fn killed_with_the_post_held(item: Item, at: HoldAt) {
     // Time for any second post to be made.
     std::thread::sleep(Duration::from_secs(4));
     assert_eq!(r.posts(item.words()).len(), 1, "{}", r.held());
-    assert_eq!(r.cards(item.words()).len(), 1);
+    assert_eq!(
+        r.cards(item.words()).len(),
+        1,
+        "the fake holds:\n{}\nthe daemon's card lines:\n{}",
+        r.held(),
+        r.card_lines()
+    );
 }
 
 /// The post is at Discord and unanswered: the restarted daemon finds it by its

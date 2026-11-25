@@ -97,6 +97,7 @@ mod noop_step;
 pub(crate) mod now_step;
 pub mod nudge_step;
 pub mod overage;
+mod own_file_step;
 mod persona_engage;
 pub(crate) mod persona_step;
 pub mod progress_step;
@@ -465,6 +466,9 @@ struct Turn<'a> {
     standing: standing_step::Held,
     /// In a place set to `view`, the view its first call assembled (issue 44, `view_step`).
     view: Option<crate::compiler::view::Frozen>,
+    /// The owner's own file's accepted version the turn's block 3 carries,
+    /// read with that text and named by each of its compiled rows (issue 46).
+    own_file: Option<crate::compiler::ContextFileRef>,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -607,6 +611,7 @@ impl<'a> Turn<'a> {
             keeping: compile_step::Keeping::default(),
             standing: standing_step::Held::default(),
             view: None,
+            own_file: None,
         }
     }
 
@@ -1819,7 +1824,8 @@ impl TurnRunner {
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
         let flagged = self.session_flagged(sid); // §8's notice, read once (S31-1)
-        spec.session_text = self.session_block(t.tc.dir, t.tc.place(), flagged);
+        (spec.session_text, t.own_file) =
+            self.session_block_and_own(t.tc.dir, t.tc.place(), flagged);
         spec.walk = self.walk(sid, t.tc.place().class);
         self.stand(t, &mut spec);
         self.helper_spec(&mut spec, sid);
@@ -1829,6 +1835,7 @@ impl TurnRunner {
         self.observe_persona(t, target, &spec);
         let (project_dir, project_place) = (t.tc.dir, t.tc.place());
         self.observe_project(t, project_dir, project_place, flagged);
+        self.observe_own_file(t);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");

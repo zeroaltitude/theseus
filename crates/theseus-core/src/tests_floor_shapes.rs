@@ -1259,8 +1259,8 @@ async fn a_floored_program_is_held_as_a_step_too() {
 /// worse: a blunt substring match would hold a commit message that names the
 /// config (`an_ordinary_command_still_runs_with_nothing_asked`), and flooring
 /// `bash` as a program would hold every shell line the owner lives with.
-/// The durable answer is the 1.0.6 line the owner already accepted — carry
-/// only the last-kept version of the user-level `AGENTS.md`, so a changed
+/// The durable answer is built (`project_context::own_file`): block 3
+/// carries only the accepted version of the user-level `AGENTS.md`, so a changed
 /// file is named rather than read — because that guards the BYTES instead of
 /// the door.
 #[tokio::test]

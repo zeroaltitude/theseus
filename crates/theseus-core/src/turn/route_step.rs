@@ -1049,7 +1049,7 @@ impl TurnRunner {
             "model": target.model,
         }));
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
-        s.session_text = self.session_block(
+        (s.session_text, t.own_file) = self.session_block_and_own(
             t.tc.dir,
             t.tc.place(),
             self.session_flagged(t.tc.session_id),

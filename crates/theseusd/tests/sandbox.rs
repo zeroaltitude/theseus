@@ -613,14 +613,23 @@ fn a_backgrounded_l1_job_stays_listed_until_it_ends() {
         let marker = format!("700.{pid}{i}");
         let script = format!("sleep {marker}; echo went");
         let argv = json!(["sh", "-c", script, "waiter"]);
+        let batch = call.get("steps").is_some();
         match call.get_mut("steps") {
-            // The batch's first step ends at once; its second is the sleeper.
-            Some(steps) => *steps = json!([{"argv": ["true"]}, {"argv": argv}]),
+            // The sleeper is the batch's first step, so it is the one past the
+            // bound however slow the sandbox starts; the second is not run.
+            Some(steps) => *steps = json!([{"argv": argv}, {"argv": ["true"]}]),
             None => call["argv"] = argv.clone(),
         }
         call["sandbox"] = json!(true);
         let out = r.turn(&format!("background {i}"), vec![("proc_run", call)]);
         assert_eq!(out.len(), 1, "{what}: {out:?}\n{}", r.last_turn());
+        if batch {
+            assert!(
+                out[0].contains("step 1 of 2")
+                    && out[0].contains("Still running as background job"),
+                "{what}: the first step is the one in the background: {out:?}"
+            );
+        }
         let jobs = listed(&r);
         assert_eq!(jobs.len(), 1, "{what}: its call returned: {jobs:?}");
         assert_eq!(jobs[0]["tool"], "proc.run", "{what}");

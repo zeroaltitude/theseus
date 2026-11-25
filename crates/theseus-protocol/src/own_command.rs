@@ -116,6 +116,9 @@ pub const VERBS: &[Entry] = &[
     e("wake", &[], Unserved),
     e("routine", &[], Unserved),
     e("project", &[], Unserved),
+    // The owner's own instruction file: the show runs, and the accept is the owner's act at a terminal.
+    e(crate::own_file::COMMAND, &["accept"], Act),
+    e(crate::own_file::COMMAND, &[], Unserved),
     e("thread", &[], Unserved),
     e("card", &[], Unserved),
     e("extend", &[], Unserved),

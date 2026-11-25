@@ -29,6 +29,11 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub joined_not_running: Option<String>,
+    /// The owner's own instruction file, while what is on disk is not the version accepted (or none is
+    /// accepted): one line, which names `theseus own-file accept`. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub own_file: Option<String>,
     /// The self loop has started nothing for longer than it should, held on its slots (issue 41):
     /// how long, the trees that hold them, and the one act that clears each. Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]

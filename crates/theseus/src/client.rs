@@ -308,7 +308,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 106] = [
+pub const OPERATORS: [(&str, &str); 107] = [
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
@@ -391,6 +391,7 @@ pub const OPERATORS: [(&str, &str); 106] = [
     (method::PROJECT_TRUST, "theseus project trust"),
     (method::UNDO_ALLOW, "theseus undo allow"),
     (method::PROJECT_UNTRUST, "theseus project untrust"),
+    (method::OWN_FILE_ACCEPT, "theseus own-file accept"),
     (method::CARD_PROPOSE, "theseus card propose"),
     (
         method::CARD_ANSWER,
@@ -615,6 +616,16 @@ mod tests {
             assert!(e.to_string().contains("theseus project"), "{e}");
         }
         assert!(refuse_in_a_job(method::PROJECT_TRUSTED, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot accept a version of the owner's own instruction
+    /// file; the show is a read, and goes.
+    #[test]
+    fn own_file_accept_inside_a_job_is_refused_before_anything_is_sent() {
+        let e = refuse_in_a_job(method::OWN_FILE_ACCEPT, Some("ses_0000aa1b2c3")).unwrap_err();
+        assert!(e.to_string().contains("theseus own-file accept"), "{e}");
+        assert!(refuse_in_a_job(method::OWN_FILE_SHOW, Some("ses_0000aa1b2c3")).is_ok());
+        assert!(refuse_in_a_job(method::OWN_FILE_ACCEPT, None).is_ok());
     }
 
     /// A job's process cannot run the card's job, answer its questions or

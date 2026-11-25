@@ -1,6 +1,8 @@
 # RE-POINTED again (issue 46): route.v11 is retired too, so this file declares `route.v12`, the acting pack, which is route.v11
 # without the `seal` and `personal` questions and two clauses of `model`; its `model` options are the same, and not a case,
 # label or state of this file changed. The state no longer carries `restricted_models`; the cases that set it still parse.
+# Then one label moved: W14, W11's message with `restricted_models = "not_allowed"`, is W11's state now, so it takes W11's
+# label, deepseek_flash (it was sonnet). Model counts: haiku 16, sonnet 28, opus 12, fable 4, deepseek_flash 2.
 # RE-POINTED (2026-11-21, issue 46): route.v10 is retired (`packs/retired/`), so this file declares `route.v11`, the acting
 # pack, which is route.v10 word for word but for the `fable` option's description; not a case, label or state changed. The
 # file keeps its name, which the bench and the scripts read. "route.v10" below is the history the file was written in.
@@ -359,10 +361,10 @@ message = "rename `cn_profiles` to `restricted_profiles` across the crate and fi
 est_tokens = 180000
 restricted_models = "not_allowed"
 switch_cost = "cheaper_to_stay"
-model = "sonnet"
+model = "deepseek_flash"
 effort = "medium"
 must = true
-why = "the data rule in the state wins over Flash's sentence (W11 with restricted_models = not_allowed)"
+why = "the state no longer carries restricted_models, so this is W11's state and takes W11's label (relabelled from sonnet)"
 
 [[case]]
 id = "W15"

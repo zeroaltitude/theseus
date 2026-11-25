@@ -30,6 +30,7 @@ pub mod context;
 mod cost;
 pub mod exchange;
 pub mod own_command;
+pub mod own_file;
 pub mod subagent;
 pub use subagent::SubagentAnswer;
 pub mod cred;

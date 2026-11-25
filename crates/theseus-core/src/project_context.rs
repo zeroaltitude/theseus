@@ -12,16 +12,17 @@
 //! `project.trust` row in one frame; a granted repository's files are carried
 //! by [`assemble`] under [`FRAME`].
 //!
-//! The user-level file is a different thing and is carried live: it is the
-//! owner's own file, under the state directory, with exactly the standing of
-//! `[context] files`, and no grant stands between it and the prompt. What
-//! stands between a *tool call* and it is the floor: `toolrun/guarded.rs`
-//! floors `<state_dir>/`[`USER_FILE`] beside the store, the spool, the
-//! bindings and the credential paths (theseus-3i6d1; the owner, 2026-11-10),
-//! so a call naming it waits for his approval at every posture, and a self
-//! session's does not fail open. That is a hold, not a grant: it does not
-//! make the file's text trusted -- it is the owner's own and carried as he
-//! left it -- it makes a *change* to it his.
+//! The user-level file is a different thing: it is the owner's own file,
+//! under the state directory, and what is carried of it is the version the
+//! owner last **accepted**, kept in the store ([`own_file`]). A file on disk
+//! that differs from it is named, not read, until the owner accepts it with
+//! `theseus own-file accept`, whatever wrote it. What stands between a *tool
+//! call* and the file is the floor: `toolrun/guarded.rs` floors
+//! `<state_dir>/`[`USER_FILE`] beside the store, the spool, the bindings and
+//! the credential paths (theseus-3i6d1; the owner, 2026-11-10), so a call
+//! naming it waits for the owner's approval at every posture, and a self
+//! session's does not fail open. The floor is a hold on a write; the
+//! accepted version is what makes a write that got past it reach no prompt.
 //!
 //! "The state directory" is one directory for both of them: `theseusd` folds
 //! `--state-dir`/`THESEUS_STATE_DIR` into `[server].state_dir` before it
@@ -43,10 +44,13 @@ use std::path::{Path, PathBuf};
 use crate::context_files::{ContextFile, ContextFiles, ContextPath, Level};
 
 pub mod change;
+pub mod own_file;
 pub mod trust;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_own_file;
 
 /// The two names, in the order one directory's are read (§5: both are read,
 /// `AGENTS.md` first).
@@ -526,8 +530,10 @@ fn cut_to(s: &mut String, kept: usize) {
 }
 
 /// Block 3's project part for a session working in `cwd` (§3): the owner's
-/// own user-level file, then either the repository's granted text or §7's
-/// naming line. None when there is nothing to say.
+/// own user-level file as accepted ([`own_file`]), then either the
+/// repository's granted text or §7's naming line, then the own file's line
+/// when the disk differs from what was accepted. None when there is nothing
+/// to say.
 ///
 /// `flagged` is whether the compiling session carries `injection`
 /// (`SessionRecord::flagged`). It holds a *changed* instruction file's new
@@ -547,22 +553,33 @@ pub fn block(
     cwd: &Path,
     flagged: bool,
 ) -> Option<String> {
+    block_and_own(cfg, store, files, cwd, flagged).0
+}
+
+/// [`block`], and the manifest's record of the owner's own file's accepted
+/// version that text carries (`own_file::Look::carried`), from the same
+/// read of the store.
+pub fn block_and_own(
+    cfg: &crate::config::Config,
+    store: &crate::store::Store,
+    files: &ContextFiles,
+    cwd: &Path,
+    flagged: bool,
+) -> (Option<String>, Option<crate::compiler::ContextFileRef>) {
     let found = discover(&cfg.state_dir(), cwd);
     let granted = found
         .root
         .as_deref()
         .is_some_and(|r| trust::granted(store, r));
     let mut parts: Vec<String> = Vec::new();
-    if let Some(u) = &found.user {
-        let read = files.peek(&[ContextPath {
-            path: u.shown.clone(),
-            level: Level::User,
-            public: false,
-        }]);
-        if let Some(f) = read.first() {
-            parts.push(f.section.clone());
-        }
-    }
+    let look = own_file::Look::with(
+        store,
+        files,
+        cfg.state_dir().join(USER_FILE),
+        found.user.clone(),
+    );
+    let own = look.carry(store, theseus_protocol::now_unix_ms());
+    parts.extend(own.section);
     if !found.project.is_empty() {
         if granted {
             let budget = cfg.project.budget_bytes();
@@ -582,10 +599,14 @@ pub fn block(
                 &found.dirs,
                 flagged,
             );
+            // The owner's own file is carried by its accepted version alone:
+            // a repository file that resolves to it is not read here.
+            let own_real = std::fs::canonicalize(cfg.state_dir().join(USER_FILE)).ok();
             let carry: Vec<Found> = found
                 .project
                 .iter()
                 .filter(|f| !seen.withholds(&f.shown))
+                .filter(|f| own_real.is_none() || std::fs::canonicalize(&f.path).ok() != own_real)
                 .cloned()
                 .collect();
             let a = assemble(files, &carry, budget);
@@ -600,5 +621,7 @@ pub fn block(
             parts.push(line);
         }
     }
-    (!parts.is_empty()).then(|| parts.join("\n\n"))
+    parts.extend(own.line);
+    let text = (!parts.is_empty()).then(|| parts.join("\n\n"));
+    (text, look.carried())
 }

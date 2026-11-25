@@ -368,8 +368,9 @@ fn block_3_names_zero_one_and_many_files() {
     assert!(!text.contains('y') || !text.contains("yyyy"));
 }
 
-/// The owner's own user-level file is read whatever the repository's
-/// standing: it is the owner's, not the repository's.
+/// The owner's own user-level file, once accepted, is read whatever the
+/// repository's standing: it is the owner's, not the repository's. Before
+/// the accept its text is not carried (`own_file`).
 #[test]
 fn the_user_level_file_is_read_and_the_repositorys_is_only_named() {
     let state = tempfile::tempdir().unwrap();
@@ -378,8 +379,15 @@ fn the_user_level_file_is_read_and_the_repositorys_is_only_named() {
     let (_d, store) = scratch_store();
     let repo = Repo::new();
     repo.write("AGENTS.md", "the repository's own rules\n");
-    let text = block(&cfg, &store, &ContextFiles::default(), &repo.root(), false)
-        .expect("both have something");
+    let files = ContextFiles::default();
+    let before = block(&cfg, &store, &files, &repo.root(), false).expect("both have something");
+    assert!(!before.contains("Always say what you ran."), "{before}");
+    let look = own_file::Look::of(&cfg, &store, &files);
+    let v = look
+        .disk
+        .version(&look.path, 1, "t", "cli", own_file::HOW_ACCEPT);
+    store.append(&look.accept_records(&v).unwrap()).unwrap();
+    let text = block(&cfg, &store, &files, &repo.root(), false).expect("both have something");
     assert!(text.contains("Always say what you ran."), "{text}");
     assert!(text.contains("# Context file (user): "), "{text}");
     assert!(!text.contains("the repository's own rules"), "{text}");
