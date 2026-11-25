@@ -10,6 +10,12 @@
 //!   rebinding name has no second answer to give.
 //! - `[policy] private_addresses = "open"` lifts both, for a run that has no
 //!   operator to ask (the bench profile, theseus-7gir.20).
+//! - A URL whose host is a LITERAL loopback or LAN address (`told_host`) does
+//!   not wait (issue 57): it runs at its tool's posture and the owner is told.
+//!   The address it names is the address it connects to, since a literal is
+//!   never resolved. A name keeps its card (`localhost` among them: what it
+//!   connects to is whatever the resolver answers then), and so does every
+//!   other private kind, the cloud metadata addresses first among them.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -57,6 +63,47 @@ pub fn private_host(url: &Url) -> Option<String> {
 /// judged here (its tool's plan refuses it).
 pub fn private_url(url: &str) -> Option<String> {
     private_host(&Url::parse(url).ok()?)
+}
+
+/// Why `url`'s host is a private address that runs and is told rather than
+/// asked (issue 57), or None: an address LITERAL that is a loopback address
+/// (127.0.0.0/8, `::1`) or an IPv4 private one (10.0.0.0/8, 172.16.0.0/12,
+/// 192.168.0.0/16), or either written as an IPv4-mapped IPv6 address. A
+/// literal is connected to as written, so this is the address the fetch
+/// reaches. Everything else `private_host` names keeps its card: a name
+/// (`localhost`), a link-local address (169.254.0.0/16, fe80::/10: a cloud's
+/// metadata service), a unique-local IPv6 address (AWS's metadata service is
+/// `fd00:ec2::254`), the shared range (100.64.0.0/10: a tailnet, and one
+/// cloud's metadata service), the unspecified address, and the reserved ones.
+pub fn told_host(url: &Url) -> Option<String> {
+    let host = url.host_str()?;
+    let (ip, shown) = match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        Some(v6) => {
+            let ip: Ipv6Addr = v6.parse().ok()?;
+            let v4 = match ip.is_loopback() {
+                true => None,
+                false => Some(ip.to_ipv4_mapped()?),
+            };
+            (v4.map_or(IpAddr::V6(ip), IpAddr::V4), format!("[{ip}]"))
+        }
+        None => {
+            let ip: Ipv4Addr = host.parse().ok()?;
+            (IpAddr::V4(ip), ip.to_string())
+        }
+    };
+    let told = match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private(),
+        IpAddr::V6(v6) => v6.is_loopback(),
+    };
+    if !told {
+        return None;
+    }
+    private_kind(ip).map(|k| format!("{shown} is {k}"))
+}
+
+/// `told_host` for a URL as a string.
+pub fn told_url(url: &str) -> Option<String> {
+    told_host(&Url::parse(url).ok()?)
 }
 
 /// A name resolved to an address that is not public: the connection is
@@ -178,6 +225,58 @@ mod tests {
             "https://93.184.215.14/",
         ] {
             assert_eq!(private_url(url), None, "{url}");
+        }
+    }
+
+    /// Issue 57: a literal loopback or LAN address is told; every other
+    /// private host keeps its card, the metadata services' addresses and any
+    /// name among them. A public host is neither.
+    #[test]
+    fn only_a_literal_loopback_or_lan_address_is_told() {
+        for (url, why) in [
+            ("http://127.0.0.1:7433/", "127.0.0.1 is a loopback address"),
+            ("http://127.1/", "127.0.0.1 is a loopback address"),
+            ("http://[::1]/", "[::1] is a loopback address"),
+            (
+                "http://[::ffff:7f00:1]/",
+                "[::ffff:127.0.0.1] is a loopback address",
+            ),
+            ("http://10.0.0.1/", "10.0.0.1 is a private address"),
+            ("http://172.16.4.2/", "172.16.4.2 is a private address"),
+            (
+                "http://192.168.1.20:8080/x",
+                "192.168.1.20 is a private address",
+            ),
+            (
+                "http://[::ffff:c0a8:114]/",
+                "[::ffff:192.168.1.20] is a private address",
+            ),
+        ] {
+            assert_eq!(told_url(url).as_deref(), Some(why), "{url}");
+            assert_eq!(private_url(url).as_deref(), Some(why), "{url}");
+        }
+        for url in [
+            // The metadata services: link-local, IPv4 and IPv6, and AWS's IPv6 one.
+            "http://169.254.169.254/latest/meta-data/",
+            "http://169.254.0.1/",
+            "http://[fe80::1]/",
+            "http://[::ffff:a9fe:a9fe]/",
+            "http://[fd00:ec2::254]/",
+            // The shared range, where one cloud keeps its metadata service.
+            "http://100.100.100.200/",
+            // Names, whatever they resolve to.
+            "http://localhost/",
+            "http://app.localhost:3000/",
+            "http://metadata.google.internal/",
+            // The rest of what is not public.
+            "http://0.0.0.0:7433/",
+            "http://[64:ff9b::a00:1]/",
+            "http://224.0.0.1/",
+            // Public.
+            "https://93.184.215.14/",
+            "https://doc.rust-lang.org/std/",
+        ] {
+            assert_eq!(told_url(url), None, "{url}");
         }
     }
 

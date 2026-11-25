@@ -533,9 +533,10 @@ async fn a_private_place_gets_everything_and_anyone_elses_dm_is_shared() {
 }
 
 /// theseus-94a6, through the whole core: a fetch of a private address waits
-/// for approval in a shared place and in the owner's DM alike, and only the
-/// shared place's card says that the page would join a conversation others
-/// can read. Nothing connects: neither question is answered.
+/// for approval in a shared place, and the shared place's card says that the
+/// page would join a conversation others can read. Nothing connects: the
+/// question is not answered. In the owner's DM the same literal loopback
+/// address runs unasked since issue 57, and he is told once ([`told_notes`]).
 #[tokio::test]
 async fn a_private_address_fetch_asks_and_a_shared_places_card_says_where_the_page_goes() {
     let r = rig();
@@ -551,18 +552,97 @@ async fn a_private_address_fetch_asks_and_a_shared_places_card_says_where_the_pa
     ] {
         let sid = session(&r.core, Some(&place));
         turn(&r.core, &sid, &format!("FETCH {url}")).await;
-        let asked: Vec<Value> = rows(&r.core, "tool.confirm_requested")
-            .into_iter()
-            .filter(|row| row["session_id"] == sid.as_str())
-            .collect();
-        assert_eq!(asked.len(), 1, "{place}: {asked:?}");
-        let reason = asked[0]["reason"].as_str().unwrap_or_default();
-        let want = match shared {
-            true => format!("{asks}{note}"),
-            false => format!("{asks})"),
-        };
-        assert_eq!(reason, want, "{place}");
+        let asked = asked_in(&r.core, &sid);
+        match shared {
+            true => {
+                assert_eq!(asked.len(), 1, "{place}: {asked:?}");
+                let reason = asked[0]["reason"].as_str().unwrap_or_default();
+                assert_eq!(reason, format!("{asks}{note}"), "{place}");
+                assert!(told_notes(&r.core).is_empty(), "{place}: asked, not told");
+            }
+            false => {
+                assert!(asked.is_empty(), "{place}: {asked:?}");
+                assert_eq!(
+                    told_notes(&r.core),
+                    [format!(
+                        "ℹ️ FYI · A fetch of an address on this machine or your network ran\n\
+                         conversation `{}` ran it, and you were not asked\n\
+                         127.0.0.1 is a loopback address. A fetch only reads, so Theseus has \
+                         nothing to undo; a service there that acts on a request has acted. A \
+                         link-local address, such as a cloud's metadata service, still asks. To \
+                         be asked first, set `[policy.tools] \"http.fetch\" = \"approve\"`.",
+                        crate::task::short(&sid)
+                    )],
+                    "{place}"
+                );
+            }
+        }
     }
+}
+
+/// Issue 57's neighbours of the told fetch, in the owner's DM: a link-local
+/// address (a cloud's metadata service) and a name (`localhost`) still ask in
+/// the words they did, and the owner's own `[policy.tools]` line for the tool
+/// makes the told address ask too. None of them is told.
+#[tokio::test]
+async fn in_the_owners_dm_a_metadata_address_a_name_and_his_own_line_still_ask() {
+    let r = rig();
+    for (url, why) in [
+        (
+            "http://169.254.169.254/latest/meta-data/",
+            "169.254.169.254 is a link-local address",
+        ),
+        ("http://[fe80::1]/x", "[fe80::1] is a link-local address"),
+        ("http://localhost:7455/notes", "localhost is this machine"),
+    ] {
+        let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
+        turn(&r.core, &sid, &format!("FETCH {url}")).await;
+        let asked = asked_in(&r.core, &sid);
+        assert_eq!(asked.len(), 1, "{url}: {asked:?}");
+        assert_eq!(
+            asked[0]["reason"].as_str().unwrap_or_default(),
+            format!(
+                "fetch {url}: http.fetch — approve ({why}, and a private address waits for \
+                 approval)"
+            )
+        );
+    }
+    assert!(told_notes(&r.core).is_empty());
+    let r = rig_with(|c| {
+        c.policy.tools.insert("http.fetch".into(), Posture::Approve);
+    });
+    let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
+    turn(&r.core, &sid, "FETCH http://10.0.0.1/admin").await;
+    let asked = asked_in(&r.core, &sid);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    let reason = asked[0]["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("[policy.tools]"), "{reason}");
+    assert!(told_notes(&r.core).is_empty());
+}
+
+/// The questions `sid` put to the owner.
+fn asked_in(core: &Core, sid: &str) -> Vec<Value> {
+    rows(core, "tool.confirm_requested")
+        .into_iter()
+        .filter(|row| row["session_id"] == sid)
+        .collect()
+}
+
+/// The told notes staged to the owner (issue 57): the FYI-headed notices that say a call ran
+/// unasked.
+pub(crate) fn told_notes(core: &Core) -> Vec<String> {
+    core.outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .filter_map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .map(str::to_string)
+        })
+        .filter(|t| t.starts_with(crate::owner_note::Kind::Fyi.tag()))
+        .filter(|t| t.contains("ran it, and you were not asked"))
+        .collect()
 }
 
 /// A task takes its parent's class: started in a shared place, it is

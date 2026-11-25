@@ -488,16 +488,31 @@ async fn a_redirect_to_a_private_address_is_refused_even_when_approved() {
     assert!(!s.paths().iter().any(|h| h.contains("secret")));
 }
 
+/// Below the gate too, a private host is reached only by an approved call:
+/// `localhost`, a name, whose answer the approved client connects to. Since
+/// issue 57 a literal loopback or LAN address is reached unapproved, as the
+/// gate tells it, and only its own origin: a redirect from it to another
+/// private host is refused as one from a public page is.
 #[tokio::test]
 async fn a_private_address_is_reached_only_by_an_approved_call() {
     let s = serve().await;
-    let w = web(s.port, WebToolsConfig::default(), true);
-    let url = format!("http://127.0.0.1:{}/plain.txt", s.port);
-    // Below the gate too: a call that was not approved does not connect.
+    let lo: IpAddr = "127.0.0.1".parse().unwrap();
+    let mut dns = Dns::checked();
+    dns.hosts.insert("localhost".into(), vec![lo]);
+    let w = Web::with_dns(
+        &WebToolsConfig::default(),
+        30_000,
+        CpuPool::new(2),
+        dns,
+        &format!("http://search.test:{}/search", s.port),
+        Default::default(),
+        Default::default(),
+    );
+    let url = format!("http://localhost:{}/plain.txt", s.port);
     assert_eq!(
         failure(&w, json!({ "url": url }), false).await,
         format!(
-            "Not fetched: 127.0.0.1 is a loopback address. A private address waits for the \
+            "Not fetched: localhost is this machine. A private address waits for the \
              operator's approval: to ask, fetch {url} itself."
         )
     );
@@ -505,6 +520,16 @@ async fn a_private_address_is_reached_only_by_an_approved_call() {
     let (out, _) = fetch(&w, json!({ "url": url }), true).await.unwrap();
     assert!(out.text.ends_with("line one\n  line <two> &amp; three\n"));
     assert_eq!(s.paths(), vec!["/plain.txt"]);
+    // The literal: reached unapproved.
+    let literal = format!("http://127.0.0.1:{}/plain.txt", s.port);
+    let (out, _) = fetch(&w, json!({ "url": literal }), false).await.unwrap();
+    assert!(out.text.ends_with("line one\n  line <two> &amp; three\n"));
+    assert_eq!(s.paths(), vec!["/plain.txt", "/plain.txt"]);
+    // Its redirect to another private host is not followed.
+    let away = format!("http://127.0.0.1:{}/to-private", s.port);
+    let why = failure(&w, json!({ "url": away }), false).await;
+    assert!(why.contains("and 10.0.0.1 is a private address"), "{why}");
+    assert!(!s.paths().iter().any(|h| h.contains("secret")));
 }
 
 /// `[policy] private_addresses = "open"` (theseus-7gir.20; the bench
@@ -659,16 +684,15 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
     let policy = open_policy();
     let c = ctx(false);
     let (fetch, search) = (Fetch(w.clone()), Search(w));
-    // Planned and decided only: nothing connects.
+    // Planned and decided only: nothing connects. A name and a link-local
+    // address (a cloud's metadata service) still wait.
     for (url, why) in [
-        ("http://127.0.0.1:7433/", "127.0.0.1 is a loopback address"),
         ("http://localhost/", "localhost is this machine"),
-        ("http://[::1]/", "[::1] is a loopback address"),
-        ("http://10.0.0.1/", "10.0.0.1 is a private address"),
         (
             "http://169.254.169.254/",
             "169.254.169.254 is a link-local address",
         ),
+        ("http://[fe80::1]/", "[fe80::1] is a link-local address"),
     ] {
         let plan = fetch.plan(&json!({ "url": url }), &c).unwrap();
         let d = policy.decide(&fetch, &plan);
@@ -680,6 +704,32 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
                  approval)"
             )
         );
+    }
+    // A literal loopback or LAN address is told and not asked (issue 57):
+    // at least a notice, which an `open` posture cannot make silent.
+    for (url, why) in [
+        ("http://127.0.0.1:7433/", "127.0.0.1 is a loopback address"),
+        ("http://[::1]/", "[::1] is a loopback address"),
+        ("http://10.0.0.1/", "10.0.0.1 is a private address"),
+    ] {
+        let plan = fetch.plan(&json!({ "url": url }), &c).unwrap();
+        let d = policy.decide(&fetch, &plan);
+        assert_eq!(d.posture, Posture::Notify, "{url}");
+        assert!(d.notify.is_some(), "{url}");
+        assert!(
+            d.reason
+                .starts_with("http.fetch — notify ([policy] private_addresses; ")
+                && d.reason
+                    .ends_with(&format!("; {why}, which is told and not asked)")),
+            "{url}: {}",
+            d.reason
+        );
+        // The owner's own line for the tool still asks, in its own words.
+        let mut asks = open_policy();
+        asks.tools.insert("http.fetch".into(), Posture::Approve);
+        let d = asks.decide(&fetch, &plan);
+        assert_eq!(d.posture, Posture::Approve, "{url}");
+        assert!(!d.reason.contains("told"), "{url}: {}", d.reason);
     }
     for url in ["https://doc.rust-lang.org/std/", "http://rebind.test/"] {
         let plan = fetch.plan(&json!({ "url": url }), &c).unwrap();
@@ -708,7 +758,10 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
 /// private address also says that the page would join a conversation others
 /// can read; in a private place the same fetch asks without the clause; and a
 /// public URL asks in neither, its reason unchanged. Planned and decided as
-/// the gate does (the policy, then `places::private_fetch`): nothing connects.
+/// the gate does (the policy, then `places::private_fetch`, then the shared
+/// place's card for a told address, `toolrun::told::in_shared`): nothing
+/// connects. Since issue 57 a literal loopback or LAN address is told in a
+/// private place, and its shared place's card is word for word what it was.
 #[test]
 fn a_private_address_in_a_shared_place_says_so_on_its_card() {
     use crate::places::{private_fetch, PlaceClass};
@@ -723,14 +776,21 @@ fn a_private_address_in_a_shared_place_says_so_on_its_card() {
     let c = ctx(false);
     let decided = |class, url: &str| {
         let plan = fetch.plan(&json!({ "url": url }), &c).unwrap();
-        private_fetch(class, &plan, policy.decide(&fetch, &plan))
+        let d = private_fetch(class, &plan, policy.decide(&fetch, &plan));
+        crate::toolrun::told::in_shared(&policy, class, "http.fetch", &plan, d)
     };
-    for (url, why) in [
+    for (url, why, told) in [
         (
             "http://127.0.0.1:7455/notes",
             "127.0.0.1 is a loopback address",
+            true,
         ),
-        ("http://10.0.0.1/", "10.0.0.1 is a private address"),
+        ("http://10.0.0.1/", "10.0.0.1 is a private address", true),
+        (
+            "http://169.254.169.254/latest/meta-data/",
+            "169.254.169.254 is a link-local address",
+            false,
+        ),
     ] {
         let asks = format!(
             "fetch {url}: http.fetch — approve ({why}, and a private address waits for approval"
@@ -744,8 +804,13 @@ fn a_private_address_in_a_shared_place_says_so_on_its_card() {
             )
         );
         let private = decided(PlaceClass::Private, url);
-        assert_eq!(private.posture, Posture::Approve, "{url}");
-        assert_eq!(private.reason, format!("{asks})"));
+        match told {
+            true => assert_eq!(private.posture, Posture::Notify, "{url}"),
+            false => {
+                assert_eq!(private.posture, Posture::Approve, "{url}");
+                assert_eq!(private.reason, format!("{asks})"));
+            }
+        }
     }
     let public = "https://doc.rust-lang.org/std/";
     let alone = policy.decide(&fetch, &fetch.plan(&json!({ "url": public }), &c).unwrap());
