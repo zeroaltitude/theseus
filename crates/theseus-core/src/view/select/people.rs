@@ -15,12 +15,12 @@
 
 use std::collections::BTreeSet;
 
-use super::super::history::PAGE_EXCHANGES;
-use super::super::timeline::{Cursor, ExchangeRef, TimelineRoot};
+use super::super::timeline::TimelineRoot;
 use super::super::{Form, Piece, PointOfView, Reason};
 use super::here::{anchor_place, shown};
 use super::make::{self, Cut};
 use super::sources::{ExchangeFacts, Sources};
+use super::walk::Walk;
 use super::{Band, Selector, Snapshot};
 
 /// The most people the block names: the speaker, then the people of the window who spoke most recently.
@@ -87,75 +87,6 @@ fn company(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Vec<Present>>
     Ok(c)
 }
 
-/// One person's timelines, one a handle, walked newest first as one: by the touch index's own order
-/// (`Cursor`), each exchange once, in bounded pages, every reference read charged to one allowance of
-/// [`RECENT_READ_MOST`].
-struct Walk<'s> {
-    snap: &'s dyn Snapshot,
-    lanes: Vec<Lane>,
-    seen: BTreeSet<String>,
-    /// The references still to be read.
-    left: usize,
-}
-
-struct Lane {
-    root: TimelineRoot,
-    before: Option<Cursor>,
-    page: std::collections::VecDeque<ExchangeRef>,
-    done: bool,
-}
-
-impl<'s> Walk<'s> {
-    fn new(snap: &'s dyn Snapshot, handles: &[String]) -> Self {
-        let lanes = (handles.iter())
-            .map(|h| Lane {
-                root: TimelineRoot::Person(h.clone()),
-                before: None,
-                page: Default::default(),
-                done: false,
-            })
-            .collect();
-        Self {
-            snap,
-            lanes,
-            seen: BTreeSet::new(),
-            left: RECENT_READ_MOST,
-        }
-    }
-
-    /// The next touch, newest first across every handle; `None` when all are read, or when a handle's next
-    /// page is wanted and the allowance is spent. Each page asked is sized by what is left, shared among the
-    /// handles that want one. A touch already met by another handle is still a touch read: `Some(None)`.
-    fn next(&mut self) -> anyhow::Result<Option<Option<ExchangeRef>>> {
-        let mut wanting = (self.lanes.iter())
-            .filter(|l| l.page.is_empty() && !l.done)
-            .count();
-        for l in self
-            .lanes
-            .iter_mut()
-            .filter(|l| l.page.is_empty() && !l.done)
-        {
-            if self.left == 0 {
-                return Ok(None);
-            }
-            let most = (self.left / wanting).clamp(1, PAGE_EXCHANGES);
-            wanting -= 1;
-            let page = (self.snap.timeline()).newest(&l.root, l.before.as_ref(), most)?;
-            self.left = self.left.saturating_sub(page.len());
-            l.done = page.is_empty();
-            l.before = page.last().map(ExchangeRef::cursor);
-            l.page = page.into();
-        }
-        let newest = (self.lanes.iter_mut())
-            .filter(|l| !l.page.is_empty())
-            .max_by(|a, b| a.page[0].cursor().cmp(&b.page[0].cursor()));
-        let Some(e) = newest.and_then(|l| l.page.pop_front()) else {
-            return Ok(None);
-        };
-        Ok(Some(self.seen.insert(e.turn_id.clone()).then_some(e)))
-    }
-}
-
 /// One selector of slot B: `WhoAndWhere` or `PeopleRecent`.
 pub struct People<'a> {
     band: Band,
@@ -204,10 +135,14 @@ impl<'a> People<'a> {
             .collect();
         let mut spent = 0u64;
         for p in present.iter().filter(|p| !p.owner) {
-            let mut walk = Walk::new(snap, &p.handles);
+            // One person's timelines, one a handle, walked as one within one allowance.
+            let roots = p.handles.iter().cloned().map(TimelineRoot::Person);
+            let mut walk = Walk::new(snap, roots, RECENT_READ_MOST);
             let mut lines = 0usize;
             while lines < RECENT_LINES {
-                let Some(touch) = walk.next()? else { break };
+                let Some(touch) = walk.next_touch()? else {
+                    break;
+                };
                 let Some(e) = touch else { continue };
                 if window.contains(&e.turn_id) {
                     continue;

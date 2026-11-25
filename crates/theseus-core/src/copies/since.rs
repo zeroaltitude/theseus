@@ -2,7 +2,9 @@
 //! once written (an erase is the one exception), and what is said about it later (a retraction, a label) is
 //! a record of its own that points at it. So a window laying an exchange whole shows each node with what has
 //! been said since, in the code's own words: a look back's result (`context.history`, `look.work`) by the
-//! sources its copy edges name, a task's report by its report edge, and any node by its own label.
+//! sources its copy edges name, a task's report by its report edge, and any node by its own label. The block
+//! beside the message lays each exchange of another place with the mark alone ([`Since::beside`]): that it
+//! was marked wrong and when, never the retraction's reason nor a quoted gist (`view::wire_text`).
 //!
 //! - **In memory, at lay time.** Nothing here writes or changes a stored node. The act gates read the stored
 //!   node (`external.rs`, `task_graph/judged.rs`), so they see exactly what they saw: only the laid copy's
@@ -59,6 +61,8 @@ pub struct Since<'a> {
     store: &'a Store,
     wrong: &'a BTreeSet<String>,
     retracted: OnceCell<HashMap<String, Retracted>>,
+    /// Lays the mark alone: no reason, no quoted gist ([`Since::beside`]).
+    beside: bool,
 }
 
 /// What a node's `fact.retracted` row says of it.
@@ -84,6 +88,16 @@ impl<'a> Since<'a> {
             store,
             wrong,
             retracted: OnceCell::new(),
+            beside: false,
+        }
+    }
+
+    /// The same for the block beside the message: a line says its message was marked wrong and when, and
+    /// nothing of the retraction's reason or gist, which a reader of another place's line was never shown.
+    pub fn beside(store: &'a Store, wrong: &'a BTreeSet<String>) -> Self {
+        Self {
+            beside: true,
+            ..Self::new(store, wrong)
         }
     }
 
@@ -189,12 +203,15 @@ impl<'a> Since<'a> {
         let what = match self.retractions()?.get(id) {
             Some(r) => {
                 let day = crate::judge::spend::local_day(r.at_ms);
-                let who = match (own, r.gist.is_empty()) {
+                let who = match (own, r.gist.is_empty() || self.beside) {
                     (true, _) => "it".to_string(),
                     (false, true) => "a message it showed".to_string(),
                     (false, false) => format!("\u{201c}{}\u{201d}", r.gist),
                 };
-                format!("{who} was marked wrong on {day}: {}", r.why)
+                match self.beside {
+                    true => format!("{who} was marked wrong on {day}"),
+                    false => format!("{who} was marked wrong on {day}: {}", r.why),
+                }
             }
             None if own => "it was labelled wrong or stale".to_string(),
             None => "a message it showed was labelled wrong or stale".to_string(),

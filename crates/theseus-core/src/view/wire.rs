@@ -42,6 +42,10 @@ impl Timeline for StoreTimeline<'_> {
             })
             .collect())
     }
+
+    fn persons(&self) -> anyhow::Result<Vec<String>> {
+        exchange::persons(self.0)
+    }
 }
 
 /// A turn's one read of the store: its time, the timeline, and what is at hand.

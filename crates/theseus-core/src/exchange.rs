@@ -350,13 +350,22 @@ pub fn newest_before_exchange(
     own(store, root, Some(&from), limit)
 }
 
-/// Every place with a touch, in key order: the first key under the places'
-/// prefix names one, then a seek past that place's own keys (its name, then a
-/// byte above `SEP`) finds the next, so a place costs one record read whatever
-/// its history, and one whose name extends another's (`local:/a`,
-/// `local:/ab`) is found as its own.
+/// Every place with a touch, in key order ([`roots`]).
 pub fn places(store: &Store) -> anyhow::Result<Vec<String>> {
-    let prefix = format!("{TOUCH_PREFIX}{}", Root::Place("").key());
+    roots(store, Root::Place(""))
+}
+
+/// Every person with a touch, by the name each was touched under, in key order ([`roots`]).
+pub fn persons(store: &Store) -> anyhow::Result<Vec<String>> {
+    roots(store, Root::Person(""))
+}
+
+/// Every root of `kind`'s kind with a touch (its own name is not read), in key order: the first key under the
+/// kind's prefix names one, then a seek past that root's own keys (its name, then a byte above `SEP`) finds
+/// the next, so a root costs one record read whatever its history, and one whose name extends another's
+/// (`local:/a`, `local:/ab`) is found as its own.
+fn roots(store: &Store, kind: Root<'_>) -> anyhow::Result<Vec<String>> {
+    let prefix = format!("{TOUCH_PREFIX}{}", kind.key());
     let (mut from, mut out) = (prefix.clone(), Vec::new());
     loop {
         let got = store
@@ -367,9 +376,9 @@ pub fn places(store: &Store) -> anyhow::Result<Vec<String>> {
         };
         let rest = &key[prefix.len()..];
         from = match rest.split_once(SEP) {
-            Some((place, _)) => {
-                out.push(place.to_string());
-                format!("{prefix}{place}\u{2}")
+            Some((root, _)) => {
+                out.push(root.to_string());
+                format!("{prefix}{root}\u{2}")
             }
             None => format!("{key}\u{0}"),
         };

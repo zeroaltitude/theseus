@@ -790,6 +790,8 @@ mod tests_view_record;
 #[cfg(test)]
 mod tests_view_resume;
 #[cfg(test)]
+mod tests_view_since;
+#[cfg(test)]
 mod tests_view_sources;
 #[cfg(test)]
 mod tests_view_unread;

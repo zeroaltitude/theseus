@@ -1355,3 +1355,33 @@ async fn a_record_under_labels_that_does_not_read_is_named_by_its_key_alone() {
     assert!(!text.contains(PAYLOAD), "a payload was quoted: {text}");
     assert!(!text.contains("labels.odd-ended"), "{text}");
 }
+
+/// Every person with a touch is listed once, by the name it was touched under, in key order, however many
+/// touches it has; one whose name extends another's is its own; a place is no person. The view's timeline
+/// lists the same.
+#[test]
+fn persons_lists_each_person_root_once() {
+    use crate::view::timeline::Timeline;
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let mut recs = Vec::new();
+    let by = [
+        "owner",
+        "discord:bob",
+        "discord:b",
+        "owner",
+        "discord:b",
+        "owner",
+    ];
+    for (i, p) in by.iter().enumerate() {
+        let (turn, at) = (format!("turn_{i}"), 1_000 * (i as u64 + 1));
+        recs.extend(touch(Root::Person(p), &turn, "s", at));
+        recs.extend(touch(Root::Place("chan"), &turn, "s", at));
+    }
+    store.append(&recs).unwrap();
+    let want = ["discord:b", "discord:bob", "owner"];
+    assert_eq!(persons(&store).unwrap(), want);
+    let timeline = crate::view::wire::StoreTimeline(&store);
+    assert_eq!(timeline.persons().unwrap(), want);
+    assert_eq!(places(&store).unwrap(), ["chan"]);
+}

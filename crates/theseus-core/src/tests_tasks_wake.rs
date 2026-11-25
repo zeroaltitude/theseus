@@ -350,7 +350,9 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "history", "reminders", "web"
 // and `label` for `thing`, 74 more tokens in the history family, which a DM loads and the terminal defers; the
 // memory page's version 6 is reworded to its version 5's length. Measured on a box.
 // Both: 10651.
-const DM_PERSON_TOKENS: u64 = 10651;
+// And 10651 until the history tool's description named the every-place pager (`place: "*"`, issue 48): its
+// sentence, 17 more tokens in the history family, which a DM loads and the terminal defers. Measured on a box.
+const DM_PERSON_TOKENS: u64 = 10668;
 const CLI_PERSON: [&str; 2] = ["commands", "files"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.

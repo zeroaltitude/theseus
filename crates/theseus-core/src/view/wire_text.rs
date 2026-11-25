@@ -4,12 +4,13 @@
 //! message; and the ladder's nodes as fold blocks. The window is not the renderer's: the compiler renders
 //! the window's exchanges as real turns (`compiler::view`).
 //!
-//! A piece is read by its range: an exchange of a place from the store, in the piece's form; a named
-//! thing's card, a waiting line and the facts about the person as the turn's sources read them
-//! (`super::sources_store::Sessions::texts`). A piece with no text read is left out of the text; it stays in
-//! the view, so the view's record still says it was chosen.
+//! A piece is read by its range: an exchange of a place from the store, in the piece's form, each node with
+//! the mark of what has been said about it since (`copies::since::Since::beside`: that it was marked wrong
+//! and when, not why); a named thing's card, a waiting line and the facts about the person as the turn's
+//! sources read them (`super::sources_store::Sessions::texts`). A piece with no text read is left out of the
+//! text; it stays in the view, so the view's record still says it was chosen.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use super::budget::View;
 use super::fold::FoldNode;
@@ -22,6 +23,7 @@ use super::text::labels::{self, Origin};
 use super::text::parts::{self, Seen};
 use super::text::{blocks, page};
 use super::{Anchor, Form, Handle, Label, Piece, PointOfView, Slot, Snapshot, Space};
+use crate::copies::since::Since;
 use crate::exchange;
 use crate::ladder::did;
 use crate::node::Node;
@@ -37,6 +39,9 @@ pub struct TextRenderer<'a> {
     /// The assembly's one read of each session; none reads the store each time.
     pub sessions: Option<&'a super::sources_store::Sessions>,
     pub zone: ZoneAt<'a>,
+    /// What has been said about an exchange's nodes since, laid with its words (`copies::since`; the turn
+    /// gives the mark alone, `Since::beside`); none lays them as stored.
+    pub since: Option<&'a Since<'a>>,
 }
 
 /// Where a slot's pieces go on the wire.
@@ -59,9 +64,13 @@ fn part(p: &Piece) -> Part {
 }
 
 impl TextRenderer<'_> {
-    /// The nodes of exchange `turn`, in order, from the session that ran it.
+    /// The nodes of exchange `turn`, in order, from the session that ran it, each with what has been said
+    /// about it since.
     fn exchange_nodes(&self, turn: &str) -> anyhow::Result<Vec<Node>> {
-        let nodes = self.exchange_stubs(turn)?;
+        let mut nodes = self.exchange_stubs(turn)?;
+        if let Some(since) = self.since {
+            nodes = since.lay(nodes)?;
+        }
         Ok(nodes.into_iter().map(|(_, n)| (*n).clone()).collect())
     }
 
@@ -76,16 +85,17 @@ impl TextRenderer<'_> {
         Ok(did::did(self.store, turn)?.map(|d| did::shown_line(self.store, &d)))
     }
 
+    /// Exchange `turn`'s nodes, in order, each as its newest record ([`newest`]).
     fn exchange_stubs(&self, turn: &str) -> anyhow::Result<Vec<(u64, Stub)>> {
         let Some(ex) = exchange::exchange(self.store, turn)? else {
             return Ok(Vec::new());
         };
-        Ok(match self.sessions {
+        Ok(newest(match self.sessions {
             Some(s) => s.exchange(self.store, &ex.session_id, turn)?,
             None => (self.store.transcript(&ex.session_id)?.into_iter())
                 .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
                 .collect(),
-        })
+        }))
     }
 
     /// A piece's marked blocks: an exchange's parts each labelled by its own provenance
@@ -234,6 +244,24 @@ impl TextRenderer<'_> {
         }
         Ok(out)
     }
+}
+
+/// A session's records of an exchange, each node once, in its place, as its newest record: a transcript holds
+/// every record of a node, and one written again (its tombstone, when it was erased) reads as the history tool
+/// reads it (`Store::get_node`), so an erased message lays none of its words.
+fn newest(nodes: Vec<(u64, Stub)>) -> Vec<(u64, Stub)> {
+    let mut at: HashMap<String, usize> = HashMap::new();
+    let mut out: Vec<(u64, Stub)> = Vec::new();
+    for (p, n) in nodes {
+        match at.get(&n.id) {
+            Some(&i) => out[i].1 = n,
+            None => {
+                at.insert(n.id.clone(), out.len());
+                out.push((p, n));
+            }
+        }
+    }
+    out
 }
 
 /// An exchange in the line form, as parts: the person's words exactly, then the `did` line (or "reply not

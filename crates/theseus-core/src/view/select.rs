@@ -16,6 +16,7 @@ pub mod run;
 pub mod sources;
 #[cfg(test)]
 mod tests;
+pub mod walk;
 
 pub use beside::{Beside, IN_PLAY_EXCHANGES};
 pub use elsewhere::{Elsewhere, LATELY_MS, PLACES_ALWAYS};

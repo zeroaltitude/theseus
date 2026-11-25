@@ -280,6 +280,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
         kernel: None,
         sessions: None,
         zone: &crate::recall::stamp::system,
+        since: None,
     };
     let parts = crate::view::wire::Parts {
         selectors: &[],

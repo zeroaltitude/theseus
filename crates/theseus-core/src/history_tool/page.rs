@@ -102,6 +102,10 @@ impl Timeline for Ledger<'_> {
             })
             .collect()
     }
+
+    fn persons(&self) -> Result<Vec<String>> {
+        exchange::persons(self.0)
+    }
 }
 
 /// What a page walks: one timeline of the touch index, or every place's at once.
@@ -265,8 +269,8 @@ pub struct Walked {
 impl Lens<'_> {
     /// The timeline a call reads, whether a bare call's start applies to it, and the one place it keeps (a
     /// label beside a place: that place's exchanges of the label's timeline). Only a bare look-back stays here:
-    /// a span or words with no place read every place, except for a session the self loop opened, which keeps
-    /// to its own anchor.
+    /// a span or words with no place, or the place [`EVERY`], read every place, except for a session the self
+    /// loop opened, which keeps to its own anchor.
     pub fn root(&self, a: &HistoryArgs) -> Result<(Walks, bool, Option<String>)> {
         let some = |s: &Option<String>| {
             s.as_deref()
@@ -274,9 +278,11 @@ impl Lens<'_> {
                 .filter(|s| !s.is_empty())
                 .map(str::to_string)
         };
-        let narrows = self.span.is_some() || some(&a.words).is_some();
+        let every = asks_every(a);
+        let narrows = every || self.span.is_some() || some(&a.words).is_some();
         let label = |l: &str| Walks::One(TimelineRoot::Thing(label_root(l)));
-        Ok(match (some(&a.place), some(&a.label)) {
+        let place = some(&a.place).filter(|_| !every);
+        Ok(match (place, some(&a.label)) {
             (Some(p), Some(l)) => (label(&l), false, Some(p)),
             (Some(p), None) => {
                 let bare = p == self.here;
@@ -817,6 +823,13 @@ fn label_said(store: &Store, ex: &Exchange, flag: Flag) -> String {
 
 /// What [`render`] names every place's history by.
 pub const EVERY_PLACE: &str = "every place";
+/// The place a call names to read every place's timeline as one, with nothing to narrow it.
+pub const EVERY: &str = "*";
+
+/// Whether `a` names the place [`EVERY`].
+pub fn asks_every(a: &HistoryArgs) -> bool {
+    a.place.as_deref().map(str::trim) == Some(EVERY)
+}
 
 /// What a page's heading says it reads: `place`'s history, and the label asked by name, each cut short of a
 /// known value (`cuts`), the place at 120 characters as a line's is.
