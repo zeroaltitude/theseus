@@ -1194,7 +1194,7 @@ narrate model session=ses_#122 turn=turn_#125 Calling claude-sonnet-#-# on anthr
 narrate model session=ses_#122 turn=turn_#125 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#122 turn=turn_#125 wake.at: posture notify (enforcement = notify), running and telling the operator.
 narrate session session=ses_#122 turn=turn_#125 Wake #130 set for #-#-# #:#:# ±#:# (in <n>): "check the build"; # of # pending.
-narrate tool session=ses_#122 turn=turn_#125 wake.at done in <n>: # lines (# bytes).
+narrate tool session=ses_#122 turn=turn_#125 wake.at done in <n>: # line (# bytes).
 narrate loop session=ses_#122 turn=turn_#125 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#122 turn=turn_#125 Loop # of up to #.
 narrate context session=ses_#122 turn=turn_#125 Context: appending to compilation …#126: prefix # node + tail #, # messages, about #,# tokens.
