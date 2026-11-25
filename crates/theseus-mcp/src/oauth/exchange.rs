@@ -140,12 +140,10 @@ pub async fn refresh(
     ];
     match token_request(http, token_endpoint, client, form).await {
         Ok(t) => Renewal::Renewed(t),
-        Err(e @ OauthError::Status { status, code, .. }) => {
-            match for_good(status, code) {
-                true => Renewal::ForGood(e.to_string()),
-                false => Renewal::Passing(e),
-            }
-        }
+        Err(e @ OauthError::Status { status, code, .. }) => match for_good(status, code) {
+            true => Renewal::ForGood(e.to_string()),
+            false => Renewal::Passing(e),
+        },
         Err(e @ OauthError::Refused(_)) => Renewal::ForGood(e.to_string()),
         Err(e) => Renewal::Passing(e),
     }

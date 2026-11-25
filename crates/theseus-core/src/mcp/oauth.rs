@@ -479,7 +479,10 @@ mod tests {
         );
         assert!(s.signed_in().await);
         assert_eq!(
-            board.get(&held_name("docs", "refresh", 0)).unwrap().expose(),
+            board
+                .get(&held_name("docs", "refresh", 0))
+                .unwrap()
+                .expose(),
             "refresh-value-0001"
         );
         let other = Signed::load(

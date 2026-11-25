@@ -365,14 +365,25 @@ async fn a_restart_reads_what_was_kept() {
     assert_eq!(second.auth.seen().redeemed, 1, "no second sign-in");
 }
 
-/// Renewed before it runs out (the clock past its end, less a minute), and
-/// once on a 401; a rotated refresh token is written back whole each time.
+/// Renewed before it runs out (a token that runs out within the minute is
+/// renewed before it is sent), and once on a 401; a rotated refresh token is
+/// written back whole each time.
 #[tokio::test]
 async fn it_is_renewed_before_it_runs_out_and_on_a_401_with_rotation() {
-    let r = rig().await;
+    // Every token the server gives runs out in 30 s: each is renewed before
+    // it is sent.
+    let auth = FakeAuth::start(AuthConfig {
+        access_ttl: 30,
+        ..AuthConfig::default()
+    })
+    .await;
+    let r = rig_on(auth, |_| {}).await;
     r.core.mcp.start();
     let (done, _) = login(&r).await;
     assert_eq!(done["connected"], true, "{done}");
+    // What the connection's own requests renewed settles first.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(r.auth.seen().refreshes >= 1, "renewed before it ran out");
     let refresh_of = || {
         crate::mcp::oauth::read(&kept_file(r.dir.path()))
             .unwrap()
@@ -381,6 +392,9 @@ async fn it_is_renewed_before_it_runs_out_and_on_a_401_with_rotation() {
             .clone()
             .unwrap()
     };
+    // Now the server gives an hour: one renewal more, then none.
+    r.auth.set(|c| c.access_ttl = 3600);
+    let renewed = r.auth.seen().refreshes;
     let first = refresh_of();
     let client = r
         .core
@@ -390,15 +404,22 @@ async fn it_is_renewed_before_it_runs_out_and_on_a_401_with_rotation() {
         .client(Duration::from_secs(5))
         .await
         .unwrap();
-    // Before it runs out: an hour on, inside the last minute.
-    theseus_protocol::time::move_clock_to(theseus_protocol::now_unix_ms() + 3_570_000);
     client
         .call_tool("echo", json!({"text": "a"}))
         .await
         .unwrap();
-    assert_eq!(r.auth.seen().refreshes, 1);
+    assert_eq!(r.auth.seen().refreshes, renewed + 1);
     let second = refresh_of();
     assert_ne!(first, second, "rotated and written back");
+    client
+        .call_tool("echo", json!({"text": "a"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        r.auth.seen().refreshes,
+        renewed + 1,
+        "an hour left: not renewed"
+    );
     // On a 401.
     r.auth.expire_access();
     let out = client
@@ -406,9 +427,8 @@ async fn it_is_renewed_before_it_runs_out_and_on_a_401_with_rotation() {
         .await
         .unwrap();
     assert_eq!(out.text_for_model(), "b");
-    assert_eq!(r.auth.seen().refreshes, 2);
+    assert_eq!(r.auth.seen().refreshes, renewed + 2);
     assert_ne!(refresh_of(), second);
-    theseus_protocol::time::reset_clock();
 }
 
 /// A refresh refused for good: `needs sign-in`, one note to the conversation
