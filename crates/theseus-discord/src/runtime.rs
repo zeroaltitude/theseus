@@ -73,6 +73,7 @@ pub(crate) use source::source_buttons;
 mod bound_before;
 pub(crate) mod default_forum;
 mod extensions;
+pub(crate) mod fold;
 pub(crate) mod forum;
 mod guild_thread;
 mod guilds;
@@ -757,6 +758,8 @@ enum PlaceMsg {
     /// Someone is typing here: the core is told, with this session's id
     /// (theseus-tnky).
     Typing(DiscordOrigin),
+    /// A press on a turn's fold (issue 56, `runtime/fold.rs`).
+    Fold(Box<fold::Ask>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1280,6 +1283,10 @@ impl Shared {
             return;
         };
         self.board.update(|s| s.interactions += 1);
+        // A fold's press shows only what was shown openly: anyone here may.
+        if self.fold_press(&i, &tx).await {
+            return;
+        }
         let who = user
             .as_ref()
             .map(|(_, n)| format!("discord:{n}"))
@@ -2064,7 +2071,7 @@ impl Place {
                 self.task_msg(m).await
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind => {}
+            PlaceMsg::Unbind | PlaceMsg::Fold(_) => {}
             PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
@@ -2377,7 +2384,7 @@ impl Place {
 
     /// Live progress to the place's lane: best-effort, never replayed.
     fn apply(&mut self, ops: Vec<crate::render::Op>) {
-        for op in ops {
+        for op in self.view.out(ops, &self.renderer) {
             let _ = self.lane.send(LaneMsg::Live(op));
         }
     }

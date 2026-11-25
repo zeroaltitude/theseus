@@ -2005,6 +2005,7 @@ impl Lane {
             Buttons::Sources(session, srcs, offer) => {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
             }
+            Buttons::Fold(f) => crate::runtime::fold::buttons(f),
             Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
         if !comps.is_empty() {
@@ -2085,6 +2086,7 @@ impl Lane {
                 srcs,
                 offer.as_deref(),
             )),
+            Buttons::Fold(f) => Some(crate::runtime::fold::buttons(f)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep | Buttons::V2 => None,
         };

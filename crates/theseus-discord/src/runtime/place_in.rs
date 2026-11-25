@@ -58,6 +58,7 @@ impl Place {
                     "A task's thread is the task's own: it cannot start a new conversation.".into(),
                 );
             }
+            PlaceMsg::Fold(ask) => self.fold_asked(*ask),
             m => self.handle(m).await,
         }
     }

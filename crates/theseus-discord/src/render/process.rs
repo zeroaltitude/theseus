@@ -55,6 +55,14 @@ pub(crate) struct Shown {
     pub thinking: bool,
 }
 
+/// A turn's thinking, for its fold's closed line (`fold.rs`): still
+/// streaming, or how long it took in all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Thought {
+    Thinking,
+    For(u64),
+}
+
 #[derive(Default)]
 pub(crate) struct Process {
     exits: Option<std::sync::Arc<theseus_core::exits::Exits>>,
@@ -164,6 +172,19 @@ impl Process {
             _ => return vec![],
         }
         self.tick(s)
+    }
+
+    /// Turn `turn`'s thinking: none when no loop of it thought.
+    pub(crate) fn thought(&self, turn: &str) -> Option<Thought> {
+        let (_, loops) = self.turns.iter().find(|(t, _)| t == turn)?;
+        let mut secs = None;
+        for lp in loops.values().filter(|lp| lp.thinks()) {
+            match lp.thought {
+                None => return Some(Thought::Thinking),
+                Some(s) => secs = Some(secs.unwrap_or(0) + s),
+            }
+        }
+        secs.map(Thought::For)
     }
 
     /// The turns the renderer holds now (`Renderer::held`): the rest are

@@ -88,6 +88,9 @@ pub struct ChannelBinding {
     pub show_tools: bool,
     /// It shows each loop's thinking (theseus-l1y1). On by default.
     pub show_thinking: bool,
+    /// How it shows a turn's steps (issue 56): folded into one line that
+    /// opens with a button, by default, or a message per loop, as before.
+    pub steps: Steps,
     /// The categories that post silent here (theseus-l1y1): absent,
     /// `[discord] silent`'s.
     pub silent: Option<Vec<Category>>,
@@ -141,6 +144,8 @@ struct RawChannel {
     #[serde(default = "yes")]
     show_thinking: bool,
     #[serde(default)]
+    steps: Steps,
+    #[serde(default)]
     silent: Option<Vec<Category>>,
     #[serde(default)]
     ping_window_secs: Option<u64>,
@@ -172,6 +177,18 @@ struct Raw {
 
 fn yes() -> bool {
     true
+}
+
+/// How a place shows a turn's steps, its tool lines and thinking (issue 56):
+/// `folded`, the default, one line for the turn that a button opens and
+/// closes; `open`, a message for each loop, as before. Any other word is
+/// refused when the file is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Steps {
+    #[default]
+    Folded,
+    Open,
 }
 
 /// A place's ceiling as the file writes it (`[channel.ceiling]`,
@@ -241,6 +258,8 @@ struct RawDm {
     #[serde(default = "yes")]
     show_thinking: bool,
     #[serde(default)]
+    steps: Steps,
+    #[serde(default)]
     silent: Option<Vec<Category>>,
     #[serde(default)]
     ping_window_secs: Option<u64>,
@@ -257,6 +276,8 @@ pub struct DmBinding {
     /// As a channel's (theseus-l1y1).
     pub show_tools: bool,
     pub show_thinking: bool,
+    /// As a channel's (issue 56).
+    pub steps: Steps,
     pub silent: Option<Vec<Category>>,
     pub ping_window_secs: Option<u64>,
     /// As a channel's (theseus-slvl.2).
@@ -387,6 +408,7 @@ impl Bindings {
                 ceiling,
                 show_tools: d.show_tools,
                 show_thinking: d.show_thinking,
+                steps: d.steps,
                 silent: d.silent,
                 ping_window_secs: d.ping_window_secs,
                 persona: persona_of(d.persona, &label)?,
@@ -505,6 +527,7 @@ impl Bindings {
             ceiling,
             show_tools: c.show_tools,
             show_thinking: c.show_thinking,
+            steps: c.steps,
             silent: c.silent,
             ping_window_secs: c.ping_window_secs,
             persona: persona_of(c.persona, &label)?,
@@ -616,6 +639,21 @@ mod tests {
         let b = Bindings::parse("[[dm]]\nuser = \"323456789012345678\"\nshow_thinking = false\n")
             .unwrap();
         assert!(b.dm[0].show_tools && !b.dm[0].show_thinking);
+    }
+
+    /// A place folds its steps unless it says `steps = "open"` (issue 56); any
+    /// other word is refused, and the example's lines, uncommented, are real.
+    #[test]
+    fn a_place_folds_its_steps_unless_it_says_open() {
+        let b = Bindings::parse(EXAMPLE_BINDINGS).unwrap();
+        assert_eq!((b.channel[0].steps, b.dm[0].steps), (Steps::Folded, Steps::Folded));
+        let example = EXAMPLE_BINDINGS.replacen("# steps = \"folded\"", "steps = \"open\"", 2);
+        let b = Bindings::parse(&example).unwrap();
+        assert_eq!((b.channel[0].steps, b.dm[0].steps), (Steps::Open, Steps::Open));
+        let dm = |w: &str| format!("[[dm]]\nuser = \"323456789012345678\"\nsteps = \"{w}\"\n");
+        assert_eq!(Bindings::parse(&dm("folded")).unwrap().dm[0].steps, Steps::Folded);
+        let e = Bindings::parse(&dm("collapsed")).unwrap_err();
+        assert!(format!("{e:#}").contains("collapsed"), "{e:#}");
     }
 
     /// A place's own `silent` list and window (theseus-l1y1): absent by

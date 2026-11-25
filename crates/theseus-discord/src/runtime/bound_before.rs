@@ -50,6 +50,7 @@ impl Shared {
             ceiling: None,
             show_tools: true,
             show_thinking: true,
+            steps: crate::bindings::Steps::default(),
             silent: None,
             ping_window_secs: None,
             voice_status: None,
