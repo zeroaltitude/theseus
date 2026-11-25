@@ -689,7 +689,11 @@ by recall. A view record kept before it still reads: its pieces of those bands a
    "later, in <place>, <date>".
 5. **In play** is not a stored list. Each turn it is read from the touch index: the things named, by him or by
    Theseus, in the last three exchanges here since `/new` was last said, and any thing whose
-   handle was opened in them; newest first, at most eight. Being shown renews nothing.
+   handle was opened in them; newest first, at most eight. Being shown renews nothing. As built (issue 48), it
+   is also the topics the judge filed those exchanges under, and it is laid in slot H, the topic block, with
+   the task's card, the things named and recall: one block held to its own cap inside the ceiling
+   (`[context] topic_max_tokens`, 8000 by default), cut from its own end, recall first. The "at most eight" is
+   not built: the cap bounds it.
 
 **The reasons.** Each piece carries the set of selectors that asked for it, from a fixed list (`floor`,
 `window`, `ladder`, `elsewhere`, `past`, `waiting`, `at_hand`, `in_play`, `named`, `linked`, `reached`,
