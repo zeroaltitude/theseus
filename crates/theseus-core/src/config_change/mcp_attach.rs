@@ -534,7 +534,7 @@ fn put(
     let (base, digest, settings) = candidate;
     // A restart makes live what was written since the start: the card says so.
     let live = match restart {
-        true => super::told::going_live(tc, rt.config_change.started_ms),
+        true => super::told::going_live(tc.store, rt.config_change.started_ms),
         false => vec![],
     };
     let question = format!("{question}{}", super::told::going_live_line(&live));
@@ -596,7 +596,7 @@ fn detach_told(
     let records = match args["restart"] == true {
         false => vec![],
         true => {
-            let live = super::told::going_live(tc, rt.config_change.started_ms);
+            let live = super::told::going_live(tc.store, rt.config_change.started_ms);
             match (live.is_empty(), super::told::restart_spent(tc)) {
                 (true, Ok(spend)) => vec![spend],
                 _ => return Ok(None),
@@ -617,10 +617,11 @@ fn detach_told(
         id: correlation_id,
         session_id: tc.session_id,
         args,
+        by: super::told::BY,
         setting: &setting,
         records,
     };
-    core.write_told(t, |_| (said, note)).map(Some)
+    core.write_told(t, |_| (said, Some(note))).map(Some)
 }
 
 /// Settings that change anything but the server's own table are not this tool's.

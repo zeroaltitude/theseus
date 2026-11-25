@@ -108,7 +108,7 @@ pub(super) fn changed_row(
         "restart_only": args["restart_only"].as_bool().unwrap_or(false),
         "file": args["file"],
     });
-    if q.action.is_none() {
+    if by == super::told::BY {
         data["told"] = json!(true);
     }
     LedgerRow::new(LedgerKind::ConfigChanged, Some(q.session_id), None, data)

@@ -383,7 +383,7 @@ pub fn restart(
         return Err("give a reason in the owner's words, one line".into());
     }
     let (outside, steered) = outside_text(tc);
-    let going_live = told::going_live(tc, rt.config_change.started_ms);
+    let going_live = told::going_live(tc.store, rt.config_change.started_ms);
     let asked_by = json!({
         "session_id": tc.session_id, "execution_id": tc.execution_id,
         "turn_id": tc.turn_id, "place": tc.outbox.target(tc.session_id),
@@ -412,10 +412,11 @@ pub fn restart(
             id: correlation_id,
             session_id: tc.session_id,
             args: &args,
+            by: told::BY,
             setting: &setting,
             records: vec![spend],
         };
-        let said = core.write_told(t, |_| (said, note))?;
+        let said = core.write_told(t, |_| (said, Some(note)))?;
         return Ok((said, json!({"told": true})));
     }
     let question = card::restart_question(&card::RestartFacts {
@@ -596,7 +597,7 @@ pub(crate) fn put_using(
     let (outside, steered) = outside_text(tc);
     // Written since this daemon started and live at its next start: a restart
     // with no card would send a secret, or send to an address, unasked.
-    let going_live = told::going_live(tc, w.started_ms);
+    let going_live = told::going_live(tc.store, w.started_ms);
     let facts = card::Facts {
         settings: &settings,
         outside_text: outside || steered,
@@ -731,6 +732,7 @@ fn change_told(
         id: correlation_id,
         session_id: tc.session_id,
         args,
+        by: told::BY,
         setting: &setting,
         records,
     };
@@ -767,7 +769,7 @@ fn write_change_told(
             note.lines().skip(2).collect::<Vec<_>>().join("\n"),
             show::before(base, settings)
         );
-        (said, note)
+        (said, Some(note))
     })?;
     settle_words(rt, tc);
     Ok((

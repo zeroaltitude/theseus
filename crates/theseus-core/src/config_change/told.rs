@@ -85,9 +85,9 @@ fn reaches(path: &[String]) -> bool {
 /// restarts (`sensitivity::LIVE` is empty), that send a secret or name an
 /// address ([`reaches`]): each as its dotted path. A prompt file is live at
 /// once, and a plain restart writes no setting.
-pub(crate) fn going_live(tc: &TurnCtx<'_>, started_ms: u64) -> Vec<String> {
+pub(crate) fn going_live(store: &crate::store::Store, started_ms: u64) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for r in history::rows(tc.store) {
+    for r in history::rows(store) {
         let d = &r.data;
         let written = r.kind == theseus_protocol::LedgerKind::ConfigChanged.as_str()
             && d["source"] == "owner"
@@ -219,6 +219,10 @@ pub(crate) struct Told<'a> {
     pub id: &'a str,
     pub session_id: &'a str,
     pub args: &'a Value,
+    /// Who approved it, as its row says: [`BY`] for an act the tool's setting
+    /// let run, the presser for an Undo pressed on a note.
+    pub by: &'a str,
+    /// What let it run: the tool's setting, or where the Undo was pressed.
     pub setting: &'a str,
     /// Written with the act: the record a call run again reads, the restart's
     /// spend.
@@ -227,14 +231,15 @@ pub(crate) struct Told<'a> {
 
 impl Core {
     /// Write an act with no card through the yes path (`write_change`), its
-    /// rows in one append, then the note to the owner, then the server live or
-    /// the restart. `words` gives the tool's result and the note from the
-    /// change's number. The result's record is written with the rows, so a call
-    /// run again after the restart answers with it.
+    /// rows in one append, then the note to the owner (none for an Undo
+    /// pressed: its own note says it), then the server live or the restart.
+    /// `words` gives the tool's result and the note from the change's number.
+    /// The result's record is written with the rows, so a call run again after
+    /// the restart answers with it.
     pub(crate) fn write_told(
         &self,
         t: Told<'_>,
-        words: impl FnOnce(u32) -> (String, String),
+        words: impl FnOnce(u32) -> (String, Option<String>),
     ) -> Result<String, String> {
         let q = Asked {
             id: t.id,
@@ -242,7 +247,7 @@ impl Core {
             args: t.args,
             action: None,
         };
-        let applied = self.write_change(q, BY, t.setting)?;
+        let applied = self.write_change(q, t.by, t.setting)?;
         let (said, note) = words(applied.previous);
         let who = &t.args["asked_by"];
         let rows = (|| -> anyhow::Result<Vec<NewRecord>> {
@@ -255,14 +260,14 @@ impl Core {
             rows.push(NewRecord::json(
                 kinds::LEDGER,
                 None,
-                &changed_row(q, &applied, who, BY, t.setting),
+                &changed_row(q, &applied, who, t.by, t.setting),
             )?);
-            rows.extend(undone_row(q, true, t.args, who, BY, t.setting)?);
+            rows.extend(undone_row(q, true, t.args, who, t.by, t.setting)?);
             Ok(rows)
         })()
         .map_err(|e| format!("the change was written, but its record was not: {e:#}"))?;
         let live = self
-            .mcp_prepare(t.args, BY, t.setting, t.session_id)
+            .mcp_prepare(t.args, t.by, t.setting, t.session_id)
             .map_err(|e| format!("{e:#}"))?;
         let mut rows = rows;
         if let Some(l) = &live {
@@ -275,11 +280,13 @@ impl Core {
             write::drop_candidate(&self.tools.config_change.state, sha);
         }
         // To the notices place when one is bound (`outbox::ANNOUNCE_KEY`).
-        if let Err(e) = self.outbox.to_operator(
-            Some(t.session_id),
-            json!({"kind": "notice", "text": note, "announce": true}),
-        ) {
-            tracing::warn!(error = %format!("{e:#}"), "the owner's note about a settings act was not written");
+        if let Some(note) = note {
+            if let Err(e) = self.outbox.to_operator(
+                Some(t.session_id),
+                json!({"kind": "notice", "text": note, "announce": true}),
+            ) {
+                tracing::warn!(error = %format!("{e:#}"), "the owner's note about a settings act was not written");
+            }
         }
         if let Some(l) = live {
             self.mcp_apply(l);
@@ -290,6 +297,8 @@ impl Core {
         Ok(said)
     }
 }
+
+mod press;
 
 #[cfg(test)]
 mod tests;
