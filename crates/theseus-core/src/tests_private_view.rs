@@ -288,11 +288,13 @@ async fn a_private_sessions_request_is_byte_identical() {
     let c = &r.core;
     let tmp = r.root.parent().unwrap().to_path_buf();
     let mut got = String::new();
+    // The turns run so far: a line from another place names its exchange's turn by its handle.
+    let mut turns = Vec::new();
     for (name, place) in [("cli", None), ("dm", Some(format!("dm:{OWNER}")))] {
         let sid = session_in(c, place.as_deref(), &r.root);
         with_person(c, &sid);
         said_earlier(c, &sid);
-        turn(c, &sid, ASKED).await;
+        let t = turn(c, &sid, ASKED).await;
         let req = r.requests().pop().unwrap();
         let text = serde_json::to_string(&req).unwrap();
         for marker in [SECRET, OPEN, ORDER, PREF, FACT, PERSON, EPISODE] {
@@ -303,8 +305,9 @@ async fn a_private_sessions_request_is_byte_identical() {
         }
         got.push_str(&format!(
             "== {name}\n{}",
-            body(&req, &tmp, &[&[sid], &ids[..]].concat())
+            body(&req, &tmp, &[&[sid], &ids[..], &turns[..]].concat())
         ));
+        turns.push(t.turn_id);
     }
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| GOLDEN.to_string());
