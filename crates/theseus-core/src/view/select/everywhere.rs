@@ -1,7 +1,8 @@
 //! EVERYWHERE (the owner's shape of a turn's context, 2026-11-24; slot F's place): the newest
 //! [`EVERYWHERE_EXCHANGES`] exchanges from every place this conversation does not already show, one line each
 //! with its place, its time and whose words they are, laid beside the message so that activity elsewhere never
-//! rewrites the cached front.
+//! rewrites the cached front. The renderer ends them with where the every-place pager resumes
+//! (`context.history` with `place: "*"`).
 //!
 //! Every exchange a person opened is on some person's timeline, so the lines are found by walking every
 //! person's timeline as one ([`Walk::every_person`]), within [`EVERYWHERE_READ_MOST`] references read; a wake,

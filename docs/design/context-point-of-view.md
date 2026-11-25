@@ -191,8 +191,9 @@ It leaves out every exchange of this place (since its `/new` mark they are its w
 past, which is never laid as anything else), a task's own workings, the exchanges of a person present but the
 owner (the people block lays their newest) and anything the gate denies. On a guest's turn the owner's own
 newest exchanges from elsewhere are laid as on his (`everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN`, one
-constant). A turn no person opened is told none of it, and a self-loop session's turn lays none. **Not built
-yet**: a closing line saying where an every-place pager resumes (it waits for that pager). The folded ladder stays above the 30 (his answer).
+constant). A turn no person opened is told none of it, and a self-loop session's turn lays none. The lines end
+with where the every-place pager resumes, past the oldest laid (`context.history` with `place: "*"`). The
+folded ladder stays above the 30 (his answer).
 
 ---
 
