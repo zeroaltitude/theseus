@@ -4,8 +4,8 @@
 //! the press is one call as the presser, from where they pressed: `told.undo`,
 //! which the core judges (the owner, from a private place), runs the note's
 //! undo, and answers with what the note says now. The note is edited to that
-//! and loses its button; a later press is refused by the core. A child of `runtime`, apart from it for
-//! the shape budget's file ceiling.
+//! and loses its button; a later press is refused by the core. A child of
+//! `runtime`, apart from it for the shape budget's file ceiling.
 
 use serde_json::Value;
 use theseus_core::rpc::told::{ToldUndoParams, ToldUndoResult};
