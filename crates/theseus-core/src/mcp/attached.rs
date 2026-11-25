@@ -17,6 +17,9 @@
 //!   it refused in the daemon's words (the HTTP status and a standard code,
 //!   never the server's own) and what the owner can do. A server from the
 //!   file that no conversation attached tells none; health says it.
+//! - **A server whose sign-in is lost** (issue 55: a refresh refused for
+//!   good) is told the same way, once, with the one command that signs it in
+//!   again: `theseus mcp login <name>`.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError, Weak};
@@ -36,19 +39,7 @@ pub const NOTE_AUTHOR: &str = "mcp";
 
 /// The OAuth error codes (RFC 6749 section 5.2, RFC 6750 section 3.1): the
 /// only words of a refusal's body a note repeats.
-const CODES: [&str; 11] = [
-    "invalid_request",
-    "invalid_token",
-    "insufficient_scope",
-    "invalid_client",
-    "invalid_grant",
-    "unauthorized_client",
-    "unsupported_grant_type",
-    "invalid_scope",
-    "access_denied",
-    "server_error",
-    "temporarily_unavailable",
-];
+const CODES: [&str; 11] = theseus_mcp::oauth::CODES;
 
 /// How a server refused, in the daemon's words, from the client's error
 /// (`theseus_mcp::Error`): the HTTP status and a standard code from its body,
@@ -86,14 +77,55 @@ pub(crate) fn failed_note(server: &str, why: &str) -> String {
         .as_deref()
         .is_some_and(|r| r.starts_with("HTTP 401"))
     {
-        true => "; a server that wants a sign-in in a browser cannot be used yet",
-        false => "",
+        true => {
+            format!(
+                "; if it wants a sign-in in a browser, it is attached again with a sign-in \
+                 (`oauth`), and the owner then signs in once with `theseus mcp login {server}`"
+            )
+        }
+        false => String::new(),
     };
     format!(
         "The MCP server `{server}` this conversation attached is attached but not connected: \
          {how}, and after {CRASHES_TO_FAIL} tries Theseus stopped trying. The owner can start it \
          again with `theseus mcp restart {server}`{sign_in}."
     )
+}
+
+/// The one line a conversation that attached `server` reads when its
+/// sign-in is lost: `why` is the daemon's own words (`mcp::oauth`).
+pub(crate) fn sign_in_note(server: &str, why: &str) -> String {
+    format!(
+        "The MCP server `{server}` this conversation attached is attached but not connected: \
+         {why}, so it needs a sign-in again, and Theseus stopped trying. The owner signs in once \
+         with `theseus mcp login {server}`, from their own terminal."
+    )
+}
+
+/// How many seconds a note waits for a running turn of its conversation.
+const NOTE_TRIES: u32 = 3_600;
+
+/// Write `node` into `session`, in a frame of its execution: false while a
+/// turn holds it, so the caller tries again.
+fn write_note(core: &crate::rpc::Core, session: &str, node: &Node) -> anyhow::Result<bool> {
+    let exec = core
+        .store
+        .get_session::<crate::session::SessionRecord>(session)?
+        .and_then(|r| r.execution_id);
+    let Some(exec) = exec else {
+        core.store.append(&[node.record()?])?;
+        return Ok(true);
+    };
+    let mut wrote = false;
+    core.kernel.frame(&[&exec], |k| {
+        if k.holds_turn(&exec) {
+            return Ok(());
+        }
+        k.stage(&[node.record()?])?;
+        wrote = true;
+        Ok(())
+    })?;
+    Ok(wrote)
 }
 
 /// The most trials' lists kept at once.
@@ -129,6 +161,11 @@ impl McpBoard {
             acked,
             ..Server::new(name, &cfg, stored)
         });
+        // A sign-in loaded for an earlier server of that name is read again.
+        self.signed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(name);
         self.put_loaded(name, server);
     }
 
@@ -190,6 +227,16 @@ impl McpBoard {
     /// as a keep card's end is told (`vault_keep::told`), written off the
     /// runtime's workers. A server no conversation attached tells none.
     pub(super) fn tell_failed(&self, server: &str, why: &str) {
+        self.tell(server, failed_note(server, why));
+    }
+
+    /// Tell the conversation that attached `server` that its sign-in is lost
+    /// ([`sign_in_note`]), as a failure is told.
+    pub(super) fn tell_sign_in(&self, server: &str, why: &str) {
+        self.tell(server, sign_in_note(server, why));
+    }
+
+    fn tell(&self, server: &str, text: String) {
         let session = {
             let set = self.attached.lock().unwrap_or_else(PoisonError::into_inner);
             set.get(server).map(|a| a.session_id.clone())
@@ -200,19 +247,29 @@ impl McpBoard {
         let Some(core) = self.core.get().and_then(Weak::upgrade) else {
             return;
         };
-        let text = failed_note(server, why);
         let node = Node::relayed(&session, None, Origin::Harness, NOTE_AUTHOR, &text);
-        let write = move || {
-            if let Err(e) = node.record().and_then(|r| core.store.append(&[r])) {
-                tracing::warn!(error = %format!("{e:#}"), "the note of a failed MCP server was not written");
-            }
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            let _ = write_note(&core, &session, &node);
+            return;
         };
-        match tokio::runtime::Handle::try_current() {
-            Ok(rt) => {
-                rt.spawn_blocking(write);
+        // A turn of that conversation may be running (a sign-in is most often
+        // lost in a call of its own): the note waits for its end, as a publish
+        // does, so the turn's own transcript stays the store's.
+        rt.spawn(async move {
+            for _ in 0..NOTE_TRIES {
+                let (c, s, n) = (core.clone(), session.clone(), node.clone());
+                match tokio::task::spawn_blocking(move || write_note(&c, &s, &n)).await {
+                    Ok(Ok(false)) => tokio::time::sleep(std::time::Duration::from_secs(1)).await,
+                    Ok(Ok(true)) => return,
+                    Ok(Err(e)) => {
+                        tracing::warn!(error = %format!("{e:#}"), "the note of an MCP server was not written");
+                        return;
+                    }
+                    Err(_) => return,
+                }
             }
-            Err(_) => write(),
-        }
+            tracing::warn!("the note of an MCP server was not written: its conversation's turn ran on");
+        });
     }
 
     /// Health's and `theseus mcp`'s words for who attached `status`'s server.

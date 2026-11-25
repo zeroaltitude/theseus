@@ -25,12 +25,20 @@
 //!   so the new list applies from the next turn. A changed name, schema, or
 //!   description is `mcp.tools_changed`, ledgered and narrated.
 //!
+//! - **A server that signs in** (`oauth`, issue 55) is sent the token its
+//!   kept sign-in gives (`oauth.rs`), renewed before it runs out and once on
+//!   a 401. Never signed in, or its sign-in refused for good, it is `needs
+//!   sign-in`, which is not a crash: it is not retried and not counted, and
+//!   waits for `theseus mcp login <name>` (`sign_in.rs`), which restarts it.
+//!
 //! Each start, ready, exit, failure, and change is a fact (`fact::mcp`).
 
 pub mod attached;
 pub mod ext;
 pub mod l1;
+pub mod oauth;
 pub mod prompts;
+mod sign_in;
 #[cfg(test)]
 mod tests;
 pub mod tool;
@@ -85,6 +93,9 @@ pub enum State {
     /// A proposed extension on trial (43a): started and tested, its tools
     /// never offered.
     Proposed,
+    /// A server that signs in, with no sign-in that works (issue 55): not
+    /// tried again until the owner signs in.
+    NeedsSignIn,
 }
 
 impl State {
@@ -97,6 +108,7 @@ impl State {
             State::Failed => "failed",
             State::Disabled => "disabled",
             State::Proposed => "proposed",
+            State::NeedsSignIn => "needs sign-in",
         }
     }
 }
@@ -156,16 +168,33 @@ pub struct Connected {
 pub trait Connect: Send + Sync + 'static {
     /// Start (stdio) or reach (HTTP) `server`, and run the handshake. `env`
     /// is what a stdio server gets besides the job's environment; `bearer`
-    /// an HTTP server's key; `serve` the requests of its own this one
-    /// connection answers (an extension's hands broker, theseus-pw1q.14).
+    /// an HTTP server's key, and `token` a server's that signs in (issue 55);
+    /// `serve` the requests of its own this one connection answers (an
+    /// extension's hands broker, theseus-pw1q.14).
     fn connect(
         &self,
         server: &str,
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
-        bearer: Option<String>,
+        key: Key,
         serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>>;
+}
+
+/// An HTTP server's key: a fixed one from `[secrets]`, or a sign-in's token.
+#[derive(Clone, Default)]
+pub struct Key {
+    pub bearer: Option<String>,
+    pub token: Option<Arc<dyn theseus_mcp::TokenSource>>,
+}
+
+impl Key {
+    pub fn bearer(bearer: Option<String>) -> Self {
+        Self {
+            bearer,
+            token: None,
+        }
+    }
 }
 
 /// The real one: a process through the children registry, or HTTP.
@@ -194,7 +223,7 @@ impl Connect for Spawn {
         server: &str,
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
-        bearer: Option<String>,
+        key: Key,
         serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         let opts = theseus_mcp::Options {
@@ -204,7 +233,8 @@ impl Connect for Spawn {
         let transport = match &cfg.url {
             Some(url) => {
                 let mut t = theseus_mcp::client::HttpTarget::new(url.clone());
-                t.bearer = bearer;
+                t.bearer = key.bearer;
+                t.token = key.token;
                 Ok(theseus_mcp::Transport::Http(t))
             }
             None => self.spawn(server, cfg, env),
@@ -392,6 +422,17 @@ impl Server {
                     (State::Disabled, _) => {
                         return Err(format!("MCP server {} is disabled", self.name))
                     }
+                    (State::NeedsSignIn, _) => {
+                        return Err(format!(
+                            "MCP server {} needs a sign-in ({}): the owner signs in with \
+                             `theseus mcp login {}`",
+                            self.name,
+                            l.last_error
+                                .as_deref()
+                                .unwrap_or("it has not been signed in"),
+                            self.name
+                        ))
+                    }
                     _ => {}
                 }
             }
@@ -510,6 +551,12 @@ pub struct McpBoard {
     /// The lists the trials of servers asked for found, kept until the owner
     /// answers (`attached.rs`).
     listed: Mutex<BTreeMap<String, StoredList>>,
+    /// Where sign-ins are kept (`oauth::dir` of the store), once known.
+    oauth_dir: OnceLock<PathBuf>,
+    /// Each server's sign-in that signs in, loaded at its first start.
+    signed: Mutex<BTreeMap<String, Arc<oauth::Signed>>>,
+    /// The sign-in waiting for its redirect (`sign_in.rs`), one at a time.
+    login: tokio::sync::Mutex<Option<sign_in::Pending>>,
 }
 
 impl McpBoard {
@@ -541,6 +588,9 @@ impl McpBoard {
             extensions: Mutex::default(),
             attached: Mutex::default(),
             listed: Mutex::default(),
+            oauth_dir: OnceLock::new(),
+            signed: Mutex::default(),
+            login: tokio::sync::Mutex::new(None),
         });
         board.rebuild();
         board
@@ -554,6 +604,24 @@ impl McpBoard {
 
     pub fn attach(&self, core: Weak<crate::rpc::Core>) {
         let _ = self.core.set(core);
+    }
+
+    /// Where the sign-ins are kept: `oauth::dir` of the store. Before `start`.
+    pub fn set_oauth_dir(&self, dir: PathBuf) {
+        let _ = self.oauth_dir.set(dir);
+    }
+
+    /// The sign-in of `s`, a server that signs in: loaded from its file at the
+    /// first ask. None for any other server.
+    pub(crate) fn signed(&self, s: &Server) -> Option<Arc<oauth::Signed>> {
+        s.cfg.oauth.as_ref()?;
+        let url = s.cfg.url.as_deref()?;
+        let mut all = self.signed.lock().unwrap_or_else(PoisonError::into_inner);
+        let found = all.entry(s.name.clone()).or_insert_with(|| {
+            let path = self.oauth_dir.get().map(|d| oauth::file(d, &s.name));
+            oauth::Signed::load(&s.name, url, path, self.secrets.clone())
+        });
+        Some(found.clone())
     }
 
     pub fn server(&self, name: &str) -> Option<&Arc<Server>> {
@@ -745,6 +813,18 @@ impl McpBoard {
         let mut attempt = 0u64;
         loop {
             attempt += 1;
+            if let Some(signed) = self.signed(&s) {
+                if !signed.signed_in().await {
+                    // Never signed in: said in health, told to no one.
+                    if !self
+                        .needs_sign_in(&s, "it has not been signed in", false)
+                        .await
+                    {
+                        return;
+                    }
+                    continue;
+                }
+            }
             s.set(|l| l.state = Some(State::Starting));
             let t0 = Instant::now();
             let wait = Duration::from_secs(s.cfg.start_timeout_secs);
@@ -767,7 +847,17 @@ impl McpBoard {
                 Ok(Err(e)) => e,
                 Err(_) => format!("no handshake and list within {} s", wait.as_secs()),
             };
-            if *self.stop.borrow() || !self.crashed(&s, why).await {
+            if *self.stop.borrow() {
+                return;
+            }
+            // A sign-in refused for good is not a crash: no retry, no count.
+            if let Some(lost) = self.signed(&s).and_then(|g| g.lost()) {
+                if !self.needs_sign_in(&s, &lost, true).await {
+                    return;
+                }
+                continue;
+            }
+            if !self.crashed(&s, why).await {
                 return;
             }
         }
@@ -785,8 +875,14 @@ impl McpBoard {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
+        let key = Key {
+            bearer,
+            token: self
+                .signed(s)
+                .map(|g| g as Arc<dyn theseus_mcp::TokenSource>),
+        };
         let c = connect
-            .connect(&s.name, &s.cfg, env, bearer, s.serve.clone())
+            .connect(&s.name, &s.cfg, env, key, s.serve.clone())
             .await?;
         let tools = c.client.list_tools().await.map_err(|e| e.to_string())?;
         let prompts = match c.client.server_info().capabilities.prompts.is_some() {
@@ -891,13 +987,47 @@ impl McpBoard {
         true
     }
 
+    /// A server that signs in with no sign-in that works: `needs sign-in`,
+    /// `why` said in health, and, when `tell`, told once to the conversation
+    /// that attached it. Not a crash: nothing is counted and nothing is
+    /// tried until a restart (a sign-in makes one). False once the daemon
+    /// stops.
+    async fn needs_sign_in(&self, s: &Server, why: &str, tell: bool) -> bool {
+        s.set(|l| {
+            l.state = Some(State::NeedsSignIn);
+            l.client = None;
+            l.pid = None;
+            l.last_error = Some(why.to_string());
+            l.forget_crashes();
+        });
+        if tell {
+            tracing::warn!(server = %s.name, why, "MCP server needs a sign-in");
+            self.tell_sign_in(&s.name, why);
+        }
+        tokio::select! {
+            () = s.restart.notified() => true,
+            () = self.stopped() => false,
+        }
+    }
+
     /// A ready server, until its connection ends, it is restarted, or the
     /// daemon stops. `list_changed` (or an HTTP session made again) lists
     /// its tools again.
     async fn serve(&self, s: &Arc<Server>, c: Connected) -> Ended {
         let Connected { client, mut events } = c;
+        let mut lost = self.signed(s).map(|g| g.watch_lost());
         loop {
             tokio::select! {
+                Some(()) = async {
+                    match lost.as_mut() {
+                        Some(rx) => rx.wait_for(Option::is_some).await.ok().map(|_| ()),
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    client.terminate();
+                    s.set(|l| { l.client = None; l.pid = None; });
+                    return Ended::Closed("its sign-in was refused".into());
+                }
                 ev = events.recv() => match ev {
                     Some(Event::PromptListChanged) => self.relist_prompts(s, &client).await,
                     Some(ref e @ (Event::ToolListChanged | Event::Reinitialized)) => {

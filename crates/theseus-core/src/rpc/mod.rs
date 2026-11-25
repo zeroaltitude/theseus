@@ -54,6 +54,7 @@ pub(crate) mod learning;
 mod ledger_rows;
 mod ledger_verify;
 mod mcp;
+mod mcp_login;
 mod memory;
 mod methods;
 mod modes;
@@ -872,6 +873,9 @@ impl Core {
             }),
             |name| crate::mcp::read_stored(&store, name),
         );
+        // Where a server that signs in keeps what its sign-in gave (issue 55):
+        // inside the store directory, which the floor holds.
+        mcp.set_oauth_dir(crate::mcp::oauth::dir(store.dir()));
         // The prompts' stored lists, and each prompt's definition as last
         // used (36c): the same, one key each.
         mcp.seed_prompts(

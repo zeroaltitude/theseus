@@ -93,7 +93,7 @@ impl Connect for Fakes {
         server: &str,
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
-        bearer: Option<String>,
+        key: crate::mcp::Key,
         _serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         self.connects.fetch_add(1, Ordering::SeqCst);
@@ -101,7 +101,7 @@ impl Connect for Fakes {
             server: server.into(),
             cfg: cfg.clone(),
             env,
-            bearer,
+            bearer: key.bearer,
         });
         let broken = cfg.command.first().is_some_and(|p| p == "broken");
         let refused = self.refusing.lock().unwrap().iter().any(|n| n == server);

@@ -73,7 +73,7 @@ impl Connect for InProcess {
         server: &str,
         _cfg: &McpServerConfig,
         _env: Vec<(String, String)>,
-        _bearer: Option<String>,
+        _key: super::Key,
         _serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         self.connects.fetch_add(1, Ordering::SeqCst);
@@ -1190,6 +1190,7 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
 }
 
 mod ceilings;
+mod oauth;
 
 #[tokio::test]
 async fn a_protocol_error_is_still_the_servers_outside_text() {

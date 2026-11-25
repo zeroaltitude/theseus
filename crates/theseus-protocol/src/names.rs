@@ -256,6 +256,8 @@ pub mod method {
         MCP_LIST = "mcp.list",
         /// Restart one MCP server (`mcp::McpRestartParams`), a failed one included.
         MCP_RESTART = "mcp.restart",
+        /// Sign in to an MCP server that signs in (issue 55; `mcp::McpLoginBeginParams`), sign out. The CLI's alone.
+        MCP_LOGIN_BEGIN = "mcp.login.begin", MCP_LOGIN_FINISH = "mcp.login.finish", MCP_LOGOUT = "mcp.logout",
         /// The prompts the MCP servers list (M7 36c, `mcp::McpPromptListParams`). A read.
         MCP_PROMPT_LIST = "mcp.prompt.list",
         /// Proposed and loaded extensions (M7 43a, 43b; `extend::ExtendListResult`). A read.

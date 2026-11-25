@@ -86,7 +86,9 @@ impl McpBoard {
             .clone();
         let wait = Duration::from_secs(cfg.start_timeout_secs);
         let opened = tokio::time::timeout(wait, async {
-            let c = connect.connect(name, cfg, Vec::new(), None, None).await?;
+            let c = connect
+                .connect(name, cfg, Vec::new(), super::Key::default(), None)
+                .await?;
             match c.client.list_tools().await {
                 Ok(tools) => Ok((c, tools)),
                 Err(e) => {

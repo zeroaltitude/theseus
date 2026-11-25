@@ -422,6 +422,9 @@ impl Core {
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),
             m @ (method::EXTEND_LIST | method::EXTENSION_REVOKE) => self.rpc_ext(m, params, conn),
             method::MCP_RESTART => reply(self.mcp_restart(parse(params)?)?),
+            m @ (method::MCP_LOGIN_BEGIN | method::MCP_LOGIN_FINISH | method::MCP_LOGOUT) => {
+                self.rpc_mcp_login(m, params, conn).await
+            }
             method::MCP_PROMPT_LIST => reply(self.mcp_prompt_list(params)?),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.
             method::AWS_BOOTSTRAP => reply(self.aws_bootstrap(parse(params)?, conn).await?),

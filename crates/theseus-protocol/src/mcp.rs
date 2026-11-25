@@ -174,3 +174,82 @@ pub struct McpRestartResult {
     /// The state it was in when asked.
     pub was: String,
 }
+
+/// `mcp.login.begin` (issue 55): start the sign-in of a server that signs in
+/// (`oauth`). The CLI's alone. `manual` skips the wait for the redirect and
+/// goes straight to the paste.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpLoginBeginParams {
+    pub name: String,
+    #[serde(default)]
+    pub manual: bool,
+}
+
+/// The address the owner opens, which holds no secret (a client id, a PKCE
+/// challenge, a state), the host it signs in at, and how the redirect comes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpLoginBeginResult {
+    /// Names this sign-in for `mcp.login.finish`.
+    pub login_id: String,
+    pub name: String,
+    /// The host of the address: where the owner signs in.
+    pub host: String,
+    pub url: String,
+    /// The loopback redirect the daemon listens on; empty with `manual`.
+    pub redirect: String,
+    /// How long the sign-in stays open, in seconds, and when the CLI offers
+    /// the paste.
+    pub expires_secs: u64,
+    pub paste_after_secs: u64,
+}
+
+/// `mcp.login.finish`: wait for the redirect (`pasted` empty), or take the
+/// address the owner's browser was sent to, pasted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpLoginFinishParams {
+    pub login_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub pasted: Option<String>,
+    /// With no paste: wait this long for the redirect (seconds), then answer
+    /// `waiting`.
+    #[serde(default)]
+    pub wait_secs: u64,
+}
+
+/// What the sign-in came to. No token, code or secret is in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpLoginFinishResult {
+    /// `done`, or `waiting` (no redirect yet: paste the address).
+    pub state: String,
+    pub name: String,
+    pub host: String,
+    /// Whether the server came up with the sign-in, and the tools it lists.
+    pub connected: bool,
+    pub tools: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+/// `mcp.logout`: forget a server's sign-in, revoked at its server when it
+/// offers that. The CLI's alone.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpLogoutParams {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpLogoutResult {
+    pub name: String,
+    /// Whether a sign-in was kept, and is now forgotten.
+    pub forgot: bool,
+    pub revoked: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}

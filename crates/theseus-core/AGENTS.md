@@ -1180,6 +1180,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   built-ins, in private places only, and a turn's request spec fixes its tools, so a `list_changed` applies at the
   next turn (`mcp.tools_changed`, and an operator notice). Facts in `fact/mcp.rs`; tests in `mcp/tests.rs` (an
   in-process fake through a `Connect` stand-in, the backoff on the paused clock) and theseusd's `tests/mcp.rs`.
+  A server that signs in (issue 55; `oauth` in its table): `mcp/oauth.rs` keeps what its sign-in gave in
+  `<store>/mcp-oauth/<name>.json` (0600, written whole, inside the store directory the floor holds), holds each value
+  on the secret board for the scrubber, and is the client's `TokenSource` (renewed before it runs out and once on a
+  401); `mcp/sign_in.rs` is `theseus mcp login`/`logout` (`rpc/mcp_login.rs`, the CLI's surface alone). Never signed
+  in, or its refresh refused for good, a server is `needs sign-in`: not a crash, not retried, told once
+  (`attached.rs`) when it was lost. Tests: `mcp/tests/oauth.rs`.
   **Prompts** (36c, `mcp/prompts.rs`): each server's `prompts/list` is kept with a digest per definition and stored
   as META `mcp.prompts.<server>` (no format bump: a new key), listed again on `prompts/list_changed`; `mcp.prompt.list`
   reads it, and `mcp.list` carries it. `turn.submit { prompt }` resolves the prompt first (`McpBoard::resolve_prompt`:

@@ -307,9 +307,13 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
-/// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 107] = [
+/// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start), and an MCP
+/// server's sign-in and sign-out (issue 55: it keeps a credential the daemon renews unattended).
+pub const OPERATORS: [(&str, &str); 110] = [
     (method::CONFIG_HISTORY, "theseus config history"),
+    (method::MCP_LOGIN_BEGIN, "theseus mcp login"),
+    (method::MCP_LOGIN_FINISH, "theseus mcp login"),
+    (method::MCP_LOGOUT, "theseus mcp logout"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
