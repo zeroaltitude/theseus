@@ -7437,13 +7437,11 @@ mod web {
         let corr = res.awaiting_confirm.clone().expect("it waits for approval");
         let asked = ledgered(&r, "tool.confirm_requested");
         assert_eq!(asked.len(), 1);
-        assert!(
-            asked[0]["reason"]
-                .as_str()
-                .unwrap()
-                .starts_with(&format!("fetch {url}: http.fetch — approve (")),
-            "{}",
-            asked[0]["reason"]
+        assert_eq!(
+            asked[0]["reason"],
+            json!(format!(
+                "fetch {url}: http.fetch — approve (enforcement = approve)"
+            ))
         );
         r.core
             .confirm_action(&corr, false, Some("not that one"), "test")
