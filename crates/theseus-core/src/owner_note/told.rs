@@ -239,7 +239,8 @@ mod tests {
             Undo::WakeCancel("w".into()).line(),
             "Undo: `theseus cancel w`"
         );
-        let text = "ℹ️ FYI · Changed 1 setting\nasked here\n- a: on → off\n".to_string() + &u.line();
+        let text =
+            "ℹ️ FYI · Changed 1 setting\nasked here\n- a: on → off\n".to_string() + &u.line();
         assert_eq!(
             undone_text(&text, "cli"),
             "ℹ️ FYI · Changed 1 setting\nasked here\n- a: on → off\n↩️ Undone by cli."
