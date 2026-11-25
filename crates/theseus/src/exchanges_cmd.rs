@@ -311,16 +311,10 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
     s
 }
 
-/// The reading sheet: a plain header (what the sheet is, how many items follow, what each mark and label
-/// means, and the owner's bar), what exists and what was drawn, the seed, what its material is and what a
-/// sample holds, fewer than asked said so, then each item numbered: its warnings, its writer's material rebuilt
-/// today, it as the view shows it, and a blank verdict.
-pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> String {
-    let whence = match &r.place {
-        Some(p) => format!("in {p}"),
-        None => "in every place".to_string(),
-    };
-    let mut out = vec![
+/// The sheet's header: what it is, how many items follow, what is drawn and from what, what each mark and
+/// label means, and the owner's bar.
+fn gists_header(whence: &str, r: &ExchangeGistsResult) -> Vec<String> {
+    vec![
         "What this sheet is: the one-line notes Theseus wrote about its own past work, and the longer \
          summaries it wrote of runs of exchanges, each shown beside the material it was written from, \
          so you can check each one against its source."
@@ -370,7 +364,19 @@ pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> Stri
          any other error. The notes are the items headed \"Summary\"; the summaries are the items \
          headed \"Fold node\"."
             .to_string(),
-    ];
+    ]
+}
+
+/// The reading sheet: a plain header (what the sheet is, how many items follow, what each mark and label
+/// means, and the owner's bar), what exists and what was drawn, the seed, what its material is and what a
+/// sample holds, fewer than asked said so, then each item numbered: its warnings, its writer's material rebuilt
+/// today, it as the view shows it, and a blank verdict.
+pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> String {
+    let whence = match &r.place {
+        Some(p) => format!("in {p}"),
+        None => "in every place".to_string(),
+    };
+    let mut out = gists_header(&whence, r);
     for (what, total, want) in [
         ("One-line summaries", r.lines_total, asked.lines),
         ("First-level fold nodes", r.nodes_total, asked.nodes),
