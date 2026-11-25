@@ -127,7 +127,11 @@ fn not_counted() -> [crate::approval::Answerer; 3] {
         }),
         agent: None,
     };
-    [at("777", Some("7")), at("777", None), at(&OWNER.to_string(), Some("7"))]
+    [
+        at("777", Some("7")),
+        at("777", None),
+        at(&OWNER.to_string(), Some("7")),
+    ]
 }
 
 /// The one note a turn staged, its words, and its Undo pressed through the
