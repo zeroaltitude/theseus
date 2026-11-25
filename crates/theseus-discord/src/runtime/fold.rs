@@ -64,13 +64,8 @@ pub(crate) const NOT_HERE: &str = "This button is not this message's: nothing wa
 /// What the presser is told when the place shows no steps now.
 pub(crate) const HIDDEN: &str = "This place shows no steps now.";
 
-/// How long a press waits to be taken: past it, it is cancelled. Shorter
-/// under test, so a hold past it costs a test seconds, not ten.
-const WAIT: Duration = if cfg!(test) {
-    Duration::from_secs(3)
-} else {
-    Duration::from_secs(10)
-};
+/// How long a press waits to be taken: past it, it is cancelled.
+const WAIT: Duration = Duration::from_secs(10);
 
 /// A press's state, shared by its presser's task and its place: the first to
 /// move it from `WAITING` wins, so a press is either applied or cancelled,
@@ -193,7 +188,7 @@ pub(super) fn pressed(
         // A fold's press on no message: nothing to show it on.
         return true;
     };
-    let (reply, mut answer) = oneshot::channel();
+    let (reply, answer) = oneshot::channel();
     let state = Arc::new(AtomicU8::new(WAITING));
     let ask = Ask {
         turn,
@@ -216,18 +211,23 @@ pub(super) fn pressed(
         if !sent {
             return;
         }
-        let told = match tokio::time::timeout(WAIT, &mut answer).await {
-            Ok(Ok(t)) => t,
-            // Not taken in time: cancelled, unless the place took it just
-            // now, whose answer then follows.
-            _ if dropped(&state) => Told::Cancelled,
-            _ => answer.await.unwrap_or(Told::Cancelled),
-        };
+        let told = answer_of(&state, answer, WAIT).await;
         if let Some(line) = said(told) {
             shared.followup(&i, line).await;
         }
     });
     true
+}
+
+/// What a press's presser is told: its place's answer, or, when none came
+/// within `wait`, that it was dropped, unless its place took it first, whose
+/// answer then follows.
+async fn answer_of(state: &AtomicU8, mut answer: oneshot::Receiver<Told>, wait: Duration) -> Told {
+    match tokio::time::timeout(wait, &mut answer).await {
+        Ok(Ok(t)) => t,
+        _ if dropped(state) => Told::Cancelled,
+        _ => answer.await.unwrap_or(Told::Cancelled),
+    }
 }
 
 /// Cancel a press still waiting; false when its place took it first.
@@ -318,6 +318,92 @@ impl Place {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The press's wait, on a clock the test drives (tokio's paused time):
+    /// no answer within it, and the press is dropped and told so, and its
+    /// place can no longer take it; an answer within it is told as it is;
+    /// a press its place took just before the wait ended is told its own
+    /// answer when it comes, never "dropped".
+    #[tokio::test(start_paused = true)]
+    async fn a_press_not_taken_within_its_wait_is_dropped_and_never_taken() {
+        let state = Arc::new(AtomicU8::new(WAITING));
+        let (reply, answer) = oneshot::channel::<Told>();
+        let told = tokio::spawn({
+            let state = state.clone();
+            async move { answer_of(&state, answer, WAIT).await }
+        });
+        tokio::time::advance(WAIT + Duration::from_millis(1)).await;
+        assert_eq!(told.await.unwrap(), Told::Cancelled);
+        assert_eq!(state.load(Ordering::Acquire), DROPPED);
+        let taken = state.compare_exchange(WAITING, TAKEN, Ordering::AcqRel, Ordering::Acquire);
+        assert!(taken.is_err(), "its place can no longer take it");
+        drop(reply);
+
+        let state = Arc::new(AtomicU8::new(WAITING));
+        let (reply, answer) = oneshot::channel::<Told>();
+        let told = tokio::spawn({
+            let state = state.clone();
+            async move { answer_of(&state, answer, WAIT).await }
+        });
+        tokio::time::advance(WAIT / 2).await;
+        reply.send(Told::Shown).unwrap();
+        assert_eq!(told.await.unwrap(), Told::Shown);
+
+        let state = Arc::new(AtomicU8::new(WAITING));
+        let (reply, answer) = oneshot::channel::<Told>();
+        let told = tokio::spawn({
+            let state = state.clone();
+            async move { answer_of(&state, answer, WAIT).await }
+        });
+        assert!(state
+            .compare_exchange(WAITING, TAKEN, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok());
+        tokio::time::advance(WAIT * 2).await;
+        reply.send(Told::Hidden).unwrap();
+        assert_eq!(told.await.unwrap(), Told::Hidden, "its own answer");
+    }
+
+    /// At its place: a press its presser dropped changes nothing (nothing
+    /// for the lane, no answer); a press still waiting is taken, and told.
+    #[tokio::test]
+    async fn a_dropped_press_changes_nothing_at_its_place() {
+        use theseus_core::secrets::SecretBoard;
+        use theseus_core::session::SessionRecord;
+        use theseus_protocol::SessionKind;
+        let d = tempfile::tempdir().unwrap();
+        let core = super::super::tests::core_with(d.path(), SecretBoard::empty(), |_| {});
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        let sid = rec.session_id.clone();
+        core.store.put_session(&sid, &rec).unwrap();
+        let (mut place, _mailbox) = super::super::tests::place_for_tests(&core, &sid);
+        let (lane_tx, mut lane) = mpsc::unbounded_channel();
+        place.lane = lane_tx;
+        let ask = |state: &Arc<AtomicU8>| {
+            let (reply, answer) = oneshot::channel();
+            let a = Ask {
+                turn: "turn_gone".into(),
+                page: Some(0),
+                at: (1, 2),
+                state: state.clone(),
+                reply,
+            };
+            (a, answer)
+        };
+        let state = Arc::new(AtomicU8::new(WAITING));
+        assert!(dropped(&state));
+        let (a, mut answer) = ask(&state);
+        place.fold_show(a);
+        assert!(lane.try_recv().is_err(), "nothing for the lane");
+        assert!(answer.try_recv().is_err(), "no answer");
+        assert_eq!(state.load(Ordering::Acquire), DROPPED);
+
+        let state = Arc::new(AtomicU8::new(WAITING));
+        let (a, mut answer) = ask(&state);
+        place.fold_show(a);
+        assert_eq!(state.load(Ordering::Acquire), TAKEN);
+        assert_eq!(answer.try_recv(), Ok(Told::TooOld));
+        assert!(!dropped(&state), "taken: no longer cancellable");
+    }
 
     /// A press id says its turn and page, and nothing else reads as one.
     #[test]

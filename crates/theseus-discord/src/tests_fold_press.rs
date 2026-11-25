@@ -133,15 +133,27 @@ async fn forge(r: &Rig, channel: u64, id: &str, custom_id: &str) {
     assert!(ok, "the forged button is on the message");
 }
 
+/// Whether the press `pressed` was acknowledged: its place had it then, as
+/// a press is sent to its place before it is acknowledged
+/// (`runtime/fold.rs`).
+fn acked(r: &Rig, pressed: &str) -> bool {
+    r.fake
+        .replies()
+        .iter()
+        .any(|x| x.interaction.as_deref() == Some(pressed) && x.kind == "callback")
+}
+
 /// The fake's writes held so far.
 fn held(r: &Rig) -> usize {
     r.fake.seen().iter().filter(|s| s.outcome == "held").count()
 }
 
 /// The lane is the one writer: while it waits on a write Discord holds, a
-/// press changes nothing at Discord; two opposing presses then end as the
-/// place took them, the message and the place agreeing (the next press does
-/// what its label says).
+/// press its place already has changes nothing at Discord; two opposing
+/// presses then end as the place took them, the message and the place
+/// agreeing (the next press does what its label says). Each step waits for
+/// what shows it: the held request at the fake, each press's
+/// acknowledgement (its place had it), then the hold's release.
 #[tokio::test]
 async fn a_press_waits_for_the_lanes_held_write_and_opposing_presses_agree() {
     let r = rig(
@@ -181,9 +193,12 @@ async fn a_press_waits_for_the_lanes_held_write_and_opposing_presses_agree() {
     let before = held(&r);
     r.say((ANA, "ana"), None, "And again?");
     r.until("the lane's write held", || held(&r) > before).await;
-    r.press(&f.id, "Later ▶", (ANA, "ana"));
-    r.press(&f.id, "Hide steps", (ANA, "ana"));
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let later = r.press(&f.id, "Later ▶", (ANA, "ana"));
+    let hide = r.press(&f.id, "Hide steps", (ANA, "ana"));
+    r.until("both presses with their place", || {
+        acked(&r, &later) && acked(&r, &hide)
+    })
+    .await;
     let during = message(&r, ANA_DM, &f.id);
     assert_eq!(
         (during.content.as_str(), during.edits),
@@ -205,18 +220,25 @@ async fn a_press_waits_for_the_lanes_held_write_and_opposing_presses_agree() {
     .await;
 }
 
-/// A press on a running turn's fold while the lane still holds that fold's
-/// final update: the press comes after it in the place's order, so the fold
-/// ends open, and stays open, though the turn ended closed.
+/// A press on a fold whose create Discord holds, around the call's end: the
+/// fold's create is held at the fake (seen there), the press reaches its
+/// place (acknowledged), the gated command then ends (failed), and the turn
+/// with it; only then is the hold released. Whichever the place took first,
+/// the press or the call's end, the lane writes the fold's states in that
+/// order after the create: the fold ends open, and stays open, though the
+/// turn ended with it closed.
 #[tokio::test]
 async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
     let r = rig(
-        |_| {
+        |dir| {
+            std::fs::create_dir_all(dir.join("work")).unwrap();
+            let gate = dir.join("work").join("gate");
+            let wait = format!(
+                "while [ ! -f {} ]; do sleep 0.1; done; exit 3",
+                gate.to_string_lossy()
+            );
             vec![
-                Scripted::tools(
-                    "",
-                    &[("m1", "proc_run", json!({"argv": ["sh", "-c", "exit 3"]}))],
-                ),
+                Scripted::tools("", &[("m1", "proc_run", json!({"argv": ["sh", "-c", wait]}))]),
                 Scripted::text("No such chart."),
             ]
         },
@@ -225,18 +247,21 @@ async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
     .await;
     // The fold's create waits at Discord, applied but unanswered: the lane
     // holds the turn's later updates of it meanwhile.
+    let before = held(&r);
     r.fake.hold_writes_containing(Some("-# 1 step: 1 command"));
     r.say((ANA, "ana"), None, "Run the failing count.");
-    r.until("the fold's create held, and the turn ended", || {
-        !folds(&r, ANA_DM).is_empty()
-            && !r.ledger("turn.ended").is_empty()
-            && r.core.outbox.status("discord").pending >= 1
+    r.until("the fold's create held at the fake", || {
+        held(&r) > before && !folds(&r, ANA_DM).is_empty()
     })
     .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
     let f = folds(&r, ANA_DM).remove(0);
-    r.press(&f.id, "Show steps", (ANA, "ana"));
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let pressed = r.press(&f.id, "Show steps", (ANA, "ana"));
+    r.until("the press with its place", || acked(&r, &pressed)).await;
+    std::fs::write(r.dir.path().join("work").join("gate"), "").unwrap();
+    r.until("the call ended and the turn with it", || {
+        !r.ledger("turn.ended").is_empty()
+    })
+    .await;
     r.fake.hold_writes_containing(None);
     r.until("the answer delivered", || {
         r.posted(ANA_DM)
@@ -249,9 +274,15 @@ async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
         message(&r, ANA_DM, &f.id).content.contains("`proc.run`")
     })
     .await;
+    // An observation of absence: a late closed write would show here. It
+    // cannot fail a correct lane, only give a wrong one time to show.
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let m = message(&r, ANA_DM, &f.id);
     assert!(m.content.contains("`proc.run`"), "still open: {m:#?}");
+    assert!(
+        !m.content.contains('⏳') && !m.content.contains("▫️"),
+        "the call's end is in it: {m:#?}"
+    );
     assert_eq!(
         labels(&m).last().map(String::as_str),
         Some("Hide steps"),

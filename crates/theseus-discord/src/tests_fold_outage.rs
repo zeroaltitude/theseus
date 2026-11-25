@@ -2,8 +2,9 @@
 //! drain: an update whose own edit gets Discord's 503 is dropped, as live
 //! progress always was, and nothing is kept for it; once the lane is back and
 //! every post that waited has gone, the place writes each fold it still holds
-//! once more, as it shows now. And a press not taken within its wait is
-//! cancelled: nothing ever follows it.
+//! once more, as it shows now. (A press not taken within its wait is
+//! cancelled: `runtime/fold.rs`'s tests drive that wait on a clock they
+//! control.)
 
 use std::path::Path;
 use std::sync::Arc;
@@ -15,8 +16,10 @@ use theseus_sim::fake_discord::{Guild, Mode, Msg, DEFAULT_GUILD};
 
 use crate::tests_gateway::{Rig, ANA, ANA_DM, LAB};
 
-/// The renderer's newest turns, the most a place holds a fold of
-/// (`render.rs`'s `RECENT_TURNS`).
+/// The renderer's newest turns (`render.rs`'s `RECENT_TURNS`): the most
+/// folds a place holds here, where no older turn has a call still pending.
+/// (Up to `render/held.rs`'s `PINNED_TURNS` older turns with a pending call
+/// are held besides.)
 const HELD: usize = 8;
 
 fn bindings(dm: &str) -> String {
@@ -233,7 +236,15 @@ async fn forty_turns_in_an_outage_leave_at_most_the_held_folds_and_the_card_goes
         r.core.confirm_list().is_ok_and(|l| !l.is_empty())
     })
     .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let dm = format!("discord:dm:{ANA}");
+    within(20, "the card's post waits with the answers", || {
+        r.core
+            .outbox
+            .open_for(&dm)
+            .iter()
+            .any(|a| theseus_core::outbox::kind_of(a) == "card")
+    })
+    .await;
     r.fake.fail_creates_in(ANA_DM, None);
     within(60, "every answer and the card, then the folds", || {
         let all = r.posted(ANA_DM);
@@ -242,7 +253,13 @@ async fn forty_turns_in_an_outage_leave_at_most_the_held_folds_and_the_card_goes
             && r.core.outbox.status("discord").pending == 0
     })
     .await;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    let new_fold = |m: &Msg| {
+        !before.contains(&m.id) && m.buttons.iter().any(|b| b.custom_id.starts_with("fold:"))
+    };
+    within(30, "a fold written again", || r.posted(ANA_DM).iter().any(new_fold)).await;
+    // An observation of absence: more folds than the place holds would show
+    // here. It cannot fail a correct lane, only give a wrong one time to show.
+    tokio::time::sleep(Duration::from_secs(2)).await;
     let all = r.posted(ANA_DM);
     let id = |m: &Msg| m.id.parse::<u64>().unwrap();
     let card = all
@@ -263,51 +280,6 @@ async fn forty_turns_in_an_outage_leave_at_most_the_held_folds_and_the_card_goes
     for f in &new_folds {
         assert!(id(card) < id(f), "the card before any fold: {f:#?}");
     }
-}
-
-/// A press the lane cannot take within its wait, held behind a write
-/// Discord does not answer: the presser is told it was dropped and nothing
-/// changed, and when the write is answered, no edit of the fold follows.
-#[tokio::test]
-async fn a_press_not_taken_in_time_is_cancelled_and_never_applies() {
-    let r = rig(
-        |_| {
-            let mut s = command_turn("dm");
-            s.push(Scripted::text("Second answer, hold-me."));
-            s
-        },
-        &bindings(""),
-    )
-    .await;
-    let f = settled(&r, "dm").await;
-    let held = || r.fake.seen().iter().filter(|s| s.outcome == "held").count();
-    let n = held();
-    r.fake.hold_writes_containing(Some("hold-me"));
-    r.say((ANA, "ana"), None, "And again?");
-    within(20, "the lane's write held", || held() > n).await;
-    let pressed = r.press(&f.id, "Show steps", (ANA, "ana"));
-    within(20, "the presser told it was dropped", || {
-        r.fake.replies().iter().any(|x| {
-            x.interaction.as_deref() == Some(pressed.as_str())
-                && x.ephemeral
-                && x.content
-                    .as_deref()
-                    .is_some_and(|c| c.starts_with("That press waited too long"))
-        })
-    })
-    .await;
-    r.fake.hold_writes_containing(None);
-    within(20, "the second answer", || {
-        r.posted(ANA_DM)
-            .iter()
-            .any(|m| m.content.contains("Second answer"))
-            && r.core.outbox.status("discord").pending == 0
-    })
-    .await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    let m = message(&r, ANA_DM, &f.id);
-    assert_eq!((m.content.as_str(), m.edits), (f.content.as_str(), f.edits));
-    assert_eq!(labels(&m).last().map(String::as_str), Some("Show steps"));
 }
 
 /// A general question around a turn's fold: the fold is written before the
