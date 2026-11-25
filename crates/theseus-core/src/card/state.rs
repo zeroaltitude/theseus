@@ -84,9 +84,7 @@ pub fn proposals(store: &Store) -> Result<Vec<CardProposal>> {
     {
         match r.decode::<CardProposal>() {
             Ok(p) => out.push(p),
-            Err(e) => {
-                tracing::warn!(key = ?r.key, error = %e, "a card proposal does not read: left out")
-            }
+            Err(_) => tracing::warn!(key = ?r.key, "a card proposal does not read: left out"),
         }
     }
     out.sort_by(|a, b| (a.created_ms, &a.id).cmp(&(b.created_ms, &b.id)));
@@ -118,9 +116,7 @@ pub fn observations(
         match r.decode::<CardObservation>() {
             Ok(o) if state.is_none_or(|s| o.state == s) => out.push(o),
             Ok(_) => {}
-            Err(e) => {
-                tracing::warn!(key = ?r.key, error = %e, "a card observation does not read: left out")
-            }
+            Err(_) => tracing::warn!(key = ?r.key, "a card observation does not read: left out"),
         }
     }
     out.sort_by(|a, b| (b.at_ms, &b.id).cmp(&(a.at_ms, &a.id)));

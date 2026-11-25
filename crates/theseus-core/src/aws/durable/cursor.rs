@@ -163,8 +163,8 @@ pub fn load(paths: &Paths) -> Option<Saved> {
             );
             None
         }
-        Err(e) => {
-            tracing::warn!(error = %e, "durability: the cursor does not parse; shipping from the start");
+        Err(_) => {
+            tracing::warn!("durability: the cursor does not parse; shipping from the start");
             None
         }
     }

@@ -13,7 +13,7 @@
 //! thread of its own looks once a second and holds the core by `Weak`, as
 //! `keep_day_total` does.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde_json::json;
@@ -104,18 +104,23 @@ impl Core {
         let weak = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("ledger-gap".into())
-            .spawn(move || {
-                let _ = theseus_store::pressure::idle_this_thread();
-                let mut told = Told::default();
-                loop {
-                    std::thread::sleep(LOOK_EVERY);
-                    let Some(core) = weak.upgrade() else { return };
-                    tell(&core.outbox, &mut told, core.ledger_gap().as_ref());
-                }
-            });
+            .spawn(move || watch(&weak, LOOK_EVERY));
         if let Err(e) = spawned {
             tracing::warn!(error = %e, "ledger gap: the watcher was not started");
         }
+    }
+}
+
+/// The watcher's thread: a look every `every`, at normal priority, until the
+/// stop begins or the core is gone (`core_for_a_unit`, issue 51).
+fn watch(weak: &Weak<Core>, every: Duration) {
+    let mut told = Told::default();
+    loop {
+        std::thread::sleep(every);
+        let Some(core) = crate::startup::core_for_a_unit(weak) else {
+            return;
+        };
+        tell(&core.outbox, &mut told, core.ledger_gap().as_ref());
     }
 }
 
@@ -189,5 +194,25 @@ mod tests {
         let mut later = gap(1);
         later.since_ms += 1;
         assert!(tell(&o, &mut told, Some(&later)), "another gap is told");
+    }
+
+    /// The watcher looks at normal priority (issue 51): in `SCHED_IDLE` on a
+    /// saturated machine it could hold the core past the stop's wait.
+    #[test]
+    fn the_gap_watcher_holds_the_core_at_normal_priority() {
+        let (_d, core) = crate::startup::tests::core();
+        let idle =
+            crate::startup::tests::asked_in_idle(&core, |w| watch(&w, Duration::from_millis(1)));
+        assert!(!idle, "the watcher asked for the core in SCHED_IDLE");
+    }
+
+    /// Once the stop has begun the watcher takes no core and ends (issue
+    /// 51): a look begun then could still hold it when the runtime drops.
+    #[test]
+    fn a_gap_watcher_takes_no_core_once_the_stop_has_begun() {
+        let (_d, core) = crate::startup::tests::core();
+        let got =
+            crate::startup::tests::ends_at_the_stop(&core, |w| watch(&w, Duration::from_millis(1)));
+        assert_eq!(got, Ok(()));
     }
 }

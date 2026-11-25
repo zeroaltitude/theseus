@@ -120,3 +120,17 @@ pub fn planted_thread_hold<T: Send + Sync + 'static>(core: &std::sync::Arc<T>) {
     #[cfg(not(debug_assertions))]
     let _ = core;
 }
+
+/// A test's plant (a debug build's `THESEUS_TEST_SLOW_AFTER_SERVING_MS`): the
+/// steps after serving that write take that many ms more, as the own file's
+/// first start can on a slow disk. Planted by the socket daemon too. A release
+/// build has no such plant.
+pub async fn planted_slow_after_serving() {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("THESEUS_TEST_SLOW_AFTER_SERVING_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
+}

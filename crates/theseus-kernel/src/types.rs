@@ -463,6 +463,16 @@ impl Execution {
         v["budget"] = serde_json::to_value(Budget::from_units(units, limit_micros))?;
         Ok(serde_json::from_value(v)?)
     }
+
+    /// `from_stored` for a listing, which passes over a record that does not
+    /// read: a payload that does not begin as a JSON object is an error here,
+    /// before `from_stored` would read it as an older schema.
+    pub fn from_stored_listed(payload: &[u8], limit_micros: Micros) -> anyhow::Result<Self> {
+        if payload.iter().find(|b| !b.is_ascii_whitespace()) != Some(&b'{') {
+            anyhow::bail!("an execution record that is no JSON object does not read");
+        }
+        Self::from_stored(payload, limit_micros)
+    }
 }
 
 /// Per-operation declaration of what a repeat would do (§3.16). Every tool

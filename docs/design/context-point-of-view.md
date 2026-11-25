@@ -218,7 +218,7 @@ folded ladder stays above the 30 (his answer).
 6. **A name calls its thing.** A recognised mention brings the thing's card, its current facts, its newest
    exchange and what he has said about it through time. Loose topics ("the retry storm") are things too: the
    judge already files every message under topics, and that filing is kept per exchange. **As built**: things
-   are recognised and topics filed per exchange, and a card can be read, but nothing named is shown yet (§5.4).
+   are recognised and topics filed per exchange, and a message's names call their things' cards into slot H (§5.4).
 7. **Nothing is in view because it was in view last turn.** Every piece is chosen again each turn by a selector
    with a written rule, and the view records why each piece is there.
 8. **A reference with nothing in view is looked for before Theseus asks**: by name; by opening the right node
@@ -226,7 +226,8 @@ folded ladder stays above the 30 (his answer).
    offered, which hands it the next hundred exchanges back whenever *it* thinks it is missing something, with
    no horizon. One clear find is brought in; several are offered. **As built**: the tool is there; the search
    before the first word is recall, each note naming the handle that opens its exchange, and the search of the
-   last two days is not built, by the owner's decision of 2026-11-23 (§6); a name brings nothing into the view yet.
+   last two days is not built, by the owner's decision of 2026-11-23 (§6); a name brings its thing's card into the view
+   (§5.4).
 9. **A task is a point of view too.** Its context is assembled around its objective, its jobs, its evidence and
    what the owner has said about it anywhere. Joining it gives its status at once from records. Its objective
    changes only through the owner's own gate, on his current words.
@@ -438,8 +439,8 @@ is shorter: A, B, D, G, H and
 I, all from this place alone (but B's recent lines, from the people present's other places); C and F are absent.
 
 **As built**, the selectors of every slot exist and run in the admission order of rule 6, which is a table in the
-code. Slots C and D, and slot H's named things, lay nothing yet: their sources over the store answer nothing
-("What is built, and what is not", above). Slot B lays the people present (2026-11-24, above). Slot H holds recall and a joined task's card. The ceiling and slot G's
+code. Slots C and D, and slot H's named things, lay from the store ("What is built, and what is not", above): what
+waits, the things in play, and the cards of the things a message names. Slot B lays the people present (2026-11-24, above). Slot H holds recall and a joined task's card. The ceiling and slot G's
 allowance are constants, not settings.
 
 **How your memory works: a page for the model** (the owner's idea). The system part carries one fixed page of
@@ -689,8 +690,8 @@ newest exchanges from every place are slot F's; anything older is reached by the
 2. **Bring**, for each thing recognised and not already in view: its card (≤12 lines); its current facts; its
    open tasks; the owner's guidance for it; from its timeline the newest exchange in *spoken* form and the two
    before as lines; **and his own words about it through time**: the thing's timeline, his lines verbatim,
-   newest first, in the Past's bands, as far as slot H's cap allows. It is the same walk as the Past with
-   another root, and the same code. About 400 to 600 tokens for the card and facts, and up to a few thousand
+   newest first, as far as slot H's cap allows. (The slices of his words by age, whose walk this was to share,
+   were removed on 2026-11-24; what is built is the card's newest three exchanges, below.) About 400 to 600 tokens for the card and facts, and up to a few thousand
    for his words about a thing he has spoken of often (est.).
 3. **Neighbours by name.** The links that exist today, one hop, at most three, in a fixed order (by kind of
    link, then id), as names with handles. No weighting until a measured rule exists. A neighbour becomes a full
@@ -711,7 +712,7 @@ newest exchanges from every place are slot F's; anything older is reached by the
 for measuring which selector earns its tokens. They are not a second lifecycle: a piece is there this turn
 because a selector chose it this turn, and for no other reason.
 
-**As built** (`docs/design/names.md`), recognition exists and is not yet read by the view:
+**As built** (`docs/design/names.md`), recognition exists and the view reads it:
 
 - **Topics per exchange**: each category the judge's `onto.v1` answer chooses at its acting band writes a touch to
   that message's exchange, so a topic has a timeline. No judge call is added and its request is unchanged.
@@ -772,8 +773,9 @@ The search reads replies as well as his words for a reason: "the second one" ref
 **If the judge is absent.** After three timeouts in a row the turn stops waiting until one answers. Rungs 0, 1
 and 3 need no judge.
 
-**As built**, rungs 0 and 3 exist, and the search before the first word is recall. Nothing is recognised into
-the view (rung 1).
+**As built**, rungs 0 and 3 exist, and the search before the first word is recall. Rung 1 is built as the name
+matcher of §5.4: a name that is a thing brings that thing's card into slot H. A name that is no thing yet brings
+nothing, and the search of the words index over exchanges is not built.
 
 - **Rung 2 is recall, by the owner's decision of 2026-11-23.** Recall, as it runs before every first word, is the
   search before the first word; rung 2's separate search is not built: no judge trigger, no two-day limit, no

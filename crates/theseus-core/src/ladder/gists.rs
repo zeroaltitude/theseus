@@ -9,6 +9,8 @@
 //! the view shows it ([`did::shown_line`]), and a node as the view's fold
 //! block. The draw is by a seed, so the same seed over the same records draws
 //! the same items. It only reads: nothing is stored and no model is called.
+//! A record under either prefix that does not read as a line or a node is
+//! passed over, left as it is, and counted: the sheet is drawn from the rest.
 
 use std::collections::{HashMap, HashSet};
 
@@ -51,8 +53,13 @@ pub fn sheet(
         .unwrap_or_else(|| theseus_protocol::now_unix_ms() % 1_000_000);
     let place = p.place.as_deref();
     let mut lines: Vec<DidLine> = Vec::new();
+    let (mut lines_unread, mut nodes_unread) = (0, 0);
     for r in store.inner().latest_with_prefix(kinds::META, DID_PREFIX)? {
-        let d: DidLine = r.decode()?;
+        let Ok(d) = r.decode::<DidLine>() else {
+            passed_over(&r, "a summary line");
+            lines_unread += 1;
+            continue;
+        };
         if place.is_none_or(|p| d.marks.place.as_deref() == Some(p)) {
             lines.push(d);
         }
@@ -65,7 +72,11 @@ pub fn sheet(
     };
     let mut nodes: Vec<FoldNode> = Vec::new();
     for r in store.inner().latest_with_prefix(kinds::META, &prefix)? {
-        let n: FoldNode = r.decode()?;
+        let Ok(n) = r.decode::<FoldNode>() else {
+            passed_over(&r, "a fold node");
+            nodes_unread += 1;
+            continue;
+        };
         if n.level == 1 && place.is_none_or(|p| n.place == p) {
             nodes.push(n);
         }
@@ -89,9 +100,20 @@ pub fn sheet(
         seed,
         lines_total,
         nodes_total,
+        lines_unread,
+        nodes_unread,
         lines,
         nodes,
     })
+}
+
+/// A record the sheet could not read as `what`, named in the log by its key alone.
+fn passed_over(r: &theseus_store::Record, what: &str) {
+    tracing::warn!(
+        key = r.key.as_deref().unwrap_or_default(),
+        what,
+        "gists: a record could not be read: passed over, and left as it is"
+    );
 }
 
 const NODES: u64 = 0x6e6f_6465_7321;

@@ -26,6 +26,12 @@ withheld?: string,
  */
 version: string, 
 /**
+ * Records under the tags' prefix that could not be read as a tag's
+ * counts: their sessions are not in this answer, and the records are
+ * left as they are. Absent when none.
+ */
+tags_unread?: number, 
+/**
  * What building it took (ms), when this answer built it.
  */
 built_ms?: number, ms: number, };

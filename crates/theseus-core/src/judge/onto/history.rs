@@ -15,6 +15,10 @@
 //!   on, the pack live on the ladder): the live point writes touches only
 //!   then. A message he retracted and did not erase is kept: a retraction
 //!   says a fact was wrong, and a touch says only what the exchange was about.
+//!   What is not his is counted as someone else's only when a person's
+//!   message opened it; of those, the ones whose author no record proves (no
+//!   person, no mark) are counted apart, with how many are where `onto` does
+//!   not act now. Counts only: none of them is asked.
 //! - **Touches only.** The ask goes in shadow, so the sink writes its row
 //!   and nothing else: no membership, no category minted, no card, no
 //!   `still_*` answer acted on. The job writes the touches itself, with the
@@ -511,7 +515,19 @@ impl Core {
             if touched.contains(&ex.turn_id) {
                 p.r.touched_before += 1;
             } else if ex.person.as_deref() != Some(crate::exchange::OWNER) {
+                // Whose it is counts only where a person's message opened
+                // it: a wake, a task's brief and Theseus's own turn are none.
+                let Some(n) = opening(&self.store, &ex) else {
+                    p.r.no_message += 1;
+                    continue;
+                };
                 p.r.not_owner += 1;
+                if ex.person.is_none() && crate::exchange::mark(&self.store, &n.id)?.is_none() {
+                    p.r.unproven += 1;
+                    if !judge.onto_acts(self, &ex.session_id) {
+                        p.r.unproven_not_acting += 1;
+                    }
+                }
             } else if let Some(j) = before.remove(&ex.turn_id) {
                 p.r.asked_before += 1;
                 p.again.push(j);

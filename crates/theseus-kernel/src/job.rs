@@ -489,11 +489,16 @@ fn run(
     // (`held`, theseus-gsn9), which the file takes only at the pipe's end.
     let (dropped, held) = match copier.wait_behind(crate::redact::DRAIN) {
         Some(Ok(c)) => {
+            // The output's two ends, when bytes between them were dropped and
+            // the marker written: either may be empty, a run longer than its
+            // room left out.
+            let ends = c.dropped > 0
+                && c.write_error.is_none()
+                && crate::redact::split(args.output_max_bytes).1 > 0;
             if let Some(e) = c.write_error {
                 detail["output_error"] = serde_json::Value::String(e);
             }
-            // The output's two ends, when bytes between them were dropped.
-            if c.tail > 0 {
+            if ends {
                 detail["head"] = serde_json::json!(c.head);
                 detail["tail"] = serde_json::json!(c.tail);
             }
@@ -1800,8 +1805,8 @@ mod tests {
             argv: vec![
                 "sh".into(),
                 "-c".into(),
-                "echo \"$INVENTED_GRANT\"; head -c 1000000 /dev/zero; echo \"$INVENTED_GRANT\"; \
-                 : > \"$0\""
+                "echo \"$INVENTED_GRANT\"; head -c 1000000 /dev/zero | tr '\\0' '\\n'; \
+                 echo \"$INVENTED_GRANT\"; : > \"$0\""
                     .into(),
                 after.display().to_string(),
             ],
@@ -1819,9 +1824,9 @@ mod tests {
         run_wrapper(&args).unwrap();
         assert!(after.exists(), "the job ran to its end");
         let out = std::fs::read(spool.result_path("act_capped")).unwrap();
-        // Printed: the value's line (27 bytes), a million zeros, the value's
-        // line again: 1,000,054 bytes. The cap of 4,096 keeps a head of 1,920
-        // and an end of 2,048, with the marker between.
+        // Printed: the value's line (27 bytes), a million line ends, the
+        // value's line again: 1,000,054 bytes. The cap of 4,096 keeps a head
+        // of 1,920 and an end of 2,048, with the marker between.
         let (head, tail) = crate::redact::split(4096);
         assert_eq!((head, tail), (1_920, 2_048));
         let dropped = 1_000_054 - head - tail;
@@ -1831,11 +1836,11 @@ mod tests {
         let mark = format!("{value}\n");
         let mark = mark.as_bytes();
         assert_eq!(&out[..mark.len()], mark);
-        assert!(out[mark.len()..head as usize].iter().all(|&b| b == 0));
+        assert!(out[mark.len()..head as usize].iter().all(|&b| b == b'\n'));
         let (between, end) = out[head as usize..].split_at(marker.len());
         assert_eq!(between, marker.as_bytes());
         assert_eq!(&end[end.len() - mark.len()..], mark, "the end, as printed");
-        assert!(end[..end.len() - mark.len()].iter().all(|&b| b == 0));
+        assert!(end[..end.len() - mark.len()].iter().all(|&b| b == b'\n'));
         let c = spool.read_completion("act_capped").unwrap().unwrap();
         assert_eq!(c.outcome, Outcome::Succeeded);
         let detail = c.detail.unwrap();
@@ -1864,6 +1869,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.output_max_bytes, 4096);
+    }
+
+    /// A job whose output past the cap is one run of non-space bytes keeps
+    /// neither end of it: the file holds the marker alone, and the report
+    /// names the two ends, both empty, and every byte as dropped.
+    #[test]
+    fn a_job_that_prints_one_run_past_the_cap_names_two_empty_ends() {
+        let d = tempfile::tempdir().unwrap();
+        let spool = Spool::open(d.path()).unwrap();
+        let args = WrapperArgs {
+            spool_dir: d.path().to_path_buf(),
+            correlation_id: "act_run".into(),
+            deadline_ms: 30_000,
+            notify_socket: None,
+            argv: vec!["sh".into(), "-c".into(), "head -c 100000 /dev/zero".into()],
+            cwd: None,
+            env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
+            umask: None,
+            redact: vec![],
+            output_max_bytes: 4096,
+            sandbox: None,
+            cgroup: None,
+        };
+        run_wrapper(&args).unwrap();
+        let out = std::fs::read(spool.result_path("act_run")).unwrap();
+        assert_eq!(out, crate::redact::marker(100_000, 0).as_bytes());
+        let c = spool.read_completion("act_run").unwrap().unwrap();
+        let detail = c.detail.unwrap();
+        assert_eq!(detail["dropped"], 100_000, "{detail}");
+        assert_eq!(
+            (&detail["head"], &detail["tail"]),
+            (&serde_json::json!(0), &serde_json::json!(0)),
+            "{detail}"
+        );
     }
 
     /// A wrapper is known by its command line, as `spawn_detached` makes it,

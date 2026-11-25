@@ -992,6 +992,7 @@ mod tests {
                 updated_ms: at,
                 ..ImportTagInfo::default()
             }],
+            unread: vec![],
         };
         let k = version_of(&tag(12, 0, 5));
         assert_eq!(k, version_of(&tag(12, 0, 5)));

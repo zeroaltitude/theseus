@@ -187,3 +187,49 @@ fn a_stdio_daemon_whose_client_went_away_begins_its_stop() {
         "the stop never began:\n{log}"
     );
 }
+
+/// A `--stdio` daemon whose client goes away takes the same stop as a
+/// signal's (issue 51): its `server.stopping` row is written, saying its
+/// client left, and the outbox stops sending as the row is written (the
+/// stop's phase `row and checkpoint`). Before, the stop began there with no
+/// row, and the outbox went on dispatching through the stop's grace.
+#[test]
+fn a_stdio_daemon_whose_client_went_away_writes_its_stop_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = served_once(dir.path());
+    let log = std::fs::read_to_string(dir.path().join("theseusd.log")).unwrap();
+    assert!(
+        log.lines()
+            .any(|l| l.contains("stop") && l.contains("\"row and checkpoint\"")),
+        "the stop's row and checkpoint were never taken:\n{log}"
+    );
+    // The row, read back by the next start in the same mode.
+    let mut d = Daemon::spawn(
+        command(dir.path())
+            .arg("--config")
+            .arg(dir.path().join("config.toml"))
+            .arg("--state-dir")
+            .arg(&state)
+            .arg("--stdio")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    );
+    let mut c = common::stdio::StdioClient::new(&mut d);
+    let rows = c
+        .call("ledger.tail", serde_json::json!({"n": 5000}))
+        .unwrap();
+    let stops: Vec<&serde_json::Value> = rows["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["kind"] == "server.stopping")
+        .map(|r| &r["data"])
+        .collect();
+    assert_eq!(
+        stops,
+        [&serde_json::json!({"client_left": true})],
+        "one stopping row, saying the client left"
+    );
+    let _ = c.call("shutdown", serde_json::Value::Null);
+}
