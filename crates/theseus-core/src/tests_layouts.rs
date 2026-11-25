@@ -1329,7 +1329,12 @@ fn a_format_60_store_opens_with_no_look_and_no_parts_and_takes_both() {
     let path = dir.path().join("store");
     let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     let sid = rec.session_id.clone();
-    let said = Node::user(&sid, Some("turn_1"), "owner", "the heron nests by the old weir");
+    let said = Node::user(
+        &sid,
+        Some("turn_1"),
+        "owner",
+        "the heron nests by the old weir",
+    );
     let old: Node = serde_json::from_str(TOOL_RESULT_AT_60).unwrap();
     let at = {
         let store = crate::store::Store::open(&path).unwrap();
@@ -1341,13 +1346,20 @@ fn a_format_60_store_opens_with_no_look_and_no_parts_and_takes_both() {
     let manifest = path.join("MANIFEST.json");
     std::fs::write(&manifest, r#"{"format": 60, "engine": "redb"}"#).unwrap();
     let store = crate::store::Store::open(&path).unwrap();
-    assert_eq!(store.get_meta::<Looked>("look").unwrap(), None, "no look yet");
+    assert_eq!(
+        store.get_meta::<Looked>("look").unwrap(),
+        None,
+        "no look yet"
+    );
     let (_, read) = store.get_node(&old.id).unwrap().unwrap();
     let Body::ToolResult { parts, content, .. } = &read.body else {
         panic!("it reads as a tool result");
     };
     assert!(parts.is_empty(), "{parts:?}");
-    assert!(content.contains("the heron nests by the old weir"), "{content}");
+    assert!(
+        content.contains("the heron nests by the old weir"),
+        "{content}"
+    );
     let opened: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     assert_eq!(opened["format"], 60, "opening writes nothing");
 
