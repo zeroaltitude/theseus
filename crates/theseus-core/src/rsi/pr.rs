@@ -129,16 +129,18 @@ impl Board {
         Ok(())
     }
 
-    /// `session`'s role, if the self loop opened it for one: what memory holds, else the store's
-    /// record, kept once read. A role that cannot be read is none here, and is not kept
-    /// ([`Self::role_in`] says it).
+    /// `session`'s role as [`Self::role_in`] reads it, a role that cannot be read as none: for tests.
+    #[cfg(test)]
     pub(crate) fn role(&self, session: &str) -> Option<super::roles::Role> {
         let core = self.core()?;
         self.role_in(&core.store, session).ok().flatten()
     }
 
-    /// `session`'s role in `store`: what memory holds, else the store's record, kept once read. An
-    /// error, kept nowhere, when the record cannot be read: a failed read is never "no role".
+    /// `session`'s role, the one reader of it (its scope, its tools, the builder's verb and the review):
+    /// what memory holds, else its own record in `store`, else, for a fork with no record of its own (one
+    /// made before forks were given one), its source's, through every fork between; none when there is
+    /// none, kept once read. An error, kept nowhere, when a record or a fork's origin cannot be read: a
+    /// failed read is never "no role", and a builder's role is never inferred from none.
     pub(crate) fn role_in(
         &self,
         store: &crate::store::Store,
@@ -152,7 +154,7 @@ impl Board {
         {
             return Ok(*r);
         }
-        let read = store.get_meta::<super::roles::Role>(&super::roles::key(session))?;
+        let read = super::roles::effective(store, session)?;
         // What is kept stays small: the sessions with no role are forgotten past a bound (each is
         // read again from the store if it asks again).
         let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
@@ -473,6 +475,9 @@ struct Input {
 #[cfg(test)]
 #[path = "tests_pr/gated.rs"]
 mod tests_gated;
+#[cfg(test)]
+#[path = "tests_pr/legacy_fork.rs"]
+mod tests_legacy_fork;
 
 #[path = "pr_fix.rs"]
 mod fixing;

@@ -149,9 +149,21 @@ pub(super) fn builder_input(
 }
 
 /// The builder's verb refuses a session the loop opened as a fixer, an approver or a reviewer,
-/// before anything else (`crate::rsi::roles`); a builder's role is the one it serves.
+/// before anything else (`crate::rsi::roles`; a fork of one too); a builder's role is the one it serves. A
+/// role that cannot be read refuses it too.
 fn not_a_role(board: &Board, session: &str) -> Result<(), String> {
-    match board.role(session) {
+    let role = match board.core() {
+        Some(c) => board.role_in(&c.store, session),
+        None => Err(anyhow::anyhow!("the core is not attached")),
+    };
+    let role = role.map_err(|e| {
+        format!(
+            "Not run: the job the self loop opened this session for cannot be read ({e:#}), and only \
+             the builder of an item calls {}.",
+            super::PROPOSE
+        )
+    })?;
+    match role {
         Some(role) if role != crate::rsi::roles::Role::Builder => Err(format!(
             "Not run: this session is {} of a self branch, and only the builder of an item calls \
              {}.",

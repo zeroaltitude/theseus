@@ -111,11 +111,47 @@ impl Role {
     }
 }
 
+/// `session`'s role in the store: its own record, else its fork's source's, through every fork between
+/// (`rsi::pr::Board::role_in`, which keeps it).
+pub(crate) fn effective(store: &crate::store::Store, session: &str) -> anyhow::Result<Option<Role>> {
+    let mut at = session.to_string();
+    for _ in 0..=crate::fork::MAX_DEPTH {
+        if let Some(role) = store.get_meta::<Role>(&key(&at))? {
+            return Ok(Some(role));
+        }
+        match crate::fork::origin_of(store, &at)? {
+            Some(o) => at = o.session,
+            None => return Ok(None),
+        }
+    }
+    anyhow::bail!("{session} is forked from a chain deeper than any a build writes")
+}
+
+/// The ceiling of a session whose role cannot be read: the local reads of files and code, and nothing
+/// that writes, runs or leaves (`content::local_read`'s own tools, as a frozen session keeps them).
+static UNREAD: LazyLock<Ceiling> = LazyLock::new(|| {
+    let mut c = ceiling(
+        "a session whose job cannot be read",
+        &["fs.read", "fs.list", "fs.glob", "fs.grep", "git.diff", "git.log"],
+    );
+    c.source = "the self loop's rule while a session's job cannot be read";
+    c
+});
+
+/// What a session whose role cannot be read is offered.
+pub fn unread_ceiling() -> &'static Ceiling {
+    &UNREAD
+}
+
 impl crate::turn::TurnRunner {
-    /// `session`'s role, if the self loop opened it for one.
-    pub(crate) fn role_of(&self, session: &str) -> Option<Role> {
+    /// `session`'s role, if the self loop opened it for one (`Board::role_in`); an error when it cannot be
+    /// read. None in a test that switched the roles' ceilings off.
+    pub(crate) fn role_of(&self, session: &str) -> anyhow::Result<Option<Role>> {
         let board = &self.tools.self_pr;
-        board.role_ceilings().then(|| board.role(session)).flatten()
+        match board.role_ceilings() {
+            true => board.role_in(&self.store, session),
+            false => Ok(None),
+        }
     }
 
     /// `session`'s role as its view's scope reads it (`view_gate::scope_of`): the role the self loop gave it,
@@ -124,16 +160,6 @@ impl crate::turn::TurnRunner {
     /// mint's writer). An error when a role record or a fork's origin cannot be read, so that the scope is
     /// unread, never read as "no role".
     pub(crate) fn role_read(&self, session: &str) -> anyhow::Result<Option<Role>> {
-        let mut at = session.to_string();
-        for _ in 0..=crate::fork::MAX_DEPTH {
-            if let Some(role) = self.tools.self_pr.role_in(&self.store, &at)? {
-                return Ok(Some(role));
-            }
-            match crate::fork::origin_of(&self.store, &at)? {
-                Some(o) => at = o.session,
-                None => return Ok(None),
-            }
-        }
-        anyhow::bail!("{session} is forked from a chain deeper than any a build writes")
+        self.tools.self_pr.role_in(&self.store, session)
     }
 }
