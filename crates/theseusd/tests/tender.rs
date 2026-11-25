@@ -246,15 +246,17 @@ fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
 }
 
 /// A stop waits for nothing (§9): with its tender stopped (SIGSTOP), so
-/// that SIGTERM cannot end it, the daemon still stops at once. The tender
-/// ends when it runs again. A SIGSTOP takes hold only once the tender is
-/// next scheduled, so the stop waits until it reads as stopped: before
-/// that, the stop's SIGTERM ends a tender still running (theseus-ux8g).
-/// "At once" is a promise about the daemon: its exit is many wake-ups in a
-/// row (20 ms idle, up to 1.8 s with 64 busy threads), so the two limits are
-/// held in proportion to how slowly the machine gave a thread its turn
-/// around the stop (`Busy`, at most 10 times), which is exactly the limit on
-/// a quiet machine (theseus-20).
+/// that SIGTERM cannot end it, the daemon still stops. The tender ends when
+/// it runs again. A SIGSTOP takes hold only once the tender is next
+/// scheduled, so the stop waits until it reads as stopped: before that, the
+/// stop's SIGTERM ends a tender still running (theseus-ux8g).
+/// The proof is an order, not a clock (issue 51): the daemon has exited and
+/// been reaped while its tender is still stopped and so cannot have ended,
+/// and the tender is let run again only after. A daemon that waited for its
+/// tender would never exit here. The limit below only turns that hang into
+/// a failure; it measures no speed. A limit held in proportion to the
+/// machine's load (`Busy`, theseus-20) failed about once in ten loaded runs,
+/// measuring the machine and not this rule.
 #[test]
 fn a_stop_does_not_wait_for_the_tender() {
     tender_bin();
@@ -272,22 +274,21 @@ fn a_stop_does_not_wait_for_the_tender() {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
-    let busy = Busy::before();
     let t0 = Instant::now();
     s.call("shutdown", Value::Null).unwrap();
     while s.daemon.try_wait().is_none() {
+        assert_eq!(
+            state(pid),
+            Some('T'),
+            "the tender ran again before its daemon exited"
+        );
         assert!(
-            busy.keeps(t0.elapsed(), Duration::from_secs(2)),
-            "the daemon waited for its stopped tender ({busy}):\n{}",
+            t0.elapsed() < Duration::from_secs(60),
+            "the daemon waited for its stopped tender:\n{}",
             s.log()
         );
         std::thread::sleep(Duration::from_millis(5));
     }
-    let took = t0.elapsed();
-    assert!(
-        busy.keeps(took, Duration::from_secs(1)),
-        "{took:?} ({busy})"
-    );
     assert_eq!(state(pid), Some('T'), "the tender is still stopped");
     let busy = Busy::before();
     signal(pid, libc::SIGCONT);
