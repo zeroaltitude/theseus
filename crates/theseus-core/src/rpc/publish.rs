@@ -121,6 +121,8 @@ impl Core {
                     .store
                     .get_node(id)?
                     .ok_or_else(|| anyhow!("no node is named {id}"))?;
+                // A result kept by reference publishes its rendering (issue 49).
+                let n = crate::quoted::shown(&self.store, &n);
                 let (what, text) = match &n.body {
                     Body::ToolResult { tool, content, .. } => (format!("{tool}'s result {id}"), content.clone()),
                     Body::UserMessage { text, .. } => (format!("the message {id}"), text.clone()),

@@ -722,3 +722,134 @@ async fn a_standing_record_revoked_between_two_calls_is_not_sent_again() {
     let chains = chains(&r, &res.turn_id);
     assert_ne!(chains.first(), chains.last(), "a new chain: {chains:?}");
 }
+
+/// What a look back kept by reference quotes (issue 49): a message of another session.
+const QUOTED: &str = "the grey heron nests by the old weir";
+
+/// A look back of the turn `turn` of `sid`, kept by reference, added after its answer as a later step
+/// would be: the call, its result quoting a message of another session as a page line, and the answer after
+/// it. The quoted message's id, and the result's rendering.
+fn looked_back(core: &Core, sid: &str, turn: &str) -> (String, String) {
+    use crate::compiler::tests_view::{result, said};
+    use crate::node::{Body, Node};
+    use crate::quotes::{Field, Form, Part, Quote};
+    let put = |n: &Node| core.store.append(&[n.record().unwrap()]).unwrap()[0];
+    let source = Node::user("ses_weir", Some("t_weir"), "cli", QUOTED);
+    let at = put(&source);
+    let ours = |mut n: Node| {
+        n.session_id = sid.to_string();
+        n.loop_index = Some(1);
+        n
+    };
+    let input = json!({"words": "heron"});
+    let asked = ours(said(
+        turn,
+        vec![
+            json!({"type": "tool_use", "id": "toolu_h", "name": "context_history", "input": input}),
+        ],
+    ));
+    let call = ours(Node::tool_call(
+        sid,
+        Some(turn),
+        Some(1),
+        Body::ToolCall {
+            tool_use_id: "toolu_h".into(),
+            tool: "context.history".into(),
+            wire_name: "context_history".into(),
+            input,
+            assistant_node: asked.id.clone(),
+            correlation_id: None,
+            gate: None,
+        },
+    ));
+    let mut page = ours(result(turn, "toolu_h", ""));
+    if let Body::ToolResult { tool, parts, .. } = &mut page.body {
+        *tool = "context.history".into();
+        *parts = vec![
+            Part::Code("- ".into()),
+            Part::Quote(Quote {
+                node: source.id.clone(),
+                position: at,
+                field: Field::Text,
+                from: 0,
+                to: QUOTED.len() as u32,
+                form: Form::Flat1,
+            }),
+            Part::Code(" \u{b7} t_weir".into()),
+        ];
+    }
+    let done = ours(said(
+        turn,
+        vec![json!({"type": "text", "text": "It nests by the weir."})],
+    ));
+    for n in [&asked, &call, &page, &done] {
+        put(n);
+    }
+    (source.id, format!("- {QUOTED} \u{b7} t_weir"))
+}
+
+/// A look back kept by reference in the window, its quoted message erased between the turn's two calls
+/// (issue 49): the first call lays the rendering, the second lays the erased line in place of the words on a
+/// new chain (its answers so far without their thinking), and the provider that refuses a changed prefix
+/// under a thinking block takes it: no 400.
+#[tokio::test]
+async fn an_erase_between_steps_starts_a_new_chain_not_a_400() {
+    let r = rig(
+        Binding::Refuse,
+        vec![
+            Scripted::text("Noted."),
+            thinks_then_reads("toolu_a"),
+            Scripted::text("Four."),
+        ],
+    );
+    let sid = private_session(&r.core);
+    let first = say(&r.core, &sid, "where does the heron nest?")
+        .await
+        .unwrap();
+    let (source, shown) = looked_back(&r.core, &sid, &first.turn_id);
+    let core = r.core.clone();
+    between_calls(&sid, move || {
+        let (_, n) = core.store.get_node(&source).unwrap().unwrap();
+        let gone = n.erased(theseus_protocol::now_unix_ms(), "a test");
+        core.store.append(&[gone.record().unwrap()]).unwrap();
+    });
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
+    assert_eq!(res.output, "Four.", "{res:?}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3, "one call, then two");
+    let said = |q: &ProviderRequest| serde_json::to_string(&q.messages).unwrap();
+    assert!(said(&reqs[1]).contains(&shown), "{}", said(&reqs[1]));
+    let after = said(&reqs[2]);
+    assert!(!after.contains(QUOTED), "{after}");
+    assert!(after.contains(crate::quotes::ERASED_QUOTE), "{after}");
+    let chains = chains(&r, &res.turn_id);
+    assert_ne!(chains.first(), chains.last(), "a new chain: {chains:?}");
+}
+
+/// `turn.inspect` shows a result kept by reference as its rendering, as the model was shown it (issue 49).
+#[tokio::test]
+async fn inspect_shows_the_rendering() {
+    let r = rig(Binding::Refuse, vec![Scripted::text("Noted.")]);
+    let sid = private_session(&r.core);
+    let first = say(&r.core, &sid, "where does the heron nest?")
+        .await
+        .unwrap();
+    let (_, shown) = looked_back(&r.core, &sid, &first.turn_id);
+    let out = r
+        .core
+        .turn_inspect(
+            &theseus_protocol::inspect::TurnInspectParams {
+                session_id: sid.clone(),
+                turn_id: first.turn_id,
+            },
+            false,
+        )
+        .unwrap();
+    let call = (out.loops.iter())
+        .flat_map(|l| &l.calls)
+        .find(|c| c.tool_use_id == "toolu_h")
+        .expect("the look back's call");
+    assert_eq!(call.content, shown);
+}
