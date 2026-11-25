@@ -421,8 +421,8 @@ pub fn resolve_shown(
 
 /// A piece's words as quotes of `node`'s record at `position`, cut where `toolrun::cap` cuts `text`. A look back
 /// kept by reference, with `store` to read it from, gives its own parts (quotes of what it showed), cut where the
-/// cap cuts their rendering (`text`). None for any other tool result, whose words no field of a quote reads, and
-/// for a look back stored with its words: each keeps its words.
+/// cap cuts their rendering (`text`, [`look_back`]). None for any other tool result, whose words no field of a
+/// quote reads, and for a look back stored with its words: each keeps its words.
 fn quoted(
     store: Option<&crate::store::Store>,
     node: &Node,
@@ -432,12 +432,7 @@ fn quoted(
     cuts: &Cuts,
 ) -> Vec<Part> {
     if let (Body::ToolResult { parts, .. }, Some(store)) = (&node.body, store) {
-        let parts = crate::quotes::cap::cap_parts(store, parts.clone(), PIECE_CHARS, rest, cuts).0;
-        // As below: a range that begins or ends inside a known value is never stored.
-        return match crate::quotes::edges_hold(store, &parts, cuts) {
-            true => parts,
-            false => Vec::new(),
-        };
+        return look_back(store, parts, rest, cuts);
     }
     let field = match &node.body {
         Body::UserMessage { parts, .. } if parts.is_empty() => Field::Text,
@@ -459,6 +454,21 @@ fn quoted(
     let parts = crate::quotes::cap::cap_with(vec![whole], read, PIECE_CHARS, rest, cuts).0;
     // A range that begins or ends inside a known value is never stored: the piece keeps its words.
     match crate::quotes::edges_hold_with(&parts, read, cuts) {
+        true => parts,
+        false => Vec::new(),
+    }
+}
+
+/// A piece's words as a look back kept by reference showed them: its own `parts`, capped at the piece's cap as its
+/// rendering is cut. None when a range, capped, would begin or end inside a known value: the piece keeps its words.
+fn look_back(
+    store: &crate::store::Store,
+    parts: &[Part],
+    rest: impl FnOnce(&str) -> String,
+    cuts: &Cuts,
+) -> Vec<Part> {
+    let parts = crate::quotes::cap::cap_parts(store, parts.to_vec(), PIECE_CHARS, rest, cuts).0;
+    match crate::quotes::edges_hold(store, &parts, cuts) {
         true => parts,
         false => Vec::new(),
     }

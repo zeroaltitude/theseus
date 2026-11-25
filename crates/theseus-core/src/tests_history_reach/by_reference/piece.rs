@@ -111,7 +111,7 @@ fn rendered_now(r: &Rig, copy: &str) -> String {
 }
 
 /// An imported conversation, opened by a look back, then quoted by a task's piece; the import is erased after the
-/// task's first request. The piece's stored record holds none of the import's words; the first request lays the
+/// task's first request. The piece's stored record holds no line of the import's message; the first request lays the
 /// look back's rendering as it was, and the wake's request lays it as the renderer reads it now: the erased
 /// message's words blanked, every other byte as it was.
 #[tokio::test]
@@ -129,6 +129,13 @@ async fn an_erased_import_blanks_only_its_words_in_a_piece_of_a_look_back() {
         &r.core,
         &[episode(7, "personal", "2026-03-03T18:00:00Z", SAID)],
     );
+    // The imported message's words, before the erase.
+    let erased = (r.core.store.session_nodes(&ids[0]).unwrap().into_iter())
+        .find_map(|(_, n)| match n.body {
+            Body::Imported { text, .. } if text.contains(WORD) => Some(text),
+            _ => None,
+        })
+        .expect("the imported message");
     let parent = session(&r.core, None);
     let (copy, then) = read_in(&r.core, &parent, json!({ "open": ids[0] })).await;
     assert!(then.contains(WORD), "{then}");
@@ -159,6 +166,12 @@ async fn an_erased_import_blanks_only_its_words_in_a_piece_of_a_look_back() {
         .map(|(_, n)| serde_json::to_string(&n).unwrap())
         .expect("the task's arrangement");
     assert!(!stored.contains(WORD), "{stored}");
+    for line in erased.lines().filter(|l| !l.trim().is_empty()) {
+        assert!(
+            !stored.contains(line),
+            "a line of the erased message: {line:?}: {stored}"
+        );
+    }
 }
 
 /// A conversation's message, opened by a look back, is marked wrong; a task then quotes the look back. The child
