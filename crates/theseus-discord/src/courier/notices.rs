@@ -15,7 +15,7 @@
 
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_core::outbox::kind_of as post_kind;
 use theseus_core::owner_note::{kind_of, Kind};
 use theseus_kernel::Action;
@@ -134,16 +134,48 @@ impl Lane {
             .find(|a| !parked.contains(&a.correlation_id))
     }
 
-    /// Take what planning `a` left: the DM, when its write goes to the
-    /// notices place as an FYI. While that place is waited out, the post goes
-    /// aside untried and `None` comes back with `true`.
-    pub(super) fn take_notices_dm(&mut self, a: &Action) -> (Option<(u64, String)>, bool) {
+    /// Take what planning `a` left: `Some(Some(dm))` when its write goes to
+    /// the notices place as an FYI, `Some(None)` for any other post. While
+    /// that place is waited out, an FYI for it goes aside untried and `None`
+    /// comes back.
+    pub(super) fn take_notices_dm(&mut self, a: &Action) -> Option<Option<(u64, String)>> {
         let dm = self.notices.dm.take();
         if dm.is_some() && self.notices.waits() {
             self.notices.parked.push(a.correlation_id.clone());
-            return (None, true);
+            return None;
         }
-        (dm, false)
+        Some(dm)
+    }
+
+    /// What a write `w` of post `a` came to, once the notices place is
+    /// counted: `None` when an FYI's write there met an absent or busy
+    /// Discord, and it waits aside ([`Lane::park`]); the DM's write when the
+    /// place refused a new FYI for good and no earlier send of it may have
+    /// landed (`notices` is then emptied, and `extra` names the DM);
+    /// otherwise `wrote` itself.
+    pub(super) async fn through_notices(
+        &mut self,
+        a: &Action,
+        w: &Write,
+        wrote: Result<Option<(u64, u64)>, SendErr>,
+        (notices, maybe_landed, extra): (&mut Option<(u64, String)>, bool, &mut Value),
+    ) -> Option<Result<Option<(u64, u64)>, SendErr>> {
+        let (Err(e), Some(dm)) = (&wrote, notices.clone()) else {
+            return Some(wrote);
+        };
+        if e.away {
+            self.park(a, e);
+            return None;
+        }
+        let create = w.message.is_none() && !self.msgs.contains_key(&w.key);
+        if !create || maybe_landed {
+            return Some(wrote);
+        }
+        let to_dm = self.refused_to_dm(a, w, &dm, e).await;
+        extra["place"] = json!(dm.1);
+        extra["notices_refused"] = json!(true);
+        *notices = None;
+        Some(to_dm)
     }
 
     /// An FYI's write to the notices place met an absent or busy Discord: it

@@ -725,11 +725,10 @@ impl Lane {
                 );
             }
         };
-        // An FYI for the notices place: its DM, or it went aside untried.
-        let (mut notices, aside) = self.take_notices_dm(a);
-        if aside {
+        // An FYI for the notices place: its DM; none back, it went aside.
+        let Some(mut notices) = self.take_notices_dm(a) else {
             return Ok(());
-        }
+        };
         if plan.writes.is_empty() {
             // Nothing to send (`Plan::nothing`): the post ends well and
             // reached no channel.
@@ -781,21 +780,11 @@ impl Lane {
             {
                 w.content = format!("{}\n{}", w.content, render::RESENT);
             }
-            let mut wrote = self.write(&w).await;
-            let create = w.message.is_none() && !self.msgs.contains_key(&w.key);
-            if let (Err(e), Some(dm)) = (&wrote, &notices) {
-                if e.away {
-                    // The notices place is away: the FYI waits aside.
-                    self.park(a, e);
-                    return Ok(());
-                }
-                if create && !maybe_landed {
-                    wrote = self.refused_to_dm(a, &w, dm, e).await;
-                    plan.extra["place"] = json!(dm.1);
-                    plan.extra["notices_refused"] = json!(true);
-                    notices = None;
-                }
-            }
+            let wrote = self.write(&w).await;
+            let fyi = (&mut notices, maybe_landed, &mut plan.extra);
+            let Some(wrote) = self.through_notices(a, &w, wrote, fyi).await else {
+                return Ok(());
+            };
             match wrote {
                 Ok(Some((c, m))) => messages.push((w.key.clone(), c, m)),
                 Ok(None) => {}

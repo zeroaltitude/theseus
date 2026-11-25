@@ -1368,6 +1368,9 @@ impl FakeDiscord {
             ("POST", ["channels", c, "typing"]) => self.typing_route(stream, c),
             // A create held to be dropped waits, then is dropped unapplied.
             ("POST", ["channels", _, "messages"]) if self.held_to_drop(&body) => Ok(()),
+            ("POST", ["channels", c, "messages"]) if self.create_fails(c).is_some() => {
+                self.refuse_create(stream, c)
+            }
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
             ("DELETE", ["channels", c, "messages", m]) => self.message_delete(stream, route, c, m),
@@ -1430,23 +1433,6 @@ impl FakeDiscord {
         mode: Mode,
     ) -> std::io::Result<()> {
         let now = now_ms();
-        let failed = channel
-            .parse()
-            .ok()
-            .and_then(|c: u64| self.state.lock().unwrap().fail_creates.get(&c).copied());
-        if let Some(status) = failed {
-            self.record(seen(
-                "POST",
-                &format!("/channels/{channel}/messages"),
-                "failed",
-            ));
-            let (message, code) = match status {
-                403 => ("Missing Permissions", 50013),
-                404 => ("Unknown Channel", 10003),
-                _ => ("Service Unavailable (fake)", 0),
-            };
-            return reply(stream, status, &json!({"message": message, "code": code}));
-        }
         if let Some(why) = v2_refusal(
             body["flags"].as_u64().unwrap_or(0),
             &body["content"],
