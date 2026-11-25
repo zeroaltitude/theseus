@@ -71,13 +71,20 @@ struct Seen {
     bearer: Option<String>,
 }
 
+/// What a server that wants a sign-in answers in its body: a standard code,
+/// and words of its own that no note repeats.
+pub(super) const SIGN_IN_BODY: &str =
+    r#"{"error":"invalid_token","error_description":"Sign in at the harbour portal first"}"#;
+
 /// Serves a stand-in server for each connection: a command whose program is
-/// `broken` exits at once, as a server that needs its secret does.
+/// `broken` exits at once, as a server that needs its secret does, and a
+/// server named in `refusing` answers HTTP 401, as one that wants a sign-in.
 #[derive(Default)]
 struct Fakes {
     seen: Mutex<Vec<Seen>>,
     served: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     connects: AtomicU64,
+    refusing: Mutex<Vec<String>>,
 }
 
 impl Connect for Fakes {
@@ -97,11 +104,19 @@ impl Connect for Fakes {
             bearer,
         });
         let broken = cfg.command.first().is_some_and(|p| p == "broken");
+        let refused = self.refusing.lock().unwrap().iter().any(|n| n == server);
         let name = server.to_string();
         let served = self.served.clone();
         Box::pin(async move {
             if broken {
                 return Err("the server exited with status 2: MISSING_KEY is not set".into());
+            }
+            if refused {
+                return Err(theseus_mcp::Error::Http {
+                    status: 401,
+                    body: SIGN_IN_BODY.into(),
+                }
+                .to_string());
             }
             let fake = Fake::new(fake::Config {
                 mode: Mode::Ok,
@@ -125,6 +140,8 @@ impl Connect for Fakes {
 /// Answers each turn's first request with the call its input names.
 struct Model {
     calls: Mutex<Vec<(String, Value)>>,
+    /// Each request's messages, as JSON.
+    given: Mutex<Vec<String>>,
 }
 
 impl Provider for Model {
@@ -136,6 +153,10 @@ impl Provider for Model {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
+        self.given
+            .lock()
+            .unwrap()
+            .push(serde_json::to_string(&req.messages).unwrap());
         let answers_a_call = req
             .messages
             .last()
@@ -198,6 +219,7 @@ pub(super) fn rig() -> Rig {
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         calls: Mutex::default(),
+        given: Mutex::default(),
     });
     let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
     let secrets = crate::secrets::SecretBoard::new(
@@ -241,6 +263,21 @@ impl Rig {
     /// A turn whose message came through the process of the agent `agent`.
     async fn turn_by(&self, sid: &str, tool: &str, call: Value, agent: Option<&str>) {
         self.model.calls.lock().unwrap().push((tool.into(), call));
+        self.run(sid, "attach a server", agent).await;
+    }
+
+    /// A turn of `words` that calls nothing; the messages the model was given.
+    pub(super) async fn says(&self, sid: &str, words: &str) -> String {
+        self.run(sid, words, None).await;
+        self.model.given.lock().unwrap().last().unwrap().clone()
+    }
+
+    /// From now on, the server `name` answers HTTP 401 ([`SIGN_IN_BODY`]).
+    pub(super) fn refuse(&self, name: &str) {
+        self.fakes.refusing.lock().unwrap().push(name.into());
+    }
+
+    async fn run(&self, sid: &str, input: &str, agent: Option<&str>) {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -254,7 +291,7 @@ impl Rig {
                 prompt: None,
                 surface: None,
                 session: rec,
-                input: Some("attach a server".into()),
+                input: Some(input.into()),
                 target,
                 sink: EventSink::new(self.core.bus.clone(), sid, None)
                     .from_agent(agent.map(str::to_string)),

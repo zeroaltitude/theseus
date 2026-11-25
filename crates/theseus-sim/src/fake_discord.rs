@@ -603,6 +603,9 @@ struct State {
     /// A voice channel's status answers 403, as Discord does a bot without
     /// Set Voice Channel Status (theseus-arp9l).
     refuse_voice_status: bool,
+    /// A message create in a channel named here answers its status, and
+    /// nothing lands (`fail_creates_in`).
+    fail_creates: BTreeMap<u64, u16>,
     /// Each voice-status write that landed, in order: (when, channel, text).
     voice_statuses: Vec<(u64, String, String)>,
     /// The file the guild is read from again at every request (M4 19c), so a
@@ -1365,6 +1368,9 @@ impl FakeDiscord {
             ("POST", ["channels", c, "typing"]) => self.typing_route(stream, c),
             // A create held to be dropped waits, then is dropped unapplied.
             ("POST", ["channels", _, "messages"]) if self.held_to_drop(&body) => Ok(()),
+            ("POST", ["channels", c, "messages"]) if self.create_fails(c).is_some() => {
+                self.refuse_create(stream, c)
+            }
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
             ("DELETE", ["channels", c, "messages", m]) => self.message_delete(stream, route, c, m),

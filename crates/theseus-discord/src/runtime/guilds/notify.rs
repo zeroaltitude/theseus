@@ -128,8 +128,8 @@ impl Place {
                 match self.shared.say_notify(Some(channel)) {
                     Ok(()) => format!(
                         "🔔 The announcements come here now (bound by {by}): the morning note, \
-                         the digests, the self-improvement notices, the AWS month warning and \
-                         the Google upkeep note. Anything that needs you — an approval, a \
+                         the digests, the self-improvement notices, the AWS month warning, \
+                         the Google upkeep note and every FYI note. Anything that needs you — an approval, a \
                          question, a card, a retraction, the day's ceiling — still goes to your \
                          DM. `notify off` gives them back."
                     ),
