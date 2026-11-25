@@ -9,8 +9,8 @@
 //! which no person opened, is on none. Left out: every exchange of this place (its window and ladder show those
 //! since its `/new` mark, and his words from before it are his past, never laid as anything else), a task's own
 //! workings (`task:` places), the exchanges of a person present but the owner (the people block lays their
-//! newest, `super::people`), and any the gate does not admit. Whose lines may be laid on whose turn is one
-//! decision: [`may_lay`].
+//! newest, `super::people`), and any the gate does not admit. On a guest's turn the owner's own newest
+//! exchanges from elsewhere are laid as on his (the owner's ruling, 2026-11-24, "no conversations are private").
 //!
 //! A turn with no speaker (a wake, an agent's process) is told none of it, as slot F was.
 
@@ -34,17 +34,6 @@ pub const EVERYWHERE_READ_MOST: usize = RECENT_READ_MOST;
 /// (`forms::fit`), as a person's recent line is.
 pub const EVERYWHERE_LINE_TOKENS: u64 = RECENT_LINE_TOKENS;
 
-/// THE ONE SWITCH (the owner's ruling, 2026-11-24, "no conversations are private"): on a turn another person
-/// speaks, the owner's own newest exchanges from elsewhere are laid as on his own turn. `false` would leave
-/// them out of a guest's turn, and change nothing else.
-pub const THE_OWNERS_LINES_ON_A_GUESTS_TURN: bool = true;
-
-/// Whether a line may be laid beside the message: the one decision, asked of every line. `owner_speaks`: the
-/// turn's speaker is the owner; `owners_line`: the owner opened the line's exchange.
-pub fn may_lay(owner_speaks: bool, owners_line: bool) -> bool {
-    owner_speaks || !owners_line || THE_OWNERS_LINES_ON_A_GUESTS_TURN
-}
-
 /// What the look across every place found: its pieces, newest first, and whether its walk stopped at its
 /// bound with older exchanges not read.
 pub struct Look {
@@ -66,13 +55,12 @@ impl<'a> Everywhere<'a> {
     /// (`Sources::sizes`, [`EVERYWHERE_EXCHANGES`] by default), chosen over those the gate admits.
     pub fn look(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Look> {
         let mut out = Vec::new();
-        let Some(speaker) = pov.person.as_deref() else {
+        if pov.person.is_none() {
             return Ok(Look {
                 pieces: out,
                 stopped: false,
             });
-        };
-        let owner_speaks = self.src.people.owner(speaker);
+        }
         let here = anchor_place(pov);
         // The people present but the owner, by every handle: the people block lays their newest elsewhere.
         let present: BTreeSet<String> = (company(&self.src, pov)?.into_iter())
@@ -93,11 +81,7 @@ impl<'a> Everywhere<'a> {
             };
             let task = crate::task_graph::place::task_of(&f.place).is_some();
             let owners_line = self.src.people.owner(person);
-            if here == Some(f.place.as_str())
-                || task
-                || present.contains(person)
-                || !may_lay(owner_speaks, owners_line)
-            {
+            if here == Some(f.place.as_str()) || task || present.contains(person) {
                 continue;
             }
             let piece = line(&e, &f);

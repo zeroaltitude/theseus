@@ -598,8 +598,8 @@ fn everywhere_reads_at_most_its_bound_and_says_so() {
 
 /// KEY (the owner's ruling, 2026-11-24, "no conversations are private"; the conductor's ruling on the plan's
 /// Q1): on a guest's turn in a shared place, the lines from every place are the owner's turn's, his own
-/// private ones among them. One switch says so. A person present but the owner has their newest elsewhere in
-/// the people block, not here.
+/// private ones among them. A person present but the owner has their newest elsewhere in the people block, not
+/// here.
 #[test]
 fn a_guests_turn_lays_everywhere_as_the_owners_does() {
     let s = company(
@@ -621,8 +621,47 @@ fn a_guests_turn_lays_everywhere_as_the_owners_does() {
     assert_eq!(ids(&guests), ids(&owners));
     let elsewhere = select_as(&s, Band::Everywhere, &pov_of("owner", "local"));
     assert_eq!(ids(&elsewhere), ["dm1", "c1", "b1", "here"]);
-    const { assert!(everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN) };
-    assert!(everywhere::may_lay(false, true));
+}
+
+/// KEY (the owner, 2026-11-25: "I'm committed to the trust rule. On, please"): on a guest's turn in a shared
+/// channel, through the turn's real permit, EVERYWHERE lays the owner's newest exchanges from his other places, a
+/// private DM among them; a third person's lines are laid as that permit admits them (every piece that names
+/// its source place, a private one too), and a line the gate refuses is not laid.
+#[test]
+fn a_guests_turn_through_the_real_permit_lays_the_owners_private_lines_and_others_as_admitted() {
+    let s = company(
+        &[
+            ("owner", "person:owner"),
+            ("discord:bob", "person:bob"),
+            ("discord:cy", "person:cy"),
+        ],
+        vec![
+            by("owner", "dm1", "discord:dm:9", 1),
+            by_in("discord:cy", "cy-dm", "discord:dm:7", 2, Audience::Private),
+            by_in("owner", "o-gen", "general", 3, Audience::Shared),
+            by_in("discord:bob", "here", "chan", 4, Audience::Shared),
+        ],
+    );
+    let guest = pov_of("discord:bob", "chan");
+    let laid = |gate: &dyn Gate| {
+        let table = table(sources_with(&s, "", gate), Vec::new(), Vec::new());
+        let sel = (table.iter())
+            .find(|t| t.band() == Band::Everywhere)
+            .expect("a selector for EVERYWHERE");
+        let mut out = sel.select(&guest, &s).expect("selects");
+        out.sort_by_key(|p| std::cmp::Reverse(p.range.last.clone()));
+        ids(&out).into_iter().map(str::to_string).collect::<Vec<_>>()
+    };
+    let shared = theseus_memory::recall::Place::Shared("chan".into());
+    let permit = permit::Permit::of(crate::view_gate::Verified::of_fresh(shared, "chan"));
+    assert_eq!(laid(&permit), ["dm1", "cy-dm", "o-gen"]);
+    struct NotCy;
+    impl Gate for NotCy {
+        fn admit(&self, _: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
+            (piece.range.last.id != "cy-dm").then(|| Admitted::for_tests(piece))
+        }
+    }
+    assert_eq!(laid(&NotCy), ["dm1", "o-gen"]);
 }
 
 /// A self-loop session's turn lays its own place only: nothing from every place.

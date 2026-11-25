@@ -190,8 +190,7 @@ walks every person's timeline as one, within 300 references read; a wake, which 
 It leaves out every exchange of this place (since its `/new` mark they are its window and ladder; before it, his
 past, which is never laid as anything else), a task's own workings, the exchanges of a person present but the
 owner (the people block lays their newest) and anything the gate denies. On a guest's turn the owner's own
-newest exchanges from elsewhere are laid as on his (`everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN`, one
-constant). A turn no person opened is told none of it, and a self-loop session's turn lays none. The lines end
+newest exchanges from elsewhere are laid as on his (the owner's ruling, 2026-11-24). A turn no person opened is told none of it, and a self-loop session's turn lays none. The lines end
 with where the every-place pager resumes, past the oldest laid (`context.history` with `place: "*"`). The
 folded ladder stays above the 30 (his answer).
 
