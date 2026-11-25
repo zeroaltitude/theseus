@@ -255,7 +255,6 @@ async fn a_result_the_window_lays_only_as_a_receipt_stays_in_slot_h() {
         kernel: None,
         sessions: None,
         zone: &crate::recall::stamp::system,
-        since: None,
     };
     for (form, kept) in [(Form::Spoken, true), (Form::Whole, true)] {
         let laid = piece(
@@ -404,7 +403,6 @@ async fn every_recalled_item_cut_leaves_the_left_out_line_alone() {
         kernel: None,
         sessions: None,
         zone: &crate::recall::stamp::system,
-        since: None,
     };
     let snap = crate::view::wire::StoreSnapshot {
         now_ms: 1,

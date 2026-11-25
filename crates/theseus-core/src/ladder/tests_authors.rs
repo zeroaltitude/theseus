@@ -66,7 +66,6 @@ async fn fold(who: impl Fn(u64) -> Option<Option<&'static str>>) -> (String, Str
         kernel: None,
         sessions: None,
         zone: &crate::recall::stamp::system,
-        since: None,
     };
     let pov = PointOfView {
         anchor: Anchor::Place(CHANNEL.into()),
@@ -170,7 +169,6 @@ async fn an_older_summarys_account_is_withheld_where_it_could_credit_another_to_
         kernel: None,
         sessions: None,
         zone: &crate::recall::stamp::system,
-        since: None,
     };
     let pov = PointOfView {
         anchor: Anchor::Place(CHANNEL.into()),
@@ -232,7 +230,6 @@ async fn an_older_summary_over_a_missing_message_is_withheld() {
         kernel: None,
         sessions: None,
         zone: &crate::recall::stamp::system,
-        since: None,
     };
     let pov = PointOfView {
         anchor: Anchor::Place(CHANNEL.into()),

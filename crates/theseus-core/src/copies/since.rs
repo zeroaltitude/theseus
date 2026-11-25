@@ -2,8 +2,7 @@
 //! once written (an erase is the one exception), and what is said about it later (a retraction, a label) is
 //! a record of its own that points at it. So a window laying an exchange whole shows each node with what has
 //! been said since, in the code's own words: a look back's result (`context.history`, `look.work`) by the
-//! sources its copy edges name, a task's report by its report edge, and any node by its own label. The block
-//! beside the message lays each exchange of another place the same way (`view::wire_text`).
+//! sources its copy edges name, a task's report by its report edge, and any node by its own label.
 //!
 //! - **In memory, at lay time.** Nothing here writes or changes a stored node. The act gates read the stored
 //!   node (`external.rs`, `task_graph/judged.rs`), so they see exactly what they saw: only the laid copy's
