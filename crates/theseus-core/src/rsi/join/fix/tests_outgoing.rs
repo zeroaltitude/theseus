@@ -320,7 +320,7 @@ mod join {
         rig_on(fixture_with(GATE), SelfMode::Act, |_| {}, |_| {})
     }
 
-    fn seams(review: &[&str], fixer: Arc<StandIn>) -> Seams {
+    fn seams(review: &[&'static str], fixer: Arc<StandIn>) -> Seams {
         Seams {
             reviewer: scripted(review),
             tests: Arc::new(Scripts),
