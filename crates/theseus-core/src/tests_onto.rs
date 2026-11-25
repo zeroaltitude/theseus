@@ -296,10 +296,10 @@ async fn a_new_topic_at_the_confirm_band_is_minted_when_named_and_else_left() {
     let list = o.member_list(&sid, "topic").expect("the session is filed");
     let c = o.category(&list.members[0].category).expect("minted");
     assert_eq!(c.name, "Lantern Ledger");
-    let cards = cards(&r.core);
-    assert_eq!(cards.len(), 1, "{cards:?}");
-    assert_eq!(cards[0]["undo"], true);
-    let text = cards[0]["text"].as_str().unwrap();
+    let sent = cards(&r.core);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["undo"], true);
+    let text = sent[0]["text"].as_str().unwrap();
     assert!(text.contains("started keeping track of something new"), "{text}");
     // No name: nothing written, no card, no naming call.
     let jev = FakeJev::start().unwrap();
