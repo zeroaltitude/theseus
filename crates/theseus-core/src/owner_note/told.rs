@@ -3,9 +3,10 @@
 //! asking: an FYI to the operator in the caller's plain words, carrying an
 //! [`Undo`], a call the core already has. The note's text ends with the
 //! command that undoes it, so every surface shows the way back; on Discord it
-//! also carries an Undo button whose press is that call as the presser,
-//! judged by the method's own rule. The core keeps the note (its post) and
-//! whether it was undone, so a press works after a restart and counts once.
+//! also carries an Undo button whose press is `told.undo` as the presser
+//! (`rpc/told.rs`): one act, the owner from a private place, whatever the
+//! undo calls underneath. The core keeps the note (its post) and whether it
+//! was undone, so a press works after a restart and counts once.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
