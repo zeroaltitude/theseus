@@ -1,12 +1,21 @@
 //! A note that tells the owner of an act Theseus did without asking, with its
 //! **Undo** (issue 57). One helper, [`stage`], used by every act that stopped
 //! asking: an FYI to the operator in the caller's plain words, carrying an
-//! [`Undo`], a call the core already has. The note's text ends with the
-//! command that undoes it, so every surface shows the way back; on Discord it
-//! also carries an Undo button whose press is `told.undo` as the presser
-//! (`rpc/told.rs`): one act, the owner from a private place, whatever the
-//! undo calls underneath. The core keeps the note (its post) and whether it
-//! was undone, so a press works after a restart and counts once.
+//! [`Undo`]. The note is an operator post: Discord delivers it (to the
+//! notices place when one is bound, else the owner's DM), with an Undo
+//! button; other surfaces show it only where they already show operator
+//! posts, and today none of them reads a told note's words. Its text ends
+//! with the command that undoes it, so wherever the words are read they
+//! carry the way back.
+//!
+//! The press is `told.undo` as the presser (`rpc/told.rs`): one act, whatever
+//! the undo calls underneath, judged by the general rule, the owner from a
+//! private place as the daemon judges it. A local process on the owner's
+//! socket counts as the owner's terminal, as for every owner-only command, so
+//! a counted undo is not proof of a human press. The core keeps the note (its
+//! post) and whether it was undone, so a press works after a restart and
+//! counts once. The stored words stay as written: every send and edit masks
+//! them at the exit.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -149,10 +158,21 @@ pub fn mark_undone(store: &Store, post: &str, by: &str) -> Result<()> {
     Ok(())
 }
 
+/// The note's text without its Undo line.
+fn without_undo(text: &str) -> String {
+    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: `")).collect();
+    kept.join("\n")
+}
+
 /// The note's text once undone: the Undo line goes, a line says who undid it.
 pub fn undone_text(text: &str, by: &str) -> String {
-    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: `")).collect();
-    format!("{}\n↩️ Undone by {by}.", kept.join("\n"))
+    format!("{}\n↩️ Undone by {by}.", without_undo(text))
+}
+
+/// The note's text when its undo's outcome was found already there (an
+/// earlier press got that far): the Undo line goes, a line says what was found.
+pub fn found_text(text: &str, found: &str) -> String {
+    format!("{}\n↩️ Nothing left to undo: {found}.", without_undo(text))
 }
 
 #[cfg(test)]
