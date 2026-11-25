@@ -19,7 +19,7 @@ use crate::provider::Scripted;
 use crate::test_support::turn;
 
 /// The owner's Discord handle, for a press of his own from a shared place.
-const OWNER: &str = "4100000000000000042";
+const OWNER: &str = "4242";
 
 fn tool(r: &Rig, name: &str) -> std::sync::Arc<dyn Tool> {
     r.core.tools.registry.get(name).expect("registered").clone()
