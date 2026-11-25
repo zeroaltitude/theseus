@@ -54,6 +54,11 @@ pub enum Undo {
     /// back in the core by the undo's own write (`config_change::told::press`).
     #[serde(rename = "config.undo")]
     ConfigUndo(u32),
+    /// An undo with no method of its own, for the tests: its arm in
+    /// `rpc::told` counts the times it ran.
+    #[cfg(test)]
+    #[serde(rename = "test.probe")]
+    Probe(String),
 }
 
 impl Undo {
@@ -67,6 +72,8 @@ impl Undo {
             Undo::SelfDrop(_) => method::SELF_DROP,
             // No method of its own: the one door's.
             Undo::ConfigUndo(_) => method::TOLD_UNDO,
+            #[cfg(test)]
+            Undo::Probe(_) => method::TOLD_UNDO,
         }
     }
 
@@ -80,37 +87,48 @@ impl Undo {
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
             Undo::ConfigUndo(n) => json!({"id": n, "author": author}),
+            #[cfg(test)]
+            Undo::Probe(id) => json!({"id": id, "author": author}),
         }
     }
 
-    /// The command that does the same from a shell.
+    /// The command that does the same from a shell. An undo with no method
+    /// of its own answers [`by_door`]: the note's own `theseus told undo`.
     pub fn command(&self) -> String {
         match self {
             Undo::RoutineDelete(id) => format!("theseus routine rm {id}"),
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-            // No shell command puts a settings change back: the words that ask.
-            Undo::ConfigUndo(n) => format!("ask Theseus to undo settings change #{n}"),
-        }
-    }
-
-    /// The note's last line: the command that does the same from a shell, in
-    /// backticks; for an undo no shell command does, what does, in plain words.
-    pub fn line(&self) -> String {
-        match self {
-            Undo::ConfigUndo(n) => format!(
-                "Undo: no terminal command does this; ask Theseus to undo settings change #{n}, \
-                 or press this note's Undo button in Discord."
-            ),
-            u => format!("Undo: `{}`", u.command()),
+            // No method of its own: the note's own door, from a terminal.
+            Undo::ConfigUndo(_) => by_door(),
+            #[cfg(test)]
+            Undo::Probe(_) => by_door(),
         }
     }
 }
 
+/// Where a note names its own post id. The id is minted when the note is
+/// staged, after its words are written, so the words carry this mark and
+/// every reader of a note fills it ([`filled`]: [`of`], and Discord's send).
+/// The stored words keep the mark.
+pub const THIS_POST: &str = "<this-note>";
+
+/// The command that undoes a note through its own door from a terminal,
+/// `theseus told undo <its post id>`: the `command()` of an undo with no
+/// method of its own.
+pub fn by_door() -> String {
+    format!("theseus told undo {THIS_POST}")
+}
+
+/// A note's words as read: its own post id where they name it.
+pub fn filled(text: &str, post: &str) -> String {
+    text.replace(THIS_POST, post)
+}
+
 /// Stage the note to the operator: `title` (what was done), `by` (which
 /// conversation did it, the note's second line), `body` (more, or empty),
-/// then the way to undo it ([`Undo::line`]). Append the records with the act's own (or
+/// then the command that undoes it. Append the records with the act's own (or
 /// alone), then `outbox.posted` the action, as `stage_to_operator`'s callers do.
 pub fn stage(
     outbox: &Outbox,
@@ -120,7 +138,7 @@ pub fn stage(
     body: &str,
     undo: &Undo,
 ) -> Result<(Action, Vec<NewRecord>)> {
-    let undo_line = undo.line();
+    let undo_line = format!("Undo: `{}`", undo.command());
     let body = match body.trim_end() {
         "" => undo_line,
         b => format!("{b}\n{undo_line}"),
@@ -140,9 +158,35 @@ pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
     Ok(Some((
-        body["text"].as_str().unwrap_or("").to_string(),
+        filled(body["text"].as_str().unwrap_or(""), post),
         undo,
     )))
+}
+
+/// The note `name` names: its post id, or the end of one no other told
+/// note's id shares. None when no told note has it.
+pub fn resolve(kernel: &Kernel, name: &str) -> Result<Option<String>> {
+    if of(kernel, name)?.is_some() {
+        return Ok(Some(name.to_string()));
+    }
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let all: Vec<String> = kernel
+        .outbox_actions()?
+        .into_iter()
+        .filter(|a| body_of(a)["kind"] == KIND && a.correlation_id.ends_with(name))
+        .map(|a| a.correlation_id)
+        .collect();
+    match all.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        many => anyhow::bail!(
+            "`{name}` ends {} notes' ids ({}): give more of it",
+            many.len(),
+            many.join(", ")
+        ),
+    }
 }
 
 /// Who undid a note, and when.
@@ -173,7 +217,7 @@ pub fn mark_undone(store: &Store, post: &str, by: &str) -> Result<()> {
 
 /// The note's text without its Undo line.
 fn without_undo(text: &str) -> String {
-    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: ")).collect();
+    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: `")).collect();
     kept.join("\n")
 }
 
@@ -239,9 +283,10 @@ mod tests {
     }
 
     /// A settings change's undo has no method of its own: it names the one
-    /// door's, and its note's words ask for it (no shell verb puts one back).
+    /// door's, and its note's way back from a terminal is the note's own
+    /// `theseus told undo`.
     #[test]
-    fn a_settings_change_undo_names_the_one_door_and_the_words_that_ask() {
+    fn a_settings_change_undo_names_the_one_door() {
         let u = Undo::ConfigUndo(4);
         assert_eq!(u.method(), method::TOLD_UNDO);
         assert_eq!(
@@ -249,22 +294,7 @@ mod tests {
             json!({"method": "config.undo", "id": 4})
         );
         assert_eq!(u.params("ana", None), json!({"id": 4, "author": "ana"}));
-        assert_eq!(u.command(), "ask Theseus to undo settings change #4");
-        assert_eq!(
-            u.line(),
-            "Undo: no terminal command does this; ask Theseus to undo settings change #4, or \
-             press this note's Undo button in Discord."
-        );
-        assert_eq!(
-            Undo::WakeCancel("w".into()).line(),
-            "Undo: `theseus cancel w`"
-        );
-        let text =
-            "ℹ️ FYI · Changed 1 setting\nasked here\n- a: on → off\n".to_string() + &u.line();
-        assert_eq!(
-            undone_text(&text, "cli"),
-            "ℹ️ FYI · Changed 1 setting\nasked here\n- a: on → off\n↩️ Undone by cli."
-        );
+        assert_eq!(u.command(), by_door());
     }
 
     /// A restart: the core gone and its store opened again under a new one.
