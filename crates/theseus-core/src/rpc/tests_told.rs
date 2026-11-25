@@ -137,7 +137,9 @@ async fn a_failing_undo_says_it_did_not_finish_and_marks_nothing() {
         e.message
     );
     assert!(!e.message.contains("Nothing was undone"), "{}", e.message);
-    assert!(e.message.contains("`theseus standing revoke std_no_such_order`"));
+    assert!(e
+        .message
+        .contains("`theseus standing revoke std_no_such_order`"));
     assert!(!marked(&core, &post));
 }
 

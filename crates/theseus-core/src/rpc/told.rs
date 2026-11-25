@@ -171,12 +171,19 @@ impl Core {
                 (!all.iter().any(|r| r.id == *id)).then_some("the routine is gone")
             }
             Undo::WakeCancel(id) => {
-                let pending = self.kernel.pending_wakes().map_err(|e| RpcFailure::invalid(e.into()))?;
+                let pending = self
+                    .kernel
+                    .pending_wakes()
+                    .map_err(|e| RpcFailure::invalid(e.into()))?;
                 (!pending.iter().any(|(_, w)| w.id == *id))
                     .then_some("the wake is no longer pending")
             }
             Undo::StandingRevoke(id) => {
-                let all = self.runner.standing.all(&self.store).map_err(RpcFailure::invalid)?;
+                let all = self
+                    .runner
+                    .standing
+                    .all(&self.store)
+                    .map_err(RpcFailure::invalid)?;
                 all.iter()
                     .any(|r| r.ends.as_deref() == Some(id.as_str()))
                     .then_some("the standing order is revoked")
