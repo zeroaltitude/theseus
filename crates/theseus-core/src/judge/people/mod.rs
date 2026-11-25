@@ -45,6 +45,7 @@ use theseus_ontology::{handles_of, Category, Ontology};
 
 use crate::config::Config;
 use crate::node::{Body, Node, Origin};
+use crate::scrub::{safe, Cuts};
 
 pub mod backfill;
 pub mod cands;
@@ -61,6 +62,8 @@ pub mod sync;
 // `script` would be a second thing to keep right.
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_cut;
 #[cfg(test)]
 mod tests_excl;
 #[cfg(test)]
@@ -104,6 +107,7 @@ pub struct Line {
 
 /// The human-facing lines of `nodes`, oldest first, the newest [`LINES`].
 pub fn lines(nodes: &[(u64, Node)]) -> Vec<Line> {
+    let cuts = Cuts::live();
     let mut out: Vec<Line> = nodes
         .iter()
         .filter_map(|(_, n)| {
@@ -130,7 +134,7 @@ pub fn lines(nodes: &[(u64, Node)]) -> Vec<Line> {
             (!text.is_empty()).then(|| Line {
                 node: n.id.clone(),
                 author,
-                text: text.chars().take(LINE_CHARS).collect(),
+                text: safe::head_with(&cuts, text, LINE_CHARS).0.to_string(),
             })
         })
         .collect();

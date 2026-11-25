@@ -14,6 +14,7 @@
 use super::effort;
 use crate::config::routing::TaskCheckpoints;
 use crate::config::Effort;
+use crate::scrub::{safe, Cuts};
 
 /// The most the pack reads, in tokens (estimated at [`CHARS_PER_TOKEN`] characters, which is
 /// conservative for English).
@@ -58,7 +59,10 @@ impl Trigger {
         match self {
             Trigger::Failing(n) => format!("failing: {n} failed loops in a row"),
             Trigger::Quiet(n) => format!("no progress for {n} loops"),
-            Trigger::Phase { from, to } => format!("phase: {} → {}", cut(from, 60), cut(to, 60)),
+            Trigger::Phase { from, to } => {
+                let cuts = Cuts::live();
+                format!("phase: {} → {}", cut(&cuts, from, 60), cut(&cuts, to, 60))
+            }
             Trigger::Report => "before the report".into(),
         }
     }
@@ -140,14 +144,11 @@ pub struct LoopLine {
     pub failed: Option<String>,
 }
 
-fn cut(s: &str, n: usize) -> String {
+fn cut(cuts: &Cuts, s: &str, n: usize) -> String {
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     match s.chars().count() <= n {
         true => s,
-        false => format!(
-            "{}…",
-            s.chars().take(n.saturating_sub(1)).collect::<String>()
-        ),
+        false => safe::head_marked_with(cuts, &s, n.saturating_sub(1)),
     }
 }
 
@@ -261,10 +262,11 @@ fn render(
     trigger: &Trigger,
     (evidence, max): (Option<&Evidence>, usize),
 ) -> String {
+    let cuts = Cuts::live();
     let steps: Vec<String> = plan
         .iter()
         .take(MAX_STEPS)
-        .map(|(title, state)| format!("- [{state}] {}", cut(title, STEP_CHARS)))
+        .map(|(title, state)| format!("- [{state}] {}", cut(&cuts, title, STEP_CHARS)))
         .collect();
     let recent = &loops[loops.len().saturating_sub(LOOP_LINES)..];
     let lines: Vec<String> = recent
@@ -273,12 +275,12 @@ fn render(
             let say = l
                 .say
                 .as_deref()
-                .map_or("(no words)".into(), |s| cut(s, 120));
+                .map_or("(no words)".into(), |s| cut(&cuts, s, 120));
             match &l.failed {
                 Some(f) => format!(
                     "- loop {}: {say} — failed: {}",
                     l.index,
-                    cut(f, FAILED_CHARS)
+                    cut(&cuts, f, FAILED_CHARS)
                 ),
                 None => format!("- loop {}: {say}", l.index),
             }
@@ -286,7 +288,7 @@ fn render(
         .collect();
     let (mut from, mut steps_n, mut brief_n) = (0, steps.len(), BRIEF_CHARS);
     loop {
-        let mut out = format!("Task: {}\n", cut(brief, brief_n));
+        let mut out = format!("Task: {}\n", cut(&cuts, brief, brief_n));
         if steps_n > 0 {
             out.push_str("Plan:\n");
             steps[..steps_n]
@@ -313,10 +315,13 @@ fn render(
         } else if brief_n > 40 {
             brief_n /= 2;
         } else {
-            return out.chars().take(max).collect();
+            return safe::head_with(&cuts, &out, max).0.to_string();
         }
     }
 }
+
+#[cfg(test)]
+mod tests_cut;
 
 #[cfg(test)]
 mod tests {

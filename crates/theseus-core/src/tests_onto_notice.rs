@@ -172,3 +172,18 @@ async fn a_message_theseus_wrote_to_itself_is_never_filed() {
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
     assert!(o.member_list(&person, "topic").is_some(), "a person's is");
 }
+
+/// A long title is cut before a known value it would split, even where the
+/// value follows the title's first word with no space between: the notice
+/// holds the value whole or not at all. The value is invented.
+#[test]
+fn a_long_title_is_cut_before_a_known_value() {
+    use crate::secrets::{Secret, SecretBoard};
+    use crate::tests_cut_sites::{whole_or_absent, V};
+    let board = SecretBoard::empty();
+    board.hold("cut_test", Secret::new(V.into()));
+    let before = "x".repeat(70);
+    let said = words::in_conversation(Some(&format!("{before}{V} and after")));
+    assert_eq!(said, format!("In \"{before}…\""));
+    whole_or_absent("the notice's title", &said, V);
+}
