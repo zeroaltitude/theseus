@@ -425,8 +425,16 @@ fn the_same_store_keeps_its_marks() {
 fn a_look_written_here_is_the_one_the_next_start_knows() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("seen.json");
-    on_store(&path, looked(50, 5_000), &[view("a", 50, "working", 1)]);
+    let stale = on_store(&path, looked(50, 5_000), &[view("a", 50, "working", 1)]);
+    let before = stale.text(&|_| true);
     record_store_look(&path, looked(70, 6_000)).unwrap();
+    // A TUI saves what it held before that look: the later look is kept, and
+    // the board it read.
+    write_merged(&path, &before).unwrap();
+    assert!(
+        disk(&path).board_read,
+        "the file still says the board was read"
+    );
     let mut s = Seen::open(Some(path.clone()));
     assert!(!s.store_looked(Some(looked(70, 6_000))), "the same history");
     let mut s = Seen::open(Some(path));
