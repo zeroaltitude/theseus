@@ -1,22 +1,25 @@
 //! EVERYWHERE (the owner's shape of a turn's context, 2026-11-24; slot F's place): the newest
 //! [`EVERYWHERE_EXCHANGES`] exchanges from every place this conversation does not already show, one line each
 //! with its place, its time and whose words they are, laid beside the message so that activity elsewhere never
-//! rewrites the cached front. The renderer ends them with where the every-place pager resumes
-//! (`context.history` with `place: "*"`).
+//! rewrites the cached front.
 //!
 //! Every exchange a person opened is on some person's timeline, so the lines are found by walking every
 //! person's timeline as one ([`Walk::every_person`]), within [`EVERYWHERE_READ_MOST`] references read; a wake,
-//! which no person opened, is on none. Left out: this place's exchanges since its `/new` mark (its window and
-//! ladder show them; those from before the mark are kept), a task's own workings (`task:` places), and any the
-//! gate does not admit. Whose lines may be laid on whose turn is one decision: [`may_lay`].
+//! which no person opened, is on none. Left out: every exchange of this place (its window and ladder show those
+//! since its `/new` mark, and his words from before it are his past, never laid as anything else), a task's own
+//! workings (`task:` places), the exchanges of a person present but the owner (the people block lays their
+//! newest, `super::people`), and any the gate does not admit. Whose lines may be laid on whose turn is one
+//! decision: [`may_lay`].
 //!
 //! A turn with no speaker (a wake, an agent's process) is told none of it, as slot F was.
 
+use std::collections::BTreeSet;
+
 use super::super::timeline::ExchangeRef;
-use super::super::{Form, Piece, PointOfView, Pos, Reason};
+use super::super::{Form, Piece, PointOfView, Reason};
 use super::here::anchor_place;
 use super::make::{self, Cut};
-use super::people::{RECENT_LINE_TOKENS, RECENT_READ_MOST};
+use super::people::{company, RECENT_LINE_TOKENS, RECENT_READ_MOST};
 use super::sources::{ExchangeFacts, Sources};
 use super::walk::Walk;
 use super::{Band, Selector, Snapshot};
@@ -69,10 +72,11 @@ impl<'a> Everywhere<'a> {
         };
         let owner_speaks = self.src.people.owner(speaker);
         let here = anchor_place(pov);
-        let mark = match here {
-            Some(p) => self.src.places.new_mark(p)?,
-            None => None,
-        };
+        // The people present but the owner, by every handle: the people block lays their newest elsewhere.
+        let present: BTreeSet<String> = (company(&self.src, pov)?.into_iter())
+            .filter(|p| !p.owner)
+            .flat_map(|p| p.handles.into_iter().chain([p.person]))
+            .collect();
         let mut walk = Walk::every_person(snap, EVERYWHERE_READ_MOST)?;
         while out.len() < EVERYWHERE_EXCHANGES {
             let Some(touch) = walk.next_touch()? else { break };
@@ -83,10 +87,13 @@ impl<'a> Everywhere<'a> {
             let Some(person) = f.person.as_deref() else {
                 continue;
             };
-            let shown_here = here == Some(f.place.as_str()) && after(&e, mark.as_ref());
             let task = crate::task_graph::place::task_of(&f.place).is_some();
             let owners_line = self.src.people.owner(person);
-            if shown_here || task || !may_lay(owner_speaks, owners_line) {
+            if here == Some(f.place.as_str())
+                || task
+                || present.contains(person)
+                || !may_lay(owner_speaks, owners_line)
+            {
                 continue;
             }
             let piece = line(&e, &f);
@@ -105,16 +112,6 @@ impl<'a> Everywhere<'a> {
             stopped: walk.stopped(),
         })
     }
-}
-
-/// Whether exchange `e` came after the place's `/new` mark (every exchange does when there is none): the ladder's
-/// own test of what a place's window and ladder hold.
-fn after(e: &ExchangeRef, mark: Option<&Pos>) -> bool {
-    let at = Pos {
-        at_ms: e.at_ms,
-        id: e.turn_id.clone(),
-    };
-    mark.is_none_or(|m| at > *m)
 }
 
 /// One exchange as a line: its words and `did` line, within [`EVERYWHERE_LINE_TOKENS`].

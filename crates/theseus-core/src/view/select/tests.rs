@@ -477,10 +477,9 @@ fn everywhere_shows_the_newest_fifteen_not_shown_here_with_their_places() {
 }
 
 /// KEY (the conductor's ruling on the plan's Q2): this place's exchanges since its `/new` mark are its window
-/// and ladder's, and left out; those from before the mark are kept. With no mark, all of them are this
-/// conversation's.
+/// and ladder's, and left out; so are those from before it, his past, which nothing lays as anything else.
 #[test]
-fn everywhere_leaves_out_this_places_exchanges_since_new_and_keeps_those_before() {
+fn everywhere_leaves_out_every_exchange_of_this_place() {
     let mut s = Store::default();
     s.ex.push(ex("now1", "local", 1));
     s.ex.push(ex("now2", "local", 3));
@@ -495,7 +494,7 @@ fn everywhere_leaves_out_this_places_exchanges_since_new_and_keeps_those_before(
     ));
     assert_eq!(
         ids(&select(&s, Band::Everywhere, Present::OwnerAlone)),
-        ["far", "before"]
+        ["far"]
     );
     s.marks.clear();
     assert_eq!(
@@ -561,21 +560,29 @@ fn everywhere_reads_at_most_its_bound_and_says_so() {
 
 /// KEY (the owner's ruling, 2026-11-24, "no conversations are private"; the conductor's ruling on the plan's
 /// Q1): on a guest's turn in a shared place, the lines from every place are the owner's turn's, his own
-/// private ones among them. One switch says so.
+/// private ones among them. One switch says so. A person present but the owner has their newest elsewhere in
+/// the people block, not here.
 #[test]
 fn a_guests_turn_lays_everywhere_as_the_owners_does() {
     let s = company(
-        &[("owner", "person:owner"), ("discord:bob", "person:bob")],
+        &[
+            ("owner", "person:owner"),
+            ("discord:bob", "person:bob"),
+            ("discord:cy", "person:cy"),
+        ],
         vec![
             by("owner", "dm1", "discord:dm:9", 1),
-            by_in("discord:bob", "b1", "general", 2, Audience::Shared),
-            by_in("discord:bob", "here", "chan", 3, Audience::Shared),
+            by_in("discord:cy", "c1", "general", 2, Audience::Shared),
+            by_in("discord:bob", "b1", "general", 3, Audience::Shared),
+            by_in("discord:bob", "here", "chan", 4, Audience::Shared),
         ],
     );
     let owners = select_as(&s, Band::Everywhere, &pov_of("owner", "chan"));
     let guests = select_as(&s, Band::Everywhere, &pov_of("discord:bob", "chan"));
-    assert_eq!(ids(&owners), ["dm1", "b1"]);
+    assert_eq!(ids(&owners), ["dm1", "c1"]);
     assert_eq!(ids(&guests), ids(&owners));
+    let elsewhere = select_as(&s, Band::Everywhere, &pov_of("owner", "local"));
+    assert_eq!(ids(&elsewhere), ["dm1", "c1", "b1", "here"]);
     const { assert!(everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN) };
     assert!(everywhere::may_lay(false, true));
 }
@@ -613,7 +620,10 @@ fn an_old_view_record_naming_slot_fs_bands_still_reads() {
         let band: Band = serde_json::from_value(serde_json::json!(old)).expect(old);
         assert_eq!(band, Band::Retired, "{old}");
     }
-    assert_eq!(serde_json::to_value(Band::Everywhere).unwrap(), "everywhere");
+    assert_eq!(
+        serde_json::to_value(Band::Everywhere).unwrap(),
+        "everywhere"
+    );
     assert_eq!(serde_json::to_value(Slot::Elsewhere).unwrap(), "elsewhere");
     assert!(serde_json::from_value::<Band>(serde_json::json!("elsewhere_lately")).is_err());
 }

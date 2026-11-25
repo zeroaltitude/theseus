@@ -60,7 +60,7 @@ pub fn may_lay(_p: &Present, _source: &ExchangeFacts) -> bool {
 
 /// The people present: the speaker first, then the window's people newest first, only people a record holds,
 /// each once. Nobody for a turn with no speaker.
-fn company(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Vec<Present>> {
+pub(super) fn company(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Vec<Present>> {
     let mut c = Vec::new();
     let Some(speaker) = pov.person.as_deref() else {
         return Ok(c);

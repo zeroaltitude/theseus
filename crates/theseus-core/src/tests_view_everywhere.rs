@@ -1,6 +1,6 @@
 //! EVERYWHERE through real turns (issue 48; `view::select::everywhere`): a line from another place, a guest's
-//! in a shared place too, is laid beside the message headed with its speaker's name; the lines end with where
-//! the every-place pager resumes; an exchange elsewhere leaves the cached front as it was.
+//! in a shared place too, is laid beside the message headed with its speaker's name; an exchange elsewhere
+//! leaves the cached front as it was.
 
 use serde_json::Value;
 
@@ -49,25 +49,6 @@ async fn a_shared_places_words_are_in_everywhere_attributed_to_their_speaker() {
     );
     assert!(line.contains("Ferry at four?"), "{line}");
     assert!(b.contains("discord:channel:509"), "{b}");
-}
-
-/// KEY: the lines from every place end with where the every-place pager resumes: before the oldest laid.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn everywhere_ends_with_where_its_pager_resumes() {
-    let r = view_rig();
-    let c = &r.core;
-    let far = session(c, Some("local:/far"));
-    let older = turn_as(c, &far, "far: older words", true).await;
-    turn_as(c, &far, "far: newer words", true).await;
-    let desk = session_in(c, None, &r.root);
-    turn_as(c, &desk, "desk: what else?", true).await;
-    let b = beside(&asked(&r, "desk: what else?").pop().unwrap());
-    let opens = "[Older exchanges from every place: context_history with place \"*\" and before {\"at_ms\":";
-    let at = (b.find(opens)).unwrap_or_else(|| panic!("no pager: {b}"));
-    let ends = format!(",\"turn_id\":\"{}\"}}]", older.turn_id);
-    assert!(b[at..].contains(&ends), "{b}");
-    let words = (b.find("far: older words")).unwrap_or_else(|| panic!("{b}"));
-    assert!(words < at, "the pager follows the lines: {b}");
 }
 
 /// KEY: the lines from every place are beside the message, never in the front: an exchange elsewhere between

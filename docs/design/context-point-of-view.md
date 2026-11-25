@@ -187,12 +187,13 @@ newest 15 exchanges from every place this conversation does not already show, wh
 (the person's words and the `did` line, cut beyond 150 tokens with the handle) headed with its place, its time
 and whose words they are, laid beside the message so that activity elsewhere never rewrites the cached front. It
 walks every person's timeline as one, within 300 references read; a wake, which no person opened, is on none.
-It leaves out this place's exchanges since its `/new` mark (those before it are kept), a task's own workings and
-anything the gate denies, and it ends with where the every-place pager resumes (`context.history` with `place:
-"*"` and `before`). On a guest's turn the owner's own newest exchanges from elsewhere are laid as on his
-(`everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN`, one constant). A turn no person opened is told none of it,
-and a self-loop session's turn lays none. **Not built yet**: the topic block. The folded ladder stays above the
-30 (his answer).
+It leaves out every exchange of this place (since its `/new` mark they are its window and ladder; before it, his
+past, which is never laid as anything else), a task's own workings, the exchanges of a person present but the
+owner (the people block lays their newest) and anything the gate denies. On a guest's turn the owner's own
+newest exchanges from elsewhere are laid as on his (`everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN`, one
+constant). A turn no person opened is told none of it, and a self-loop session's turn lays none. **Not built
+yet**: the topic block, and a closing line saying where an every-place pager resumes (it waits for that
+pager). The folded ladder stays above the 30 (his answer).
 
 ---
 
@@ -423,7 +424,7 @@ For a conversation where the owner is alone. Sizes are typical / cap, in tokens 
 | C | **Waiting** | what is certainly waiting between them, from any place: questions Theseus has parked for him, tasks waiting on him, a message of his still being answered elsewhere | records that exist today | 300 / 1,000 |
 | D | **In play** | the work at hand and the things named in the last three exchanges here: card, current facts, open tasks a line each | at hand; the touch index | 800 / 3,000 |
 | E | **Past**: removed (the owner's ruling, 2026-11-24; §5.3) | nothing | none | 0 |
-| F | **Everywhere** | the newest 15 exchanges from every place this conversation does not already show, whoever opened them, a line each (the person's words and the `did` line, 150 tokens at most, with the handle), headed with the place, the time and whose words they are; then where the every-place pager resumes. Replaced "lately, everywhere" (his words of the last 48 hours, the newest reply per place, his newest exchange in five places) on 2026-11-24 | every person's timeline as one, less this place since `/new`, tasks and wakes | 1,650 / 2,850 (est.) |
+| F | **Everywhere** | the newest 15 exchanges from every place this conversation does not already show, whoever opened them, a line each (the person's words and the `did` line, 150 tokens at most, with the handle), headed with the place, the time and whose words they are. Replaced "lately, everywhere" (his words of the last 48 hours, the newest reply per place, his newest exchange in five places) on 2026-11-24 | every person's timeline as one, less this place, tasks, wakes and the people present but the owner | 1,650 / 2,850 (est.) |
 | G | **Here** | this place's window and ladder (§5.2) | the place's timeline | its own allowance (§5.2); in a long conversation 75,000 to 140,000 (est.: words 15,000 to 33,000; tool output 40,000 to 80,000; the ladder 20,000 to 30,000) |
 | H | **Called, this turn** | what this message calls in: named things not in view, a reached exchange, a joined task's card, recall | the name matcher, the reach, recall | 1,800 / 8,000 |
 | I | **Now, and the message** | the clock, the branch line, the task ticker; then his words | code | about 300 |

@@ -6,7 +6,6 @@ use crate::view::budget::Residue;
 use crate::view::fold::FoldNode;
 use crate::view::render::MarkedBlock;
 use crate::view::select::Band;
-use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Author, Handle, Label, PointOfView, Pos, SourceRange, Space};
 
 use super::labels;
@@ -172,13 +171,6 @@ pub fn residue_line(r: &Residue, handle: &Handle) -> Option<String> {
             handle.0
         )
     })
-}
-
-/// What ends the lines from every place: where the every-place pager resumes, past the oldest laid.
-/// `[Older exchanges from every place: context_history with place "*" and before {"at_ms":…,"turn_id":"…"}]`.
-pub fn every_place_pager(oldest: &Cursor) -> String {
-    let before = serde_json::to_string(oldest).unwrap_or_default();
-    format!("[Older exchanges from every place: context_history with place \"*\" and before {before}]")
 }
 
 /// A band in plain words.

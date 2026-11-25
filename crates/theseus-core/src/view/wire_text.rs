@@ -1,8 +1,8 @@
 //! The renderer over the store (`super::render::Renderer`), with the view's text (`super::text`): the memory
 //! page; the budgeter's pieces as marked blocks, those of who and where and his older words in the fixed
 //! front, those that move every turn (every place's newest exchanges, waiting, in play, called) in the one
-//! block beside the message; and the ladder's nodes as fold blocks. The window is not the renderer's: the compiler renders
-//! the window's exchanges as real turns (`compiler::view`).
+//! block beside the message; and the ladder's nodes as fold blocks. The window is not the renderer's: the
+//! compiler renders the window's exchanges as real turns (`compiler::view`).
 //!
 //! A piece is read by its range: an exchange of a place from the store, in the piece's form, each node with
 //! what has been said about it since (`copies::since`, as the window lays it); a named thing's card, a
@@ -22,7 +22,6 @@ use super::text::forms::{self, Said, Voice};
 use super::text::labels::{self, Origin};
 use super::text::parts::{self, Seen};
 use super::text::{blocks, page};
-use super::timeline::Cursor;
 use super::{Anchor, Form, Handle, Label, Piece, PointOfView, Slot, Snapshot, Space};
 use crate::copies::since::Since;
 use crate::exchange;
@@ -356,7 +355,6 @@ impl Renderer for TextRenderer<'_> {
 
     fn render(&self, view: &View, _: &dyn Snapshot) -> anyhow::Result<RequestParts> {
         let (mut fixed, mut moving) = (Vec::new(), Vec::new());
-        let mut every_place_end = None;
         for s in &view.shown {
             let p = &s.piece;
             let to = match part(p) {
@@ -365,11 +363,7 @@ impl Renderer for TextRenderer<'_> {
                 Part::Elsewhere => continue,
             };
             to.extend(self.blocks(p, s.form, &view.pov)?);
-            if p.band == Band::Everywhere {
-                every_place_end = Some(moving.len());
-            }
         }
-        every_place_pager(&mut moving, every_place_end, view);
         recall_preamble(&mut moving);
         recall_left_out(&mut moving, view);
         floor_left_out(&mut moving, view);
@@ -381,31 +375,6 @@ impl Renderer for TextRenderer<'_> {
             ..RequestParts::default()
         })
     }
-}
-
-/// Where the every-place pager resumes, said after the last line from every place: the cursor of the oldest
-/// laid (`blocks::every_place_pager`). None when no line from every place is laid.
-fn every_place_pager(moving: &mut Vec<MarkedBlock>, end: Option<usize>, view: &View) {
-    let oldest = (view.shown.iter())
-        .filter(|s| s.piece.band == Band::Everywhere)
-        .map(|s| Cursor {
-            at_ms: s.piece.range.last.at_ms,
-            turn_id: s.piece.range.last.id.clone(),
-        })
-        .min();
-    let (Some(end), Some(oldest)) = (end, oldest) else {
-        return;
-    };
-    moving.insert(
-        end,
-        MarkedBlock {
-            label: Label::Testimony,
-            heading: String::new(),
-            text: blocks::every_place_pager(&oldest),
-            sources: Vec::new(),
-            handle: None,
-        },
-    );
 }
 
 /// The recall note's own first line, once, before the first recalled item laid (issue 44): the same words a
