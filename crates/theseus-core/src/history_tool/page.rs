@@ -102,6 +102,10 @@ impl Timeline for Ledger<'_> {
             })
             .collect()
     }
+
+    fn persons(&self) -> Result<Vec<String>> {
+        exchange::persons(self.0)
+    }
 }
 
 /// What a page walks: one timeline of the touch index, or every place's at once.

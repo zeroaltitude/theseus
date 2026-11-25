@@ -95,6 +95,11 @@ impl Timeline for Store {
         out.truncate(n);
         Ok(out)
     }
+
+    fn persons(&self) -> anyhow::Result<Vec<String>> {
+        let all: BTreeSet<String> = self.ex.iter().filter_map(|e| e.person.clone()).collect();
+        Ok(all.into_iter().collect())
+    }
 }
 
 impl Snapshot for Store {
@@ -1145,6 +1150,10 @@ impl Timeline for Counted<'_> {
         self.read.set(self.read.get() + page.len());
         Ok(page)
     }
+
+    fn persons(&self) -> anyhow::Result<Vec<String>> {
+        self.s.persons()
+    }
 }
 
 impl Snapshot for Counted<'_> {
@@ -1314,4 +1323,115 @@ fn the_recent_lines_keep_to_their_bound_and_a_self_loop_lays_none() {
     s.framing = 0;
     assert!(band(&assembled(&s, &AdmitUnsealed, "hello")) > 0);
     assert_eq!(band(&assembled(&s, &OwnOnly, "hello")), 0);
+}
+
+/// What a walk gives, in order, each exchange once, until it ends.
+fn walked(w: &mut walk::Walk<'_>) -> Vec<String> {
+    let mut out = Vec::new();
+    while let Some(touch) = w.next().expect("reads") {
+        out.extend(touch.map(|e| e.turn_id));
+    }
+    out
+}
+
+/// KEY: every person's timeline walked as one is each exchange a person opened, once, newest first, across
+/// places and persons; a wake, which no person opened, is not on it.
+#[test]
+fn every_persons_walk_is_each_exchange_with_a_person_once_newest_first() {
+    let wake = Ex {
+        person: None,
+        ..ex("w1", "chan", 2)
+    };
+    let s = Store {
+        ex: vec![
+            by("owner", "o1", "chan", 1),
+            wake,
+            by("discord:bob", "b1", "general", 3),
+            by("owner", "o2", "local", 4),
+            by("discord:bob", "b2", "discord:dm:44", 5),
+            by("slack:cy", "c1", "team", 6),
+            // As an older store could hold it: one exchange touched under a second person too.
+            by("slack:cy", "o2", "local", 4),
+        ],
+        ..Store::default()
+    };
+    let mut w = walk::Walk::every_person(&s, people::RECENT_READ_MOST).expect("lists persons");
+    assert_eq!(walked(&mut w), ["o1", "b1", "o2", "b2", "c1"]);
+    assert!(!w.stopped());
+}
+
+/// The store as a snapshot whose timeline fails a read past `most` references in all.
+struct Bounded<'a> {
+    s: &'a Store,
+    most: usize,
+    read: std::cell::Cell<usize>,
+}
+
+impl Timeline for Bounded<'_> {
+    fn newest(
+        &self,
+        root: &TimelineRoot,
+        before: Option<&Cursor>,
+        n: usize,
+    ) -> anyhow::Result<Vec<ExchangeRef>> {
+        let page = self.s.newest(root, before, n)?;
+        self.read.set(self.read.get() + page.len());
+        anyhow::ensure!(
+            self.read.get() <= self.most,
+            "{} references read, past {}",
+            self.read.get(),
+            self.most
+        );
+        Ok(page)
+    }
+
+    fn persons(&self) -> anyhow::Result<Vec<String>> {
+        self.s.persons()
+    }
+}
+
+impl Snapshot for Bounded<'_> {
+    fn now_ms(&self) -> u64 {
+        NOW
+    }
+    fn timeline(&self) -> &dyn Timeline {
+        self
+    }
+    fn at_hand(&self, _: &Anchor) -> Option<AtHand> {
+        None
+    }
+}
+
+/// KEY: a walk over every person reads at most its allowance of references, and says it stopped there: what
+/// it gave is the newest, in order. With room to spare it reads every timeline to its end, and says it did
+/// not stop.
+#[test]
+fn the_walk_reads_at_most_its_allowance() {
+    let four = ["owner", "discord:bob", "slack:cy", "discord:dee"];
+    let all: Vec<String> = (0..400u64).map(|i| format!("t{i:03}")).collect();
+    let s = Store {
+        ex: (0..400u64)
+            .map(|i| by(four[(i % 4) as usize], &all[i as usize], "chan", 1 + i))
+            .collect(),
+        ..Store::default()
+    };
+    let most = people::RECENT_READ_MOST;
+    let bounded = Bounded {
+        s: &s,
+        most,
+        read: Default::default(),
+    };
+    let mut w = walk::Walk::every_person(&bounded, most).expect("lists persons");
+    let got = walked(&mut w);
+    assert!(w.stopped(), "{} given", got.len());
+    assert!(!got.is_empty() && got.len() < all.len(), "{}", got.len());
+    assert_eq!(got, all[..got.len()], "the newest, in order");
+    let roomy = Bounded {
+        s: &s,
+        most: 1_000,
+        read: Default::default(),
+    };
+    let mut w = walk::Walk::every_person(&roomy, 1_000).expect("lists persons");
+    assert_eq!(walked(&mut w), all);
+    assert!(!w.stopped());
 }

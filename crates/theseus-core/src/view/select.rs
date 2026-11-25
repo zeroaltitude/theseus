@@ -14,6 +14,7 @@ mod make;
 mod people;
 pub mod run;
 pub mod sources;
+pub mod walk;
 #[cfg(test)]
 mod tests;
 

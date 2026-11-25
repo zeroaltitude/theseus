@@ -65,4 +65,8 @@ pub trait Timeline {
         before: Option<&Cursor>,
         n: usize,
     ) -> anyhow::Result<Vec<ExchangeRef>>;
+
+    /// Every person with a timeline, each once, by the name the ledger touched them under: the roots a walk
+    /// over every person reads (`select::walk::Walk::every_person`).
+    fn persons(&self) -> anyhow::Result<Vec<String>>;
 }

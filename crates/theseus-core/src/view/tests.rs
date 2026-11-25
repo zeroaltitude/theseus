@@ -28,6 +28,11 @@ impl Timeline for FakeTimeline {
             .take(n)
             .collect())
     }
+
+    /// Every root holds the same five exchanges: one person's timeline.
+    fn persons(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec!["owner".into()])
+    }
 }
 
 struct FakeSnapshot(FakeTimeline);
