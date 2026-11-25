@@ -26,6 +26,32 @@ not_owner: number,
  */
 unproven: number, unproven_not_acting: number, 
 /**
+ * Of the unproven, those whose opening message arrived in one of his
+ * own places (what his declaration counts as his, whether or not this
+ * run makes it), and those whose message has no recorded place (from
+ * before places were recorded), which no declaration counts.
+ */
+declared: number, unplaced: number, 
+/**
+ * Of the declared, those in a channel bound private, where its listed
+ * members' words arrive too and nothing stored tells theirs from his.
+ */
+private_channel: number, 
+/**
+ * Of the unproven, those in a direct message no stored record shows to
+ * be his (the place code is written for every bound DM): out.
+ */
+unshown_dm: number, 
+/**
+ * The run counted his declaration (`include_unmarked`).
+ */
+include_unmarked: boolean, 
+/**
+ * The run undid his declaration (`undo_declared`): the answers his
+ * declaration filed, the exchanges whose touches end, and the touches.
+ */
+undo_declared: boolean, declared_rows: number, undone: number, ended: number, 
+/**
  * Those opened by no person's message that can be read: a wake, a
  * task's brief, Theseus's own turn among them.
  */
