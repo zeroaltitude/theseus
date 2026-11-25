@@ -90,6 +90,7 @@ mod tests {
             questions: vec![],
             more: None,
             google: None,
+            look: None,
         };
         let without = digest_text(&res, 0, &hm, 2000);
         assert_eq!(without, "◆ nothing");

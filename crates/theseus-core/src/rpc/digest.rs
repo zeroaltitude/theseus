@@ -13,8 +13,11 @@
 //!   Both make the same `Raw` lines and word them with the protocol's one
 //!   function; a task that reported carries the first line of its report
 //!   (`Core::report_text`, the one reader `task.list` uses too).
-//! - **Seen stays the client's.** The daemon keeps no position per surface: a
-//!   surface passes the `to` of its last digest, or a time.
+//! - **The look is the store's** (issue 46). Where the owner last looked is
+//!   META `look`, moved by `work.look` (`look.rs`); `since_look` reads from it,
+//!   so it always points into this store's own history. A surface may still
+//!   pass a position or a time of its own (Discord's per-place mark, the
+//!   cockpit's time). Every answer carries the look as this read found it.
 //! - **Every root, for every connection** (2026-11-22): one that reads no
 //!   private text is still given titles through the secrets' scrubber, and
 //!   offered no answer.
@@ -85,14 +88,19 @@ impl Core {
     ) -> Result<WorkDigestResult, RpcFailure> {
         let (scope, named) = self.digest_scope(&p, surface)?;
         self.push.ensure(self).await?;
-        let since = self.digest_since(&p)?;
+        let look = self.store_look()?;
+        let (since, since_ms) = match look.filter(|_| p.since_look == Some(true)) {
+            Some(l) => (l.position, None),
+            None => (self.digest_since(&p)?, p.since_ms),
+        };
         let core = Arc::clone(self);
-        let since_ms = p.since_ms;
-        tokio::task::spawn_blocking(move || {
+        let mut res = tokio::task::spawn_blocking(move || {
             core.digest_blocking(since, since_ms, &scope, &named, false)
         })
         .await
-        .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))?
+        .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))??;
+        res.look = look;
+        Ok(res)
     }
 
     /// The scope a digest is cut to, and the executions the caller named.
@@ -205,6 +213,7 @@ impl Core {
             questions: read.questions,
             more,
             google: self.digest_google(since),
+            look: None,
         })
     }
 

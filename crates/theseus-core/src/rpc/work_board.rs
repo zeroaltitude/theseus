@@ -44,6 +44,7 @@ impl Core {
                 let params = if params.is_null() { json!({}) } else { params };
                 reply(self.work_digest_for(parse(params)?, conn.surface).await?)
             }
+            method::WORK_LOOK => reply(self.work_look_for(parse(params)?, conn.surface).await?),
             other => Err(RpcFailure::new(
                 error_code::METHOD_NOT_FOUND,
                 format!("no method {other}"),
