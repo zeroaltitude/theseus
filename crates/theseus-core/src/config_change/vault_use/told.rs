@@ -222,18 +222,7 @@ pub(super) fn put_told(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push((used.name.clone(), used.checked.reference.clone()));
     let (head, by, body) = note_parts(title.as_deref(), used, before.as_deref(), &readers, number);
-    let undo = crate::owner_note::told::Undo::VaultUseUndo(number);
-    match crate::owner_note::told::stage(tc.outbox, Some(tc.session_id), head, &by, &body, &undo) {
-        Ok((post, records)) => {
-            for r in records {
-                if let Err(e) = tc.store.defer(r) {
-                    tracing::warn!(error = %format!("{e:#}"), "vault.use: the note's record was not kept");
-                }
-            }
-            tc.posts.lock().unwrap().push(post);
-        }
-        Err(e) => tracing::warn!(error = %format!("{e:#}"), "vault.use: the note was not staged"),
-    }
+    tell(tc, (head, &by, &body), number);
     let said = format!(
         "Done, and the owner is told (no card): `secrets.{}` now reads the vault's item \"{}\", \
          field \"{}\"; {}. It takes effect when Theseus next restarts, which only the owner starts \
@@ -251,4 +240,21 @@ pub(super) fn put_told(
         said,
         json!({"settings": settings.len(), "told": true, "change": number}),
     ))
+}
+
+/// Stage the use's note, the shared told note whose Undo puts the use back (`put_back.rs`). A note
+/// that cannot be staged is logged; the use stands.
+fn tell(tc: &TurnCtx<'_>, (head, by, body): (&str, &str, &str), number: u32) {
+    let undo = crate::owner_note::told::Undo::VaultUseUndo(number);
+    match crate::owner_note::told::stage(tc.outbox, Some(tc.session_id), head, by, body, &undo) {
+        Ok((post, records)) => {
+            for r in records {
+                if let Err(e) = tc.store.defer(r) {
+                    tracing::warn!(error = %format!("{e:#}"), "vault.use: the note's record was not kept");
+                }
+            }
+            tc.posts.lock().unwrap().push(post);
+        }
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "vault.use: the note was not staged"),
+    }
 }

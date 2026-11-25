@@ -1030,17 +1030,32 @@ async fn the_notes_undo_puts_the_wiring_back_exactly_for_the_owner_alone() {
         c["name"] = json!(name);
         r.turn_with("vault_use", &sid, c).await;
         assert_ne!(r.file_text(), crate::config_change::tests::FILE, "{name}");
-        let n = r.rows("config.changed")[0]["previous_copy"].as_u64().unwrap();
+        let n = r.rows("config.changed")[0]["previous_copy"]
+            .as_u64()
+            .unwrap();
         let (post, undo) = told_note(&r);
         assert_eq!(undo, json!({"method": "vault.use.undo", "id": n}), "{name}");
         for who in [in_a_shared_place(999), in_a_shared_place(OWNER)] {
             let e = r.core.told_undo(&post, &who).await.unwrap_err();
-            assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{name}: {e:?}");
+            assert_eq!(
+                e.code,
+                theseus_protocol::error_code::REFUSED,
+                "{name}: {e:?}"
+            );
             assert_ne!(r.file_text(), crate::config_change::tests::FILE, "{name}");
         }
         let done = r.core.told_undo(&post, &owner_in_dm()).await.unwrap();
-        assert!(done.text.ends_with(&format!("↩️ Undone by discord:{OWNER}.")), "{}", done.text);
-        assert_eq!(r.file_text(), crate::config_change::tests::FILE, "{name}: byte for byte");
+        assert!(
+            done.text
+                .ends_with(&format!("↩️ Undone by discord:{OWNER}.")),
+            "{}",
+            done.text
+        );
+        assert_eq!(
+            r.file_text(),
+            crate::config_change::tests::FILE,
+            "{name}: byte for byte"
+        );
         assert_eq!(r.rows("config.undone").len(), 1, "{name}");
         let again = r.core.told_undo(&post, &owner_in_dm()).await.unwrap_err();
         assert!(again.data["undone_by"].is_string(), "{name}: {again:?}");

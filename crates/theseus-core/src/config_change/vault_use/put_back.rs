@@ -24,7 +24,8 @@ use crate::rpc::Core;
 impl Core {
     /// Put back the told use that was settings change `number`, for `who`'s press.
     pub(crate) fn vault_use_put_back(&self, number: u32, who: &Answerer) -> Result<(), String> {
-        let ask = format!("ask Theseus in a conversation to undo change #{number}, and it asks you");
+        let ask =
+            format!("ask Theseus in a conversation to undo change #{number}, and it asks you");
         let w = &self.tools.config_change;
         let _one = w
             .writes
@@ -93,10 +94,12 @@ impl Core {
             .iter()
             .map(|r| NewRecord::json(kinds::LEDGER, None, r))
             .collect::<anyhow::Result<Vec<_>>>()
-            .map_err(|e| format!("the settings were put back, and their record was not made: {e}"))?;
-        self.store
-            .append(&records)
-            .map_err(|e| format!("the settings were put back, and their record was not kept: {e}"))?;
+            .map_err(|e| {
+                format!("the settings were put back, and their record was not made: {e}")
+            })?;
+        self.store.append(&records).map_err(|e| {
+            format!("the settings were put back, and their record was not kept: {e}")
+        })?;
         Ok(())
     }
 }
