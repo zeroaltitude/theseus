@@ -1301,7 +1301,7 @@ impl Shared {
         // A fold's press (`runtime/fold.rs`); `/prompt`: its autocomplete, its
         // modal, and the modal's submit, which answer in their own ways
         // (`runtime/prompt.rs`).
-        if self.fold_press(&i, &tx).await
+        if fold::pressed(&self, &i, &tx)
             || self.prompt_interaction(&i, &tx, &who).await
             || self.remind_interaction(&i, &who).await
             || live_board::work_interaction(&i, &tx, &who)

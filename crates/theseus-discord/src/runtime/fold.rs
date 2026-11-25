@@ -13,6 +13,7 @@
 //! it, as anyone who can see the conversation could read the lines before
 //! (the brief's B3); no act gate is read or touched.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
@@ -111,20 +112,31 @@ pub(crate) fn buttons(f: &FoldButtons) -> Vec<Component> {
     rows
 }
 
+/// A press on a fold, in the place `place`: answered in a task of its own, so
+/// the gateway's handler never waits on the place. False when the press is no
+/// fold's.
+pub(super) fn pressed(
+    shared: &Arc<Shared>,
+    i: &Interaction,
+    place: &mpsc::UnboundedSender<PlaceMsg>,
+) -> bool {
+    if !is_press(i) {
+        return false;
+    }
+    let (shared, i, place) = (shared.clone(), i.clone(), place.clone());
+    tokio::spawn(async move { shared.fold_press(&i, &place).await });
+    true
+}
+
 impl Shared {
     /// A press on a fold, in the place `place`: acknowledged at once, then
     /// the pressed message shows what the place says the fold shows now.
-    /// False when the press is no fold's.
-    pub(super) async fn fold_press(
-        &self,
-        i: &Interaction,
-        place: &mpsc::UnboundedSender<PlaceMsg>,
-    ) -> bool {
+    async fn fold_press(&self, i: &Interaction, place: &mpsc::UnboundedSender<PlaceMsg>) {
         let Some(InteractionData::MessageComponent(c)) = &i.data else {
-            return false;
+            return;
         };
         let Some((turn, page)) = parse(&c.custom_id) else {
-            return false;
+            return;
         };
         self.respond(
             i,
@@ -138,20 +150,20 @@ impl Shared {
             .send(PlaceMsg::Fold(Box::new(Ask { turn, page, reply })))
             .is_err()
         {
-            return true;
+            return;
         }
         let shown = match tokio::time::timeout(WAIT, answer).await {
             Ok(Ok(shown)) => shown,
             _ => {
                 self.followup(i, BUSY).await;
-                return true;
+                return;
             }
         };
         let (Some((content, Buttons::Fold(f))), Some(ch), Some(m)) =
             (shown, i.channel.as_ref(), i.message.as_ref())
         else {
             self.followup(i, TOO_OLD).await;
-            return true;
+            return;
         };
         let content = command_reply::leaving(&self.core.exits, &content);
         let comps = buttons(&f);
@@ -165,7 +177,6 @@ impl Shared {
         {
             self.board.error("fold press", None, e);
         }
-        true
     }
 }
 
