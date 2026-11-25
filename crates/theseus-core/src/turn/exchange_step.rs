@@ -197,11 +197,8 @@ impl TurnRunner {
     ) -> Option<()> {
         let index = self.pass.index()?;
         let rt = tokio::runtime::Handle::try_current().ok()?;
-        let mut cut = text.len().min(THINGS_TEXT);
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        let (text, core) = (text[..cut].to_string(), self.weak_core()?);
+        let text = crate::scrub::safe::head_bytes(text, THINGS_TEXT).0;
+        let (text, core) = (text.to_string(), self.weak_core()?);
         let (turn, session) = (turn.to_string(), session.to_string());
         rt.spawn(async move {
             let Ok(mut named) = index.entities(vec![text]).await else {
@@ -247,11 +244,9 @@ impl TurnRunner {
             }
             false => (None, None),
         };
-        let mut cut = text.len().min(THINGS_TEXT);
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        let text = text[..cut].to_string();
+        let text = crate::scrub::safe::head_bytes(text, THINGS_TEXT)
+            .0
+            .to_string();
         let (turn, session) = (turn.to_string(), session.to_string());
         rt.spawn(async move {
             let asked = index.items(vec![text]);

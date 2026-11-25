@@ -76,17 +76,15 @@ pub struct Card {
     pub outside: bool,
 }
 
-/// `text` cut at `tokens` (est.), on a character's boundary.
+/// `text` cut at `tokens` (est.), on a character's boundary and before any
+/// known value.
 pub fn cut(text: &str, tokens: u64) -> (String, bool) {
     let max = (tokens * super::view::BYTES_PER_TOKEN) as usize;
     if text.len() <= max {
         return (text.to_string(), false);
     }
-    let mut end = max;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    (format!("{}{CUT}", text[..end].trim_end()), true)
+    let head = crate::scrub::safe::head_bytes(text, max).0;
+    (format!("{}{CUT}", head.trim_end()), true)
 }
 
 fn dollars(micros: u64) -> String {

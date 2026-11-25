@@ -145,8 +145,12 @@ fn source_name(source: &str) -> String {
 }
 
 fn clip(s: &str) -> String {
-    let t: String = s.chars().take(200).collect();
-    t.lines().next().unwrap_or("").trim().to_string()
+    // The first line's end is checked again on the whole text: a known value
+    // the head kept whole may hold that line break.
+    let cuts = crate::scrub::Cuts::live();
+    let (t, _) = crate::scrub::safe::head_with(&cuts, s, 200);
+    let first = t.lines().next().unwrap_or("");
+    s[..cuts.before(s, first.len())].trim().to_string()
 }
 
 impl SystemJobs {

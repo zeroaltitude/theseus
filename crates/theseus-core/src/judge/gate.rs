@@ -46,6 +46,7 @@ use super::{spend, JudgeService, ScrubWith};
 use crate::bus::EventSink;
 use crate::config::PackMode;
 use crate::node::{Body, Node, Origin, ResultStatus};
+use crate::scrub::{safe, Cuts};
 
 /// The pack asked at `gate`: v2's state and questions, with `steered`
 /// deciding beside `risky`.
@@ -253,6 +254,7 @@ impl JudgeService {
         let now = theseus_protocol::now_unix_ms();
         let base = input(call, &nodes, hold.as_ref(), now);
         let scrub = ScrubWith(self.scrubber.clone());
+        let cuts = self.scrubber.cuts();
         let built = self
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
@@ -260,7 +262,7 @@ impl JudgeService {
         let mut out = Vec::new();
         for (pack, id, given) in asks {
             let i = Input::Security2(SecurityInput {
-                recent_reads: recent_reads(&nodes, &call.tool_use_id),
+                recent_reads: recent_reads(&nodes, &call.tool_use_id, &cuts),
                 ..base.clone()
             });
             let Ok(state) = theseus_judge::prepare(&pack, &i, &scrub) else {
@@ -516,8 +518,8 @@ fn last_calls(nodes: &[Node], this: &str) -> Vec<ToolCallInput> {
 
 /// What the session read lately, for v3: each file or page whose text its
 /// model saw (a read's result), by its path or URL, oldest first.
-fn recent_reads(nodes: &[Node], this: &str) -> Vec<ReadInput> {
-    let mut reads: Vec<ReadInput> = Vec::new();
+fn recent_reads(nodes: &[Node], this: &str, cuts: &Cuts) -> Vec<ReadInput> {
+    let mut reads: Vec<(String, &str)> = Vec::new();
     for n in nodes {
         let Body::ToolResult {
             tool_use_id,
@@ -549,11 +551,17 @@ fn recent_reads(nodes: &[Node], this: &str) -> Vec<ReadInput> {
             })
             .unwrap_or(tool.as_str())
             .to_string();
-        let excerpt: String = content.chars().take(READ_EXCERPT).collect();
-        reads.push(ReadInput { source, excerpt });
+        reads.push((source, content));
     }
     let from = reads.len().saturating_sub(RECENT_READS);
-    reads.split_off(from)
+    reads
+        .split_off(from)
+        .into_iter()
+        .map(|(source, content)| ReadInput {
+            source,
+            excerpt: safe::head_with(cuts, content, READ_EXCERPT).0.to_string(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

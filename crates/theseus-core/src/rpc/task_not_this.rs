@@ -189,14 +189,16 @@ impl Core {
 /// gave one, why. Cut so the whole stays under a record's limit.
 fn preference_text(shape: &str, reason: Option<&str>) -> String {
     let one = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
-    let cut = |s: String, n: usize| s.chars().take(n).collect::<String>();
     let mut text = format!(
         "Not this: the owner turned down a task you started on your own for \"{}\". Do not start \
          another like it.",
-        cut(one(shape), 300)
+        crate::scrub::safe::head(&one(shape), 300).0
     );
     if let Some(r) = reason.map(one).filter(|r| !r.is_empty()) {
-        text.push_str(&format!(" Their reason: {}", cut(r, 400)));
+        text.push_str(&format!(
+            " Their reason: {}",
+            crate::scrub::safe::head(&r, 400).0
+        ));
     }
     text
 }

@@ -288,7 +288,7 @@ impl Board {
             }
         }
         c.searches.push(Search {
-            query: query.chars().take(200).collect(),
+            query: crate::scrub::safe::head(query, 200).0.to_string(),
             surfaced: surfaced.to_vec(),
             families: families.into_iter().collect(),
             called: false,
@@ -307,7 +307,7 @@ impl Board {
             c.used.insert(f.clone());
         }
         c.searches.push(Search {
-            query: query.chars().take(200).collect(),
+            query: crate::scrub::safe::head(query, 200).0.to_string(),
             surfaced: tools.to_vec(),
             families: families.to_vec(),
             called: false,
@@ -750,5 +750,21 @@ mod tests {
             !other.loaded().contains("aws"),
             "another conversation did not ask"
         );
+    }
+
+    #[test]
+    fn a_searched_query_row_stops_before_a_known_value() {
+        const V: &str = "fern-3390-calx-7712-domb";
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        let query = format!("{}{V} more words", "q".repeat(190));
+        let b = Board::default();
+        b.searched("s", &query, &["aws_call".to_string()]);
+        b.wants("s", &query, &["aws".to_string()], &[]);
+        let t = b.end_turn("s", PlaceKind::Cli, NOW);
+        assert_eq!(t.searches.len(), 2);
+        for s in &t.searches {
+            crate::tests_cut_sites::whole_or_absent("the searched query", &s.query, V);
+        }
     }
 }

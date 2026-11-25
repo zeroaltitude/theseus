@@ -702,7 +702,7 @@ impl WorkBoard {
         let Some(w) = ei.wakes.iter().find(|w| w.id == wake).cloned() else {
             return;
         };
-        ei.woke = Some(views::woke_of(&w));
+        ei.woke = Some(views::woke_of(&w, &self.scrubber.cuts()));
         d.execs.insert(exec.to_string());
         if w.repeat.is_some() {
             // A series goes on under the same id: it has not ended.

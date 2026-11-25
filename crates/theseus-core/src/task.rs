@@ -99,6 +99,7 @@ pub(crate) fn default_carve(kernel: &theseus_kernel::Kernel, parent: &Execution)
 /// How people name a task: the last six characters of its id.
 pub fn short(task_id: &str) -> String {
     let n = task_id.chars().count();
+    // plain cut: a task id's last six characters
     task_id.chars().skip(n.saturating_sub(6)).collect()
 }
 

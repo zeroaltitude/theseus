@@ -235,7 +235,7 @@ pub(crate) fn speak(
     };
     let ran = report.ran_on.as_ref();
     let said = match (report.outcome, &report.text, &report.reason) {
-        (_, Some(text), _) => text.chars().take(POST_CHARS).collect(),
+        (_, Some(text), _) => crate::scrub::safe::head(text, POST_CHARS).0.to_string(),
         ("cancelled", _, why) => format!(
             "The agent was cancelled before it reported{}.",
             why.as_deref().map(|w| format!(": {w}")).unwrap_or_default()

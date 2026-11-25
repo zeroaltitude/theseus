@@ -617,6 +617,7 @@ pub(crate) fn cut_kept(text: &str, max: usize, cuts: &Cuts) -> (String, Range<us
     let short = kept < text.len();
     let head = &text[..kept];
     let line = flat(head);
+    // plain cut: a budget only; `cuts.before` below sets where the line ends
     match line.char_indices().nth(max) {
         Some((at, _)) => {
             let p = cuts.before(&line, at);

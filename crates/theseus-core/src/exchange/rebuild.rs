@@ -64,11 +64,7 @@ struct Planned {
 }
 
 fn cut(text: &str) -> String {
-    let mut at = text.len().min(TEXT);
-    while !text.is_char_boundary(at) {
-        at -= 1;
-    }
-    text[..at].to_string()
+    crate::scrub::safe::head_bytes(text, TEXT).0.to_string()
 }
 
 /// The words of the nodes `ask` and `reply`, among `nodes`.

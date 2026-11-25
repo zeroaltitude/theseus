@@ -467,6 +467,7 @@ pub fn slug(item: &str) -> String {
             s.push('-');
         }
     }
+    // plain cut: a slug that names an item's tree and folders on disk, the same on every call
     let s: String = s.trim_end_matches('-').chars().take(40).collect();
     match s.trim_end_matches('-') {
         "" => "item".into(),
@@ -1126,7 +1127,7 @@ fn wait_notice(slug: &str, waited: Duration, rule_log: &str) -> String {
         .rev()
         .map(str::trim)
         .find(|l| !l.is_empty())
-        .map(|l| l.chars().take(200).collect::<String>());
+        .map(|l| crate::scrub::safe::head(l, 200).0);
     let said = match reason {
         Some(r) => format!("main's may-build rule says: {r}"),
         None => "main's may-build rule gave no reason".to_string(),
@@ -1152,7 +1153,7 @@ pub(super) fn phase_note(log: &Path) -> String {
         text.lines()
             .rev()
             .find(|l| l.starts_with("gate: "))
-            .map(|l| l.chars().take(200).collect::<String>())
+            .map(|l| crate::scrub::safe::head(l, 200).0.to_string())
     });
     last.map_or_else(
         || "no `gate: ` line in its log yet".to_string(),

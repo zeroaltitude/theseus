@@ -426,13 +426,8 @@ pub fn line(t: &TaskRecord) -> String {
         out.push_str(&format!(", deps {}", t.deps.join(" ")));
     }
     if let Some(a) = t.acceptance.first() {
-        let a: String = a
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .chars()
-            .take(120)
-            .collect();
+        let a = a.lines().next().unwrap_or_default();
+        let a = crate::scrub::safe::head(a, 120).0;
         let more = match t.acceptance.len() {
             1 => String::new(),
             n => format!(" (+{} more)", n - 1),

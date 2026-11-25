@@ -143,6 +143,7 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
+        // plain cut: a boundary check while percent-decoding; nothing is dropped
         if b[i] == b'%' && i + 2 < b.len() && s.is_char_boundary(i + 3) {
             if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
                 out.push(v);

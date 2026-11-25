@@ -27,13 +27,13 @@
 //!   in [`Scan::one_task`]: the card holds what lasts.
 
 use std::path::Path;
-use theseus_protocol::term::words::cut_marked;
 use theseus_protocol::{CardObservation, ObservationState};
 
 use anyhow::Result;
 
 use crate::import::{shown, write, ImportedFrom, Integrity};
 use crate::node::Body;
+use crate::scrub::{safe, Cuts};
 use crate::store::Store;
 
 /// The longest line kept, in characters.
@@ -169,6 +169,7 @@ pub fn addressed(line: &str) -> bool {
 pub fn setup_file(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or("").to_lowercase();
     let dated = stem.len() >= 10
+        // plain cut: a file name's first ten characters, read for a date and never kept
         && stem.chars().take(10).enumerate().all(|(i, c)| {
             if i == 4 || i == 7 {
                 c == '-'
@@ -306,15 +307,16 @@ pub fn lines_of(text: &str) -> Vec<String> {
             open = true;
         }
     }
+    let cuts = Cuts::live();
     out.into_iter()
-        .map(|l| cut(&l, LINE_CHARS))
+        .map(|l| cut(&cuts, &l, LINE_CHARS))
         .filter(|l| l.split_whitespace().count() >= MIN_WORDS)
         .collect()
 }
 
-fn cut(s: &str, max: usize) -> String {
+fn cut(cuts: &Cuts, s: &str, max: usize) -> String {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    cut_marked(&one, max)
+    safe::head_marked_with(cuts, &one, max)
 }
 
 /// Read the archive's evidence. A read for a job, off every turn: it walks

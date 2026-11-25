@@ -103,6 +103,7 @@ pub(crate) fn request(
     said: &str,
     scrub: &dyn Fn(&str) -> String,
 ) -> ProviderRequest {
+    // plain cut: the scrubber has masked every known value in it first
     let said: String = scrub(said).chars().take(SAID_CHARS).collect();
     let (tool, choice) = one_tool(tool(), how.force);
     let mut extra = std::collections::BTreeMap::new();
@@ -129,10 +130,11 @@ fn parse(content: &[Value]) -> Option<(Vec<String>, String)> {
         .iter()
         .find(|b| b["type"] == "tool_use" && b["name"] == TOOL)?
         .get("input")?;
+    let cuts = crate::scrub::Cuts::live();
     let mut names: Vec<String> = Vec::new();
     for n in input["names"].as_array()? {
         let n: String = n.as_str()?.split_whitespace().collect::<Vec<_>>().join(" ");
-        let n: String = n.chars().take(60).collect();
+        let n = crate::scrub::safe::head_with(&cuts, &n, 60).0.to_string();
         if !n.is_empty() && !names.iter().any(|m| m.eq_ignore_ascii_case(&n)) && names.len() < NAMES
         {
             names.push(n);
@@ -140,7 +142,10 @@ fn parse(content: &[Value]) -> Option<(Vec<String>, String)> {
     }
     let line = input["description"].as_str().unwrap_or_default();
     let line: String = line.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!names.is_empty()).then(|| (names, line.chars().take(200).collect()))
+    let line = crate::scrub::safe::head_with(&cuts, &line, 200)
+        .0
+        .to_string();
+    (!names.is_empty()).then_some((names, line))
 }
 
 /// Jev said `new` for `kind` and no mined name fit: the naming call, once a

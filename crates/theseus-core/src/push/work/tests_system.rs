@@ -174,6 +174,29 @@ fn a_sync_that_failed_at_once_still_informs() {
     assert_eq!(job(&out).started_at_ms, T0 - 2000);
 }
 
+/// A sync's error whose first line ends inside a known value that holds a
+/// line break: the job's reason and its notice stop before the value.
+#[test]
+fn a_syncs_error_line_inside_a_known_value_is_no_place_to_cut() {
+    use crate::tests_cut_sites::whole_or_absent;
+    let lines = "kelp-one-0417\nferry-two-0417";
+    let board = crate::secrets::SecretBoard::empty();
+    board.hold("lines", crate::secrets::Secret::new(lines.into()));
+    let mut w = WorkBoard::default();
+    let failed = row(
+        "import.synced",
+        T0,
+        json!({"by": "timer", "started_ms": T0 - 2000, "episodes": 0, "messages": 0,
+               "imported": 0, "appended": 0, "skipped": 0, "rejected": 0,
+               "error": format!("login failed with {lines} at the end")}),
+    );
+    let out = feed(&mut w, 1, T0, vec![failed]);
+    assert_eq!(job(&out).attention.label, "failed: login failed with");
+    whole_or_absent("the job's reason", &job(&out).attention.label, lines);
+    assert_eq!(out.notices.len(), 1);
+    whole_or_absent("the notice", &out.notices[0].line, lines);
+}
+
 /// A long import that ends is an Inform, which is a badge and no sound; a
 /// short one ends in silence (the first test).
 #[test]

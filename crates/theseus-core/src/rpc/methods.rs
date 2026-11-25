@@ -887,7 +887,7 @@ impl Core {
             None,
             "Wake {} cancelled by {by}: \"{}\" will not run.",
             info.short,
-            crate::session::title_from(&w.note, &crate::scrub::Cuts::none())
+            crate::session::title_from(&w.note, &crate::scrub::Cuts::live())
         );
         Ok(theseus_protocol::WakeCancelResult { wake: info })
     }

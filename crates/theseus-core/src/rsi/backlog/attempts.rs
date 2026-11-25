@@ -140,8 +140,9 @@ pub fn notice(item: &str, title: &str, tries: &[Try], cap: u32) -> String {
          Nothing waits for you.\nWhat went wrong each time:\n",
         tries.len().max(cap as usize)
     );
+    let cuts = crate::scrub::Cuts::live();
     for (i, t) in tries.iter().enumerate() {
-        let why: String = t.why.chars().take(300).collect();
+        let (why, _) = crate::scrub::safe::head_with(&cuts, &t.why, 300);
         body.push_str(&format!("- try {}: {why}\n", i + 1));
     }
     body.push_str(&format!(

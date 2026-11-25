@@ -21,6 +21,7 @@ use tokio::time::Instant;
 
 use super::JudgeService;
 use crate::node::Body;
+use crate::scrub::safe;
 use crate::store::Store;
 
 /// How many turns' offers wait for their reply, or replies for their offer.
@@ -97,7 +98,9 @@ impl JudgeService {
     /// The batch found `turn`'s message offerable. A reply already written
     /// without the chip gets it late; else the brief waits for the reply.
     pub(super) fn note_offer(&self, turn: &str, text: &str) {
-        let brief: String = text.chars().take(BRIEF_CHARS).collect();
+        let brief = safe::head_with(&self.scrubber.cuts(), text, BRIEF_CHARS)
+            .0
+            .to_string();
         let late = {
             let mut book = self.offers.lock().unwrap_or_else(|e| e.into_inner());
             book.note(turn, &brief, Instant::now())
@@ -143,6 +146,9 @@ pub fn made_a_task(store: &Store, session: &str, turn: &str) -> Option<bool> {
                     .any(|u| matches!(u.name.as_str(), "task_create" | "task.create")))
     }))
 }
+
+#[cfg(test)]
+mod tests_cut;
 
 #[cfg(test)]
 mod tests {

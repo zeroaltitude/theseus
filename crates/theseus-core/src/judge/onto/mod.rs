@@ -168,10 +168,9 @@ fn attached(core: &Core, msg: &Inbound) -> (Vec<Picture>, Vec<OntoText>) {
             }
             AttachmentContent::Text { text, .. } => texts.push(OntoText {
                 name: a.name.clone(),
-                text: text
-                    .chars()
-                    .take(theseus_judge::builders::ONTO_EXCERPT_CHARS)
-                    .collect(),
+                text: crate::scrub::safe::head(text, theseus_judge::builders::ONTO_EXCERPT_CHARS)
+                    .0
+                    .to_string(),
             }),
             _ => {}
         }

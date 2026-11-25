@@ -376,6 +376,7 @@ pub fn hidden_of(catalog: &[Value], sent: &[Value]) -> Vec<HiddenTool> {
                 && t.get("defer_loading") == Some(&Value::Bool(true))
         })
     };
+    let cuts = crate::scrub::Cuts::live();
     catalog
         .iter()
         .filter_map(|t| {
@@ -388,7 +389,9 @@ pub fn hidden_of(catalog: &[Value], sent: &[Value]) -> Vec<HiddenTool> {
             Some(HiddenTool {
                 wire: name.to_string(),
                 family: family::of_wire(name),
-                line: line.chars().take(160).collect(),
+                line: crate::scrub::safe::head_with(&cuts, line, 160)
+                    .0
+                    .to_string(),
             })
         })
         .collect()

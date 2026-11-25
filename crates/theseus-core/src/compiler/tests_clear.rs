@@ -105,6 +105,19 @@ fn a_reads_stub_names_the_lines_its_result_held_and_the_note_is_cut_on_a_word() 
     assert!(clearing::remember::note_of(&[json!({"type": "tool_use", "id": "x"})]).is_none());
 }
 
+/// A note's last space inside a known value is no place to cut: the note
+/// stops before the value.
+#[test]
+fn a_notes_last_space_inside_a_known_value_is_no_place_to_cut() {
+    let spaced = "alpha-0417 beta-9932";
+    let board = crate::secrets::SecretBoard::empty();
+    board.hold("spaced", crate::secrets::Secret::new(spaced.into()));
+    let text = format!("{} {spaced}{}", "w".repeat(90), "q".repeat(60));
+    let note = clearing::remember::note_of(&[json!({"type": "text", "text": text})]).unwrap();
+    assert_eq!(note, format!("{}…", "w".repeat(90)));
+    crate::tests_cut_sites::whole_or_absent("the note", &note, spaced);
+}
+
 /// The ids of the results a compilation cleared, in order.
 fn cleared_ids(c: &Compiled) -> Vec<String> {
     c.budget

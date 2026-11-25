@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -662,6 +662,10 @@ struct Progress {
     stopped: Option<String>,
 }
 
+/// Every board made in the process, held weakly so one that drops is
+/// forgotten: what `Cuts::live` reads.
+static LIVE: Mutex<Vec<Weak<SecretBoard>>> = Mutex::new(Vec::new());
+
 /// Each secret's state, published as it changes, so a consumer waits for
 /// its own secret alone (FAST, §2). The daemon serves while this fills.
 pub struct SecretBoard {
@@ -703,13 +707,25 @@ impl SecretBoard {
             .into_iter()
             .map(|n| (n, SecretState::Resolving))
             .collect();
-        Arc::new(Self {
+        let board = Arc::new(Self {
             tx: watch::Sender::new(map),
             origin,
             progress: Mutex::default(),
             outside,
             reads: OnceLock::new(),
-        })
+        });
+        let mut live = LIVE.lock().unwrap_or_else(|p| p.into_inner());
+        live.retain(|b| b.strong_count() > 0);
+        live.push(Arc::downgrade(&board));
+        board
+    }
+
+    /// Every board alive in the process now, for a cut with none at hand
+    /// (`Cuts::live`). The list's lock is let go before any board is read.
+    pub(crate) fn live() -> Vec<Arc<Self>> {
+        let mut live = LIVE.lock().unwrap_or_else(|p| p.into_inner());
+        live.retain(|b| b.strong_count() > 0);
+        live.iter().filter_map(Weak::upgrade).collect()
     }
 
     /// No secrets at all: nothing to wait for.

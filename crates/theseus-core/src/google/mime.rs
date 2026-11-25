@@ -405,6 +405,6 @@ pub fn safe_name(name: &str) -> String {
     if clean.is_empty() {
         "attachment".into()
     } else {
-        clean.chars().take(120).collect()
+        crate::scrub::safe::head(clean, 120).0.to_string()
     }
 }

@@ -108,6 +108,8 @@ mod tests_reap;
 #[cfg(test)]
 mod tests_retry;
 #[cfg(test)]
+mod tests_safe_cut;
+#[cfg(test)]
 mod tests_scratch;
 #[cfg(test)]
 mod tests_sealed;

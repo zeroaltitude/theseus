@@ -662,6 +662,9 @@ facts![
 ];
 
 #[cfg(test)]
+mod tests_wake_cut;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

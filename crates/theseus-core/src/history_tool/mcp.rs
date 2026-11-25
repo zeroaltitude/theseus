@@ -63,7 +63,7 @@ fn place_of_session(core: &Core, sid: &str) -> Result<Option<String>, String> {
     Ok(super::anchor(core, sid, None, rec.dir.as_deref()))
 }
 
-fn line(l: HistoryLine) -> HistoryReadLine {
+fn line(l: HistoryLine, cuts: &crate::scrub::Cuts) -> HistoryReadLine {
     let HistoryLine {
         handle,
         place,
@@ -81,7 +81,7 @@ fn line(l: HistoryLine) -> HistoryReadLine {
         place,
         at_ms,
         when: page::when(at_ms),
-        who: page::who(person.as_deref(), &crate::scrub::Cuts::none()),
+        who: page::who(person.as_deref(), cuts),
         words: his_words,
         did,
         reply_begins,
@@ -268,9 +268,10 @@ async fn read_history(
                     PageEnd::HistoryExhausted => ("history_exhausted", None),
                     PageEnd::SearchCut | PageEnd::SearchStale => ("search_cut", None),
                 };
+                let cuts = crate::scrub::Cuts::live();
                 HistoryReadResult {
                     place,
-                    lines: pg.lines.into_iter().map(line).collect(),
+                    lines: pg.lines.into_iter().map(|l| line(l, &cuts)).collect(),
                     end: end.into(),
                     next: next.map(cursor),
                     open: None,
@@ -278,4 +279,33 @@ async fn read_history(
             }
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Another person's name over 80 characters, a value the live board knows
+    /// across that cut: the line an MCP client reads holds it whole or not at
+    /// all.
+    #[test]
+    fn an_outside_persons_name_stops_before_a_known_value() {
+        use crate::tests_cut_sites::{whole_or_absent, V};
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        let l = HistoryLine {
+            handle: crate::view::Handle("h1".into()),
+            place: "dm".into(),
+            at_ms: 1,
+            his_words: "hello".into(),
+            did: None,
+            person: Some(format!("{}{V} after", "p".repeat(70))),
+            reply_begins: None,
+            outside: false,
+            labels: None,
+        };
+        let read = line(l, &crate::scrub::Cuts::live());
+        assert!(read.who.starts_with("outside text, ppp"), "{}", read.who);
+        whole_or_absent("the line's who", &read.who, V);
+    }
 }

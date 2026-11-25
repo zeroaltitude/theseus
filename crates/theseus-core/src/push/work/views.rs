@@ -117,7 +117,10 @@ impl WorkBoard {
             v.parent = Some(w.id.clone());
         }
         Self::decorate_exec(&mut v, ei);
-        v.woke = ei.woke.clone().or_else(|| Self::due_wake(ei));
+        v.woke = ei
+            .woke
+            .clone()
+            .or_else(|| Self::due_wake(ei, &self.scrubber.cuts()));
         v.forecast = self.forecast_of(ei);
         v.position = 0;
         v.previous = None;
@@ -161,7 +164,7 @@ impl WorkBoard {
     /// list: the oldest turn wake that is due, so the notice says which wake
     /// woke it when the due scan queues it, not a frame later when its turn
     /// takes the wake.
-    fn due_wake(ei: &ExecIn) -> Option<theseus_protocol::work::Woke> {
+    fn due_wake(ei: &ExecIn, cuts: &Cuts) -> Option<theseus_protocol::work::Woke> {
         if ei.x.why.as_deref() != Some("wake")
             || !matches!(ei.x.state.as_str(), "queued" | "running")
         {
@@ -171,7 +174,7 @@ impl WorkBoard {
             .iter()
             .filter(|w| w.run.is_turn() && w.paused_at_ms.is_none() && w.due_at_ms <= ei.x.at_ms)
             .min_by_key(|w| w.due_at_ms)
-            .map(woke_of)
+            .map(|w| woke_of(w, cuts))
     }
 
     /// What an execution is doing: its model, a tool call, or a job (the
@@ -192,7 +195,7 @@ impl WorkBoard {
             if let Some(j) = open.iter().find(|a| is_job(&a.a)) {
                 return Some(Doing {
                     what: DoingKind::Job,
-                    label: job_title(j),
+                    label: job_title(j, &self.scrubber.cuts()),
                     since_ms: j.a.dispatched_at_ms.unwrap_or(j.a.planned_at_ms),
                     turn,
                     loop_index,
@@ -294,7 +297,7 @@ impl WorkBoard {
                 .iter()
                 .find(|p| p.correlation_id == a.correlation_id);
         let budget = a.tool == BUDGET_TOOL;
-        let (tool, prompt) = question_words(ai);
+        let (tool, prompt) = question_words(ai, &self.scrubber.cuts());
         let reason = pending
             .map(|p| p.reason.clone())
             .filter(|r| !r.is_empty())
@@ -380,7 +383,7 @@ impl WorkBoard {
         v.parent = Some(ei.x.execution_id.clone());
         v.root = self.root_of(&ei.x.execution_id);
         v.session_id = Some(a.session_id.clone());
-        v.title = job_title(ai);
+        v.title = job_title(ai, &self.scrubber.cuts());
         v.read = ai.read;
         // The owner dismissed its failure (`Kernel::dismiss_job`): asks for no one.
         v.dismissed = a
@@ -543,7 +546,7 @@ impl WorkBoard {
 
 /// The tool a question is about and its words: what the call would run, or
 /// the budget's.
-fn question_words(ai: &ActIn) -> (String, String) {
+fn question_words(ai: &ActIn, cuts: &Cuts) -> (String, String) {
     let a = &ai.a;
     let tool = a
         .proposal
@@ -552,9 +555,9 @@ fn question_words(ai: &ActIn) -> (String, String) {
     let prompt = if a.tool == BUDGET_TOOL {
         "reset the session's spend".to_string()
     } else if let Some(i) = crate::ask::input_of(a) {
-        line(&i.question, &Cuts::none())
+        line(&i.question, cuts)
     } else if !ai.argv.is_empty() {
-        format!("{tool} {}", line(&ai.argv.join(" "), &Cuts::none()))
+        format!("{tool} {}", line(&ai.argv.join(" "), cuts))
     } else {
         match a
             .proposal
@@ -562,7 +565,7 @@ fn question_words(ai: &ActIn) -> (String, String) {
             .and_then(|p| p.resource.clone())
             .or_else(|| a.resource.clone())
         {
-            Some(r) => format!("{tool} {}", line(&r, &Cuts::none())),
+            Some(r) => format!("{tool} {}", line(&r, cuts)),
             None => tool.clone(),
         }
     };
@@ -570,20 +573,23 @@ fn question_words(ai: &ActIn) -> (String, String) {
 }
 
 /// A wake that woke an execution, as its view says it.
-pub(super) fn woke_of(w: &theseus_kernel::PendingWake) -> theseus_protocol::work::Woke {
+pub(super) fn woke_of(
+    w: &theseus_kernel::PendingWake,
+    cuts: &Cuts,
+) -> theseus_protocol::work::Woke {
     theseus_protocol::work::Woke {
-        note: crate::session::title_from(&w.note, &Cuts::none()),
+        note: crate::session::title_from(&w.note, cuts),
         at_ms: w.due_at_ms,
         purpose: Some(w.purpose.as_str().to_string()),
     }
 }
 
 /// A job's title: its command as the model wrote it, else its tool.
-fn job_title(ai: &ActIn) -> String {
+fn job_title(ai: &ActIn, cuts: &Cuts) -> String {
     if ai.argv.is_empty() {
         ai.a.tool.clone()
     } else {
-        line(&ai.argv.join(" "), &Cuts::none())
+        line(&ai.argv.join(" "), cuts)
     }
 }
 

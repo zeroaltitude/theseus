@@ -211,16 +211,10 @@ impl Drop for Ran<'_> {
     }
 }
 
-/// The name as kept: its first [`MAX_NAME`] bytes, at a character boundary.
+/// The name as kept: its first [`MAX_NAME`] bytes, at a character boundary
+/// and before any known value.
 fn kept(name: &str) -> &str {
-    if name.len() <= MAX_NAME {
-        return name;
-    }
-    let mut end = MAX_NAME;
-    while !name.is_char_boundary(end) {
-        end -= 1;
-    }
-    &name[..end]
+    crate::scrub::safe::head_bytes(name, MAX_NAME).0
 }
 
 impl Activity {

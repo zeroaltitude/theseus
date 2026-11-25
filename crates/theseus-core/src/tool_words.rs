@@ -66,6 +66,7 @@ fn mail(rt: &ToolRuntime, tool: &str, input: &Value, ctx: &ToolCtx) -> Option<Co
     let body = crate::google::mail::card_text(&card);
     Some(ConfirmPreview {
         kind: ConfirmPreview::MAIL.into(),
+        // plain cut: a digest's first twelve characters
         body: format!("{body}\nDraft {}", digest.get(..12).unwrap_or(digest)),
     })
 }

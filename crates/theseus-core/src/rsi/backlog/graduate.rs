@@ -97,16 +97,17 @@ pub fn fires(u: &ExtendUsage, min_calls: u32) -> bool {
 
 /// A string as a JSON string, cut to [`QUOTE_CHARS`].
 fn quoted(s: &str) -> String {
-    let cut: String = s.chars().take(QUOTE_CHARS).collect();
-    serde_json::Value::String(cut).to_string()
+    let (cut, _) = crate::scrub::safe::head(s, QUOTE_CHARS);
+    serde_json::Value::String(cut.to_string()).to_string()
 }
 
 /// A value as compact JSON, cut to [`QUOTE_CHARS`] characters.
 fn compact(v: &serde_json::Value) -> String {
     let s = v.to_string();
-    match s.char_indices().nth(QUOTE_CHARS) {
-        Some((i, _)) => format!("{} …[cut]", &s[..i]),
-        None => s,
+    let (head, cut) = crate::scrub::safe::head(&s, QUOTE_CHARS);
+    match cut {
+        true => format!("{head} …[cut]"),
+        false => s,
     }
 }
 

@@ -16,11 +16,11 @@
 //!   (`seed`), and its first check is at once: a read, safe to repeat.
 
 use theseus_kernel::{ProbeNews, ProbeVerdict, WatchState};
-use theseus_protocol::term::words::cut_marked;
 
 use super::cond::Observed;
 use super::quiet::Quiet;
 use super::spec::{Check, Spec, Then};
+use crate::scrub::safe;
 
 /// The most a failing watch waits between checks, when its interval is
 /// shorter than this.
@@ -278,7 +278,7 @@ impl Entry {
         if turn {
             let mut t = format!("👁 watch met: {title}");
             if !value.is_empty() {
-                t.push_str(&format!(" → {}", cut_marked(value, 120)));
+                t.push_str(&format!(" → {}", safe::head_marked(value, 120)));
             }
             t.push_str(&format!(", after {waited} and {checks} checks"));
             if let Then::Task(brief) = &self.spec.then {
@@ -290,7 +290,7 @@ impl Entry {
             let v = if value.is_empty() || value.contains('\n') {
                 String::new()
             } else {
-                format!(" → {}", cut_marked(value, 120))
+                format!(" → {}", safe::head_marked(value, 120))
             };
             format!("👁 {said}{v} (after {waited}, {checks} checks, $0)")
         }
@@ -299,7 +299,9 @@ impl Entry {
     fn expired_text(&self, now: u64) -> String {
         let (waited, checks) = self.after(now);
         let last = match self.last.as_deref() {
-            Some(v) if !v.is_empty() => format!("; the last value was {}", cut_marked(v, 120)),
+            Some(v) if !v.is_empty() => {
+                format!("; the last value was {}", safe::head_marked(v, 120))
+            }
             _ => String::new(),
         };
         format!(
@@ -310,13 +312,10 @@ impl Entry {
 }
 
 fn first_line(s: &str) -> String {
-    cut_marked(
-        s.lines()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or("")
-            .trim(),
-        120,
-    )
+    match safe::first_line(s, 120, 120) {
+        (l, true) => format!("{l}…"),
+        (l, false) => l.to_string(),
+    }
 }
 
 #[cfg(test)]
