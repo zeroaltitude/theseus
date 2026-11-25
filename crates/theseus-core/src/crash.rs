@@ -124,6 +124,8 @@ fn kept_message(message: &str, max: usize) -> String {
             end = Some(i);
         }
     }
+    // The panic hook must take no lock, and a live cut takes one.
+    // plain cut: it falls only at whitespace, so a value with none in it is whole here or absent
     let head = end.and_then(|e| message.get(..e)).map_or("", str::trim_end);
     let n = message.len();
     if head.is_empty() {

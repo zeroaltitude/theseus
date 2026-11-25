@@ -246,6 +246,7 @@ pub fn work_dir(cwd: &Path, session_id: &str) -> PathBuf {
     let short: String = session_id
         .chars()
         .rev()
+        // plain cut: a session id's last eight characters
         .take(8)
         .collect::<Vec<_>>()
         .into_iter()
@@ -756,7 +757,8 @@ pub async fn listen(
         .map_err(|e| format!("Deepgram's answer could not be read ({e})"))?;
     let text = String::from_utf8_lossy(&body);
     if !status.is_success() {
-        let said: String = text.replace(key, "<key>").chars().take(300).collect();
+        let said = text.replace(key, "<key>");
+        let said = crate::scrub::safe::head(&said, 300).0;
         return Err(format!("Deepgram answered {status}: {}", said.trim()));
     }
     let v: Value = serde_json::from_slice(&body)

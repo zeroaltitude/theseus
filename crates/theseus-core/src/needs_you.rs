@@ -304,6 +304,7 @@ impl Core {
 
 /// The last eight characters of a question's id, which `theseus answer` takes.
 fn short_id(corr: &str) -> String {
+    // plain cut: a question id's last eight characters
     let mut tail: Vec<char> = corr.chars().rev().take(8).collect();
     tail.reverse();
     tail.into_iter().collect()
@@ -430,6 +431,7 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
     let prompt = match (&ask, settings) {
         (Some(i), _) => i.question.clone(),
         (None, Some(p)) => p.what.clone(),
+        // plain cut: the display copy, which `display_question` has masked
         (None, None) => cut_marked(req.reason.trim(), 300),
     };
     let choices = ask.as_ref().map(|i| i.choices()).unwrap_or_default();
@@ -438,6 +440,7 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
         .correlation_id
         .chars()
         .rev()
+        // plain cut: a question id's last eight characters
         .take(8)
         .collect::<Vec<_>>()
         .into_iter()
@@ -481,15 +484,18 @@ pub fn batch_body_of(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json:
     for (a, req, who) in asks.iter().take(LISTED) {
         let prompt = match crate::ask::input_of(a) {
             Some(i) => i.question,
+            // plain cut: the display copy, which `display_question` has masked
             None => cut_marked(req.reason.trim(), 120),
         };
         let short: String = {
+            // plain cut: a question id's last eight characters
             let mut tail: Vec<char> = a.correlation_id.chars().rev().take(8).collect();
             tail.reverse();
             tail.into_iter().collect()
         };
         text.push_str(&format!(
             "\n- **{who}**: {} (`{short}`)",
+            // plain cut: the display copy, which `display_question` has masked
             cut_marked(prompt.trim(), 120)
         ));
     }

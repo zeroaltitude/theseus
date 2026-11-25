@@ -1113,12 +1113,8 @@ pub fn from_pieces(
 ) -> (String, Vec<String>) {
     use crate::arrangement::Role;
     let text = |p: &crate::arrangement::Piece| -> String {
-        p.text
-            .as_deref()
-            .unwrap_or(&p.first_line)
-            .chars()
-            .take(1000)
-            .collect()
+        let t = p.text.as_deref().unwrap_or(&p.first_line);
+        crate::scrub::safe::head(t, 1000).0.to_string()
     };
     let standing = |r: Role| {
         pieces

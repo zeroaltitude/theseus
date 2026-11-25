@@ -34,10 +34,9 @@ impl TurnRunner {
             if node.origin == Origin::Operator {
                 self.standing.expected.note_input(t.tc.turn_id, &node.id);
             }
-            t.route.ask = text
-                .chars()
-                .take(crate::tools_defer::want::ASK_CHARS)
-                .collect();
+            t.route.ask = crate::scrub::safe::head(text, crate::tools_defer::want::ASK_CHARS)
+                .0
+                .to_string();
         }
         if !self.judge.config().enabled {
             if !steered {

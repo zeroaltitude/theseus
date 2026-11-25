@@ -6,10 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
-/// Whether a line with a plain cut and no marker fails the scan. Until every
-/// site is moved or marked, the scan prints the unmarked lines and their
-/// count, and fails only on a marker with no reason.
-const UNMARKED_FAILS: bool = false;
+/// Whether a line with a plain cut and no marker fails the scan. Every site
+/// is moved or marked, so it does: the scan prints the unmarked lines and
+/// their count, and fails on any of them as on a marker with no reason.
+const UNMARKED_FAILS: bool = true;
 
 /// The ways of shortening that exist only on text: a byte cut of text needs a
 /// character-boundary step, which is here too.

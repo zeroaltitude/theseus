@@ -470,6 +470,7 @@ pub fn cut_points(text: &str, max: usize, cuts: &Cuts) -> Option<(usize, usize)>
     }
     let at = |chars: usize| {
         text.char_indices()
+            // plain cut: a budget only; `cuts.around` below sets both edges
             .nth(chars)
             .map_or(text.len(), |(i, _)| i)
     };

@@ -245,6 +245,7 @@ pub fn short(id: &str) -> String {
     if n <= 7 {
         return id.to_string();
     }
+    // plain cut: an id's last six characters
     let i = id.char_indices().nth(n - 6).map_or(0, |(i, _)| i);
     format!("…{}", &id[i..])
 }

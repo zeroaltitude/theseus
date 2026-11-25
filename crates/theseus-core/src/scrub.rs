@@ -190,6 +190,7 @@ fn merged<'a>(text: &str, mut spans: Vec<Span<'a>>) -> (Vec<Span<'a>>, Vec<&'a s
     let mut kept: Vec<Span> = Vec::new();
     let mut names = Vec::new();
     for s in spans {
+        // plain cut: the scrubber's own check of a span's edges; nothing is cut
         if s.0 >= s.1 || !text.is_char_boundary(s.0) || !text.is_char_boundary(s.1) {
             continue;
         }

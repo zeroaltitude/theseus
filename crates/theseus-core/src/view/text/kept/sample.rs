@@ -93,6 +93,7 @@ impl Draw {
 
 /// `text` with `value` put in at the character boundary `at` characters in (its end, past it).
 pub fn place(text: &str, value: &str, at: usize) -> String {
+    // plain cut: test support, built only under cfg(test): places a made-up value
     let i = text.char_indices().nth(at).map_or(text.len(), |(i, _)| i);
     format!("{}{value}{}", &text[..i], &text[i..])
 }
@@ -124,6 +125,7 @@ pub fn whole(text: &str, range: &std::ops::Range<usize>, values: &[&str]) {
         "{range:?} of {text:?}"
     );
     assert!(
+        // plain cut: test support, built only under cfg(test): checks a range
         text.is_char_boundary(range.start) && text.is_char_boundary(range.end),
         "{range:?} splits a character of {text:?}"
     );

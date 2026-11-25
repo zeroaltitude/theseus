@@ -125,7 +125,7 @@ impl Fact for UnknownTool<'_> {
             Tool,
             format!(
                 "The model called an unknown tool `{}`; it gets an error.",
-                self.name.chars().take(40).collect::<String>()
+                crate::scrub::safe::head(self.name, 40).0
             ),
         );
     }
@@ -571,7 +571,7 @@ impl Fact for ToolEnded<'_> {
                 .and_then(Value::as_bool)
                 .filter(|t| *t)
                 .and_then(|_| meta.pointer("/detail/limit_ms")?.as_u64()),
-            preview: content.chars().take(2000).collect(),
+            preview: crate::scrub::safe::head(content, 2000).0.to_string(),
             scratch: meta
                 .pointer("/detail/scratch/summary")
                 .and_then(Value::as_str)

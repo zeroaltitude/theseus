@@ -217,6 +217,7 @@ pub fn person_like(v: &str) -> bool {
         w.iter().all(|x| {
             x.len() >= 2
                 && x.chars().next().is_some_and(char::is_uppercase)
+                // plain cut: a check of each character; nothing is kept
                 && x.chars().skip(1).all(char::is_lowercase)
         })
     })
@@ -244,6 +245,7 @@ fn digest(env: &Env<'_>, v: &str) -> u64 {
 
 /// The references and paths a result named, as digests.
 fn outs_of(env: &Env<'_>, text: &str, w: &Where) -> Vec<u64> {
+    // plain cut: only keyed digests of its words are kept, and none of a word shaped like a secret
     let head: String = text.chars().take(OUT_CHARS).collect();
     let mut out: Vec<u64> = Vec::new();
     let mut take = |word: &str| {

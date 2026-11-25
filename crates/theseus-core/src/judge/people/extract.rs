@@ -101,14 +101,12 @@ pub fn parse(content: &[Value], lines: &[Line]) -> Option<Vec<(PersonCandidate, 
     let people = input["people"].as_array()?;
     let mut seen: HashMap<String, ()> = HashMap::new();
     let mut out = Vec::new();
+    let cuts = crate::scrub::Cuts::live();
     for p in people {
-        let name: String = p["name"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .chars()
-            .take(120)
-            .collect();
+        let name = p["name"].as_str().unwrap_or("").trim();
+        let name = crate::scrub::safe::head_with(&cuts, name, 120)
+            .0
+            .to_string();
         if name.is_empty() || seen.insert(fold(&name), ()).is_some() {
             continue;
         }
@@ -120,13 +118,10 @@ pub fn parse(content: &[Value], lines: &[Line]) -> Option<Vec<(PersonCandidate, 
             .filter(|h| !theseus_ontology::person::is_name(h))
             .take(8)
             .collect();
-        let role_line: String = p["role_line"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .chars()
-            .take(300)
-            .collect();
+        let role_line = p["role_line"].as_str().unwrap_or("").trim();
+        let role_line = crate::scrub::safe::head_with(&cuts, role_line, 300)
+            .0
+            .to_string();
         let mut evidence = Vec::new();
         let mut nodes = Vec::new();
         for label in p["evidence"].as_array().into_iter().flatten() {

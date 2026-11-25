@@ -19,6 +19,7 @@ pub fn say_of(text: &str, scrubber: &Scrubber) -> Option<String> {
     if line.chars().count() <= SAY_CHARS {
         return Some(line.to_string());
     }
+    // plain cut: the scrubber has masked every known value in the line first
     let cut: String = line.chars().take(SAY_CHARS - 1).collect();
     // Back to the last word, unless the line is one long word.
     let at_word = cut.rfind(char::is_whitespace).filter(|&i| i > 0);

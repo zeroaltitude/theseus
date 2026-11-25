@@ -1062,7 +1062,7 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
             v.push('\n');
             v.push_str(&short_context(&r));
         }
-        parts.push(r.chars().take(REPLY_CHARS).collect());
+        parts.push(crate::scrub::safe::head(&r, REPLY_CHARS).0.to_string());
     }
     let words = parts.join("\n");
     let q = RecallQuery {
@@ -1083,8 +1083,9 @@ pub fn short_context(reply: &str) -> String {
         let n = line.chars().count();
         if chars + n > SHORT_CONTEXT_CHARS {
             if kept.is_empty() {
-                let skip = n - SHORT_CONTEXT_CHARS;
-                let end: String = line.chars().skip(skip).collect();
+                let end = crate::scrub::safe::tail(line, SHORT_CONTEXT_CHARS)
+                    .0
+                    .to_string();
                 return match end.split_once(char::is_whitespace) {
                     Some((_, rest)) if !rest.trim().is_empty() => rest.trim().to_string(),
                     _ => end,

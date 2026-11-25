@@ -60,6 +60,8 @@ pub const MADE_BY: &str = "import";
 /// A topic's `added_by` when `tag`'s import declares it.
 pub fn made_by(tag: &str) -> String {
     let s = format!("{MADE_BY} {tag}");
+    // Records are found again by this text, so it must come back the same each time.
+    // plain cut: an import's tag, which the owner names
     s.chars().take(theseus_ontology::ADDED_BY_MAX).collect()
 }
 

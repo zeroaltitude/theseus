@@ -252,11 +252,8 @@ async fn speak(
         .await
         .map_err(|e| format!("Deepgram's answer could not be read ({})", e.without_url()))?;
     if !status.is_success() {
-        let said: String = String::from_utf8_lossy(&body)
-            .replace(key, "<key>")
-            .chars()
-            .take(200)
-            .collect();
+        let said = String::from_utf8_lossy(&body).replace(key, "<key>");
+        let said = crate::scrub::safe::head(&said, 200).0;
         return Err(format!("Deepgram answered {status}: {}", said.trim()));
     }
     if !body.starts_with(b"RIFF") {

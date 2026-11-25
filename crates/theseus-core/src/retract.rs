@@ -212,6 +212,7 @@ fn gist_of(n: &Node, cuts: &crate::scrub::Cuts) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
+    // plain cut: a budget only; `cuts.before` below sets where the gist ends
     match one.char_indices().nth(GIST_CHARS - 1) {
         Some(_) if one.chars().count() <= GIST_CHARS && !short => one,
         Some((at, _)) => format!("{}…", &one[..cuts.before(&one, at)]),

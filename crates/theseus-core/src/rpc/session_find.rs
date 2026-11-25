@@ -16,11 +16,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use theseus_protocol::term::words::cut;
 use theseus_protocol::{SessionInfo, SessionListParams, SessionListResult};
 
 use super::server::RpcFailure;
 use super::Core;
+use crate::scrub::safe;
 use crate::session::SessionRecord;
 
 /// Sessions read from the index at a time while looking for the directory's.
@@ -157,12 +157,12 @@ impl Core {
             .history_page(session, Some(ENDS), Some(0), None)
             .ok()
             .and_then(|h| text(h.nodes, &|k| k == "user_message").into_iter().next())
-            .map(|t| cut(&t, TEXT_CHARS));
+            .map(|t| safe::head(&t, TEXT_CHARS).0.to_string());
         let last = self
             .history_page(session, Some(ENDS), None, None)
             .ok()
             .and_then(|h| text(h.nodes, &any).pop())
-            .map(|t| cut(&t, TEXT_CHARS));
+            .map(|t| safe::head(&t, TEXT_CHARS).0.to_string());
         let prompts = self
             .nodes_paged(Some("user_message"), Some(session), PROMPTS)
             .ok()
@@ -186,6 +186,6 @@ fn ends(text: &str, each: usize) -> String {
     if n <= each * 2 + 3 {
         return text.to_string();
     }
-    let tail: String = text.chars().skip(n - each).collect();
-    format!("{} … {tail}", cut(text, each))
+    let (head, tail, _) = safe::ends(text, each, each);
+    format!("{head} … {tail}")
 }

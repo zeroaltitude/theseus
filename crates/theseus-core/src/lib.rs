@@ -324,6 +324,8 @@ mod tests_context;
 #[cfg(test)]
 mod tests_continuations;
 #[cfg(test)]
+mod tests_cut_last;
+#[cfg(test)]
 mod tests_cut_sites;
 #[cfg(test)]
 mod tests_cut_stored;

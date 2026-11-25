@@ -312,6 +312,7 @@ impl WorkBoard {
                             s.expires_ms,
                             &crate::recall::stamp::system,
                         );
+                        // plain cut: a weekday name's first three letters
                         d.chars().take(3).collect::<String>()
                     });
                     theseus_protocol::work::horizon::reply_wait(

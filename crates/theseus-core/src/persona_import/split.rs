@@ -5,8 +5,9 @@
 /// The cut points of `text`, so that each part is at most `limit` bytes where
 /// that can be done: at the start of a heading line (`#` to `######`) first,
 /// then at a blank line, then at any line, and only when a single line is
-/// longer than the limit, at a character boundary. Returns the parts in
-/// order; a text within the limit is one part.
+/// longer than the limit, at a character boundary before any known value it
+/// would split. Returns the parts in order; a text within the limit is one
+/// part.
 pub fn parts(text: &str, limit: usize) -> Vec<&str> {
     assert!(limit >= 4, "a part must hold at least one character");
     let mut out = Vec::new();
@@ -25,7 +26,7 @@ pub fn parts(text: &str, limit: usize) -> Vec<&str> {
 
 /// Where to cut `rest` (longer than `limit`): the latest line start within
 /// `limit` that is a heading's, else a paragraph's, else any line's, else a
-/// character boundary.
+/// character boundary before any known value.
 fn cut_of(rest: &str, limit: usize) -> usize {
     let mut heading = None;
     let mut blank = None;
@@ -51,11 +52,13 @@ fn cut_of(rest: &str, limit: usize) -> usize {
     if let Some(c) = heading.or(blank).or(line) {
         return c;
     }
-    let mut c = limit;
-    while !rest.is_char_boundary(c) {
-        c -= 1;
+    // Before a known value it would split, unless that leaves nothing (a value
+    // longer than the limit at the start): a part must hold something, or the
+    // split would never end.
+    match crate::scrub::safe::head_bytes(rest, limit).0.len() {
+        0 => crate::scrub::Cuts::none().before(rest, limit),
+        c => c,
     }
-    c
 }
 
 fn is_heading(line: &str) -> bool {
