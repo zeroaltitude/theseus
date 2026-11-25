@@ -105,6 +105,9 @@ pub struct ExchangeRebuildResult {
     /// Records under the item labels' prefix (`labels.`) that could not be
     /// read as an item's labels: passed over, and left as they are.
     pub labels_passed_over: u64,
+    /// Records under the touches' prefix that would be moved and could not be
+    /// read as a touch: passed over, and left as they are.
+    pub touches_passed_over: u64,
     /// Why the things named in them were not looked for, if they were not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

@@ -287,6 +287,12 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
             r.labels_passed_over
         ));
     }
+    if r.touches_passed_over > 0 {
+        s.push_str(&format!(
+            "; {} records under the touches' prefix could not be read as touches: left as they are",
+            r.touches_passed_over
+        ));
+    }
     s
 }
 
@@ -484,6 +490,25 @@ mod tests {
         );
         let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));
         assert!(!none.contains("labels."), "{none}");
+    }
+
+    /// A rebuild that passed over touch records it could not read says how many, and that they were left as
+    /// they are (issue 46); one that passed over none says nothing of them.
+    #[test]
+    fn a_rebuild_says_how_many_touch_records_it_passed_over() {
+        let of =
+            |v: serde_json::Value| -> ExchangeRebuildResult { serde_json::from_value(v).unwrap() };
+        let line = rebuild_lines(&of(
+            serde_json::json!({"sessions": 1, "touches_passed_over": 2}),
+        ));
+        assert!(
+            line.ends_with(
+                "; 2 records under the touches' prefix could not be read as touches: left as they are"
+            ),
+            "{line}"
+        );
+        let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));
+        assert!(!none.contains("touches' prefix"), "{none}");
     }
 
     #[test]
