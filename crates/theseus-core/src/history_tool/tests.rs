@@ -24,11 +24,11 @@ use crate::view::{Anchor, Handle, PointOfView, Present};
 mod edges;
 mod every;
 mod handles;
-mod self_wide;
 mod kept;
 mod keys;
 mod labels;
 mod parts;
+mod self_wide;
 mod unread_tags;
 
 const HERE: &str = "local";

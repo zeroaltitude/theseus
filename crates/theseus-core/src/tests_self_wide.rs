@@ -42,7 +42,11 @@ async fn a_builders_and_a_fixers_turn_is_laid_other_sessions_and_recall_from_ano
     let builder = self_session(c, "self build: kelp", None);
     let fixer = self_session(c, "self fix: kelp", Some(Role::Fixer));
     let reviewer = self_session(c, "self review: kelp", Some(Role::Reviewer));
-    for (sid, who) in [(&builder, "builder"), (&fixer, "fixer"), (&reviewer, "reviewer")] {
+    for (sid, who) in [
+        (&builder, "builder"),
+        (&fixer, "fixer"),
+        (&reviewer, "reviewer"),
+    ] {
         let wide = !Verified::of_session(&c.runner, sid).own_place_only();
         assert_eq!(wide, who != "reviewer", "{who}: its scope");
         unmarked(c, sid, &format!("{who}: what is the kelp vault code?"))

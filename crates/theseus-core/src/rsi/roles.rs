@@ -44,7 +44,13 @@ pub enum Role {
     Reviewer,
 }
 
-const FIXER_TOOLS: &[&str] = &["fs", "proc", "git", "job", crate::view::history::HISTORY_TOOL];
+const FIXER_TOOLS: &[&str] = &[
+    "fs",
+    "proc",
+    "git",
+    "job",
+    crate::view::history::HISTORY_TOOL,
+];
 const REVIEWER_TOOLS: &[&str] = &[
     "fs.read", "fs.list", "fs.glob", "fs.grep", "git.diff", "git.log", "proc.run", "job.wait",
     "job.read", "job.stop",
