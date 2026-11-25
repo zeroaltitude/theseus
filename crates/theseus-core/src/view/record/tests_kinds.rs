@@ -92,7 +92,7 @@ fn todays_pieces() -> Vec<Piece> {
         piece(
             exchanges("discord:dm:9"),
             "far",
-            Band::ElsewhereWords,
+            Band::Everywhere,
             Reason::Elsewhere,
             60,
         ),
@@ -195,7 +195,7 @@ view cmp_golden (view): place local, present owner_alone, at 7
   waiting (20 tokens)
     x:q_1 waiting q_1 [waiting] whole 20 tokens, here: waiting
   elsewhere (60 tokens)
-    x:far exchanges far [elsewhere_words] whole 60 tokens, here: elsewhere
+    x:far exchanges far [everywhere] whole 60 tokens, here: elsewhere
   here (200 tokens)
     x:t2 exchanges t2 [floor] whole 120 tokens, here: floor
     x:t1 exchanges t1 [window_words] whole 80 tokens, here: window

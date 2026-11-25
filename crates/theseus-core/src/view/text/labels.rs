@@ -248,7 +248,7 @@ pub fn reason(r: Reason) -> &'static str {
         Reason::Floor => "among the newest exchanges here",
         Reason::Window => "in this conversation's window",
         Reason::Ladder => "in this conversation's earlier part",
-        Reason::Elsewhere => "said elsewhere in the last two days",
+        Reason::Elsewhere => "among the newest exchanges from every place",
         Reason::Past => "the owner's own earlier words",
         Reason::Waiting => "still waiting between you",
         Reason::AtHand => "the work at hand",

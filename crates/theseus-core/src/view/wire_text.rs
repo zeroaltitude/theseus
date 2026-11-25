@@ -1,7 +1,7 @@
 //! The renderer over the store (`super::render::Renderer`), with the view's text (`super::text`): the memory
 //! page; the budgeter's pieces as marked blocks, those of who and where and his older words in the fixed
-//! front, those that move every turn (waiting, in play, elsewhere lately, called) in the one block beside the
-//! message; and the ladder's nodes as fold blocks. The window is not the renderer's: the compiler renders
+//! front, those that move every turn (every place's newest exchanges, waiting, in play, called) in the one
+//! block beside the message; and the ladder's nodes as fold blocks. The window is not the renderer's: the compiler renders
 //! the window's exchanges as real turns (`compiler::view`).
 //!
 //! A piece is read by its range: an exchange of a place from the store, in the piece's form, each node with
@@ -22,6 +22,7 @@ use super::text::forms::{self, Said, Voice};
 use super::text::labels::{self, Origin};
 use super::text::parts::{self, Seen};
 use super::text::{blocks, page};
+use super::timeline::Cursor;
 use super::{Anchor, Form, Handle, Label, Piece, PointOfView, Slot, Snapshot, Space};
 use crate::copies::since::Since;
 use crate::exchange;
@@ -121,7 +122,9 @@ impl TextRenderer<'_> {
         if p.range.last.id != p.range.first.id {
             ids.push(p.range.last.id.as_str());
         }
-        let recent = p.band == Band::PeopleRecent;
+        // A person's recent line elsewhere, or a line from every place: within its own bound, cut with its
+        // handle, its words headed with the person's name.
+        let lined = matches!(p.band, Band::PeopleRecent | Band::Everywhere);
         let mut out = Vec::new();
         for turn in ids {
             let nodes = self.exchange_nodes(turn)?;
@@ -129,8 +132,7 @@ impl TextRenderer<'_> {
             let said = match form {
                 Form::Whole => forms::whole(&nodes),
                 Form::Spoken => forms::spoken(&nodes),
-                // A person's recent line elsewhere: within its own bound, cut with its handle.
-                Form::Line if recent => forms::fit(
+                Form::Line if lined => forms::fit(
                     line(&nodes, self.summary(turn)?, &handle),
                     RECENT_LINE_TOKENS,
                     &handle,
@@ -138,7 +140,7 @@ impl TextRenderer<'_> {
                 Form::Line => line(&nodes, self.summary(turn)?, &handle),
             };
             // Its words are headed with the person's name, as the owner's records hold it.
-            let person = match recent {
+            let person = match lined {
                 true => self.person_name(turn)?,
                 false => None,
             };
@@ -354,6 +356,7 @@ impl Renderer for TextRenderer<'_> {
 
     fn render(&self, view: &View, _: &dyn Snapshot) -> anyhow::Result<RequestParts> {
         let (mut fixed, mut moving) = (Vec::new(), Vec::new());
+        let mut every_place_end = None;
         for s in &view.shown {
             let p = &s.piece;
             let to = match part(p) {
@@ -362,7 +365,11 @@ impl Renderer for TextRenderer<'_> {
                 Part::Elsewhere => continue,
             };
             to.extend(self.blocks(p, s.form, &view.pov)?);
+            if p.band == Band::Everywhere {
+                every_place_end = Some(moving.len());
+            }
         }
+        every_place_pager(&mut moving, every_place_end, view);
         recall_preamble(&mut moving);
         recall_left_out(&mut moving, view);
         floor_left_out(&mut moving, view);
@@ -374,6 +381,31 @@ impl Renderer for TextRenderer<'_> {
             ..RequestParts::default()
         })
     }
+}
+
+/// Where the every-place pager resumes, said after the last line from every place: the cursor of the oldest
+/// laid (`blocks::every_place_pager`). None when no line from every place is laid.
+fn every_place_pager(moving: &mut Vec<MarkedBlock>, end: Option<usize>, view: &View) {
+    let oldest = (view.shown.iter())
+        .filter(|s| s.piece.band == Band::Everywhere)
+        .map(|s| Cursor {
+            at_ms: s.piece.range.last.at_ms,
+            turn_id: s.piece.range.last.id.clone(),
+        })
+        .min();
+    let (Some(end), Some(oldest)) = (end, oldest) else {
+        return;
+    };
+    moving.insert(
+        end,
+        MarkedBlock {
+            label: Label::Testimony,
+            heading: String::new(),
+            text: blocks::every_place_pager(&oldest),
+            sources: Vec::new(),
+            handle: None,
+        },
+    );
 }
 
 /// The recall note's own first line, once, before the first recalled item laid (issue 44): the same words a

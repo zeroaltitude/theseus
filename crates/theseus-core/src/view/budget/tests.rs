@@ -112,7 +112,7 @@ fn forms(v: &View) -> Vec<(Band, u64, Form)> {
 
 #[test]
 fn an_exchange_asked_for_twice_is_shown_once_in_slot_g_with_both_reasons() {
-    let mut elsewhere = piece(Band::ElsewhereWords, here(), 5, Form::Line, (100, 40, 10));
+    let mut elsewhere = piece(Band::Everywhere, here(), 5, Form::Line, (100, 40, 10));
     elsewhere.reasons = BTreeSet::from([Reason::Elsewhere]);
     let window = piece(Band::WindowWords, here(), 5, Form::Spoken, (100, 40, 10));
     let v = run(vec![elsewhere, window], &budget(60_000, 150_000)).expect("fits");
@@ -220,10 +220,10 @@ fn over_the_ceiling_a_piece_steps_down_a_form_before_it_is_dropped() {
 
 #[test]
 fn cuts_come_from_the_end_of_the_admission_order() {
-    let words = piece(Band::ElsewhereWords, fact("w"), 1, Form::Line, (0, 0, 30));
+    let words = piece(Band::Everywhere, fact("w"), 1, Form::Line, (0, 0, 30));
     let recall = piece(Band::Recall, fact("r"), 9, Form::Line, (0, 0, 30));
     let v = run(vec![recall, words], &budget(30 + H + R, 150_000)).expect("fits");
-    assert_eq!(forms(&v), [(Band::ElsewhereWords, 1, Form::Line)]);
+    assert_eq!(forms(&v), [(Band::Everywhere, 1, Form::Line)]);
 }
 
 #[test]

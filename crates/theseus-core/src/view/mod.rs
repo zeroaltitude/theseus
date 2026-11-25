@@ -114,7 +114,8 @@ pub enum Slot {
     Waiting,
     /// D: the work at hand and the things named in the last three exchanges here.
     InPlay,
-    /// F: the last 48 hours in his other private places.
+    /// F: EVERYWHERE, the newest exchanges from every place this conversation does not show (`select::everywhere`).
+    /// Its stored name is slot F's, so an old record's slot reads as it did.
     Elsewhere,
     /// G: this place's window and ladder, with its own allowance.
     Here,

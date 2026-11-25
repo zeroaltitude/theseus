@@ -440,42 +440,182 @@ fn the_window_lays_the_floor_spoken_the_rest_spoken_and_tool_results_whole() {
     );
 }
 
+/// KEY (the owner's ruling, 2026-11-24): EVERYWHERE is the newest fifteen exchanges from every place this
+/// conversation does not show, whoever opened them, a guest's in a shared place too: each one line of its own
+/// place, newest first, within its line's bound.
 #[test]
-fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places() {
-    let mut s = Store::default();
-    s.ex.push(ex("here", "local", 1));
-    s.ex.push(ex("a1", "a", 2));
-    s.ex.push(ex("a2", "a", 30));
-    s.ex.push(ex("a3", "a", 100));
-    let mut shared = ex("sh", "chan", 3);
-    shared.audience = Audience::Shared;
-    s.ex.push(shared);
-    let mut other = ex("other", "b", 4);
-    other.person = Some("guest".into());
-    s.ex.push(other);
-    for (i, p) in ["p1", "p2", "p3", "p4", "p5", "p6"].iter().enumerate() {
-        s.ex.push(ex(&format!("{p}x"), p, 200 + i as u64));
+fn everywhere_shows_the_newest_fifteen_not_shown_here_with_their_places() {
+    let places = ["a", "b", "chan", "discord:dm:9"];
+    let mut ex_ = vec![by("owner", "here", "local", 1)];
+    for i in 0..20u64 {
+        let place = places[(i % 4) as usize];
+        let (who, audience) = match place {
+            "chan" if i % 8 == 2 => ("discord:bob", Audience::Shared),
+            "chan" => ("owner", Audience::Shared),
+            _ => ("owner", Audience::Private),
+        };
+        ex_.push(by_in(who, &format!("e{i:02}"), place, 2 + i, audience));
     }
-    let pov = pov(Present::OwnerAlone);
-    let gate = permit::Permit::of(crate::view_gate::Verified::of_fresh(
-        theseus_memory::recall::Place::Private,
-        "local",
-    ));
-    let select = |band| {
-        elsewhere::Elsewhere::new(band, sources_with(&s, "", &gate))
-            .select(&pov, &s)
-            .unwrap()
-    };
-    let words = select(Band::ElsewhereWords);
-    assert_eq!(ids(&words), ["a1", "sh", "a2", "p1x", "p2x", "p3x"]);
-    assert!(words.iter().all(|p| p.form == Form::Line));
-    let replies = select(Band::ElsewhereReplies);
-    assert_eq!(ids(&replies), ["a1", "sh", "p1x", "p2x", "p3x"]);
-    assert_eq!(
-        replies[0].sizes.spoken,
-        10 + 1_500,
-        "a long reply is its two ends"
+    let s = company(
+        &[("owner", "person:owner"), ("discord:bob", "person:bob")],
+        ex_,
     );
+    let laid = select_as(&s, Band::Everywhere, &pov_of("owner", "local"));
+    let newest: Vec<String> = (0..EVERYWHERE_EXCHANGES).map(|i| format!("e{i:02}")).collect();
+    assert_eq!(ids(&laid), newest);
+    assert!(ids(&laid).contains(&"e02"), "a guest's words in a shared place");
+    for p in &laid {
+        assert_eq!((p.slot, p.form), (Slot::Elsewhere, Form::Line));
+        assert_eq!(p.reasons, BTreeSet::from([Reason::Elsewhere]));
+        let Space::Exchanges { place } = &p.range.space else {
+            panic!("not an exchange: {:?}", p.range)
+        };
+        assert!(places.contains(&place.as_str()), "{place}");
+        assert_eq!(p.marks.place.as_deref(), Some(place.as_str()));
+        assert!(p.sizes.line <= everywhere::EVERYWHERE_LINE_TOKENS);
+    }
+}
+
+/// KEY (the conductor's ruling on the plan's Q2): this place's exchanges since its `/new` mark are its window
+/// and ladder's, and left out; those from before the mark are kept. With no mark, all of them are this
+/// conversation's.
+#[test]
+fn everywhere_leaves_out_this_places_exchanges_since_new_and_keeps_those_before() {
+    let mut s = Store::default();
+    s.ex.push(ex("now1", "local", 1));
+    s.ex.push(ex("now2", "local", 3));
+    s.ex.push(ex("far", "a", 5));
+    s.ex.push(ex("before", "local", 20));
+    s.marks.push((
+        "local".into(),
+        Pos {
+            at_ms: NOW - 15 * H,
+            id: String::new(),
+        },
+    ));
+    assert_eq!(
+        ids(&select(&s, Band::Everywhere, Present::OwnerAlone)),
+        ["far", "before"]
+    );
+    s.marks.clear();
+    assert_eq!(
+        ids(&select(&s, Band::Everywhere, Present::OwnerAlone)),
+        ["far"]
+    );
+}
+
+/// KEY (the conductor's ruling on the plan's Q2): a task's own workings and a wake, which no person opened,
+/// are not among the lines from every place.
+#[test]
+fn everywhere_leaves_out_tasks_and_wakes() {
+    let mut s = Store::default();
+    let mut wake = ex("wake", "a", 1);
+    wake.person = None;
+    s.ex.push(wake);
+    let task = format!(
+        "{}{}1",
+        crate::task_graph::place::PREFIX,
+        crate::task_graph::ID_PREFIX
+    );
+    s.ex.push(ex("work", &task, 2));
+    s.ex.push(ex("said", "a", 3));
+    assert_eq!(
+        ids(&select(&s, Band::Everywhere, Present::OwnerAlone)),
+        ["said"]
+    );
+}
+
+/// KEY: the look across every place reads at most its bound of references, and says it stopped there; with
+/// room to spare it reads to the end and says it did not stop.
+#[test]
+fn everywhere_reads_at_most_its_bound_and_says_so() {
+    let mut ex_: Vec<Ex> = (0..400u64)
+        .map(|i| by("owner", &format!("h{i:03}"), "local", 1 + i))
+        .collect();
+    ex_.push(by("owner", "far", "a", 500));
+    let s = Store {
+        ex: ex_,
+        ..Store::default()
+    };
+    let look = |s: &Store, most: usize| {
+        let bounded = Bounded {
+            s,
+            most,
+            read: Default::default(),
+        };
+        everywhere::Everywhere::new(sources_with(s, "", &AdmitUnsealed))
+            .look(&pov_of("owner", "local"), &bounded)
+            .expect("reads within its bound")
+    };
+    let busy = look(&s, everywhere::EVERYWHERE_READ_MOST);
+    assert!(busy.stopped, "this place's 400 spend the bound");
+    assert!(busy.pieces.is_empty(), "the older place is past the bound");
+    let quiet = Store {
+        ex: s.ex[390..].to_vec(),
+        ..Store::default()
+    };
+    let roomy = look(&quiet, everywhere::EVERYWHERE_READ_MOST);
+    assert!(!roomy.stopped);
+    assert_eq!(ids(&roomy.pieces), ["far"]);
+}
+
+/// KEY (the owner's ruling, 2026-11-24, "no conversations are private"; the conductor's ruling on the plan's
+/// Q1): on a guest's turn in a shared place, the lines from every place are the owner's turn's, his own
+/// private ones among them. One switch says so.
+#[test]
+fn a_guests_turn_lays_everywhere_as_the_owners_does() {
+    let s = company(
+        &[("owner", "person:owner"), ("discord:bob", "person:bob")],
+        vec![
+            by("owner", "dm1", "discord:dm:9", 1),
+            by_in("discord:bob", "b1", "general", 2, Audience::Shared),
+            by_in("discord:bob", "here", "chan", 3, Audience::Shared),
+        ],
+    );
+    let owners = select_as(&s, Band::Everywhere, &pov_of("owner", "chan"));
+    let guests = select_as(&s, Band::Everywhere, &pov_of("discord:bob", "chan"));
+    assert_eq!(ids(&owners), ["dm1", "b1"]);
+    assert_eq!(ids(&guests), ids(&owners));
+    const { assert!(everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN) };
+    assert!(everywhere::may_lay(false, true));
+}
+
+/// A self-loop session's turn lays its own place only: nothing from every place.
+#[test]
+fn a_self_loop_turn_lays_no_everywhere() {
+    struct OwnOnly;
+    impl Gate for OwnOnly {
+        fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
+            AdmitUnsealed.admit(pov, piece)
+        }
+        fn own_place_only(&self) -> bool {
+            true
+        }
+    }
+    let mut s = Store::default();
+    s.ex.push(ex("t1", "local", 1));
+    s.ex.push(ex("far", "a", 2));
+    let laid = |gate: &dyn Gate| {
+        let v = assembled(&s, gate, "hello").view.expect("fits");
+        (v.shown.iter())
+            .filter(|x| x.piece.band == Band::Everywhere)
+            .count()
+    };
+    assert_eq!(laid(&AdmitUnsealed), 1);
+    assert_eq!(laid(&OwnOnly), 0);
+}
+
+/// An old view record naming slot F's two bands still reads: both are `retired`; slot F keeps its stored
+/// name; a band name no build wrote is refused, as it always was.
+#[test]
+fn an_old_view_record_naming_slot_fs_bands_still_reads() {
+    for old in ["elsewhere_words", "elsewhere_replies"] {
+        let band: Band = serde_json::from_value(serde_json::json!(old)).expect(old);
+        assert_eq!(band, Band::Retired, "{old}");
+    }
+    assert_eq!(serde_json::to_value(Band::Everywhere).unwrap(), "everywhere");
+    assert_eq!(serde_json::to_value(Slot::Elsewhere).unwrap(), "elsewhere");
+    assert!(serde_json::from_value::<Band>(serde_json::json!("elsewhere_lately")).is_err());
 }
 
 #[test]
@@ -530,7 +670,7 @@ fn a_whole_turn_assembles_and_the_floor_is_in_view() {
     let bands: Vec<Band> = v.shown.iter().map(|x| x.piece.band).collect();
     assert_eq!(bands[..2], [Band::Frame, Band::Now]);
     assert_eq!(bands.iter().filter(|b| **b == Band::Floor).count(), 3);
-    assert!(bands.contains(&Band::ElsewhereWords));
+    assert!(bands.contains(&Band::Everywhere));
 }
 
 /// Admits what is private and not sealed.
@@ -726,6 +866,7 @@ fn the_newest_exchange_keeps_its_words_and_its_tool_results_go_when_there_is_no_
     );
 }
 
+/// One exchange of another place is found past many exchanges here and many wakes there.
 #[test]
 fn his_newest_word_in_a_place_is_found_past_many_other_exchanges() {
     let mut s = Store::default();
@@ -738,7 +879,7 @@ fn his_newest_word_in_a_place_is_found_past_many_other_exchanges() {
     for i in 0..150 {
         s.ex.push(ex(&format!("old{i}"), "local", 50 + i));
     }
-    let words = select(&s, Band::ElsewhereWords, Present::OwnerAlone);
+    let words = select(&s, Band::Everywhere, Present::OwnerAlone);
     assert_eq!(ids(&words), ["a-his"]);
 }
 

@@ -94,7 +94,7 @@ pub(crate) fn view(now_ms: u64) -> View {
         shown(piece(
             "discord:dm:9",
             "far",
-            Band::ElsewhereWords,
+            Band::Everywhere,
             &[Reason::Elsewhere],
         )),
     ];
@@ -280,7 +280,7 @@ fn with_more_hidden() -> ViewRecord {
         let mut p = piece(
             "discord:dm:7",
             id,
-            Band::ElsewhereWords,
+            Band::Everywhere,
             &[Reason::Elsewhere],
         );
         p.sizes.whole = tokens;
@@ -289,14 +289,14 @@ fn with_more_hidden() -> ViewRecord {
     v.dropped.push(Dropped {
         range: range(exchanges("discord:dm:7"), "far4"),
         slot: Slot::Elsewhere,
-        band: Band::ElsewhereWords,
+        band: Band::Everywhere,
         reasons: BTreeSet::from([Reason::Elsewhere]),
         handle: Handle("x:far4".into()),
         tokens: 333,
         why: DropWhy::OverBudget,
     });
     v.residue.push(Residue {
-        band: Band::ElsewhereWords,
+        band: Band::Everywhere,
         pieces: 9,
         tokens: 9_000,
     });
@@ -385,7 +385,7 @@ fn the_owners_look_tells_nothing_of_a_held_drop_not_even_in_the_residue() {
     let with = |held: bool| {
         let mut v = view(1);
         v.residue.push(Residue {
-            band: Band::ElsewhereWords,
+            band: Band::Everywhere,
             pieces: 1 + u32::from(held),
             tokens: 100 + if held { 333 } else { 0 },
         });
@@ -393,7 +393,7 @@ fn the_owners_look_tells_nothing_of_a_held_drop_not_even_in_the_residue() {
             v.dropped.push(Dropped {
                 range: range(exchanges("discord:dm:7"), "far4"),
                 slot: Slot::Elsewhere,
-                band: Band::ElsewhereWords,
+                band: Band::Everywhere,
                 reasons: BTreeSet::from([Reason::Elsewhere]),
                 handle: Handle("x:far4".into()),
                 tokens: 333,

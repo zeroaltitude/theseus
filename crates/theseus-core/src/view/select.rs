@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{Piece, PointOfView, Slot, Snapshot};
 
 mod beside;
-mod elsewhere;
+pub mod everywhere;
 mod here;
 mod make;
 mod people;
@@ -19,7 +19,7 @@ mod tests;
 pub mod walk;
 
 pub use beside::{Beside, IN_PLAY_EXCHANGES};
-pub use elsewhere::{Elsewhere, LATELY_MS, PLACES_ALWAYS};
+pub use everywhere::{Everywhere, EVERYWHERE_EXCHANGES};
 pub use here::{Here, FLOOR_EXCHANGES};
 pub use make::UNSUMMARISED;
 pub use people::{
@@ -40,8 +40,8 @@ pub enum Band {
     Floor,
     /// G: the rest of the window's words.
     WindowWords,
-    /// F: his own words elsewhere in the last 48 hours.
-    ElsewhereWords,
+    /// F: EVERYWHERE, the newest exchanges from every place this conversation does not show, a line each.
+    Everywhere,
     /// C.
     Waiting,
     /// B, in the front: who am I talking to, each person present by name, description and guidance.
@@ -58,17 +58,21 @@ pub enum Band {
     Named,
     /// D.
     InPlay,
-    /// F: Theseus's replies elsewhere.
-    ElsewhereReplies,
     /// H: recall.
     Recall,
     /// B, beside the message: each person present but the owner, their newest exchanges in other places.
     PeopleRecent,
     /// A band no longer laid, as an old view record names it (slot E's `past7`, `past30`, `past_older`, removed
-    /// 2026-11-24): those three names, and no other, read as this one; a name this build does not know is
-    /// refused, as it always was. Only ever read from a stored record: no row of [`ADMISSION`] has it, so no view
-    /// lays it.
-    #[serde(alias = "past7", alias = "past30", alias = "past_older")]
+    /// 2026-11-24; slot F's `elsewhere_words` and `elsewhere_replies`, which EVERYWHERE replaced the same day):
+    /// those names, and no other, read as this one; a name this build does not know is refused, as it always
+    /// was. Only ever read from a stored record: no row of [`ADMISSION`] has it, so no view lays it.
+    #[serde(
+        alias = "past7",
+        alias = "past30",
+        alias = "past_older",
+        alias = "elsewhere_words",
+        alias = "elsewhere_replies"
+    )]
     Retired,
 }
 
@@ -110,7 +114,7 @@ pub const ADMISSION: &[Row] = &[
     row(Band::Now, Slot::Now, true),
     row(Band::Floor, Slot::Here, true),
     row(Band::WindowWords, Slot::Here, false),
-    row(Band::ElsewhereWords, Slot::Elsewhere, false),
+    row(Band::Everywhere, Slot::Elsewhere, false),
     row(Band::Waiting, Slot::Waiting, false),
     row(Band::WhoAndWhere, Slot::WhoAndWhere, false),
     row(Band::Ladder, Slot::Here, false),
@@ -119,7 +123,6 @@ pub const ADMISSION: &[Row] = &[
     row(Band::TaskCard, Slot::Called, false),
     row(Band::Named, Slot::Called, false),
     row(Band::InPlay, Slot::InPlay, false),
-    row(Band::ElsewhereReplies, Slot::Elsewhere, false),
     row(Band::Recall, Slot::Called, false),
     row(Band::PeopleRecent, Slot::WhoAndWhere, false),
 ];

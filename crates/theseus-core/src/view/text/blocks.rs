@@ -6,6 +6,7 @@ use crate::view::budget::Residue;
 use crate::view::fold::FoldNode;
 use crate::view::render::MarkedBlock;
 use crate::view::select::Band;
+use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Author, Handle, Label, PointOfView, Pos, SourceRange, Space};
 
 use super::labels;
@@ -173,6 +174,13 @@ pub fn residue_line(r: &Residue, handle: &Handle) -> Option<String> {
     })
 }
 
+/// What ends the lines from every place: where the every-place pager resumes, past the oldest laid.
+/// `[Older exchanges from every place: context_history with place "*" and before {"at_ms":…,"turn_id":"…"}]`.
+pub fn every_place_pager(oldest: &Cursor) -> String {
+    let before = serde_json::to_string(oldest).unwrap_or_default();
+    format!("[Older exchanges from every place: context_history with place \"*\" and before {before}]")
+}
+
 /// A band in plain words.
 pub fn band(b: Band) -> &'static str {
     match b {
@@ -180,7 +188,7 @@ pub fn band(b: Band) -> &'static str {
         Band::Now => "the clock and the message",
         Band::Floor => "the newest exchanges here",
         Band::WindowWords => "this conversation's words",
-        Band::ElsewhereWords => "the owner's words elsewhere in the last two days",
+        Band::Everywhere => "the newest exchanges from every place",
         Band::Waiting => "what is waiting",
         Band::WhoAndWhere => "who and where",
         Band::Ladder => "this conversation's earlier part",
@@ -189,7 +197,6 @@ pub fn band(b: Band) -> &'static str {
         Band::TaskCard => "the task's card",
         Band::Named => "the things this message named",
         Band::InPlay => "what is in play",
-        Band::ElsewhereReplies => "Theseus's replies elsewhere",
         Band::Recall => "what search recalled",
         Band::PeopleRecent => "the recent exchanges elsewhere of the people here",
         Band::Retired => "a part of the view no longer laid",
