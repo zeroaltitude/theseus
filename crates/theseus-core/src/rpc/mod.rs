@@ -122,6 +122,7 @@ mod task_rehome;
 mod task_reschedule;
 pub(crate) mod task_start;
 mod threads;
+pub mod told;
 mod undo_allow;
 mod voice_pick;
 mod wake_owner;
