@@ -228,11 +228,7 @@ fn a_keep_goes_from_the_card_through_the_real_program_into_the_vault() {
     );
     let q = card["correlation_id"].as_str().unwrap().to_string();
 
-    let (code, out) = r.at_a_terminal(
-        &["vault", "keep"],
-        &[(VALUE_PROMPT, VALUE)],
-        "\n",
-    );
+    let (code, out) = r.at_a_terminal(&["vault", "keep"], &[(VALUE_PROMPT, VALUE)], "\n");
     assert_eq!(code, 0, "{out}\n{}", r.s.log());
     // The newline that was already waiting was thrown away: it was not taken for an empty code or
     // an empty value (which would have been asked for once more).
@@ -355,11 +351,7 @@ fn a_run_that_ends_at_a_prompt_says_how_and_leaves_a_row() {
         out.contains("nothing was typed, twice, so nothing was kept"),
         "{out}"
     );
-    let (code, out) = r.at_a_terminal(
-        &["vault", "keep"],
-        &[(VALUE_PROMPT, "<EOF>")],
-        "",
-    );
+    let (code, out) = r.at_a_terminal(&["vault", "keep"], &[(VALUE_PROMPT, "<EOF>")], "");
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("the terminal ended (end of input)"), "{out}");
     let ended = r.keep_rows("client_ended");
