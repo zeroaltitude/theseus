@@ -1329,3 +1329,118 @@ async fn the_pack_and_the_stop_are_asked_again_once_the_writer_may_write() {
         }
     }
 }
+
+/// An old exchange opened by `text`, whose person no record proves.
+fn unproven(core: &Core, sid: &str, turn: &str, text: &str, start_ms: u64) -> Node {
+    let n = Node::user(sid, Some(turn), "test", text);
+    exchange_of(core, (sid, turn), &n, start_ms, None);
+    n
+}
+
+/// A wake, a task's brief and Theseus's own turn open with no person's
+/// message: they are counted so, not as someone else's, though no person
+/// is proven for any of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_dry_run_counts_wakes_and_tasks_apart_from_not_yours() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let c = &r.core;
+    unproven(c, &sid, "turn_wake", SAID, 1_000);
+    let mut e = exchange::exchange(&c.store, "turn_wake").unwrap().unwrap();
+    e.opened_by = Opener::Wake;
+    c.store
+        .append(&[exchange::exchange_record(&e).unwrap()])
+        .unwrap();
+    let mut task = SessionRecord::new(SessionKind::Conversation, None);
+    task.task = Some(crate::session::TaskOf {
+        parent_session: sid.clone(),
+        parent_execution: "exe_parent".into(),
+        by: "call_parent".into(),
+        target: None,
+        arrangement: None,
+        check: None,
+        notify_done: false,
+    });
+    c.store.put_session(&task.session_id, &task).unwrap();
+    unproven(c, &task.session_id, "turn_task", SAID, 2_000);
+    let own = Node::user(&sid, Some("turn_own"), "self:wake", SAID);
+    exchange_of(c, (&sid, "turn_own"), &own, 3_000, None);
+    let out = run(c, params(true, None)).await;
+    assert_eq!(
+        (out.exchanges, out.no_message, out.not_owner, out.unproven),
+        (3, 3, 0, 0),
+        "{out:?}"
+    );
+    assert!(r.jev.seen().is_empty());
+}
+
+/// Of the exchanges no record proves his, the dry run says how many are
+/// where the ontology's judge does not act now (`[ontology] judge` off): a
+/// filing of them would write nothing there. A guest's is not among them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_dry_run_says_where_the_judge_would_not_act_on_unproven_history() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_with(jev, Vec::new(), |c| c.ontology.judge = false);
+    let sid = bound(&r.core);
+    let c = &r.core;
+    unproven(c, &sid, "turn_nobody", SAID, 1_000);
+    let guest = Node::user(&sid, Some("turn_guest"), "discord:77", SAID);
+    exchange_of(c, (&sid, "turn_guest"), &guest, 2_000, Some("discord:77"));
+    let out = run(c, params(true, None)).await;
+    assert_eq!(
+        (
+            out.not_owner,
+            out.unproven,
+            out.unproven_not_acting,
+            out.to_ask
+        ),
+        (2, 1, 1, 0),
+        "{out:?}"
+    );
+    assert!(r.jev.seen().is_empty());
+}
+
+/// A message whose mark proves it was not the owner's (an agent's process
+/// at his terminal) is someone else's, not unproven; one with no mark is
+/// unproven. Neither is sent, and the judge acting counts neither as not
+/// acting.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mark_that_proves_someone_else_is_not_unproven() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    let c = &r.core;
+    let agent = unproven(c, &sid, "turn_agent", "a Lantern Harbour agent", 1_000);
+    let mark = exchange::OwnerMark {
+        node: agent.id.clone(),
+        in_person: false,
+        owner_handle: None,
+        peer: exchange::Peer::Agent,
+        agent: Some("an agent".into()),
+        surface: "cli".into(),
+        place: "local".into(),
+        arrived_session: sid.clone(),
+        ran_session: sid.clone(),
+        author: None,
+        at_ms: 1_000,
+    };
+    c.store
+        .append(&[exchange::mark_record(&mark).unwrap()])
+        .unwrap();
+    unproven(c, &sid, "turn_nobody", "a Lantern Harbour unknown", 2_000);
+    let out = run(c, params(false, None)).await;
+    assert_eq!(
+        (
+            out.not_owner,
+            out.unproven,
+            out.unproven_not_acting,
+            out.asked
+        ),
+        (2, 1, 0, 0),
+        "{out:?}"
+    );
+    assert!(r.jev.seen().is_empty());
+}
