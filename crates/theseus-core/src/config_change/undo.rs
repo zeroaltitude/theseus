@@ -275,10 +275,11 @@ impl theseus_tools::Tool for Undo {
     fn description(&self) -> &str {
         "Propose putting back the settings ONE earlier change made, to their values before it, on \
          the owner's word. `change` is the number `config.history` gives (default: the newest \
-         change). Settings that change did not touch keep their values now. The owner gets the \
-         same card as for `config.propose`, with each setting before and after, and a line for \
-         any setting that was changed again since; only their yes changes anything, and the \
-         daemon writes it itself, with the same restart and way back. A change to a setting that \
+         change). Settings that change did not touch keep their values now. It is held to \
+         what `config.propose` is: an ordinary setting is put back at once and the owner told; \
+         any other waits on the same card, with each setting before and after and a line for any \
+         setting that was changed again since, and only their yes changes it. The daemon writes \
+         it itself, with the same restart and way back. A change to a setting that \
          governs what Theseus may do needs a second proof as well. Offered only to the owner, in \
          a private place."
     }

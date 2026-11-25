@@ -181,7 +181,7 @@ pub(super) struct Rig {
     model: Arc<Model>,
     fakes: Arc<Fakes>,
     pub(super) file: PathBuf,
-    state: PathBuf,
+    pub(super) state: PathBuf,
     _dir: tempfile::TempDir,
 }
 

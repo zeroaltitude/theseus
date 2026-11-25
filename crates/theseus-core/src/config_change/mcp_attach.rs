@@ -302,8 +302,8 @@ impl Tool for Attach {
          argument as a list, never a shell line) or an address (`url`). Theseus tries it once in \
          the sandbox with no secret, lists its tools, and shows the owner one card with what will \
          run, each tool, which tools are read-only (only those you name in `read`), which secrets \
-         it is given by name, and which hosts it may reach. Only the owner's yes attaches it, \
-         with a second proof, and its tools are offered from the next message with no restart. \
+         it is given by name, and which hosts it may reach. Only the owner's yes attaches it \
+         (with a second proof when it is given a secret or a host), and its tools are offered from the next message with no restart. \
          A secret a server needs is named by its `[secrets]` entry (`env`: variable to secret \
          name; `auth_secret` for HTTP): never a value. A command or address its maker publishes may be \
          looked up with the web tools rather than asked for: give it with a `source`, never a guess. \
@@ -363,10 +363,11 @@ impl Tool for Detach {
     }
 
     fn description(&self) -> &str {
-        "Take away an MCP server that is attached, on the owner's word. Shows the owner one card \
-         with what stops and when; only their yes, with a second proof, removes it, and a server \
-         that was attached by asking stops at once. To change a server, detach it and attach it \
-         again. Offered only to the owner, in a private place."
+        "Take away an MCP server that is attached, on the owner's word. It is removed at once and \
+         the owner is told, unless they set this tool to ask (then one card says what stops and \
+         when); a server that was attached by asking stops at once, one started from the settings \
+         at a restart. To change a server, detach it and attach it again. Offered only to the \
+         owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {

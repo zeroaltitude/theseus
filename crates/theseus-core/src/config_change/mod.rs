@@ -233,7 +233,8 @@ impl Tool for Propose {
          for the file. The result says each setting's value before, set or default, so no look is needed first \
          (`config.show` reads other settings). Theseus checks that the settings still load, then shows the owner one \
          card with each value before and after; only their yes changes anything, and the daemon writes it itself. \
-         A setting that governs what Theseus may do (approvals, secrets, the sandbox, places, who the owner is, \
+         An ordinary setting (no card set for this tool) is written at once instead, and the owner is told, with \
+         how to undo it. A setting that governs what Theseus may do (approvals, secrets, the sandbox, places, who the owner is, \
          a raised spend) needs a second proof as well. A secret in the vault is used by `vault.use`, never by writing \
          an `op://` reference here. A fact its maker publishes (a model's exact name, a provider's address and \
          protocol) may be looked up with the web tools rather than asked for: give it with a `source`, never a \
@@ -320,10 +321,12 @@ impl Tool for RestartTool {
     }
 
     fn description(&self) -> &str {
-        "Ask to restart Theseus, on the owner's word, with no change to its settings. The owner \
-         sees one card that says what a restart cuts (a running turn, a job, the \
-         self-improvement loop's build); only their yes restarts it, and Theseus then tells them \
-         it is back and how long it took. Offered only to the owner, in a private place."
+        "Restart Theseus, on the owner's word, with no change to its settings: at once, and the \
+         owner is told, once for each message of theirs. A second restart before they write \
+         again, one while a change it would make live sends a secret or names an address, or \
+         any when they set this tool to ask, waits on one card that says what a restart cuts (a \
+         running turn, a job, the self-improvement loop's build). Theseus then tells them it is \
+         back and how long it took. Offered only to the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {
