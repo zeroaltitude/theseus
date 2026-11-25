@@ -809,6 +809,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`web::net::PrivateAddresses`, `Web.private`). A literal loopback or LAN address is told, not asked
   (issue 57: `web::net::told_host`, `ToolPolicy::told_address`, `toolrun/told.rs`, which also keeps a shared
   place's card for it and tells the owner of the owner's `theseusd` command moved to L1, `rsi::own_tree`).
+  `localhost` keeps its card; any other name that resolves privately is refused by the checked resolver.
+  The owner's move is for his own conversation only (`own_tree::owners_conversation`: real records, failing
+  closed; no task, routine run or fork of either) and only where `Sandbox::l1_verified` (the self-test run once
+  at the daemon's start) says L1 ran here. Its note is staged as the call starts and says only that.
   **Reversibility** (theseus-p5kln, row B6 `theseus-2yowd`; `toolrun/reversible.rs`, `judge/undo.rs`,
   `judge/undo/state.rs`; `[judge] reversibility`, on by default, the owner's word 2026-11-12; the design of the
   consumption is `docs/design/undo-v1.md`): `undo.v2` (undo.v1 until issue 46) is asked ONCE for a planned call, on the gate's own path
