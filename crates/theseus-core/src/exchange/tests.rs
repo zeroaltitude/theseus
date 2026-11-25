@@ -1433,7 +1433,9 @@ async fn a_touch_that_does_not_read_is_named_by_its_key_alone() {
     let (moves, passed) = read.unwrap();
     assert_eq!((moves.len(), passed), (0, 1));
     let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
-    assert_eq!(text.matches(key.as_str()).count(), 1, "{text}");
+    // A touch's key holds its separator, which the log writes escaped, as `{:?}` does.
+    let shown = format!("{key:?}");
+    assert_eq!(text.matches(shown.as_str()).count(), 1, "{shown} once: {text}");
     assert!(!text.contains(TOUCH_WORDS), "the record was quoted: {text}");
 }
 
