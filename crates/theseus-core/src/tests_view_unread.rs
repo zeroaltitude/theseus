@@ -112,6 +112,7 @@ fn bare_page(core: &Core, session: &str, here: &str) -> Vec<String> {
         cut: Default::default(),
         scope: None,
         cuts: crate::scrub::Cuts::none(),
+        page: crate::view::history::PAGE_EXCHANGES,
     };
     let walked = lens.walk(&HistoryArgs::default(), None, 0).unwrap();
     walked.page.lines.into_iter().map(|l| l.handle.0).collect()

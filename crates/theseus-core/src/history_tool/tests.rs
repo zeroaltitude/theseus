@@ -144,6 +144,7 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         cut: Default::default(),
         scope: None,
         cuts: crate::scrub::Cuts::none(),
+        page: crate::view::history::PAGE_EXCHANGES,
     }
 }
 
@@ -2209,4 +2210,35 @@ fn an_asked_short_places_heading_is_the_place_on_one_line() {
         asked_place_heading("dm:owner".into(), Some("issue:33")),
         "dm:owner's history labelled issue:33"
     );
+}
+
+/// `[context] history_page_exchanges` is a page's size, and the tool's description says it; the walk's read
+/// bound is not the setting: it stays [`READ_MOST`] touches.
+#[test]
+fn the_pager_page_is_the_setting_and_the_read_bound_is_not() {
+    use theseus_tools::Tool;
+    let (_d, s) = store();
+    for i in 0..50 {
+        put(&s, &ex(i, HERE, "ses_a"));
+    }
+    let mut l = lens(&s, HERE);
+    l.page = 20;
+    let first = walk(&l, &HistoryArgs::default(), None, 0);
+    assert_eq!(first.lines.len(), 20);
+    assert_eq!(first.lines[0].handle.0, "turn_0049");
+    assert_eq!(first.lines[19].handle.0, "turn_0030");
+    assert_eq!(first.end, PageEnd::More);
+    let second = walk(&l, &HistoryArgs::default(), first.next, 1);
+    assert_eq!(
+        (turns(&second).len(), second.lines[0].handle.0.as_str()),
+        (20, "turn_0029")
+    );
+    assert_eq!(READ_MOST, 20 * crate::view::history::PAGE_EXCHANGES);
+    for (page, says) in [
+        (20, "Earlier history, 20 exchanges a page. Bare: "),
+        (100, "Earlier history, 100 exchanges a page. Bare: "),
+    ] {
+        let d = super::HistoryTool::new(page);
+        assert!(d.description().starts_with(says), "{}", d.description());
+    }
 }

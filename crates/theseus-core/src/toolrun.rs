@@ -2042,7 +2042,9 @@ pub fn build_runtime(
         // The files people gave the session (theseus-c9l6).
         r.register(Arc::new(crate::file_read::FileRead));
         // The conversation's history, read further back, offered everywhere (issue 44).
-        r.register(Arc::new(crate::history_tool::HistoryTool));
+        r.register(Arc::new(crate::history_tool::HistoryTool::new(
+            cfg.context.sizes().page,
+        )));
         // What the live observer has kept about the owner, read when he asks
         // what it has learned about him (theseus-6f8t0). With the observer
         // off nothing is kept, so the tool is not offered at all.
