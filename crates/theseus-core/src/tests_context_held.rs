@@ -538,7 +538,10 @@ async fn a_persona_names_the_held_file_as(soul: &str) {
         format!("# Context file (system): {}", h.path("RULES.md").display()),
         format!("# Context file (persona plain): {}", h.path(soul).display()),
     ] {
-        assert!(all.contains(&format!("{header}\n\n{KEPT}")), "{header}: {all}");
+        assert!(
+            all.contains(&format!("{header}\n\n{KEPT}")),
+            "{header}: {all}"
+        );
     }
     owner_accepts(&h.core, &h.path("RULES.md")).await;
     let after = everything(&h.turn(&h.core).await);
