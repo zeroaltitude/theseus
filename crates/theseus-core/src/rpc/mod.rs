@@ -97,6 +97,7 @@ mod profile_pins;
 pub(crate) mod project_close;
 mod project_items;
 mod project_trust;
+pub mod told;
 mod projects;
 mod proposal_groups;
 mod proposals;

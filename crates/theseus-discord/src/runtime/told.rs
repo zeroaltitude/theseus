@@ -1,14 +1,14 @@
 //! The Undo on a note that tells the owner of an act done unasked (issue 57,
 //! `theseus_core::owner_note::told`). The button carries the note's post id
-//! alone; a press reads the note's undo back from the core, so it works after
-//! a restart. Like the mint's Undo (`onto_card.rs`), the press is the undo's
-//! own method as the presser, from where they pressed, and the core judges it
-//! by that method's rule. Once undone the note says so and loses its button,
-//! and a later press calls nothing. A child of `runtime`, apart from it for
+//! alone, so it works after a restart. Like the mint's Undo (`onto_card.rs`),
+//! the press is one call as the presser, from where they pressed: `told.undo`,
+//! which the core judges (the owner, from a private place), runs the note's
+//! undo, and answers with what the note says now. The note is edited to that
+//! and loses its button; a later press is refused by the core. A child of `runtime`, apart from it for
 //! the shape budget's file ceiling.
 
 use serde_json::Value;
-use theseus_core::owner_note::told;
+use theseus_core::rpc::told::{ToldUndoParams, ToldUndoResult};
 use theseus_protocol::DiscordOrigin;
 use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
@@ -68,36 +68,32 @@ impl Shared {
         )
         .await;
         let _one = PRESSING.lock().await;
-        let core = &self.core;
-        let text = match told::undone(&core.store, &post) {
-            Ok(Some(u)) => format!("↩️ Already undone by {}: nothing was done.", u.by),
-            Err(e) => format!("⚠️ The undo was not made: {e:#}"),
-            Ok(None) => match told::of(&core.kernel, &post) {
-                Ok(Some((note, undo))) => {
-                    let r = self
-                        .rpc
-                        .call::<_, Value>(undo.method(), undo.params(who, discord))
-                        .await;
-                    match r {
-                        Ok(_) => {
-                            if let Err(e) = told::mark_undone(&core.store, &post, who) {
-                                tracing::warn!(error = %format!("{e:#}"), "discord: an undone note was not kept");
-                            }
-                            self.told_edit(i, &told::undone_text(&note, who)).await;
-                            "↩️ Undone.".to_string()
-                        }
-                        Err(e) if e.code == theseus_protocol::error_code::REFUSED => format!(
-                            "🔐 Your undo did not count: {}.",
-                            e.data
-                                .get("why")
-                                .and_then(Value::as_str)
-                                .unwrap_or(&e.message)
-                        ),
-                        Err(e) => format!("⚠️ The undo was not made: {}", e.message),
-                    }
-                }
-                Ok(None) => "⚠️ This note's undo is no longer known.".to_string(),
-                Err(e) => format!("⚠️ The undo was not made: {e:#}"),
+        let r = self
+            .rpc
+            .call::<_, ToldUndoResult>(
+                theseus_protocol::method::TOLD_UNDO,
+                ToldUndoParams {
+                    post,
+                    author: Some(who.to_string()),
+                    discord,
+                },
+            )
+            .await;
+        let text = match r {
+            Ok(done) => {
+                self.told_edit(i, &done.text).await;
+                "↩️ Undone.".to_string()
+            }
+            Err(e) if e.code == theseus_protocol::error_code::REFUSED => format!(
+                "🔐 Your undo did not count: {}.",
+                e.data
+                    .get("why")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&e.message)
+            ),
+            Err(e) => match e.data.get("undone_by").and_then(Value::as_str) {
+                Some(by) => format!("↩️ Already undone by {by}: nothing was done."),
+                None => format!("⚠️ The undo was not made: {}", e.message),
             },
         };
         self.followup(i, &text).await;
