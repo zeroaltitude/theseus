@@ -226,7 +226,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         index::IndexForgetResult, index::IndexWarmResult, index::IndexBackfill, index::IndexStatus,
         index::IndexVectorStatus, index::IndexTierStatus, index::IndexCompactions, index::IndexReembed, index::IndexQueryGate,
         index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth, index::IndexPriority,
-        memory::MemorySearchParams, memory::MemoryLookupParams, memory::MemoryLookupResult, memory::MemoryHit, memory::MemoryCitation, memory::HistoryReadParams, memory::HistoryCursor, memory::HistoryReadLine, memory::HistoryOpened, memory::HistoryReadResult, memory::MemoryRecallsParams, memory::MemoryRecallsResult,
+        memory::MemorySearchParams, memory::HistoryReadParams, memory::HistoryCursor, memory::HistoryReadLine, memory::HistoryOpened, memory::HistoryReadResult, memory::MemoryRecallsParams, memory::MemoryRecallsResult,
         memory::RecallManifest, memory::RecallRerank, memory::RecallActivation, memory::MemoryHealth, memory::RecallOutcomes, memory::AdjacencyHealth, memory::RecallItem, memory::RecallRelevance, memory::RecallDrop, memory::RecallTimings, memory::RecallWhen, resident::ResidentHealth, warm::WarmHealth, warm::WarmStamp, warm::SessionTypingParams, warm::SessionTypingResult, resident::HeapHealth, resident::TrimHealth, resident::CacheHealth, cite::Citation, cite::DiscordSource, cite::MemoryCitesParams, cite::MemoryCitesResult,
         memory::BudgetReport, memory::BudgetDrop, memory::BudgetRange, memory::BudgetOverage,
         memory::MemoryLabelParams, memory::MemoryLabelResult, retract::FactRetractParams, retract::FactRetractResult, retract::RetractExposure, memory::RecallRetention,

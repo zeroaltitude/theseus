@@ -178,6 +178,22 @@ fn the_keys_something_still_reads_are_live() {
     );
 }
 
+/// `[mcp_server] memory` is live: it is the switch an MCP client's `context_history` answers behind (issue 46),
+/// so a file that sets it is read, with no retired line, after `memory_search` and `memory_get` went; a file
+/// without it leaves the switch off.
+#[test]
+fn the_mcp_memory_key_is_live_as_the_history_tools_switch() {
+    let (cfg, warnings) = parse("[mcp_server]\nmemory = true\n").unwrap();
+    assert!(cfg.ignored_keys.is_empty(), "{:?}", names(&cfg));
+    assert!(
+        !warnings.iter().any(|w| w.contains(" is retired: ")),
+        "{warnings:?}"
+    );
+    assert!(cfg.mcp_server.memory);
+    let (cfg, _) = parse("").unwrap();
+    assert!(!cfg.mcp_server.memory);
+}
+
 /// An older name of a retired key loads with the retired key's warning; an older name of a live key still
 /// fails the load, asking for its rename.
 #[test]
