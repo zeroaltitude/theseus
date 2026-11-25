@@ -146,10 +146,11 @@ fn an_execution_that_is_no_object_read_by_its_id_is_read_as_before() {
             let _ = w.kernel.execution(&id);
         }));
         let why = read.expect_err(&id);
-        let why = why
-            .downcast_ref::<String>()
-            .cloned()
-            .unwrap_or_default();
-        assert_eq!(why, format!("cannot access key \"budget\" in JSON {kind}"), "{id}");
+        let why = why.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert_eq!(
+            why,
+            format!("cannot access key \"budget\" in JSON {kind}"),
+            "{id}"
+        );
     }
 }

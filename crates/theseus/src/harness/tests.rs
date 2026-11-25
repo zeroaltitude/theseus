@@ -457,7 +457,11 @@ fn daemon(
                 json!({"jsonrpc": "2.0", "id": req["id"],
                        "error": {"code": -32601, "message": "not scripted"}})
             };
-            if sw.write_all(format!("{answer}\n").as_bytes()).await.is_err() {
+            if sw
+                .write_all(format!("{answer}\n").as_bytes())
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -509,7 +513,10 @@ async fn no_tag_is_chosen_from_a_list_with_a_record_it_could_not_read() {
     .to_string();
     assert!(e.contains("import.tag.odd"), "{e}");
     assert!(e.contains("no import tag was chosen"), "{e}");
-    assert_eq!(*asked.lock().unwrap(), [theseus_protocol::method::IMPORT_LIST]);
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [theseus_protocol::method::IMPORT_LIST]
+    );
 }
 
 /// A list that read whole still chooses the source's live tag, and a named tag
@@ -545,7 +552,10 @@ async fn a_whole_list_chooses_the_live_tag_and_a_named_tag_asks_for_none() {
     .await
     .unwrap();
     assert_eq!(tag, "t-1");
-    assert_eq!(*asked.lock().unwrap(), [theseus_protocol::method::IMPORT_LIST]);
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [theseus_protocol::method::IMPORT_LIST]
+    );
     assert!(asked_named.lock().unwrap().is_empty());
 }
 
