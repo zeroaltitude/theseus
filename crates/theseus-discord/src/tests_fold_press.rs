@@ -359,12 +359,19 @@ async fn a_fold_id_forged_onto_a_card_edits_nothing() {
         .unwrap();
     let turn = turn_of(&folds(&r, ANA_DM)[0]);
     forge(&r, ANA_DM, &card.id, &format!("fold:o:0:{turn}")).await;
+    // The card as the forged press finds it (a needs-you card is all
+    // components, so its words are those the forged row left).
+    let card = message(&r, ANA_DM, &card.id);
     let pressed = r.press(&card.id, "Forged", (ANA, "ana"));
     r.until("the presser told", || told(&r, &pressed, NOT_HERE))
         .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let m = message(&r, ANA_DM, &card.id);
-    assert_eq!(m.content, card.content, "{m:#?}");
+    assert_eq!(
+        (m.content.as_str(), m.edits),
+        (card.content.as_str(), card.edits),
+        "{m:#?}"
+    );
     assert_eq!(labels(&m), ["Forged"], "no fold's buttons: {m:#?}");
 }
 

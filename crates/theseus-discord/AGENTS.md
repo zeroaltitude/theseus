@@ -734,17 +734,24 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   of `PART_LIMIT - 60` bytes (`… and N more · page 1 of 3`, `◀ Earlier`, `Later ▶`), and **Hide steps**. The turn's
   "Should I have asked?" choices stay on it, open or closed. Its create pings as the first process message would
   (`-# 💭` at its top when it holds thinking: silent); later loops add no create. A press (`fold:o:<page>:<turn>`,
-  `fold:c:<turn>`) is read before `allowed`, since it shows only what the place showed openly: it is acknowledged,
-  the place builds the view (reading the turn back from the session's nodes once when it does not hold it: a
-  restart), and the pressed message is edited by its id; while the turn runs the same also goes through the lane,
-  after any edit it holds. A turn it cannot read back is told to the presser alone (`fold::TOO_OLD`). Never folded:
+  `fold:c:<turn>`) is read before `allowed`, since it shows only what the place showed openly. The place's lane is
+  the ONE writer of a fold's message (`courier/press.rs`): the press is acknowledged, the place asks its lane, which
+  honours it only on the message it wrote that turn's `<turn>:fold` to (its map, or its durable rows) and never while
+  it waits out Discord; only then does the place make the fold's state (reading the turn back from the session's
+  nodes once when it does not hold it: a restart) and send it to the lane as any live state, after whatever the lane
+  holds of it, so presses and the turn's updates land in the place's order. A fold's latest state, like the board's,
+  waits out an outage instead of dropping. What refuses a press is told to the presser alone, in one line
+  (`fold::AWAY`, `NOT_HERE`, `TOO_OLD`, `HIDDEN`). A fold never shows what its place hides NOW: a live change of
+  `show_tools`/`show_thinking` remakes every fold it holds from both halves (`View::set`), open pages and choices too;
+  a fold made folded keeps working as a fold for its message after the place says `open`. Never folded:
   the reply's text, a card, a question, a settle, a failed turn, every post. `open` writes what it wrote before,
   op for op. A standalone FYI note (`courier/fold_note.rs`) folds too: a post the notices place's rule says only
   informs (`notices::informs`), written to a folded place (`Shared::steps_in`, the place's `PlaceBits`) and not to the
   notices place, with no button of its own and no met watch, is `-# ℹ️ FYI: <its kind's words>` with **Show note**
-  (`fold:no:<post>`, `fold:nc:<post>`); a press reads the words back from the post (`kernel.outbox_action`) only when the
-  pressed message is the post's own (`external_op_id`), else tells the presser `fold::NOTE_GONE`. Tests:
-  `tests_fold.rs`, `render/fold.rs`, `runtime/fold.rs`, `runtime/show.rs`, `courier/fold_note.rs`.
+  (`fold:no:<post>`, `fold:nc:<post>`); the place's lane reads the words back from the post (`kernel.outbox_action`)
+  only when the pressed message is the post's own (`external_op_id`), else tells the presser `fold::NOTE_GONE`, and
+  writes it. Tests: `tests_fold.rs`, `tests_fold_press.rs`, `tests_fold_default.rs`, `render/fold.rs`,
+  `runtime/fold.rs`, `runtime/show.rs`, `courier/fold_note.rs`, `courier/press.rs`.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).
