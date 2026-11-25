@@ -1,30 +1,41 @@
 //! `told.undo` (issue 57): the one door every Undo on a note of an act done
-//! unasked goes through (`owner_note::told`). It is one act of its own,
-//! judged by the general rule, whatever the undo calls underneath: the owner,
-//! from a private place, as the daemon judges every owner-only command. A
-//! local process on the owner's socket counts as the owner's terminal, so a
-//! counted undo is not proof of a human press.
+//! unasked goes through (`owner_note::told`).
 //!
-//! A note already undone is refused. Then the door looks for the undo's own
-//! lasting outcome (the wake no longer pending, the order revoked, the
-//! routine gone, the item out of the backlog): when it is there, an earlier
-//! undo got that far and its receipt was lost, so the note is marked and says
-//! so, and nothing runs again. Otherwise the undo runs here, through the
-//! existing code of that undo, as the presser, and only then is the note
-//! marked undone. Each undo's code writes its own frame, so effect and
-//! receipt are two writes; this look is what keeps a press once-only across
-//! a crash between them. The answer is what the note says now.
+//! **Who.** A connection whose own peer reading (`peer_proc`, through
+//! `Conn::answerer`: never a label the request supplies) names an agent, a
+//! process with no terminal, or a job the daemon started, is refused first,
+//! before anything is read, with the words any non-owner gets. Then the press
+//! is one act of its own, judged by the general rule, whatever the undo calls
+//! underneath: the owner, from a private place, as the daemon judges every
+//! owner-only command. A process the peer reading takes for the owner's own
+//! terminal counts as the owner, so a counted undo is not proof of a human
+//! press.
+//!
+//! **Which note.** The note's full post id, as its own "Undo:" line names it;
+//! anything else is not found.
+//!
+//! **Once.** A note already settled is refused. Then the door looks for the
+//! undo's own lasting outcome (the order revoked, the item dropped): when it
+//! is there, an earlier undo got that far and its receipt was lost, so the
+//! note is marked and says so, and nothing runs again. Otherwise the undo
+//! runs here, through the existing code of that undo, as the presser, and
+//! only then is the note marked. Each undo's code writes its own frame, so
+//! effect and receipt are two writes; this look is what keeps a press
+//! once-only across a crash between them.
+//!
+//! **Out.** The answer is what the note says now. Every copy of a note's
+//! words, a label or an error's words that leaves over the RPC passes the
+//! exit's masking (`rpc_told_undo`); the stored note stays as written.
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use theseus_protocol::routines::RoutineNameParams;
+use serde_json::{json, Value};
 use theseus_protocol::{error_code, DiscordOrigin, StandingRevokeParams};
 
 use super::confirms::Act;
 use super::server::{Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
-use crate::owner_note::told::{self, Undo};
+use crate::owner_note::told::{self, Undo, Undone};
 
 /// `told.undo`'s params: the note's post id, and who pressed, from where.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -58,6 +69,15 @@ pub(crate) static PROBED: std::sync::atomic::AtomicUsize = std::sync::atomic::At
 pub(crate) static FAULT_RECEIPT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// What an undo's code did.
+enum Effect {
+    /// It ran.
+    Done,
+    /// The act moved on before the press, so the undo no longer applies and
+    /// nothing changed: the note's last line, and the words to say.
+    Moved { line: String, message: String },
+}
+
 /// An undo that failed after it may have begun: never "nothing was undone".
 fn unfinished(undo: &Undo, post: &str, e: RpcFailure) -> RpcFailure {
     RpcFailure {
@@ -84,6 +104,24 @@ fn unkept(e: anyhow::Error) -> RpcFailure {
     }
 }
 
+/// A press on a note already settled: nothing is done, and the note's words
+/// as they now stand come back, so a note an earlier edit missed is mended.
+fn settled(text: &str, u: &Undone) -> RpcFailure {
+    let line = u.line();
+    let message = match u.ran() {
+        true => format!("it was already undone by {}: nothing was done", u.by),
+        false => format!(
+            "its undo was already settled ({}): nothing was done",
+            line.trim_start_matches("↩️ ").trim_end_matches('.')
+        ),
+    };
+    RpcFailure {
+        code: error_code::INVALID_PARAMS,
+        message,
+        data: json!({"undone_by": u.by, "ran": u.ran(), "text": told::settled_text(text, &line)}),
+    }
+}
+
 fn failure(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<Refusal>() {
         Ok(r) => RpcFailure {
@@ -98,14 +136,42 @@ fn failure(e: anyhow::Error) -> RpcFailure {
     }
 }
 
+/// Every string in `v`, masked by `mask`.
+fn masked_json(v: Value, mask: &dyn Fn(&str) -> String) -> Value {
+    match v {
+        Value::String(s) => Value::String(mask(&s)),
+        Value::Array(a) => Value::Array(a.into_iter().map(|x| masked_json(x, mask)).collect()),
+        Value::Object(o) => Value::Object(
+            o.into_iter()
+                .map(|(k, x)| (k, masked_json(x, mask)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 impl Core {
+    /// `told.undo` over the RPC: every copy that leaves passes the exit's
+    /// masking, the note's words, labels and an error's words alike. The
+    /// stored note stays as written.
     pub(super) async fn rpc_told_undo(
         &self,
         p: ToldUndoParams,
         conn: Conn<'_>,
     ) -> Result<ToldUndoResult, RpcFailure> {
         let who = conn.answerer(p.author.clone(), p.discord.clone());
-        self.told_undo(&p.post, &who).await
+        let mask = |s: &str| self.exits.text(s).0.into_owned();
+        match self.told_undo(&p.post, &who).await {
+            Ok(r) => Ok(ToldUndoResult {
+                text: mask(&r.text),
+                found: r.found,
+            }),
+            Err(e) => Err(RpcFailure {
+                code: e.code,
+                message: mask(&e.message),
+                data: masked_json(e.data, &mask),
+            }),
+        }
     }
 
     /// The note `post`'s undo, as `who`'s act.
@@ -116,75 +182,85 @@ impl Core {
     ) -> Result<ToldUndoResult, RpcFailure> {
         let _one = UNDOING.lock().await;
         let what = format!("the undo of note {post}");
+        // An agent's or a job's process, by the connection's own reading of
+        // its peer: refused before any note is read, as a non-owner is.
+        if who.agent.is_some() {
+            let r = Refusal {
+                who: who.who(),
+                via: who.via(),
+                why: format!("{} is not an owner", who.who()),
+            };
+            self.refused(Act::Told { what: &what }, who, &r)
+                .map_err(RpcFailure::invalid)?;
+            return Err(failure(r.into()));
+        }
         self.judge_act(who, Act::Told { what: &what })
             .map_err(failure)?;
-        // Its post id, or the end of one (`theseus told undo`).
-        let found = told::resolve(&self.kernel, post).map_err(RpcFailure::invalid)?;
-        let not_found = || {
-            RpcFailure::new(
+        let Some((text, undo)) = told::of(&self.kernel, post).map_err(RpcFailure::invalid)? else {
+            return Err(RpcFailure::new(
                 error_code::NOT_FOUND,
                 format!("no note {post} with an undo"),
-            )
-        };
-        let post = &found.ok_or_else(not_found)?;
-        let Some((text, undo)) = told::of(&self.kernel, post).map_err(RpcFailure::invalid)? else {
-            return Err(not_found());
+            ));
         };
         if let Some(u) = told::undone(&self.store, post).map_err(RpcFailure::invalid)? {
-            return Err(RpcFailure {
-                code: error_code::INVALID_PARAMS,
-                message: format!("it was already undone by {}: nothing was done", u.by),
-                data: json!({"undone_by": u.by, "text": told::undone_text(&text, &u.by)}),
-            });
+            return Err(settled(&text, &u));
         }
         if let Some(found) = self.undo_found(&undo)? {
-            return self.receipt(post, who, told::found_text(&text, found), true);
+            return self.receipt(post, who, &text, &told::found_line(found), true);
         }
         match self.undo_now(&undo, who).await {
-            Ok(()) => {}
+            Ok(Effect::Done) => {}
+            Ok(Effect::Moved { line, message }) => {
+                // Nothing changed: the note says so, and loses its Undo. A
+                // mark that is not kept leaves the next press to say it again.
+                let text = told::mark_undone(&self.store, post, &who.label, &line)
+                    .ok()
+                    .map(|()| told::settled_text(&text, &line));
+                return Err(RpcFailure {
+                    code: error_code::INVALID_PARAMS,
+                    message,
+                    data: json!({"moved_on": true, "text": text}),
+                });
+            }
             // Refused by the undo's own rule, before it did anything.
             Err(e) if e.code == error_code::REFUSED => return Err(e),
             // It may have got some or all of the way before it failed.
             Err(e) => {
                 return match self.undo_found(&undo) {
                     Ok(Some(found)) => {
-                        self.receipt(post, who, told::found_text(&text, found), true)
+                        self.receipt(post, who, &text, &told::found_line(found), true)
                     }
                     _ => Err(unfinished(&undo, post, e)),
                 };
             }
         }
-        self.receipt(post, who, told::undone_text(&text, &who.label), false)
+        self.receipt(post, who, &text, &told::undone_line(&who.label), false)
     }
 
-    /// The note `post` marked undone by `who`, after its undo's effect.
+    /// The note `post` marked settled by `who`, ending with `line`, after
+    /// its undo's effect.
     fn receipt(
         &self,
         post: &str,
         who: &Answerer,
-        text: String,
+        text: &str,
+        line: &str,
         found: bool,
     ) -> Result<ToldUndoResult, RpcFailure> {
         #[cfg(test)]
         if FAULT_RECEIPT.swap(false, std::sync::atomic::Ordering::SeqCst) {
             return Err(unkept(anyhow::anyhow!("a planted fault")));
         }
-        told::mark_undone(&self.store, post, &who.label).map_err(unkept)?;
-        Ok(ToldUndoResult { text, found })
+        told::mark_undone(&self.store, post, &who.label, line).map_err(unkept)?;
+        Ok(ToldUndoResult {
+            text: told::settled_text(text, line),
+            found,
+        })
     }
 
     /// The undo's lasting outcome, when it is there now: what was found.
     fn undo_found(&self, undo: &Undo) -> Result<Option<&'static str>, RpcFailure> {
         Ok(match undo {
-            Undo::RoutineDelete(id) => {
-                let all = self.routine_list()?.routines;
-                (!all.iter().any(|r| r.id == *id)).then_some("the routine is gone")
-            }
-            Undo::WakeCancel(id) => {
-                let pending = self.kernel.pending_wakes().map_err(RpcFailure::invalid)?;
-                (!pending.iter().any(|(_, w)| w.id == *id))
-                    .then_some("the wake is no longer pending")
-            }
             Undo::StandingRevoke(id) => {
                 let all = self
                     .runner
@@ -196,9 +272,9 @@ impl Core {
                     .then_some("the standing order is revoked")
             }
             Undo::SelfDrop(id) => self
-                .self_item_closed(id)
+                .self_item_dropped(id)
                 .map_err(RpcFailure::invalid)?
-                .then_some("the item has left the backlog"),
+                .then_some("the item is dropped"),
             #[cfg(test)]
             Undo::Probe(_) => None,
         })
@@ -207,42 +283,37 @@ impl Core {
     /// An undo, through the existing code that makes it, as `who`. A new
     /// undo is one arm here: an existing method's function, or an internal
     /// one when the undo has no method of its own.
-    async fn undo_now(&self, undo: &Undo, who: &Answerer) -> Result<(), RpcFailure> {
-        let (author, discord) = (Some(who.label.clone()), who.discord.clone());
+    async fn undo_now(&self, undo: &Undo, who: &Answerer) -> Result<Effect, RpcFailure> {
         match undo {
-            Undo::RoutineDelete(id) => {
-                let p = RoutineNameParams {
-                    id: id.clone(),
-                    author,
-                    discord,
-                };
-                self.routine_delete(&p, who.clone()).await.map(drop)
-            }
-            Undo::WakeCancel(id) => self
-                .wake_cancel_by(id, &who.label)
-                .map(drop)
-                .map_err(failure),
             Undo::StandingRevoke(id) => {
                 let p = StandingRevokeParams {
                     id: id.clone(),
-                    author,
-                    discord,
+                    author: Some(who.label.clone()),
+                    discord: who.discord.clone(),
                 };
-                self.standing_revoke(&p, who.clone()).map(drop)
+                self.standing_revoke(&p, who.clone())
+                    .map(|_| Effect::Done)
             }
-            Undo::SelfDrop(id) => {
-                let p = theseus_protocol::rsi::SelfDropParams {
-                    item: id.clone(),
-                    author,
-                    discord,
-                    ..Default::default()
-                };
-                self.self_drop(&p, who).map(drop).map_err(failure)
-            }
+            // A filing's undo, only while the item is still as filed.
+            Undo::SelfDrop(id) => match self.self_drop_as_filed(id, who) {
+                Ok(true) => Ok(Effect::Done),
+                Ok(false) => {
+                    let command = undo.command();
+                    Ok(Effect::Moved {
+                        line: told::moved_line(&command),
+                        message: format!(
+                            "The item has moved on since it was filed (it started, ran, was \
+                             retried or set aside), so this Undo no longer applies, and nothing \
+                             was changed. To drop it as it is now: `{command}`."
+                        ),
+                    })
+                }
+                Err(e) => Err(failure(e)),
+            },
             #[cfg(test)]
             Undo::Probe(_) => {
                 PROBED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Ok(())
+                Ok(Effect::Done)
             }
         }
     }
