@@ -99,6 +99,8 @@ pub enum Buttons {
     Again(String),
     /// A mint's card (theseus-xzxqv): Undo, for this write (the judgment's id).
     OntoUndo(String),
+    /// A note of an act done unasked (issue 57): Undo, for this post.
+    Told(String),
     /// A new persona's card (theseus-utfnl): Write its soul and Decline, for this persona.
     PersonaSoul(String),
     /// A self note's Drop for each started item `(id, title)` and its Halt (theseus-o1h3f.7).
