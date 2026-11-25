@@ -290,8 +290,8 @@ async fn a_wake_notes_undo_counts_only_for_the_owner_in_private() {
 #[tokio::test]
 async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() {
     use theseus_core::rpc::told::{ToldUndoParams, ToldUndoResult};
-    use theseus_protocol::rsi::{SelfBacklogParams, SelfFileParams, SelfFileResult};
     use theseus_protocol::routines::{RoutineCreateParams, RoutineEditResult};
+    use theseus_protocol::rsi::{SelfBacklogParams, SelfFileParams, SelfFileResult};
     let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
         c.self_improve.mode = theseus_core::config::self_improve::SelfMode::Act;
         c.self_improve.backlog_starts = Some(0);
@@ -326,12 +326,27 @@ async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() 
     let wake = wake(&r).await;
     let (order, _) = ordered(&r);
     let open = |id: &str| {
-        let all = r.core.self_backlog(&SelfBacklogParams { all: true }).unwrap().items;
+        let all = r
+            .core
+            .self_backlog(&SelfBacklogParams { all: true })
+            .unwrap()
+            .items;
         all.iter().any(|i| {
-            i.id == id && matches!(i.state.as_str(), "proposed" | "waiting_human" | "in_progress")
+            i.id == id
+                && matches!(
+                    i.state.as_str(),
+                    "proposed" | "waiting_human" | "in_progress"
+                )
         })
     };
-    let listed = |id: &str| r.core.routine_list().unwrap().routines.iter().any(|x| x.id == id);
+    let listed = |id: &str| {
+        r.core
+            .routine_list()
+            .unwrap()
+            .routines
+            .iter()
+            .any(|x| x.id == id)
+    };
     assert!(pending(&r, &wake) && listed(&routine) && open(&item) && ends(&r, &order) == 0);
 
     for undo in [
@@ -341,9 +356,19 @@ async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() 
         Undo::SelfDrop(item.clone()),
     ] {
         let post = note_of(&r, undo.clone());
-        let p = ToldUndoParams { post, ..Default::default() };
-        let done: ToldUndoResult = rpc.call(theseus_protocol::method::TOLD_UNDO, &p).await.unwrap();
-        assert!(done.text.contains("\n↩️ Undone by "), "{undo:?}: {}", done.text);
+        let p = ToldUndoParams {
+            post,
+            ..Default::default()
+        };
+        let done: ToldUndoResult = rpc
+            .call(theseus_protocol::method::TOLD_UNDO, &p)
+            .await
+            .unwrap();
+        assert!(
+            done.text.contains("\n↩️ Undone by "),
+            "{undo:?}: {}",
+            done.text
+        );
         assert!(!done.text.contains("Undo: `"), "{}", done.text);
         let again = rpc
             .call::<_, ToldUndoResult>(theseus_protocol::method::TOLD_UNDO, &p)

@@ -60,7 +60,11 @@ impl Core {
     }
 
     /// The note `post`'s undo, as `who`'s act.
-    pub async fn told_undo(&self, post: &str, who: &Answerer) -> Result<ToldUndoResult, RpcFailure> {
+    pub async fn told_undo(
+        &self,
+        post: &str,
+        who: &Answerer,
+    ) -> Result<ToldUndoResult, RpcFailure> {
         let _one = UNDOING.lock().await;
         let what = format!("the undo of note {post}");
         self.judge_act(who, Act::Told { what: &what })
