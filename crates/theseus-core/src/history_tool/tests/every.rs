@@ -409,11 +409,19 @@ async fn the_history_page_setting_sizes_the_real_tools_pages() {
     for (asked, all) in [(json!({}), 25), (json!({"place": "*"}), 50)] {
         let (first, meta) = page(asked.clone()).await;
         assert_eq!(meta["page"], 20, "{asked}: {meta}");
-        assert_eq!((first.len(), &meta["lines"]), (20, &json!(20)), "{asked}: {first:?}");
+        assert_eq!(
+            (first.len(), &meta["lines"]),
+            (20, &json!(20)),
+            "{asked}: {first:?}"
+        );
         let mut next = asked.clone();
         next["before"] = meta["next"].clone();
         let (second, meta) = page(next).await;
-        assert_eq!(second.len(), (all - 20).min(20), "{asked}: {second:?} {meta}");
+        assert_eq!(
+            second.len(),
+            (all - 20).min(20),
+            "{asked}: {second:?} {meta}"
+        );
         let both: HashSet<&String> = first.iter().chain(&second).collect();
         assert_eq!(both.len(), first.len() + second.len(), "{asked}: no repeat");
         let newest: Vec<String> = (1..=50u64)
@@ -422,6 +430,10 @@ async fn the_history_page_setting_sizes_the_real_tools_pages() {
             .take(first.len() + second.len())
             .map(|i| format!("turn_{i:04}"))
             .collect();
-        assert_eq!([first, second].concat(), newest, "{asked}: newest first, no gap");
+        assert_eq!(
+            [first, second].concat(),
+            newest,
+            "{asked}: newest first, no gap"
+        );
     }
 }

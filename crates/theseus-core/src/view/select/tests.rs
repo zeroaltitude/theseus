@@ -650,7 +650,10 @@ fn a_guests_turn_through_the_real_permit_lays_the_owners_private_lines_and_other
             .expect("a selector for EVERYWHERE");
         let mut out = sel.select(&guest, &s).expect("selects");
         out.sort_by_key(|p| std::cmp::Reverse(p.range.last.clone()));
-        ids(&out).into_iter().map(str::to_string).collect::<Vec<_>>()
+        ids(&out)
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
     };
     let shared = theseus_memory::recall::Place::Shared("chan".into());
     let permit = permit::Permit::of(crate::view_gate::Verified::of_fresh(shared, "chan"));
