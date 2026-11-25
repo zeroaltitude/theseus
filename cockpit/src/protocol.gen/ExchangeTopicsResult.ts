@@ -37,6 +37,11 @@ declared: number, unplaced: number,
  */
 include_unmarked: boolean, 
 /**
+ * The run undid his declaration (`undo_declared`): the answers his
+ * declaration filed, the exchanges whose touches end, and the touches.
+ */
+undo_declared: boolean, declared_rows: number, undone: number, ended: number, 
+/**
  * Those opened by no person's message that can be read: a wake, a
  * task's brief, Theseus's own turn among them.
  */

@@ -21,4 +21,9 @@ cap_usd?: number,
  * the place stored on the message (his terminal, the web UI, his DM, a
  * channel bound private). Their stored author is not changed.
  */
-include_unmarked: boolean, };
+include_unmarked: boolean, 
+/**
+ * His declaration undone (issue 51): end every touch an answer it
+ * filed came to, and nothing else. Asks nothing and spends nothing.
+ */
+undo_declared: boolean, };
