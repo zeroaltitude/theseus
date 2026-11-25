@@ -447,17 +447,12 @@ impl Execution {
     /// budget from before theseus-0sg, decodes with a dollar budget of
     /// `limit_micros` and its unit figures in `budget.units_before`; its
     /// `schema` stays 1 until startup rewrites it (see `Kernel::startup`).
-    /// A payload that is no JSON object is an error, as any other that does
-    /// not read.
     pub fn from_stored(payload: &[u8], limit_micros: Micros) -> anyhow::Result<Self> {
         let first = match serde_json::from_slice::<Execution>(payload) {
             Ok(e) => return Ok(e),
             Err(e) => e,
         };
         let mut v: serde_json::Value = serde_json::from_slice(payload)?;
-        if !v.is_object() {
-            return Err(first.into());
-        }
         let stored = v.get("schema").and_then(serde_json::Value::as_u64);
         if stored.is_some_and(|s| s >= SCHEMA as u64) {
             return Err(first.into());
@@ -467,6 +462,16 @@ impl Execution {
         })?;
         v["budget"] = serde_json::to_value(Budget::from_units(units, limit_micros))?;
         Ok(serde_json::from_value(v)?)
+    }
+
+    /// `from_stored` for a listing, which passes over a record that does not
+    /// read: a payload that does not begin as a JSON object is an error here,
+    /// before `from_stored` would read it as an older schema.
+    pub fn from_stored_listed(payload: &[u8], limit_micros: Micros) -> anyhow::Result<Self> {
+        if payload.iter().find(|b| !b.is_ascii_whitespace()) != Some(&b'{') {
+            anyhow::bail!("an execution record that is no JSON object does not read");
+        }
+        Self::from_stored(payload, limit_micros)
     }
 }
 
