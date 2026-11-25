@@ -457,12 +457,16 @@ impl Rig {
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|r| r["data"]["part"].as_str().is_some_and(|p| p.ends_with(":fold")))
+            .filter(|r| {
+                r["data"]["part"]
+                    .as_str()
+                    .is_some_and(|p| p.ends_with(":fold"))
+            })
             .filter_map(|r| r["data"]["message_id"].as_str().map(str::to_string))
             .collect()
     }
 
-        /// The bot's message whose first text holds `needle`, as it reads now.
+    /// The bot's message whose first text holds `needle`, as it reads now.
     fn latest(&self, needle: &str) -> Option<Msg> {
         self.bot_messages()
             .into_iter()
@@ -1145,10 +1149,12 @@ impl Journey {
         // The judged kinds, named rather than taken as "everything that is not chat": adding the
         // `"tool"` kind must not quietly pull tool lines into this spacing measurement, which is
         // about the interrupts a task path makes. The set here is what `!= "chat"` meant before.
-        for m in rings
-            .iter()
-            .filter(|m| matches!(kind(&m.versions[0], folds.contains(&m.id)), "question" | "finish" | "failure"))
-        {
+        for m in rings.iter().filter(|m| {
+            matches!(
+                kind(&m.versions[0], folds.contains(&m.id)),
+                "question" | "finish" | "failure"
+            )
+        }) {
             by_channel
                 .entry(m.channel.as_str())
                 .or_default()
@@ -1307,7 +1313,11 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
         "-# 💭 thinking · 2 steps: 1 command, 1 other call · 1 in the background",
     ];
     for t in folds {
-        assert_eq!(kind(t, true), "tool", "a fold, by its record and its head: {t}");
+        assert_eq!(
+            kind(t, true),
+            "tool",
+            "a fold, by its record and its head: {t}"
+        );
         assert_ne!(kind(t, false), "tool", "the head alone is no fold: {t}");
     }
     for t in [

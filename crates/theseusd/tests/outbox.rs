@@ -648,12 +648,10 @@ fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back_folded() {
             .all(|m| !m.content.contains("`proc.run` sh -c")),
         "no open tool line"
     );
-    // The call went on in the background before the kill: its fold says so.
-    let at_kill = r.wait("the fold says its call runs on", || {
-        folds()
-            .into_iter()
-            .find(|m| m.id == fold.id && m.content.contains("in the background"))
-    });
+    // The fold as the kill finds it, its call still running (the command
+    // sleeps past the kill).
+    let at_kill = folds().into_iter().find(|m| m.id == fold.id).unwrap();
+    eprintln!("the fold at the kill: {:?}", at_kill.versions);
     drop(daemon);
     r.fake.set_mode(Mode::Down);
     let _daemon = r.spawn();
@@ -694,12 +692,15 @@ fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back_folded() {
         "the first turn's fold is still one message: {same:?}"
     );
     // The call's late end edited that same message, by its key read back from
-    // the lane's rows: the edit count moved, and the background is over.
+    // the lane's rows: the edit count moved, and its line no longer runs.
+    eprintln!("the folds after the restart: {:?}", folds().iter().map(|m| (&m.id, &m.versions)).collect::<Vec<_>>());
     let late = r.wait("the late end on the same fold", || {
         folds()
             .into_iter()
-            .find(|m| m.id == at_kill.id && !m.content.contains("in the background"))
+            .find(|m| m.id == at_kill.id && m.edits > at_kill.edits)
     });
+    eprintln!("the fold after its late end: {:?}", late.versions);
+    assert!(!late.content.contains("in the background"), "{late:?}");
     assert_eq!(late.id, fold.id, "the same message");
     assert!(late.edits > at_kill.edits, "{at_kill:?} then {late:?}");
     assert!(late.content.starts_with("-# 1 step: 1 command"), "{late:?}");

@@ -135,7 +135,10 @@ mod tests {
             gone: false,
             message: "away".into(),
         });
-        assert!(lane.came_back, "the outage is known, for the place's re-send");
+        assert!(
+            lane.came_back,
+            "the outage is known, for the place's re-send"
+        );
         let keys = |l: &Lane| -> Vec<String> {
             l.live
                 .iter()

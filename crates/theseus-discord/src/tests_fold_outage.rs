@@ -189,7 +189,11 @@ async fn forty_turns_in_an_outage_leave_at_most_the_held_folds_and_the_card_goes
                 std::fs::write(&p, "x\n").unwrap();
                 s.push(Scripted::tools(
                     "",
-                    &[(&format!("r{i}"), "fs_read", json!({"path": p.to_string_lossy()}))],
+                    &[(
+                        &format!("r{i}"),
+                        "fs_read",
+                        json!({"path": p.to_string_lossy()}),
+                    )],
                 ));
                 s.push(Scripted::text(&format!("Answer {i}.")));
             }
@@ -209,7 +213,9 @@ async fn forty_turns_in_an_outage_leave_at_most_the_held_folds_and_the_card_goes
     .await;
     r.say((ANA, "ana"), None, "Turn 0?");
     r.until("the first turn and its fold", || {
-        r.posted(ANA_DM).iter().any(|m| m.content.contains("Answer 0."))
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("Answer 0."))
             && !folds(&r, ANA_DM).is_empty()
             && r.core.outbox.status("discord").pending == 0
     })
@@ -274,13 +280,7 @@ async fn a_press_not_taken_in_time_is_cancelled_and_never_applies() {
     )
     .await;
     let f = settled(&r, "dm").await;
-    let held = || {
-        r.fake
-            .seen()
-            .iter()
-            .filter(|s| s.outcome == "held")
-            .count()
-    };
+    let held = || r.fake.seen().iter().filter(|s| s.outcome == "held").count();
     let n = held();
     r.fake.hold_writes_containing(Some("hold-me"));
     r.say((ANA, "ana"), None, "And again?");
@@ -290,7 +290,9 @@ async fn a_press_not_taken_in_time_is_cancelled_and_never_applies() {
         r.fake.replies().iter().any(|x| {
             x.interaction.as_deref() == Some(pressed.as_str())
                 && x.ephemeral
-                && x.content.as_deref().is_some_and(|c| c.starts_with("That press waited too long"))
+                && x.content
+                    .as_deref()
+                    .is_some_and(|c| c.starts_with("That press waited too long"))
         })
     })
     .await;
@@ -365,7 +367,10 @@ async fn a_question_and_its_settle_keep_their_order_around_a_fold() {
         .into_iter()
         .find(|m| m.content.contains("Going on, carefully."))
         .unwrap();
-    assert!(at(&card.id) < at(&answer.id), "the answer after the question");
+    assert!(
+        at(&card.id) < at(&answer.id),
+        "the answer after the question"
+    );
     let seen = r.fake.seen();
     let settle = seen
         .iter()
