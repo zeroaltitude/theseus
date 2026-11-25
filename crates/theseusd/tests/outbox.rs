@@ -89,8 +89,10 @@ impl Rig {
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         std::fs::write(
             path("state/bindings.toml"),
+            // The DM shows a turn's steps open, a message a loop, as these
+            // tests read its tool message (issue 56).
             format!(
-                "guild_id = \"314159265358979323\"\n[[dm]]\nuser = \"{USER}\"\nname = \"zeroaltitude\"\n"
+                "guild_id = \"314159265358979323\"\n[[dm]]\nuser = \"{USER}\"\nname = \"zeroaltitude\"\nsteps = \"open\"\n"
             ),
         )
         .unwrap();

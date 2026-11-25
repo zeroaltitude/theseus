@@ -132,11 +132,14 @@ fn guild() -> Guild {
     Guild::new(DEFAULT_GUILD, (ANA, "ana")).private_channel(LAB, "lab", &[ANA])
 }
 
+/// Both places show a turn's steps open, a message a loop: the journey's
+/// silence rule (`created_silent`) knows tool activity by those lines' shapes
+/// (issue 56: a place folds them unless it says `steps = "open"`).
 fn bindings() -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\nprivate = true\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
-         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\nsteps = \"open\"\n\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\nsteps = \"open\"\n"
     )
 }
 
