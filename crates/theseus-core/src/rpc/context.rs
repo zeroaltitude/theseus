@@ -202,7 +202,10 @@ impl Core {
                         .into();
                 // Said against the request a turn sends: the view's spec, the memory page in it.
                 let now = manifest_for(
-                    &crate::compiler::view::first_call_spec(&sent),
+                    &crate::compiler::view::first_call_spec(
+                        &sent,
+                        self.cfg.context.sizes().here,
+                    ),
                     &self.catalog,
                     None,
                     false,

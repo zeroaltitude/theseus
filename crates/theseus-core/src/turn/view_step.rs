@@ -268,10 +268,13 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, &message);
+        let sizes = self.cfg.context.sizes();
+        let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, (&message, sizes));
         let renderer = self.renderer(store, &read, &said);
         let who = self.who_am_i(spec);
-        let (frame, now) = frame_and_now(spec, (renderer.memory_page().1, &who), &message, harness);
+        // The memory page, its window the setting's (`[context] here_exchanges`).
+        let page = crate::view::text::page::memory_page_at(sizes.here);
+        let (frame, now) = frame_and_now(spec, (&page, &who), &message, harness);
         let selectors = table(src, frame, now);
         let parts = Parts {
             selectors: &selectors,
@@ -281,7 +284,7 @@ impl TurnRunner {
             since,
         };
         let block = |b: &MarkedBlock| Frozen::block(sid, turn, &b.heading, &b.text);
-        let memory_page = renderer.memory_page().1.to_string();
+        let memory_page = page.into_owned();
         let a = match assemble(&pov, &snap, &parts, budget) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
@@ -562,13 +565,13 @@ struct Moving<'a> {
 
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
 /// the named things (none outside a core), what waits, the facts about the person, the joined task's
-/// card, and the message.
+/// card, the message, and the look-backs' sizes.
 fn sources_of<'a, 'b>(
     gate: &'a Permit,
     (store, moving): (&'a StoreSources<'b>, &'a Moving<'b>),
     ladder: &'a dyn crate::view::fold::Ladder,
     cards: &'a StoreCards<'b>,
-    message: &'a str,
+    (message, sizes): (&'a str, crate::config::context::Sizes),
 ) -> Sources<'a> {
     let (things, names): (&dyn Things, &dyn Names) = match &moving.called {
         Some(c) => (c, c),
@@ -587,6 +590,7 @@ fn sources_of<'a, 'b>(
         recall: store,
         people: &moving.people,
         message,
+        sizes,
     }
 }
 

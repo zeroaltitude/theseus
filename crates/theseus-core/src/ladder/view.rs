@@ -107,6 +107,8 @@ impl StoreFolds<'_> {
             writer: self.writer,
             flags: self.flags,
             purse: &purse,
+            // One fold over the exchanges it is given: no window is weighed against a floor.
+            floor: super::WINDOW_FLOOR,
         };
         let _one = super::WRITING.lock().await;
         match read::first(self.store, &found, &step).await? {

@@ -16,11 +16,17 @@ const PLACE: &str = "discord:channel:3030";
 
 /// One fold step over `PLACE`, as the job at an exchange's end runs it.
 async fn step(s: &Store, w: &Fake) -> read::Stepped {
+    step_over(s, w, WINDOW_FLOOR).await
+}
+
+/// One fold step over `PLACE` with the window's floor at `floor` (`[context] here_exchanges`).
+async fn step_over(s: &Store, w: &Fake, floor: usize) -> read::Stepped {
     let purse = DayPurse::new(s, None, false);
     let st = Step {
         writer: w,
         flags: &NoFlags,
         purse: &purse,
+        floor,
     };
     read::fold_step(s, PLACE, None, &st).await.unwrap()
 }
@@ -92,6 +98,7 @@ async fn a_place_laddered_while_the_window_held_twenty_to_thirty_nine_reads_and_
         writer: &w,
         flags: &NoFlags,
         purse: &purse,
+        floor: WINDOW_FLOOR,
     };
     for k in 0..2 {
         let oldest: Vec<Exchange> = turns[k * 20..(k + 1) * 20]
@@ -168,6 +175,7 @@ fn laid_once(s: &Store, turns: &[String]) {
         recall: &src,
         people: &src,
         message: "",
+        sizes: Default::default(),
     };
     let selectors: Vec<Box<dyn Selector + '_>> = [Band::Floor, Band::WindowWords, Band::Ladder]
         .into_iter()
@@ -210,4 +218,61 @@ fn laid_once(s: &Store, turns: &[String]) {
         turns[60..].to_vec(),
         "the window's 30, each once"
     );
+}
+
+/// `[context] here_exchanges` is the window's floor: at 10 the window holds 10 to 29 exchanges and folds at 30,
+/// and every fold still takes [`FOLD_STEP`] (20), whatever the floor.
+#[tokio::test]
+async fn the_here_setting_is_the_windows_floor_and_the_fold_step_stays_twenty() {
+    assert_eq!(FOLD_STEP, 20);
+    for floor in [10, 60] {
+        let (_d, s) = store();
+        let w = Fake::default();
+        let mut turns = Vec::new();
+        for i in 0..(floor + 3 * FOLD_STEP) as u64 {
+            turns.push(exchange_at(&s, "ses_a", PLACE, 1_000 + i, false));
+            let made = step_over(&s, &w, floor).await.made;
+            let len = window(&s).len();
+            let at = i as usize + 1;
+            if at < floor + FOLD_STEP {
+                assert!(made.is_empty(), "floor {floor}: no fold at {at}");
+                assert_eq!(len, at);
+            } else {
+                assert!((floor..floor + FOLD_STEP).contains(&len), "floor {floor}: {at} -> {len}");
+            }
+            for n in &made {
+                assert_eq!(n.exchanges.len(), FOLD_STEP, "floor {floor}: a fold takes twenty");
+            }
+        }
+        each_once(&s, &turns);
+        // Folds at floor + 20, floor + 40 and floor + 60: the window holds the newest `floor`.
+        assert_eq!(held(&s), turns[..3 * FOLD_STEP].to_vec(), "floor {floor}");
+        assert_eq!(window(&s), turns[3 * FOLD_STEP..].to_vec(), "floor {floor}");
+    }
+}
+
+/// A floor lowered from 30 to 10 folds at the place's next exchange end, 20 at a time, until the window is under
+/// 30; raised again to 60, no node is undone and nothing is folded: the window stays as it was.
+#[tokio::test]
+async fn lowering_the_floor_folds_on_the_next_exchange_end_and_raising_it_unfolds_nothing() {
+    let (_d, s) = store();
+    let w = Fake::default();
+    let mut turns = Vec::new();
+    for i in 0..45u64 {
+        turns.push(exchange_at(&s, "ses_a", PLACE, 1_000 + i, false));
+        assert!(step(&s, &w).await.made.is_empty(), "45 at the default floor: no fold");
+    }
+    assert_eq!(window(&s).len(), 45);
+    // Lowered to 10: the next exchange end folds the oldest 20, leaving 26 (under 10 + 20).
+    turns.push(exchange_at(&s, "ses_a", PLACE, 2_000, false));
+    let made = step_over(&s, &w, 10).await.made;
+    assert_eq!(made.len(), 1);
+    assert_eq!(made[0].exchanges, turns[..FOLD_STEP].to_vec());
+    assert_eq!(window(&s), turns[FOLD_STEP..].to_vec());
+    // Raised to 60: nothing folds and nothing comes back.
+    turns.push(exchange_at(&s, "ses_a", PLACE, 2_001, false));
+    assert!(step_over(&s, &w, 60).await.made.is_empty());
+    assert_eq!(held(&s), turns[..FOLD_STEP].to_vec());
+    assert_eq!(window(&s), turns[FOLD_STEP..].to_vec());
+    each_once(&s, &turns);
 }

@@ -60,8 +60,9 @@ mod tests_job;
 #[cfg(test)]
 pub(crate) mod tests_moved;
 
-/// The window's floor: the newest exchanges no fold takes (30 since 2026-11-24; 20 before). A place with fewer
-/// has them all; a request's budget can still shorten all but the newest three exchanges' words.
+/// The window's floor: the newest exchanges no fold takes (30 since 2026-11-24; 20 before), the default of
+/// `[context] here_exchanges`. A place with fewer has them all; a request's budget can still shorten all but the
+/// newest three exchanges' words.
 pub const WINDOW_FLOOR: usize = 30;
 /// The fold step: a fold takes this many exchanges into one first-level node, or this many nodes of a level
 /// into one node above it. Every node, before and after the floor rose, holds this many.

@@ -360,6 +360,7 @@ fn sources_with<'a>(s: &'a Store, message: &'a str, gate: &'a dyn Gate) -> Sourc
         recall: s,
         people: s,
         message,
+        sizes: Default::default(),
     }
 }
 

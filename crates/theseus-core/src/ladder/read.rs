@@ -8,9 +8,10 @@
 //!   budgeter bounds what is shown).
 //! - **A level's standing nodes**: those after the last one the level above
 //!   holds, oldest first.
-//! - **The fold step**: while the window holds
-//!   [`WINDOW_FLOOR`](super::WINDOW_FLOOR) + [`FOLD_STEP`] ended exchanges
-//!   (`crate::view::fold::fold_due`), its oldest [`FOLD_STEP`] become a
+//! - **The fold step**: while the window holds its floor (`[context]
+//!   here_exchanges`, [`WINDOW_FLOOR`](super::WINDOW_FLOOR) by default) +
+//!   [`FOLD_STEP`] ended exchanges (`crate::view::fold::fold_due_over`), its
+//!   oldest [`FOLD_STEP`] become a
 //!   first-level node; while a level holds 2[`FOLD_STEP`] nodes, its oldest
 //!   [`FOLD_STEP`] become one node of the level above, by code. A node is
 //!   written once for its range (`fold::write_once`).
@@ -185,9 +186,12 @@ pub struct Step<'a> {
     pub writer: &'a dyn Writer,
     pub flags: &'a dyn Flags,
     pub purse: &'a dyn Purse,
+    /// The window's floor ([`fold_step`]): `[context] here_exchanges`.
+    pub floor: usize,
 }
 
-/// Fold `place`'s ladder until no window is due a fold and no level holds 2[`FOLD_STEP`] nodes.
+/// Fold `place`'s ladder until no window is due a fold over the step's floor and no level holds 2[`FOLD_STEP`]
+/// nodes.
 pub async fn fold_step(
     store: &Store,
     place: &str,
@@ -201,7 +205,7 @@ pub async fn fold_step(
     }
     loop {
         let l = blocking(|| ladder(store, place, since))?;
-        if crate::view::fold::fold_due(l.window.len()) {
+        if crate::view::fold::fold_due_over(l.window.len(), step.floor) {
             let oldest = &l.window[..FOLD_STEP];
             if oldest.iter().any(|e| e.end_ms.is_none()) {
                 return Ok(out);

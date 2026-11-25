@@ -53,6 +53,7 @@ async fn fold(who: impl Fn(u64) -> Option<Option<&'static str>>) -> (String, Str
         writer: &w,
         flags: &NoFlags,
         purse: &purse,
+        floor: WINDOW_FLOOR,
     };
     let out = read::fold_step(&s, CHANNEL, None, &step).await.unwrap();
     assert_eq!(out.made.len(), 1, "{:?}", out.failed);

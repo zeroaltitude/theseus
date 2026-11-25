@@ -8,6 +8,10 @@
 //! (`tests/golden/memory_page.txt`, `THESEUS_GOLDEN=write` rewrites it). A change to the words is a new
 //! [`MEMORY_PAGE_VERSION`].
 
+use std::borrow::Cow;
+
+use crate::ladder::{FOLD_STEP, WINDOW_FLOOR};
+
 /// The page's version: raised with every change to [`MEMORY_PAGE`].
 pub const MEMORY_PAGE_VERSION: u32 = 7;
 
@@ -74,4 +78,19 @@ config_show reads your settings, and you can read the record of what this turn w
 /// The page and its version, as [`crate::view::render::Renderer::memory_page`] gives them.
 pub fn memory_page() -> (u32, &'static str) {
     (MEMORY_PAGE_VERSION, MEMORY_PAGE)
+}
+
+/// The page as a turn lays it, its window over `floor` (`[context] here_exchanges`): [`MEMORY_PAGE`] itself at
+/// the default floor, else with the window's numbers its own. The version names the words; the numbers are the
+/// setting's.
+pub fn memory_page_at(floor: usize) -> Cow<'static, str> {
+    match floor == WINDOW_FLOOR {
+        true => Cow::Borrowed(MEMORY_PAGE),
+        false => Cow::Owned(MEMORY_PAGE.replacen(&window(WINDOW_FLOOR), &window(floor), 1)),
+    }
+}
+
+/// The window's numbers as the page says them: the floor to the most it holds before a fold.
+fn window(floor: usize) -> String {
+    format!("up to {floor} to {} recent exchanges", floor + FOLD_STEP - 1)
 }

@@ -1,6 +1,7 @@
 //! The fold node and the ladder's read (design §5.2; trim items 6, 7, 8). A node is written once and never
-//! changes. A fold is by count: no fold takes the newest [`WINDOW_FLOOR`] exchanges of the window, and when it holds
-//! [`WINDOW_FLOOR`] + [`FOLD_STEP`] its oldest [`FOLD_STEP`] fold into one first-level node ([`fold_due`]);
+//! changes. A fold is by count: no fold takes the window's newest exchanges, its floor (`[context] here_exchanges`,
+//! [`WINDOW_FLOOR`] by default), and when it holds the floor + [`FOLD_STEP`] its oldest [`FOLD_STEP`] fold into
+//! one first-level node ([`fold_due_over`]);
 //! when a level holds 2 [`FOLD_STEP`] nodes its oldest [`FOLD_STEP`] fold into one node of the level above.
 //! A first-level node's account is a small model's, written off the turn's path from the original exchanges;
 //! a node above the first is built by CODE from first-level nodes' typed fields, with no model.
@@ -79,8 +80,13 @@ pub trait FoldWriter {
     fn lift(&self, level: u8, nodes: &[FoldNode]) -> anyhow::Result<FoldNode>;
 }
 
-/// Whether a window of `len` exchanges is due a fold: at [`WINDOW_FLOOR`] + [`FOLD_STEP`], by count, never by
-/// a judge.
+/// Whether a window of `len` exchanges is due a fold at the default floor ([`fold_due_over`]).
 pub fn fold_due(len: usize) -> bool {
-    len >= WINDOW_FLOOR + FOLD_STEP
+    fold_due_over(len, WINDOW_FLOOR)
+}
+
+/// Whether a window of `len` exchanges is due a fold over `floor` (`[context] here_exchanges`): at `floor` +
+/// [`FOLD_STEP`], by count, never by a judge.
+pub fn fold_due_over(len: usize, floor: usize) -> bool {
+    len >= floor + FOLD_STEP
 }

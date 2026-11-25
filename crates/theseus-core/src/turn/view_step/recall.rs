@@ -145,7 +145,8 @@ impl TurnRunner {
             homes: self,
             judged: None,
         };
-        let src = super::sources_of(&permit, (&sources, &moving), &ladder, &cards, "");
+        let sizes = self.cfg.context.sizes();
+        let src = super::sources_of(&permit, (&sources, &moving), &ladder, &cards, ("", sizes));
         let mut out = BTreeSet::new();
         for p in Here::new(Band::Floor, src).select(&pov, &snap)? {
             let id = &p.range.first.id;
