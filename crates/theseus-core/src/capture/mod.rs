@@ -6,15 +6,18 @@
 //! messages in a place only the owner writes in. Its verdict is acted on here,
 //! off the turn's path, by bands (the owner's, 2026-10-13: killer OD5):
 //!
-//! - **0.80 and up**: kept as a standing record (source `capture:<node>`),
-//!   with a notice and an undo. Its scope is the one Jev judged when it is
-//!   sure of it, else where the words were said (a Discord place, else the
-//!   session).
-//! - **0.50 to 0.80**: asked (keep, keep everywhere, or not this).
+//! - **0.50 and up**: kept as a standing record (source `capture:<node>`),
+//!   with a notice and an undo (issue 57: the owner asked for approvals only
+//!   where an act is dangerous and cannot be undone, and `standing.revoke`
+//!   undoes this exactly). Its scope is the one Jev judged when it is sure of
+//!   it, else where the words were said (a Discord place, else the session).
 //! - **below 0.50**: nothing, except a correction said twice in a week
-//!   (their words overlap), which is asked even though each was below the band.
-//! - **an order is always asked**, whatever its confidence: it changes what
-//!   Theseus may do, so no confidence of Jev's keeps one alone.
+//!   (their words overlap), which is asked (keep, keep everywhere, or not
+//!   this) even though each was below the band.
+//! - **an order is kept as the rest are**, with the same notice and undo. It
+//!   is only ever heard in the owner's own words: `expect.rs` notes no job's
+//!   or agent's message, [`owner_alone`] hears no shared place, and a page or
+//!   a tool's result is never a message, so no outside text can make one.
 //! - **said again**: a message that is the same kind as a live record and
 //!   shares its words writes `standing.repeated` and no record; the week's
 //!   count is on `standing.list`. A non-zero week is a finding.
@@ -181,7 +184,8 @@ pub enum Plan {
     Nothing,
     /// Keep it, with a notice and an undo.
     Keep(StandingKind),
-    /// Ask the owner: `why` is `unsure`, `order` or `twice`.
+    /// Ask the owner: `why` is `twice` (an ask kept from an earlier build may
+    /// say `unsure` or `order`).
     Ask {
         kind: StandingKind,
         why: &'static str,
@@ -220,17 +224,9 @@ pub fn decide(
         {
             return Plan::Nothing;
         }
-        return match (k, v.band) {
-            (StandingKind::Order, _) => Plan::Ask {
-                kind: k,
-                why: "order",
-            },
-            (_, Band::Act) => Plan::Keep(k),
-            _ => Plan::Ask {
-                kind: k,
-                why: "unsure",
-            },
-        };
+        // The act and the confirm band alike, an order too: kept, with a
+        // notice and an undo.
+        return Plan::Keep(k);
     }
     // Below the band, only a correction counts, and only if it is said twice.
     let strength = match v.heard {

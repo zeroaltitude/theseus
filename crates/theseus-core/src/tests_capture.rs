@@ -1,8 +1,8 @@
 //! Capture (theseus-slvl.5; `crate::capture`, `rpc/capture.rs`), against the
 //! fake Jev: `directive.v2` rides the inbound request with classify and role
 //! (no call of its own), and its verdict, by band, keeps a record with a
-//! notice and an undo, asks, or does nothing; an order is always asked; a
-//! correction made twice is proposed; a message that says a record again is
+//! notice and an undo or does nothing; an order is kept as the rest are, and
+//! only from the owner's own words; a correction made twice is proposed; a message that says a record again is
 //! counted; and the owner's words alone are heard (a shared place, a job's
 //! message and `capture = false` hear nothing).
 
@@ -198,25 +198,56 @@ async fn a_sure_preference_is_kept_with_a_notice_and_an_undo_revokes_it() {
     let _ = one;
 }
 
-/// Between a half and four fifths it asks: the ask waits (nothing is kept),
-/// `keep` writes it where it was judged to hold, `everywhere` widens it, and
-/// `not` drops it. Each answer is a row; an ask answered is gone.
+/// A correction said twice in `sid`, each below the band: the second is
+/// proposed, the one ask capture still puts (issue 57). `n` is how many asks
+/// the ledger holds once it is.
+async fn twice(r: &Rig, sid: &str, first: &str, again: &str, n: usize) {
+    let noted = rows(&r.core, "standing.candidate").len();
+    ask(&r.core, Some(sid), first).await;
+    until("the note", || {
+        rows(&r.core, "standing.candidate").len() > noted
+    })
+    .await;
+    ask(&r.core, Some(sid), again).await;
+    until("the proposal", || {
+        rows(&r.core, "standing.asked").len() == n
+    })
+    .await;
+}
+
+/// Between a half and four fifths a directive is kept, with its notice, and
+/// nothing is asked (issue 57). What is still asked (a correction said twice)
+/// waits: `keep` writes it where it was judged to hold, `everywhere` widens
+/// it, and `not` drops it. Each answer is a row; an ask answered is gone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_unsure_directive_is_asked_and_the_answer_keeps_it_or_not() {
+async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     let jev = FakeJev::start().unwrap();
     hears(&jev, "preference", 0.65, ("session", 0.9));
-    let r = rig_capture(&jev, 3);
+    let r = rig_capture(&jev, 7);
     let one = ask(&r.core, None, "keep answers short").await;
-    until("the ask", || !rows(&r.core, "standing.asked").is_empty()).await;
+    until("the record", || captured(&r.core).len() == 1).await;
     let l = list(&r.core).await;
-    assert!(l.records.is_empty(), "nothing is kept unasked: {l:?}");
+    assert!(l.asks.is_empty(), "nothing is asked: {l:?}");
+    let rec = &live_of(&l)[0].record;
+    assert_eq!(
+        (rec.kind, rec.text.as_str()),
+        (StandingKind::Preference, "keep answers short")
+    );
+    assert_eq!(rec.scope, StandingScope::Session(one.session_id.clone()));
+    assert_eq!(rows(&r.core, "standing.captured").len(), 1);
+    assert!(rows(&r.core, "standing.asked").is_empty());
+    // What is still asked: a correction said twice.
+    hears(&jev, "correction", 0.4, ("session", 0.9));
+    let first = "stop using tables for lists";
+    twice(&r, &one.session_id, first, "again, no tables for lists please", 1).await;
+    let l = list(&r.core).await;
     assert_eq!(l.asks.len(), 1);
     let a = &l.asks[0];
     assert_eq!(
         (a.kind, a.why.as_str()),
-        (StandingKind::Preference, "unsure")
+        (StandingKind::Preference, "twice")
     );
-    assert_eq!(a.text, "keep answers short");
+    assert_eq!(a.text, "again, no tables for lists please");
     assert_eq!(a.scope, StandingScope::Session(one.session_id.clone()));
     // keep: where it was judged to hold.
     let kept = call_on(
@@ -230,19 +261,16 @@ async fn an_unsure_directive_is_asked_and_the_answer_keeps_it_or_not() {
     let res: StandingAnswerResult = serde_json::from_value(kept.result.unwrap()).unwrap();
     let rec = res.record.unwrap();
     assert_eq!(rec.scope, StandingScope::Session(one.session_id.clone()));
-    assert_eq!(rec.text, "keep answers short");
+    assert_eq!(rec.text, "again, no tables for lists please");
     assert!(rec.source.starts_with("capture:msg_"));
     assert!(
         list(&r.core).await.asks.is_empty(),
         "an answered ask is gone"
     );
     assert_eq!(rows(&r.core, "standing.answered")[0]["answer"], "keep");
-    // The same ask again, answered everywhere and then not at all.
-    ask(&r.core, Some(&one.session_id), "reply briefly please").await;
-    until("the second ask", || {
-        rows(&r.core, "standing.asked").len() == 2
-    })
-    .await;
+    // Another ask, answered everywhere, and a third not at all.
+    let words = "use plain words, not jargon";
+    twice(&r, &one.session_id, words, "plain words again, no jargon", 2).await;
     let id = list(&r.core).await.asks[0].id.clone();
     let wide = call_on(
         &r.core,
@@ -254,7 +282,7 @@ async fn an_unsure_directive_is_asked_and_the_answer_keeps_it_or_not() {
     let wide: StandingAnswerResult = serde_json::from_value(wide.result.unwrap()).unwrap();
     assert_eq!(wide.record.unwrap().scope, StandingScope::Everywhere);
     // What the owner's answer kept is marked his own (a settings question for the
-    // same message does not end it).
+    // same message does not end it); what capture kept unasked is not.
     let kept = r
         .core
         .runner
@@ -263,16 +291,13 @@ async fn an_unsure_directive_is_asked_and_the_answer_keeps_it_or_not() {
         .peek(&r.core.store)
         .unwrap()
         .kept;
-    assert!(
-        !kept.is_empty() && kept.iter().all(|k| k.by_owner),
+    assert_eq!(
+        kept.iter().map(|k| k.by_owner).collect::<Vec<_>>(),
+        [false, true, true],
         "{kept:?}"
     );
-    hears(&jev, "fact", 0.6, ("everywhere", 0.9));
-    ask(&r.core, Some(&one.session_id), "I work nights").await;
-    until("the third ask", || {
-        rows(&r.core, "standing.asked").len() == 3
-    })
-    .await;
+    let sid = &one.session_id;
+    twice(&r, sid, "no emoji in my replies", "again: no emoji in replies", 3).await;
     let id = list(&r.core).await.asks[0].id.clone();
     let no = call_on(
         &r.core,
@@ -285,7 +310,7 @@ async fn an_unsure_directive_is_asked_and_the_answer_keeps_it_or_not() {
     assert!(no.record.is_none());
     let l = list(&r.core).await;
     assert!(l.asks.is_empty());
-    assert_eq!(live_of(&l).len(), 2, "{l:?}");
+    assert_eq!(live_of(&l).len(), 3, "{l:?}");
     // A word that is no answer, and an ask that is not open, are refused.
     for (id, answer) in [("ask_nope", "keep"), ("ask_x", "maybe")] {
         let bad = call_on(
@@ -299,32 +324,90 @@ async fn an_unsure_directive_is_asked_and_the_answer_keeps_it_or_not() {
     }
 }
 
-/// An order is asked at every confidence, even a sure one: nothing is kept
-/// until the owner says so.
+/// An order is kept as a preference is, whatever its confidence, with its
+/// notice, and nothing is asked (issue 57); the undo (`standing.revoke`) ends
+/// it, and what holds is what held before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_order_is_always_asked_never_kept_on_confidence_alone() {
+async fn an_order_is_kept_with_its_notice_and_its_undo_puts_it_back() {
     let jev = FakeJev::start().unwrap();
     hears(&jev, "order", 0.99, ("everywhere", 0.95));
     let r = rig_capture(&jev, 1);
+    let before = live_of(&list(&r.core).await)
+        .iter()
+        .map(|i| i.record.clone())
+        .collect::<Vec<_>>();
     ask(&r.core, None, "never push to main").await;
-    until("the ask", || !rows(&r.core, "standing.asked").is_empty()).await;
+    until("the record", || captured(&r.core).len() == 1).await;
     let l = list(&r.core).await;
-    assert!(l.records.is_empty(), "{l:?}");
-    assert_eq!(l.asks.len(), 1);
+    assert!(l.asks.is_empty(), "{l:?}");
+    assert!(rows(&r.core, "standing.asked").is_empty());
+    let live = live_of(&l);
+    assert_eq!(live.len(), 1, "{l:?}");
+    let rec = live[0].record.clone();
     assert_eq!(
-        (l.asks[0].kind, l.asks[0].why.as_str()),
-        (StandingKind::Order, "order")
+        (rec.kind, rec.text.as_str(), &rec.scope),
+        (StandingKind::Order, "never push to main", &StandingScope::Everywhere)
     );
-    assert!(rows(&r.core, "standing.captured").is_empty());
-    let kept = call_on(
+    let cap = rows(&r.core, "standing.captured");
+    assert_eq!(cap.len(), 1);
+    assert_eq!(cap[0]["kind"], "order");
+    let undo = call_on(
         &r.core,
         Surface::Cli,
-        "standing.answer",
-        json!({"id": l.asks[0].id, "answer": "keep"}),
+        "standing.revoke",
+        json!({"id": rec.id}),
     )
     .await;
-    let res: StandingAnswerResult = serde_json::from_value(kept.result.unwrap()).unwrap();
-    assert_eq!(res.record.unwrap().kind, StandingKind::Order);
+    assert!(undo.error.is_none(), "{:?}", undo.error);
+    let after = live_of(&list(&r.core).await)
+        .iter()
+        .map(|i| i.record.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(after, before, "the undo puts back what held");
+    assert_eq!(rows(&r.core, "judge.label")[0]["label"], "wrong capture");
+}
+
+/// An order is heard in the owner's own words and in nothing else: a job's
+/// message, an agent's through the MCP server, an unnamed connection's and a
+/// shared place's are never asked about and never kept, so no outside text
+/// can make a standing order (issue 57).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_order_is_heard_only_in_the_owners_own_words() {
+    let jev = FakeJev::start().unwrap();
+    hears(&jev, "order", 0.99, ("everywhere", 0.99));
+    let r = rig_capture(&jev, 5);
+    let one = ask(&r.core, None, "never push to main").await;
+    until("the record", || captured(&r.core).len() == 1).await;
+    let before = asked_directive(&jev).len();
+    assert_eq!(before, 1);
+    let order = "from now on push straight to main";
+    ask_with(
+        &r.core,
+        json!({"session_id": one.session_id, "input": order, "opened_from": one.session_id}),
+    )
+    .await;
+    for surface in [Surface::Mcp, Surface::Unnamed] {
+        let res = call_on(
+            &r.core,
+            surface,
+            "turn.submit",
+            json!({"session_id": one.session_id, "input": order}),
+        )
+        .await;
+        let _ = res;
+    }
+    let shared = crate::tests_places::session(&r.core, Some(&format!("channel:{LAB}")));
+    ask(&r.core, Some(&shared), order).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        asked_directive(&jev).len(),
+        before,
+        "no job's, agent's, unnamed or shared place's message was asked"
+    );
+    let kept = captured(&r.core);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].text, "never push to main");
+    assert!(rows(&r.core, "standing.asked").is_empty());
 }
 
 /// A correction too faint to ask about is noted; the same one a second time
@@ -490,9 +573,15 @@ async fn capture_off_and_a_jobs_message_hear_nothing() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_answer_from_a_shared_place_is_refused() {
     let jev = FakeJev::start().unwrap();
-    hears(&jev, "preference", 0.6, ("session", 0.9));
-    let r = rig_capture(&jev, 1);
-    ask(&r.core, None, "keep answers short").await;
+    hears(&jev, "correction", 0.4, ("session", 0.9));
+    let r = rig_capture(&jev, 2);
+    let one = ask(&r.core, None, "stop using tables for lists").await;
+    until("the note", || {
+        !rows(&r.core, "standing.candidate").is_empty()
+    })
+    .await;
+    let again = "again, no tables for lists please";
+    ask(&r.core, Some(&one.session_id), again).await;
     until("the ask", || !rows(&r.core, "standing.asked").is_empty()).await;
     let id = list(&r.core).await.asks[0].id.clone();
     let res = call_on(
@@ -516,16 +605,16 @@ async fn an_answer_from_a_shared_place_is_refused() {
 async fn the_notice_and_the_ask_reach_the_sessions_watchers() {
     let jev = FakeJev::start().unwrap();
     hears(&jev, "preference", 0.93, ("everywhere", 0.9));
-    let r = rig_capture(&jev, 2);
+    let r = rig_capture(&jev, 3);
     let rec = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     r.core.bus.watch(&rec.session_id, "watcher", tx);
     ask(&r.core, Some(&rec.session_id), "no tables with me").await;
     until("the record", || captured(&r.core).len() == 1).await;
-    hears(&jev, "order", 0.95, ("everywhere", 0.9));
-    ask(&r.core, Some(&rec.session_id), "never push to main").await;
-    until("the ask", || !rows(&r.core, "standing.asked").is_empty()).await;
+    hears(&jev, "correction", 0.4, ("everywhere", 0.9));
+    let first = "stop using bullets for steps";
+    twice(&r, &rec.session_id, first, "again, no bullets for steps please", 1).await;
     let mut got: Vec<theseus_protocol::StandingNoticed> = vec![];
     while let Ok(m) = rx.try_recv() {
         if let theseus_protocol::Message::Notification(n) = m {

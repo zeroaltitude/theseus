@@ -81,33 +81,42 @@ fn at_the_act_band_a_preference_a_fact_and_a_correction_are_kept() {
     }
 }
 
+/// An order is kept at every confidence from a half up, with the notice and
+/// the undo a preference gets (issue 57): it is only heard in the owner's own
+/// words, and `standing.revoke` ends it.
 #[test]
-fn an_order_is_asked_at_every_confidence_and_never_kept() {
+fn an_order_is_kept_at_every_confidence_with_its_undo() {
     let st = State::default();
     for (band, c) in [(Band::Act, 0.99), (Band::Act, 0.8), (Band::Confirm, 0.6)] {
         let v = verdict(Heard::Order, band, c);
         assert_eq!(
             plan(&v, "never push to main", &[], &st),
-            Plan::Ask {
-                kind: StandingKind::Order,
-                why: "order"
-            },
+            Plan::Keep(StandingKind::Order),
             "{band:?} {c}"
         );
     }
+    // Below a half it is nothing, as anything is.
+    let faint = verdict(Heard::Order, Band::Escalate, 0.4);
+    assert_eq!(plan(&faint, "never push to main", &[], &st), Plan::Nothing);
 }
 
+/// Between a half and four fifths it is kept, with its notice and its undo,
+/// as it is above (issue 57).
 #[test]
-fn between_half_and_four_fifths_it_asks() {
+fn between_half_and_four_fifths_it_is_kept() {
     let st = State::default();
-    let v = verdict(Heard::Preference, Band::Confirm, 0.65);
-    assert_eq!(
-        plan(&v, "keep it short", &[], &st),
-        Plan::Ask {
-            kind: StandingKind::Preference,
-            why: "unsure"
-        }
-    );
+    for (heard, kind) in [
+        (Heard::Preference, StandingKind::Preference),
+        (Heard::Fact, StandingKind::Fact),
+        (Heard::Correction, StandingKind::Preference),
+    ] {
+        let v = verdict(heard, Band::Confirm, 0.65);
+        assert_eq!(
+            plan(&v, "keep it short", &[], &st),
+            Plan::Keep(kind),
+            "{heard:?}"
+        );
+    }
 }
 
 #[test]
