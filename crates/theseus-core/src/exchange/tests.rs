@@ -1365,7 +1365,14 @@ fn persons_lists_each_person_root_once() {
     let dir = tempfile::tempdir().unwrap();
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let mut recs = Vec::new();
-    let by = ["owner", "discord:bob", "discord:b", "owner", "discord:b", "owner"];
+    let by = [
+        "owner",
+        "discord:bob",
+        "discord:b",
+        "owner",
+        "discord:b",
+        "owner",
+    ];
     for (i, p) in by.iter().enumerate() {
         let (turn, at) = (format!("turn_{i}"), 1_000 * (i as u64 + 1));
         recs.extend(touch(Root::Person(p), &turn, "s", at));

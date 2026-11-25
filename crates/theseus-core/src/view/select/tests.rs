@@ -1328,7 +1328,7 @@ fn the_recent_lines_keep_to_their_bound_and_a_self_loop_lays_none() {
 /// What a walk gives, in order, each exchange once, until it ends.
 fn walked(w: &mut walk::Walk<'_>) -> Vec<String> {
     let mut out = Vec::new();
-    while let Some(touch) = w.next().expect("reads") {
+    while let Some(touch) = w.next_touch().expect("reads") {
         out.extend(touch.map(|e| e.turn_id));
     }
     out

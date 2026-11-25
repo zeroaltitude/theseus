@@ -74,7 +74,7 @@ impl<'s> Walk<'s> {
     /// page is wanted and the allowance is spent ([`Walk::stopped`]). Each page asked is sized by what is left,
     /// shared among the timelines that want one. A touch already met on another timeline is still a touch
     /// read: `Some(None)`.
-    pub fn next(&mut self) -> anyhow::Result<Option<Option<ExchangeRef>>> {
+    pub fn next_touch(&mut self) -> anyhow::Result<Option<Option<ExchangeRef>>> {
         let mut wanting = (self.lanes.iter())
             .filter(|l| l.page.is_empty() && !l.done)
             .count();

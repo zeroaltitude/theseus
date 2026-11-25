@@ -113,7 +113,11 @@ async fn an_erased_message_elsewhere_lays_no_words_and_stays_in_the_record() {
         .unwrap();
     let t = turn_as(c, &desk, "desk: what did I say?", true).await;
     let q = asked(&r, "desk: what did I say?").pop().unwrap();
-    assert!(!texts(&q).contains("the ferry leaves at four"), "{}", texts(&q));
+    assert!(
+        !texts(&q).contains("the ferry leaves at four"),
+        "{}",
+        texts(&q)
+    );
     let records = crate::view::record::of_turn(&c.store, &t.turn_id).unwrap();
     assert!(
         (records.iter())

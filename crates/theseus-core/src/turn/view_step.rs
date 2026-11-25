@@ -269,13 +269,7 @@ impl TurnRunner {
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
         let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, &message);
-        let renderer = TextRenderer {
-            store,
-            kernel: Some(&self.kernel),
-            sessions: Some(&read),
-            zone: &crate::recall::stamp::system,
-            since: Some(&said),
-        };
+        let renderer = self.renderer(store, &read, &said);
         let who = self.who_am_i(spec);
         let (frame, now) = frame_and_now(spec, (renderer.memory_page().1, &who), &message, harness);
         let selectors = table(src, frame, now);
@@ -364,6 +358,23 @@ impl TurnRunner {
                 since: Some(said),
             },
         })
+    }
+
+    /// The turn's renderer over `store`: its kernel, the assembly's one read of each session, and what has been
+    /// said since about the nodes it lays, its times said in the system's zone.
+    fn renderer<'a>(
+        &'a self,
+        store: &'a Store,
+        read: &'a Sessions,
+        said: &'a crate::copies::since::Since<'a>,
+    ) -> TextRenderer<'a> {
+        TextRenderer {
+            store,
+            kernel: Some(&self.kernel),
+            sessions: Some(read),
+            zone: &crate::recall::stamp::system,
+            since: Some(said),
+        }
     }
 
     /// The view's one budget: the provider's window, less the reply's room.
