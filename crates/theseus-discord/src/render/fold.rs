@@ -407,10 +407,16 @@ impl Folds {
 
     /// The fold of `turn` as it shows now, when that changed.
     fn write(&mut self, turn: &str, head: &str) -> Option<Op> {
+        self.write_as(turn, head, false)
+    }
+
+    /// The same, written `again` though Discord was last sent it (after an
+    /// outage, whose writes may not have landed).
+    fn write_as(&mut self, turn: &str, head: &str, again: bool) -> Option<Op> {
         let f = self.fold_mut(turn);
         let shown = f.render(turn, head)?;
         f.page = shown.1.page;
-        if f.shown.as_ref() == Some(&shown) {
+        if !again && f.shown.as_ref() == Some(&shown) {
             return None;
         }
         f.shown = Some(shown.clone());
@@ -483,8 +489,14 @@ impl Folds {
     /// `turn`'s fold made again from `ops`, its loops' process messages as
     /// the place shows them now (`View::set`): each loop it took takes its
     /// message and its choices from them, and none it did not take is
-    /// added. What it shows now, when that changed.
-    pub(crate) fn remake(&mut self, turn: &str, ops: Vec<Op>, head: &str) -> Option<Op> {
+    /// added. What it shows now, when that changed, or `again` even if not.
+    pub(crate) fn remake(
+        &mut self,
+        turn: &str,
+        ops: Vec<Op>,
+        head: &str,
+        again: bool,
+    ) -> Option<Op> {
         let f = self.fold_mut(turn);
         for op in ops {
             let Op::Upsert {
@@ -510,7 +522,7 @@ impl Folds {
                 }
             }
         }
-        self.write(turn, head)
+        self.write_as(turn, head, again)
     }
 }
 

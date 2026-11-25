@@ -12,7 +12,14 @@
 //! as any live state, after whatever the lane holds of that fold. So a fold
 //! made before a restart opens after it, and a press and the turn's own
 //! updates are written in the place's order, running or finished. What
-//! refuses a press is said, in one line, to the presser alone.
+//! refuses a press is said, in one line, to the presser alone. A press not
+//! taken within `WAIT` is cancelled: it can never apply after, and the
+//! presser is told nothing changed.
+//!
+//! A fold update the lane could not write in an outage is dropped, as live
+//! progress always was; once the lane is back and every post that waited has
+//! gone, the place writes each fold it still holds once more, as it shows now
+//! (`Place::lane_back`).
 //!
 //! A press only shows again what the place showed openly before, under what
 //! it shows now: it changes nothing else and asks the core nothing. So anyone
@@ -20,6 +27,7 @@
 //! could read the lines before (the brief's B3); no act gate is read or
 //! touched.
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -42,8 +50,9 @@ const PREFIX: &str = "fold:";
 pub(crate) const TOO_OLD: &str =
     "These steps are too old to show again: only a conversation's newest turns are kept.";
 
-/// What the presser is told when the place did not answer in time.
-const BUSY: &str = "Theseus is busy here: press it again in a moment.";
+/// What the presser is told when the press was not taken in time.
+pub(crate) const CANCELLED: &str =
+    "That press waited too long for Discord and was dropped: nothing changed.";
 
 /// What the presser is told while the place's lane waits out Discord.
 pub(crate) const AWAY: &str =
@@ -55,15 +64,29 @@ pub(crate) const NOT_HERE: &str = "This button is not this message's: nothing wa
 /// What the presser is told when the place shows no steps now.
 pub(crate) const HIDDEN: &str = "This place shows no steps now.";
 
-/// How long a press waits for its place.
-const WAIT: Duration = Duration::from_secs(10);
+/// How long a press waits to be taken: past it, it is cancelled. Shorter
+/// under test, so a hold past it costs a test seconds, not ten.
+const WAIT: Duration = if cfg!(test) {
+    Duration::from_secs(3)
+} else {
+    Duration::from_secs(10)
+};
+
+/// A press's state, shared by its presser's task and its place: the first to
+/// move it from `WAITING` wins, so a press is either applied or cancelled,
+/// never both.
+const WAITING: u8 = 0;
+const TAKEN: u8 = 1;
+const DROPPED: u8 = 2;
 
 /// A press on a fold, for its place: the turn, the page to open it at (None
-/// closes it), where it was pressed, and where its presser is answered.
+/// closes it), where it was pressed, whether it is still wanted, and where
+/// its presser is answered.
 pub(crate) struct Ask {
     turn: String,
     page: Option<usize>,
     at: (u64, u64),
+    state: Arc<AtomicU8>,
     reply: oneshot::Sender<Told>,
 }
 
@@ -75,7 +98,7 @@ fn said(t: Told) -> Option<&'static str> {
         Told::NotHere => Some(NOT_HERE),
         Told::TooOld => Some(TOO_OLD),
         Told::Hidden => Some(HIDDEN),
-        Told::Busy => Some(BUSY),
+        Told::Cancelled => Some(CANCELLED),
     }
 }
 
@@ -148,7 +171,8 @@ pub(crate) fn buttons(f: &FoldButtons) -> Vec<Component> {
 /// A press on a fold, in the place `place`: sent to the place at once, so
 /// presses reach it in the order they came, then acknowledged, and its
 /// presser answered, in a task of its own, so the gateway's handler never
-/// waits on the place. False when the press is no fold's.
+/// waits on the place. A press not taken within `WAIT` is cancelled. False
+/// when the press is no fold's.
 pub(super) fn pressed(
     shared: &Arc<Shared>,
     i: &Interaction,
@@ -157,24 +181,28 @@ pub(super) fn pressed(
     let Some(InteractionData::MessageComponent(c)) = &i.data else {
         return false;
     };
-    let at = i
+    let Some((turn, page)) = parse(&c.custom_id) else {
+        return false;
+    };
+    let Some(at) = i
         .channel
         .as_ref()
         .zip(i.message.as_ref())
-        .map(|(ch, m)| (ch.id.get(), m.id.get()));
-    let (reply, answer) = oneshot::channel();
-    let msg = match (parse(&c.custom_id), at) {
-        (Some((turn, page)), Some(at)) => PlaceMsg::Fold(Box::new(Ask {
-            turn,
-            page,
-            at,
-            reply,
-        })),
-        (None, _) => return false,
+        .map(|(ch, m)| (ch.id.get(), m.id.get()))
+    else {
         // A fold's press on no message: nothing to show it on.
-        (Some(_), None) => return true,
+        return true;
     };
-    let sent = place.send(msg).is_ok();
+    let (reply, mut answer) = oneshot::channel();
+    let state = Arc::new(AtomicU8::new(WAITING));
+    let ask = Ask {
+        turn,
+        page,
+        at,
+        state: state.clone(),
+        reply,
+    };
+    let sent = place.send(PlaceMsg::Fold(Box::new(ask))).is_ok();
     let (shared, i) = (shared.clone(), i.clone());
     tokio::spawn(async move {
         shared
@@ -188,15 +216,42 @@ pub(super) fn pressed(
         if !sent {
             return;
         }
-        let told = match tokio::time::timeout(WAIT, answer).await {
+        let told = match tokio::time::timeout(WAIT, &mut answer).await {
             Ok(Ok(t)) => t,
-            _ => Told::Busy,
+            // Not taken in time: cancelled, unless the place took it just
+            // now, whose answer then follows.
+            _ if dropped(&state) => Told::Cancelled,
+            _ => answer.await.unwrap_or(Told::Cancelled),
         };
         if let Some(line) = said(told) {
             shared.followup(&i, line).await;
         }
     });
     true
+}
+
+/// Cancel a press still waiting; false when its place took it first.
+fn dropped(state: &AtomicU8) -> bool {
+    state
+        .compare_exchange(WAITING, DROPPED, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
+impl Shared {
+    /// The lane `target` is back from an outage and every post that waited
+    /// has gone: its place writes its folds once more (`Place::lane_back`).
+    pub(crate) fn lane_back(&self, target: &str) {
+        let r = self.routes.lock().unwrap();
+        let id = |p: &str| target.strip_prefix(p).and_then(|x| x.parse::<u64>().ok());
+        let place = match (id("discord:channel:"), id("discord:dm:")) {
+            (Some(c), _) => r.by_channel.get(&c),
+            (_, Some(u)) => r.by_dm_user.get(&u),
+            _ => None,
+        };
+        if let Some(tx) = place {
+            let _ = tx.send(PlaceMsg::LaneBack);
+        }
+    }
 }
 
 impl Place {
@@ -222,8 +277,16 @@ impl Place {
 
     /// A press its lane will write: the fold as it shows now, from the
     /// renderer, which reads the session's turns back once when it does not
-    /// hold the turn, sent to the lane as the fold's latest state.
+    /// hold the turn, sent to the lane as the fold's latest state. A press
+    /// its presser has stopped waiting for changes nothing.
     pub(super) fn fold_show(&mut self, ask: Ask) {
+        let taken = ask
+            .state
+            .compare_exchange(WAITING, TAKEN, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok();
+        if !taken {
+            return;
+        }
         if !self.renderer.knows(&ask.turn) && !self.renderer.was_rebuilt() {
             self.read_back();
         }
@@ -240,6 +303,15 @@ impl Place {
             Err(Unshown::TooOld) => Told::TooOld,
         };
         let _ = ask.reply.send(told);
+    }
+
+    /// Its lane is back from an outage, every post that waited gone: each
+    /// fold the place still holds is written once more, as it shows now. An
+    /// update the outage dropped is not lost, and nothing was kept meanwhile.
+    pub(super) fn lane_back(&mut self) {
+        for op in self.view.resend(&self.renderer) {
+            let _ = self.lane.send(LaneMsg::Live(op));
+        }
     }
 }
 

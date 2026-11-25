@@ -118,7 +118,22 @@ impl View {
             let loops = self.folds.loops(&turn);
             let ops = self.messages(&turn, &loops, r);
             let head = self.head(&turn, r);
-            out.extend(self.folds.remake(&turn, ops, &head));
+            out.extend(self.folds.remake(&turn, ops, &head, false));
+        }
+        out
+    }
+
+    /// Each fold this place holds, as it shows now, written again whether or
+    /// not Discord was last sent it: the place's lane is back from an outage
+    /// that may have dropped its updates (issue 56). At most the renderer's
+    /// held turns: a fold leaves with its turn (`hold`).
+    pub(crate) fn resend(&mut self, r: &Renderer) -> Vec<Op> {
+        let mut out = Vec::new();
+        for turn in self.folds.turns() {
+            let loops = self.folds.loops(&turn);
+            let ops = self.messages(&turn, &loops, r);
+            let head = self.head(&turn, r);
+            out.extend(self.folds.remake(&turn, ops, &head, true));
         }
         out
     }

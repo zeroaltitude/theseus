@@ -72,13 +72,6 @@ const ASKED_KEPT: usize = 64;
 /// longest ago is forgotten (theseus-celu.37, theseus-6809).
 const KEYS_KEPT: usize = 256;
 
-/// Whether `op` is a state, written after an outage rather than dropped:
-/// the board's, or a turn's fold's.
-fn is_state(op: &Op) -> bool {
-    op.key()
-        .is_some_and(|k| k == render::BOARD_KEY || k.ends_with(render::fold::SUFFIX))
-}
-
 /// What a lane is told.
 pub(crate) enum LaneMsg {
     /// Live progress: the latest state of one message, or typing.
@@ -381,6 +374,10 @@ pub(crate) struct Lane {
     notices: notices::State,
     /// Presses on its folds, answered after the writes it holds (`press.rs`).
     presses: Vec<press::Pending>,
+    /// Discord was away since its place last wrote its folds again: once
+    /// every post that waited has gone, the place writes them once more
+    /// (`press.rs`, issue 56).
+    came_back: bool,
 }
 
 impl Lane {
@@ -426,6 +423,7 @@ impl Lane {
             catchup: catchup::State::default(),
             notices: notices::State::default(),
             presses: Vec::new(),
+            came_back: false,
         }
     }
 
@@ -476,6 +474,11 @@ impl Lane {
             }
             // The posts first, in order; then the stream.
             if self.deliver_posts().await {
+                // Back from an outage, every post that waited gone: its
+                // place writes its folds once more (issue 56).
+                if std::mem::take(&mut self.came_back) {
+                    self.shared.lane_back(&self.target);
+                }
                 self.apply_live().await;
             }
             if self.retires() {
@@ -503,7 +506,7 @@ impl Lane {
                 if board {
                     self.v2.only_if_pinned = false;
                 }
-                if self.retry_at.is_none() || is_state(&op) {
+                if self.retry_at.is_none() || board {
                     // A loop's thinking goes before the reply that follows it
                     // (theseus-l1y1), as a call's progress goes before its card.
                     if let Op::Upsert { key, content, .. } = &op {
@@ -603,11 +606,16 @@ impl Lane {
         self.retry_at = Some(tokio::time::Instant::now() + delay);
         // The board is a state, not a stream: its latest waits out the
         // outage, so a place does not keep a stale one until its next change.
-        // A fold is one too (issue 56): open or closed, and what its place
-        // shows of it now, it is never left as it was before the outage.
-        self.live.retain(is_state);
+        let board = self
+            .live
+            .iter()
+            .find(|o| o.key() == Some(render::BOARD_KEY))
+            .cloned();
+        self.live.clear();
+        self.live.extend(board);
         self.release();
         self.refuse_presses();
+        self.came_back = true;
         self.shared.core.outbox.error("discord", e.message.clone());
         if self.attempt == 1 {
             // Once per outage in the ledger; health keeps the latest.
