@@ -11,7 +11,6 @@ use theseus_client::Conn;
 use theseus_protocol::task_not_this::{TaskNotThisParams, TaskNotThisResult};
 use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult};
 use theseus_protocol::task_start::{ReportTo, TaskStartParams, TaskStartResult};
-use theseus_protocol::task_undo::{TaskUndoParams, TaskUndoResult};
 use theseus_protocol::{
     method, LedgerTailParams, LedgerTailResult, TaskListParams, TaskListResult,
 };
@@ -73,15 +72,6 @@ pub enum TaskCmd {
         #[arg(long = "in-time", value_name = "SPAN")]
         in_time: Option<String>,
     },
-    /// Take back a change to your task's goal, or its abandoning, that ran without asking you: the
-    /// task gets back what it was before, if it has not changed since. VERSION is the one the note
-    /// that told you names. Yours alone (refused inside a job).
-    Undo {
-        /// The task: its id, or the end of it (four characters at least).
-        id: String,
-        /// The version the change made.
-        version: u64,
-    },
 }
 
 /// `theseus task start`'s arguments.
@@ -131,27 +121,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: TaskCmd) -> Result<()> {
         TaskCmd::Reschedule { id, at, in_time } => {
             crate::ops_cmd::reschedule(conn, json, &id, start_when(at, in_time)).await
         }
-        TaskCmd::Undo { id, version } => undo(conn, json, &id, version).await,
     }
-}
-
-/// `theseus task undo ID VERSION`: `task.undo`. A task that has changed since is refused with the
-/// daemon's words.
-async fn undo(conn: &mut Conn, json: bool, id: &str, version: u64) -> Result<()> {
-    let p = TaskUndoParams {
-        id: id.to_string(),
-        version,
-        author: None,
-        discord: None,
-    };
-    let v = conn.request(method::TASK_UNDO, p).await?;
-    output(json, v, |r: TaskUndoResult| {
-        println!(
-            "Undone: task {} is as it was at version {} (now version {}).",
-            r.task.id, r.restored, r.task.version
-        );
-        Ok(())
-    })
 }
 
 /// `theseus task show ID`: one `task.list` read of the task by `id`.

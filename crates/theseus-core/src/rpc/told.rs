@@ -245,7 +245,7 @@ impl Core {
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
             // An internal one: the task's record before the change, written back.
-            Undo::TaskUndo { task, version } => self.task_undo_as(task, *version, who).map(drop),
+            Undo::TaskUndo { task, version } => self.task_undo_as(task, *version, who),
             #[cfg(test)]
             Undo::Probe(_) => {
                 PROBED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

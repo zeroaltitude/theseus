@@ -114,7 +114,6 @@ pub mod surface;
 pub mod task_not_this;
 pub mod task_pause;
 pub mod task_start;
-pub mod task_undo;
 pub mod tasks;
 pub mod term;
 #[cfg(test)]

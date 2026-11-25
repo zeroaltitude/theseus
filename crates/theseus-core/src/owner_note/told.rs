@@ -49,9 +49,10 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
-    /// `task.undo`: the owner's task gets back the record it had before the
-    /// change that made `version`, while it has not moved since.
-    #[serde(rename = "task.undo")]
+    /// The owner's task gets back the record it had before the change that
+    /// made `version`, while it has not moved since. No method of its own:
+    /// `told.undo` calls the task's undo (`rpc::task_undo`).
+    #[serde(rename = "task.put_back")]
     TaskUndo { task: String, version: u64 },
     /// An undo with no method of its own, for the tests: its arm in
     /// `rpc::told` counts the times it ran.
@@ -69,7 +70,7 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
-            Undo::TaskUndo { .. } => method::TASK_UNDO,
+            Undo::TaskUndo { .. } => method::TOLD_UNDO,
             #[cfg(test)]
             Undo::Probe(_) => method::TOLD_UNDO,
         }
@@ -85,7 +86,7 @@ impl Undo {
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
             Undo::TaskUndo { task, version } => {
-                json!({"id": task, "version": version, "author": author, "discord": discord})
+                json!({"id": task, "version": version, "author": author})
             }
             #[cfg(test)]
             Undo::Probe(id) => json!({"id": id, "author": author}),
@@ -100,7 +101,7 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-            Undo::TaskUndo { task, version } => format!("theseus task undo {task} {version}"),
+            Undo::TaskUndo { .. } => by_door(),
             #[cfg(test)]
             Undo::Probe(_) => by_door(),
         }
@@ -288,18 +289,17 @@ mod tests {
             task: "tsk_1".into(),
             version: 4,
         };
-        assert_eq!(u.method(), method::TASK_UNDO);
-        assert!(method::ALL.contains(&u.method()));
+        assert_eq!(u.method(), method::TOLD_UNDO);
         assert_eq!(
             serde_json::to_value(&u).unwrap(),
-            json!({"method": "task.undo", "id": {"task": "tsk_1", "version": 4}})
+            json!({"method": "task.put_back", "id": {"task": "tsk_1", "version": 4}})
         );
         let p = u.params("ana", None);
         assert_eq!(
             (p["id"].clone(), p["version"].clone()),
             (json!("tsk_1"), json!(4))
         );
-        assert_eq!(u.command(), "theseus task undo tsk_1 4");
+        assert_eq!(u.command(), by_door());
     }
 
     /// A restart: the core gone and its store opened again under a new one.

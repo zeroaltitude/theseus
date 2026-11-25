@@ -1,6 +1,6 @@
 //! A change to the owner's task that ran without asking him (issue 57): his
 //! objective or acceptance changed, or his task abandoned, runs at its tool's
-//! own posture and is told, with an undo (`task.undo`) that writes the task's
+//! own posture and is told, with an Undo (`told.undo`) that writes the task's
 //! record before it back exactly. His `approve` on the tool still asks with
 //! the card's words, a press by anyone but him in a private place undoes
 //! nothing, and a self-loop item's abandoning keeps its card.
@@ -111,33 +111,6 @@ async fn press_by_a_stranger(
     .await
 }
 
-/// `task.undo` from the owner's own terminal.
-async fn undo(r: &Rig, id: &str, version: u64) -> Result<Value, theseus_protocol::RpcError> {
-    rpc_as(
-        &r.core,
-        surface("sock#1", Surface::Cli),
-        "task.undo",
-        json!({"id": id, "version": version}),
-    )
-    .await
-}
-
-/// `task.undo` pressed by a person in a shared channel nobody bound as private.
-async fn undo_by_a_stranger(
-    r: &Rig,
-    id: &str,
-    version: u64,
-) -> Result<Value, theseus_protocol::RpcError> {
-    rpc_as(
-        &r.core,
-        surface("discord:777", Surface::Discord),
-        "task.undo",
-        json!({"id": id, "version": version, "author": "discord:777",
-               "discord": {"user_id": "777", "channel_id": "9001", "guild_id": "7"}}),
-    )
-    .await
-}
-
 fn stop_holding(r: &Rig) {
     r.model
         .hold_tasks
@@ -186,11 +159,9 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
         text.contains("without asking you") && text.contains(&t.id),
         "{text}"
     );
+    let post = post_of(&r.core, how);
     assert!(
-        text.contains(&format!(
-            "Undo: `theseus task undo {} {}`",
-            t.id, changed.version
-        )),
+        text.ends_with(&format!("Undo: `theseus told undo {post}`")),
         "{text}"
     );
     assert!(
@@ -205,9 +176,6 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
         }
     );
 
-    let refused = undo_by_a_stranger(&r, &t.id, changed.version).await;
-    assert!(refused.is_err(), "{refused:?}");
-    assert_eq!(r.task(&t.id), changed, "a stranger's undo undoes nothing");
     let refused = press_by_a_stranger(&r.core, how).await;
     assert!(refused.is_err(), "{refused:?}");
     assert_eq!(r.task(&t.id), changed, "a stranger's press undoes nothing");
@@ -226,8 +194,6 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
     assert_eq!(undid.last().unwrap().data["undid"], json!(changed.version));
 
     let again = press(&r.core, how).await;
-    assert!(again.is_err(), "{again:?}");
-    let again = undo(&r, &t.id, changed.version).await;
     assert!(again.is_err(), "{again:?}");
     assert_eq!(r.task(&t.id), now, "a second undo changes nothing");
     stop_holding(&r);

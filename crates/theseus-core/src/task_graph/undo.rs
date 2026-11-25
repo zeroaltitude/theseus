@@ -10,8 +10,8 @@
 //!   the item's build and closes its trees, which no record written back
 //!   restarts, so it keeps its card (`keeps_card`), or follows an explicit
 //!   `task.close = "notify"`, as before.
-//! - **Undone.** `task.undo` writes that record back as the task's next
-//!   version: every field as it was before the change, the version and the
+//! - **Undone.** The note's Undo (`told.undo`, which calls
+//!   `Core::task_undo_as`) writes that record back as the task's next version: every field as it was before the change, the version and the
 //!   time of the change aside (they only count edits). It does so only while
 //!   the task is still at the version the change made: one that moved since is
 //!   refused, so a later edit is never lost, and a second undo of the same

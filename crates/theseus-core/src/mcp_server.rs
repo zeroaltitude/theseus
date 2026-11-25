@@ -347,7 +347,6 @@ mod tests {
         method::TASK_REHOME,
         method::TASK_NOT_THIS,
         method::TASK_RESCHEDULE,
-        method::TASK_UNDO,
         method::WAKE_CANCEL,
         method::WAKE_CREATE,
         method::WAKE_SNOOZE,
