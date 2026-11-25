@@ -132,14 +132,11 @@ fn guild() -> Guild {
     Guild::new(DEFAULT_GUILD, (ANA, "ana")).private_channel(LAB, "lab", &[ANA])
 }
 
-/// Both places show a turn's steps open, a message a loop: the journey's
-/// silence rule (`created_silent`) knows tool activity by those lines' shapes
-/// (issue 56: a place folds them unless it says `steps = "open"`).
 fn bindings() -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\nprivate = true\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\nsteps = \"open\"\n\
-         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\nsteps = \"open\"\n"
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
     )
 }
 
@@ -596,6 +593,28 @@ fn is_tool_fold(rest: &str) -> bool {
     tail.len() < after.len() && tail.starts_with(" earlier call(s)")
 }
 
+/// A turn's folded steps (issue 56, `render/fold.rs`): one closed line per turn, the default
+/// layout, that counts the turn's calls -- `N step(s): <families>`, after the thinking's
+/// `💭 thought for N s · ` or `💭 thinking · ` when the turn thought -- and nothing more. It is
+/// tool activity and nothing else: the line is built only from the calls, so it rings as the tool
+/// lines it stands for did. Matched by its whole head, digits then ` step: ` or ` steps: `, so a
+/// fold of thinking alone (`-# 💭 thought for 1 s`) stays what it was, held silent, and no other
+/// subtext that opens with a number (`-# 2 turns · …`) is taken for one.
+fn is_steps_fold(rest: &str) -> bool {
+    let rest = ["💭 thinking · "]
+        .into_iter()
+        .find_map(|p| rest.strip_prefix(p))
+        .or_else(|| {
+            let after = rest.strip_prefix("💭 thought for ")?;
+            let tail = after.trim_start_matches(|c: char| c.is_ascii_digit());
+            (tail.len() < after.len()).then_some(())?;
+            tail.strip_prefix(" s · ")
+        })
+        .unwrap_or(rest);
+    let tail = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    tail.len() < rest.len() && (tail.starts_with(" step: ") || tail.starts_with(" steps: "))
+}
+
 /// Every bot message as one block, for a failure to be read against: it is the dump each of the
 /// `h9tu1 3` assertions prints, so they all show the same picture of the run.
 fn dump(all: &[Msg]) -> String {
@@ -627,7 +646,9 @@ fn kind_of(text: &str) -> &'static str {
         "failure"
     } else if text
         .strip_prefix(SUBTEXT)
-        .is_some_and(|rest| TOOL_MARKS.iter().any(|m| rest.starts_with(m)) || is_tool_fold(rest))
+        .is_some_and(|rest| {
+            TOOL_MARKS.iter().any(|m| rest.starts_with(m)) || is_tool_fold(rest) || is_steps_fold(rest)
+        })
     {
         "tool"
     } else {
@@ -1198,6 +1219,10 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
         "-# … 3 earlier call(s) · 🔔 2 notified",
         "-# … 1 earlier call(s)",
         "-# … 12 earlier call(s)",
+        "-# 3 steps: 2 reads, 1 search",
+        "-# 1 step: 1 edit · 1 waiting for approval",
+        "-# 💭 thought for 6 s · 1 step: 1 read",
+        "-# 💭 thinking · 2 steps: 1 command, 1 other call · 1 in the background",
     ] {
         assert_eq!(kind_of(t), "tool", "tool activity, free to ring: {t}");
     }
@@ -1225,6 +1250,10 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
         // being asserted.
         "-# …cut; `theseus agenda` has the rest",
         "-# … (25 more characters)",
+        // Near the fold's line and not it: a number that counts no steps, and steps no number counts.
+        "-# 3 stepsisters",
+        "-# steps: 2 reads",
+        "-# 💭 thought for 6 s",
     ] {
         assert!(
             t.starts_with(SUBTEXT),

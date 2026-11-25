@@ -597,6 +597,82 @@ fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back() {
     assert!(first[0].content.contains("\n-# "), "{}", first[0].content);
 }
 
+/// The same continuation with the DM folded, as a DM that says nothing is
+/// (issue 56): the first turn's steps are one closed line that names no
+/// argument, with the "Should have asked…" control on it; after the kill and
+/// the restart, its call's late end edits that same message (the lane reads
+/// it back from its rows), and the reply is posted once.
+#[test]
+fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back_folded() {
+    let r = Rig::new();
+    let file = r.path("state/bindings.toml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, text.replace("steps = \"open\"\n", "")).unwrap();
+    r.script.lock().unwrap().push((
+        "build it".into(),
+        vec![(
+            "proc_run",
+            json!({"argv": ["sh", "-c", "sleep 3; echo built"], "timeout_secs": 30}),
+        )],
+    ));
+    let daemon = r.spawn();
+    let sid = r.session();
+    r.wait("the bind notice", || {
+        (r.fake.messages(DM).len() == 1).then_some(())
+    });
+    let first = r.ask(&sid, "build it");
+    assert_eq!(first["output"], "Done.", "{first}");
+    let folds = || -> Vec<Msg> {
+        r.fake
+            .messages(DM)
+            .into_iter()
+            .filter(|m| m.buttons.iter().any(|b| b.custom_id.starts_with("fold:")))
+            .collect()
+    };
+    let fold = r.wait("the fold", || {
+        folds()
+            .into_iter()
+            .find(|m| m.content.starts_with("-# 1 step: 1 command"))
+    });
+    assert!(
+        fold.versions.iter().all(|v| !v.contains("proc.run") && !v.contains("sleep")),
+        "{fold:?}"
+    );
+    assert_eq!(fold.components, 2, "the control's row, and Show steps");
+    assert!(
+        r.fake
+            .messages(DM)
+            .iter()
+            .all(|m| !m.content.contains("`proc.run` sh -c")),
+        "no open tool line"
+    );
+    drop(daemon);
+    r.fake.set_mode(Mode::Down);
+    let _daemon = r.spawn();
+    r.wait("the continuation's end", || {
+        r.ledger("turn.ended")
+            .into_iter()
+            .find(|t| t["data"]["continuation"] == true)
+    });
+    r.wait("the reply pending", || {
+        (r.outbox()["pending"].as_u64() >= Some(1)).then_some(())
+    });
+    r.fake.set_mode(Mode::Up);
+    r.wait("the reply delivered", || {
+        (r.outbox()["pending"] == 0).then_some(())
+    });
+    let got = r.replies();
+    let continued = got.iter().filter(|m| m.content.contains("continued")).count();
+    assert_eq!(continued, 1, "posted once: {got:?}");
+    let turn = |m: &Msg| -> String {
+        let b = m.buttons.iter().find(|b| b.custom_id.starts_with("fold:")).unwrap();
+        b.custom_id.rsplit(':').next().unwrap().to_string()
+    };
+    let first_turn = turn(&fold);
+    let same: Vec<Msg> = folds().into_iter().filter(|m| turn(m) == first_turn).collect();
+    assert_eq!(same.len(), 1, "the first turn's fold is still one message: {same:?}");
+}
+
 /// The scratch rule, for every test here: the binding's REST goes to the
 /// fake, which keeps no header and so never the token.
 #[test]
