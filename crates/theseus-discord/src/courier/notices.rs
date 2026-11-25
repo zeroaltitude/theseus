@@ -137,13 +137,19 @@ impl Lane {
     /// Take what planning `a` left: `Some(Some(dm))` when its write goes to
     /// the notices place as an FYI, `Some(None)` for any other post. While
     /// that place is waited out, an FYI for it goes aside untried and `None`
-    /// comes back.
-    pub(super) fn take_notices_dm(&mut self, a: &Action) -> Option<Option<(u64, String)>> {
+    /// comes back. An FYI that stays where it was planned is folded there
+    /// first, when that place folds (`fold_note.rs`, issue 56).
+    pub(super) fn take_notices_dm(
+        &mut self,
+        a: &Action,
+        writes: &mut [Write],
+    ) -> Option<Option<(u64, String)>> {
         let dm = self.notices.dm.take();
         if dm.is_some() && self.notices.waits() {
             self.notices.parked.push(a.correlation_id.clone());
             return None;
         }
+        self.fold_notes(a, dm.is_none(), writes);
         Some(dm)
     }
 

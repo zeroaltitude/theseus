@@ -728,10 +728,9 @@ impl Lane {
             }
         };
         // An FYI for the notices place: its DM; none back, it went aside.
-        let Some(mut notices) = self.take_notices_dm(a) else {
+        let Some(mut notices) = self.take_notices_dm(a, &mut plan.writes) else {
             return Ok(());
         };
-        self.fold_notes(a, notices.is_none(), &mut plan.writes);
         if plan.writes.is_empty() {
             // Nothing to send (`Plan::nothing`): the post ends well and
             // reached no channel.
