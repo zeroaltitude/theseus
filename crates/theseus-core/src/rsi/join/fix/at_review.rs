@@ -24,8 +24,8 @@ use crate::rsi::tree;
 enum NotPushed {
     /// It did not hold, in these words: the item returns, as a reject does.
     Returned(String),
-    /// Its push was refused for what must not leave: the head is held for the owner.
-    Held(tree::Refused),
+    /// Its push was refused for what must not leave: the fixed head, this one, is held for the owner.
+    Held(tree::Refused, String),
 }
 
 impl From<String> for NotPushed {
@@ -127,8 +127,10 @@ impl Run<'_> {
         }
         match out {
             Ok(_) => {}
-            // What must not leave holds the head for the owner, as an unsigned join does.
-            Err(NotPushed::Held(why)) => {
+            // What must not leave holds the head for the owner, as an unsigned join does: the fixed head,
+            // which the next pass would take as the branch's.
+            Err(NotPushed::Held(why, head)) => {
+                self.b.head = head;
                 let lift = format!("run `{}`", theseus_protocol::rsi::retry_command(&self.b.item));
                 let text = crate::rsi::pr::withheld_text(&self.b.branch, &self.b.item, &why, &lift);
                 self.card(text);
@@ -171,7 +173,7 @@ impl Run<'_> {
             .map_err(|e| NotPushed::Returned(format!("the fixed branch was not pushed: {e:#}")))?;
             match pushed {
                 Ok(_) => {}
-                Err(e) if e.holds() => return Err(NotPushed::Held(e)),
+                Err(e) if e.holds() => return Err(NotPushed::Held(e, made.head.clone())),
                 Err(e) => {
                     return Err(NotPushed::Returned(format!(
                         "the fixed branch was not pushed: {e}"
