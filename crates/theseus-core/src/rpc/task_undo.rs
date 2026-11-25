@@ -1,8 +1,10 @@
 //! `task.undo` (issue 57): the owner takes back a change to their task that
-//! ran without asking them (`task_graph::undo`). Judged as `task.pause` is
-//! (`Act::Session`): the owner, from a private place. One frame: the record
-//! as it was before the change, as the task's next version, and its
-//! `task.updated` row naming the version it undid.
+//! ran without asking them (`task_graph::undo`), from their terminal. Judged
+//! as `task.pause` is (`Act::Session`): the owner, from a private place. The
+//! note's Undo button goes through `told.undo`, which judges the press and
+//! calls [`Core::task_undo_as`]. One frame: the record as it was before the
+//! change, as the task's next version, and its `task.updated` row naming the
+//! version it undid.
 
 use std::sync::Arc;
 
@@ -44,15 +46,26 @@ impl Core {
             },
         )
         .map_err(refused)?;
+        self.task_undo_as(&p.id, p.version, who)
+    }
+
+    /// The undo itself, for `who`, already judged: by `task.undo` above, or by
+    /// `told.undo` for a press of the note's Undo.
+    pub(super) fn task_undo_as(
+        &self,
+        id: &str,
+        version: u64,
+        who: &Answerer,
+    ) -> Result<TaskUndoResult, RpcFailure> {
         let tasks = graph::all(&self.store)?;
-        let id = graph::resolve(&tasks, &p.id)
+        let id = graph::resolve(&tasks, id)
             .map_err(|e| RpcFailure::new(error_code::NOT_FOUND, e))?
             .id
             .clone();
         let _lock = self.store.lock_task(&id);
         let now = graph::get(&self.store, &id)?
             .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, "no such task"))?;
-        let (task, restored) = undo::restored(&self.store, &now, p.version, self.kernel.now_ms())
+        let (task, restored) = undo::restored(&self.store, &now, version, self.kernel.now_ms())
             .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))?;
         let home = self.home().map_err(RpcFailure::from)?;
         let rec = self.session_rec(&home.session_id);
@@ -60,7 +73,7 @@ impl Core {
             session_id: home.session_id.clone(),
             task: task.clone(),
             from: Some(now.version),
-            detail: json!({"fields": "undo", "undid": p.version, "by": who.label}),
+            detail: json!({"fields": "undo", "undid": version, "by": who.label}),
         };
         self.store.append(&[
             graph::record(&task)?,

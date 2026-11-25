@@ -65,17 +65,48 @@ pub(crate) fn notes(core: &crate::Core) -> Vec<(String, Undo)> {
         .collect()
 }
 
-/// A note's undo pressed by the owner at his terminal: its own method and
-/// params, as a press sends them.
+/// The post of the note that carries `undo`.
+fn post_of(core: &crate::Core, undo: &Undo) -> String {
+    crate::tests_tasks::posts(core, crate::owner_note::told::KIND)
+        .into_iter()
+        .find(|a| {
+            crate::owner_note::told::of(&core.kernel, &a.correlation_id)
+                .unwrap()
+                .is_some_and(|(_, u)| u == *undo)
+        })
+        .expect("a note with that undo")
+        .correlation_id
+}
+
+/// A note's Undo pressed by the owner, from his terminal: `told.undo` on its
+/// post, the one door every press goes through.
 pub(crate) async fn press(
     core: &std::sync::Arc<crate::Core>,
     undo: &Undo,
 ) -> Result<Value, theseus_protocol::RpcError> {
+    let post = post_of(core, undo);
     rpc_as(
         core,
         surface("sock#1", Surface::Cli),
-        undo.method(),
-        undo.params("the CLI", None),
+        "told.undo",
+        json!({"post": post}),
+    )
+    .await
+}
+
+/// A note's Undo pressed by a person in a shared channel nobody bound as
+/// private.
+async fn press_by_a_stranger(
+    core: &std::sync::Arc<crate::Core>,
+    undo: &Undo,
+) -> Result<Value, theseus_protocol::RpcError> {
+    let post = post_of(core, undo);
+    rpc_as(
+        core,
+        surface("discord:777", Surface::Discord),
+        "told.undo",
+        json!({"post": post, "author": "discord:777",
+               "discord": {"user_id": "777", "channel_id": "9001", "guild_id": "7"}}),
     )
     .await
 }
@@ -176,14 +207,26 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
 
     let refused = undo_by_a_stranger(&r, &t.id, changed.version).await;
     assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(r.task(&t.id), changed, "a stranger's undo undoes nothing");
+    let refused = press_by_a_stranger(&r.core, how).await;
+    assert!(refused.is_err(), "{refused:?}");
     assert_eq!(r.task(&t.id), changed, "a stranger's press undoes nothing");
 
     let back = press(&r.core, how).await.unwrap();
-    assert_eq!(back["restored"], json!(before.version), "{back}");
+    assert!(
+        back["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("\n↩️ Undone by ") && !t.contains("Undo: `")),
+        "{back}"
+    );
     let now = r.task(&t.id);
     assert_eq!(content(&now), content(&before), "exactly as it was");
     assert_eq!(now.version, changed.version + 1);
+    let undid = rows(&r.core, "task.updated");
+    assert_eq!(undid.last().unwrap().data["undid"], json!(changed.version));
 
+    let again = press(&r.core, how).await;
+    assert!(again.is_err(), "{again:?}");
     let again = undo(&r, &t.id, changed.version).await;
     assert!(again.is_err(), "{again:?}");
     assert_eq!(r.task(&t.id), now, "a second undo changes nothing");
