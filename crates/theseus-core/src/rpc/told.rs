@@ -189,6 +189,10 @@ impl Core {
                 .self_item_closed(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item has left the backlog"),
+            // A Google act's outcome is Google's, seen only by a call. A
+            // press after a crash runs the restore again, which sets each
+            // thing to what it was before the act: what is back stays back.
+            Undo::GoogleTakeBack(_) => None,
         })
     }
 

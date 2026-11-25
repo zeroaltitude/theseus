@@ -494,21 +494,16 @@ async fn an_undo_that_restores_part_says_partly_restored() {
     let n = notes(&r);
     let post = n[0].1.clone().expect("an Undo");
     let e = r.core.told_undo(&post, &owner()).await.unwrap_err();
-    assert_eq!(
-        e.message,
-        "Partly restored: 1 of 2. 1 of them no longer exist in Google (deleted for good, or \
-         emptied from the Trash), so they cannot come back."
-    );
-    assert_eq!(e.data["partly"], json!({"restored": 1, "of": 2, "gone": 1}));
-    assert!(!e.message.contains("not made"));
+    let said = "Partly restored: 1 of 2. 1 of them no longer exist in Google (deleted for \
+                good, or emptied from the Trash), so they cannot come back.";
+    assert_eq!(e.data["cause"], said, "{}", e.message);
+    assert_eq!(e.data["unfinished"], true);
+    assert!(e.message.contains(said), "{}", e.message);
+    assert!(!e.message.contains("not made"), "{}", e.message);
     assert_eq!(sorted(&r, "m1"), vec!["INBOX".to_string()]);
     // Not marked undone: a press again tries again, and puts back no more.
     let again = r.core.told_undo(&post, &owner()).await.unwrap_err();
-    assert!(
-        again.message.starts_with("Partly restored: 1 of 2."),
-        "{}",
-        again.message
-    );
+    assert_eq!(again.data["cause"], said, "{}", again.message);
 }
 
 /// The owner's explicit "approve" makes a Gmail trash ask, typed or through

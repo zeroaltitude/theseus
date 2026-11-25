@@ -83,12 +83,7 @@ impl crate::Core {
         }
         match p.whole() {
             true => Ok(()),
-            false => Err(RpcFailure {
-                code: error_code::INVALID_PARAMS,
-                message: p.words(),
-                data: serde_json::json!({"partly": {"restored": p.restored, "of": p.of,
-                    "gone": p.gone}}),
-            }),
+            false => Err(RpcFailure::new(error_code::INVALID_PARAMS, p.words())),
         }
     }
 

@@ -99,11 +99,6 @@ impl Shared {
                     .and_then(Value::as_str)
                     .unwrap_or(&e.message)
             ),
-            // An undo that put back part (issue 57): it says how much, and a
-            // press again tries the rest.
-            Err(e) if e.data["partly"]["restored"].as_u64().is_some_and(|n| n > 0) => {
-                format!("↩️ {}", e.message)
-            }
             Err(e) => match e.data.get("undone_by").and_then(Value::as_str) {
                 Some(by) => {
                     if let Some(t) = e.data.get("text").and_then(Value::as_str) {
