@@ -141,20 +141,10 @@ fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_o
     assert!(v.effort.is_none() && v.work.is_none() && v.split.is_none());
     // No route verdict, no verdict, whatever the others said (a pinned turn asks none of them).
     assert!(crate::judge::inbound::verdict_of(&[effort, work, split], "trn_1").is_none());
-    // A pinned turn asks no model and no effort but still asks persona, seal and personal, and
-    // their answers stand: this assertion used to say a pinned judgment has no verdict, which
-    // threw the personal answer away, so the privacy warning and the shared place's hold went
-    // dark on every pinned turn (theseus-7l8lr.2, omnibus pass 2 F1).
-    let pinned = judgment(
-        vec![
-            choice("personal", "elicit", 0.95),
-            choice("persona", "tabitha", 0.92),
-        ],
-        false,
-    );
+    // A pinned turn asks no model and no effort but still asks persona, and its answer stands
+    // (theseus-7l8lr.2, omnibus pass 2 F1: a pinned judgment once had no verdict at all).
+    let pinned = judgment(vec![choice("persona", "tabitha", 0.92)], false);
     let v = crate::judge::inbound::verdict(&pinned, "trn_1").expect("a verdict, with no model");
-    let p = v.personal.as_ref().expect("the personal answer");
-    assert_eq!((p.choice.as_str(), p.confidence), ("elicit", 0.95));
     assert!(v.persona.is_some(), "the persona answer stands");
     assert!(
         v.model.is_none() && v.mode.is_empty() && v.effort.is_none(),

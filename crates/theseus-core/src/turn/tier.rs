@@ -318,8 +318,6 @@ mod tests {
             judgment: "jdg_x".into(),
             turn: "trn_x".into(),
             persona: None,
-            seal: None,
-            personal: None,
             model: None,
             work: None,
             split: None,

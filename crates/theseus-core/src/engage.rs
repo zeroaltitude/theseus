@@ -157,24 +157,6 @@ pub struct PersonaAnswer {
     pub acts: bool,
 }
 
-/// Jev's `seal` answer: whether the message warrants sealing its thread,
-/// and how sure.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SealAnswer {
-    /// The top option is `yes`.
-    pub yes: bool,
-    pub p_yes: f64,
-    pub band: Band,
-    pub acts: bool,
-}
-
-impl SealAnswer {
-    /// A recommendation: `yes` at the confirm bar or above.
-    pub fn recommends(&self) -> bool {
-        self.yes && self.band != Band::Escalate
-    }
-}
-
 /// The persona that answers a turn, and what the route line says of it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Engaged {
@@ -448,19 +430,6 @@ pub fn persona_answer(j: &theseus_judge::Judgment) -> Option<PersonaAnswer> {
         confidence: *confidence,
         band: a.band.band,
         runner_up: rest.first().map(|(o, p)| (o.clone(), *p)),
-        acts: j.mode != theseus_judge::Mode::Shadow,
-    })
-}
-
-/// The `Answer` of a judgment's `seal` question.
-pub fn seal_answer(j: &theseus_judge::Judgment) -> Option<SealAnswer> {
-    let a = j.answer("seal")?;
-    let p_yes = a.answer.probability_of("yes")?;
-    let top = matches!(&a.answer, theseus_judge::Answer::Choice { choice, .. } if choice == "yes");
-    Some(SealAnswer {
-        yes: top,
-        p_yes,
-        band: a.band.band,
         acts: j.mode != theseus_judge::Mode::Shadow,
     })
 }

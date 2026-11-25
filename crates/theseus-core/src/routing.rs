@@ -36,12 +36,10 @@ use crate::config::RoutingConfig;
 pub mod checkpoint;
 pub mod effort;
 pub mod model;
-pub mod personal;
 #[cfg(test)]
 mod tests_effort_open;
 #[cfg(test)]
 mod tests_model;
-pub use personal::PersonalAnswer;
 
 /// A short turn's uncached input, in tokens, for `short_cost`.
 pub const SHORT_INPUT: u64 = 4_000;
@@ -140,12 +138,8 @@ pub struct Verdict {
     pub judgment: String,
     /// The turn it was asked for.
     pub turn: String,
-    /// route.v5's answers (theseus-c1uz): which persona, and whether to seal.
+    /// route.v5's `persona` answer (theseus-c1uz): which persona.
     pub persona: Option<Box<crate::engage::PersonaAnswer>>,
-    pub seal: Option<Box<crate::engage::SealAnswer>>,
-    /// route.v7's `personal` answer (theseus-gasov): a reach for the
-    /// operator's personal details warns the owner.
-    pub personal: Option<Box<PersonalAnswer>>,
     /// route.v10's `model` answer (theseus-h66v4): the option Jev chose, and
     /// whether its band reached the question's `confirm` bar. A verdict that
     /// carries one is decided by [`model::decide`], never by the class walk.
@@ -383,8 +377,6 @@ mod tests {
             judgment: "jdg_1".into(),
             turn: "turn_1".into(),
             persona: None,
-            seal: None,
-            personal: None,
             model: None,
             work: None,
             split: None,

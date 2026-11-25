@@ -246,8 +246,6 @@ impl TurnRunner {
             turn: t.tc.turn_id.to_string(),
             effort: None,
             persona: None,
-            seal: None,
-            personal: None,
             model: None,
             work: None,
             split: None,

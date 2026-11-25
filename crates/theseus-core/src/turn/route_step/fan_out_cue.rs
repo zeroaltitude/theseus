@@ -166,8 +166,6 @@ mod tests {
             judgment: "jdg_x".into(),
             turn: "trn_x".into(),
             persona: None,
-            seal: None,
-            personal: None,
             model: Some(Box::new(crate::routing::Pick {
                 choice: "sonnet".into(),
                 confidence: 0.9,
