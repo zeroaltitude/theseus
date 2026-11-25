@@ -107,7 +107,10 @@ pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
         return Ok(None);
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
-    Ok(Some((body["text"].as_str().unwrap_or("").to_string(), undo)))
+    Ok(Some((
+        body["text"].as_str().unwrap_or("").to_string(),
+        undo,
+    )))
 }
 
 /// Who undid a note, and when.
@@ -153,15 +156,38 @@ mod tests {
     fn each_undo_names_an_existing_method_its_params_and_its_command() {
         let id = "rtn_1".to_string();
         let cases = [
-            (Undo::RoutineDelete(id.clone()), method::ROUTINE_DELETE, "id", "theseus routine rm rtn_1"),
-            (Undo::WakeCancel(id.clone()), method::WAKE_CANCEL, "wake", "theseus cancel rtn_1"),
-            (Undo::StandingRevoke(id.clone()), method::STANDING_REVOKE, "id", "theseus standing revoke rtn_1"),
-            (Undo::SelfDrop(id.clone()), method::SELF_DROP, "item", "theseus self drop rtn_1"),
+            (
+                Undo::RoutineDelete(id.clone()),
+                method::ROUTINE_DELETE,
+                "id",
+                "theseus routine rm rtn_1",
+            ),
+            (
+                Undo::WakeCancel(id.clone()),
+                method::WAKE_CANCEL,
+                "wake",
+                "theseus cancel rtn_1",
+            ),
+            (
+                Undo::StandingRevoke(id.clone()),
+                method::STANDING_REVOKE,
+                "id",
+                "theseus standing revoke rtn_1",
+            ),
+            (
+                Undo::SelfDrop(id.clone()),
+                method::SELF_DROP,
+                "item",
+                "theseus self drop rtn_1",
+            ),
         ];
         for (u, m, field, cmd) in cases {
             assert_eq!(u.method(), m);
             assert!(method::ALL.contains(&m), "{m}");
-            assert_eq!(serde_json::to_value(&u).unwrap(), json!({"method": m, "id": id}));
+            assert_eq!(
+                serde_json::to_value(&u).unwrap(),
+                json!({"method": m, "id": id})
+            );
             let p = u.params("ana", None);
             assert_eq!(p[field], json!(id), "{m}");
             assert_eq!(p["author"], json!("ana"));
@@ -176,22 +202,39 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let core = crate::tests_unlabel::core_in(dir.path());
         let undo = Undo::WakeCancel("wke_1".into());
-        let (a, frame) = stage(&core.outbox, None, "Set a watch", "In “Tides”, without asking you", "", &undo).unwrap();
+        let (a, frame) = stage(
+            &core.outbox,
+            None,
+            "Set a watch",
+            "In “Tides”, without asking you",
+            "",
+            &undo,
+        )
+        .unwrap();
         core.store.append(&frame).unwrap();
         core.outbox.posted(&a);
         let post = a.correlation_id.clone();
         let core = reopened(core, dir.path()).await;
         let (text, got) = of(&core.kernel, &post).unwrap().unwrap();
         assert_eq!(got, undo);
-        assert_eq!(text, "ℹ️ FYI · Set a watch\nIn “Tides”, without asking you\nUndo: `theseus cancel wke_1`");
+        assert_eq!(
+            text,
+            "ℹ️ FYI · Set a watch\nIn “Tides”, without asking you\nUndo: `theseus cancel wke_1`"
+        );
         assert!(undone(&core.store, &post).unwrap().is_none());
         mark_undone(&core.store, &post, "ana").unwrap();
         let core = reopened(core, dir.path()).await;
-        assert_eq!(undone(&core.store, &post).unwrap().map(|u| u.by).as_deref(), Some("ana"));
+        assert_eq!(
+            undone(&core.store, &post).unwrap().map(|u| u.by).as_deref(),
+            Some("ana")
+        );
         assert!(of(&core.kernel, "no_such_post").unwrap().is_none());
     }
 
-    async fn reopened(core: std::sync::Arc<crate::rpc::Core>, dir: &std::path::Path) -> std::sync::Arc<crate::rpc::Core> {
+    async fn reopened(
+        core: std::sync::Arc<crate::rpc::Core>,
+        dir: &std::path::Path,
+    ) -> std::sync::Arc<crate::rpc::Core> {
         drop(core);
         for _ in 0..50 {
             if let Ok(s) = Store::open(&dir.join("store")) {
@@ -205,7 +248,12 @@ mod tests {
 
     #[test]
     fn an_undone_note_loses_its_undo_line_and_says_who() {
-        let t = note(Kind::Fyi, "Made a routine", "In “Trip”, without asking you", "Undo: `theseus routine rm r1`");
+        let t = note(
+            Kind::Fyi,
+            "Made a routine",
+            "In “Trip”, without asking you",
+            "Undo: `theseus routine rm r1`",
+        );
         assert_eq!(
             undone_text(&t, "ana"),
             "ℹ️ FYI · Made a routine\nIn “Trip”, without asking you\n↩️ Undone by ana."

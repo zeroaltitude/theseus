@@ -122,11 +122,22 @@ async fn a_told_note_shows_its_words_its_command_and_one_undo() {
     assert_eq!(undo, Undo::StandingRevoke(id.clone()));
     assert_eq!(m.content, text, "the words are the core's");
     assert!(theseus_core::owner_note::is_headed(&text), "{text}");
-    assert!(text.starts_with("ℹ️ FYI · Theseus kept a standing order\nIn “Tides”, without asking you\n"));
-    assert!(text.ends_with(&format!("\nUndo: `theseus standing revoke {id}`")), "{text}");
-    let got: Vec<(&str, &str)> = m.buttons.iter().map(|b| (b.label.as_str(), b.custom_id.as_str())).collect();
+    assert!(text
+        .starts_with("ℹ️ FYI · Theseus kept a standing order\nIn “Tides”, without asking you\n"));
+    assert!(
+        text.ends_with(&format!("\nUndo: `theseus standing revoke {id}`")),
+        "{text}"
+    );
+    let got: Vec<(&str, &str)> = m
+        .buttons
+        .iter()
+        .map(|b| (b.label.as_str(), b.custom_id.as_str()))
+        .collect();
     assert_eq!(got, [("Undo", format!("told:undo:{post}").as_str())]);
-    assert!(r.posted(LAB).iter().all(|x| x.versions[0] != text), "never in #lab");
+    assert!(
+        r.posted(LAB).iter().all(|x| x.versions[0] != text),
+        "never in #lab"
+    );
 }
 
 /// A guest's press and the owner's in a shared place undo nothing; the
@@ -151,7 +162,9 @@ async fn the_owners_press_in_private_undoes_once_and_no_other_press_counts() {
     told_to(&r, &p, "↩️ Undone.").await;
     assert_eq!(ends(&r, &id), 1, "revoked once");
     r.until("the note says it was undone", || {
-        r.fake.messages(ANA_DM).iter().any(|x| x.id == m.id && x.content.ends_with("↩️ Undone by ana.") && x.buttons.is_empty())
+        r.fake.messages(ANA_DM).iter().any(|x| {
+            x.id == m.id && x.content.ends_with("↩️ Undone by ana.") && x.buttons.is_empty()
+        })
     })
     .await;
 
