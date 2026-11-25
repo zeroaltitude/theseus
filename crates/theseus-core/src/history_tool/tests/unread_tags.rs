@@ -47,7 +47,12 @@ async fn an_import_search_past_a_tag_record_that_does_not_read_is_refused_with_i
             ),
             "{place}: {said}"
         );
-        for quoted in [TAG_WORDS, "invalid type", "No imported conversation", "HERRING-GULL"] {
+        for quoted in [
+            TAG_WORDS,
+            "invalid type",
+            "No imported conversation",
+            "HERRING-GULL",
+        ] {
             assert!(!said.contains(quoted), "{place}: {said}");
         }
         assert!(!said.contains(&key), "{place}: {said}");
