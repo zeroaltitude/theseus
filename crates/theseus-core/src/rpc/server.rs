@@ -398,6 +398,7 @@ impl Core {
             // Its filters are optional: no params lists every wake.
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
+            method::TOLD_UNDO => reply(self.rpc_told_undo(parse(params)?, conn).await?),
             m @ (method::LEDGER_TAIL | method::LEDGER_WINDOW) => self.ledger_reads(m, params),
             method::NARRATIVE_WATCH => reply(self.narrative_watch(parse(or_empty(params))?, conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
