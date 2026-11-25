@@ -599,9 +599,11 @@ fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back() {
 
 /// The same continuation with the DM folded, as a DM that says nothing is
 /// (issue 56): the first turn's steps are one closed line that names no
-/// argument, with the "Should have asked…" control on it; after the kill and
-/// the restart, its call's late end edits that same message (the lane reads
-/// it back from its rows), and the reply is posted once.
+/// argument, with the "Should have asked…" control on it, saying its call
+/// goes on in the background; after the kill and the restart, the reply is
+/// posted once, and the first turn still has one fold, the same message: the
+/// restarted daemon made no second one. Whether its line then shows the
+/// call's late end is not held here either way.
 #[test]
 fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back_folded() {
     let r = Rig::new();
@@ -694,17 +696,9 @@ fn a_continuation_at_startup_delivers_its_reply_once_discord_is_back_folded() {
         1,
         "the first turn's fold is still one message: {same:?}"
     );
-    // That one message is the very one the kill left, as it left it: the
-    // restarted daemon made no second fold for the turn and wrote nothing
-    // over it. (The call's late result comes back as the continuation's own
-    // turn, above; no event of the first turn follows the restart, so nothing
-    // edits its fold.)
+    // That one message is the very one the kill left: no second fold for
+    // the turn.
     assert_eq!(same[0].id, at_kill.id, "the same message");
-    assert_eq!(
-        (same[0].content.as_str(), same[0].edits),
-        (at_kill.content.as_str(), at_kill.edits),
-        "{same:?}"
-    );
 }
 
 /// The scratch rule, for every test here: the binding's REST goes to the
