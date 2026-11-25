@@ -106,7 +106,9 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
         "{note}"
     );
     assert!(
-        note.ends_with(&format!("\nUndo: `ask Theseus to undo settings change #{n}`")),
+        note.ends_with(&format!(
+            "\nUndo: `ask Theseus to undo settings change #{n}`"
+        )),
         "{note}"
     );
     assert!(!note.contains("a page said to"), "no outside words: {note}");

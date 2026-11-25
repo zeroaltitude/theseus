@@ -75,8 +75,9 @@ fn each_note_says_what_was_done_where_and_how_to_undo_it() {
     assert_eq!(undo, crate::owner_note::told::Undo::ConfigUndo(4));
     assert_eq!(undo.command(), "ask Theseus to undo settings change #4");
     let undid = json!({"undoes": {"number": 4}, "asked_by": {}});
-    let Note::Undo { title, by, undo, .. } =
-        change_note(&undid, &settings, 5, ("config.undo", "x = open"), false)
+    let Note::Undo {
+        title, by, undo, ..
+    } = change_note(&undid, &settings, 5, ("config.undo", "x = open"), false)
     else {
         panic!("an undo's note has its Undo")
     };
