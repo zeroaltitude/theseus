@@ -63,7 +63,11 @@ pub(super) async fn upstream(answers: Answers) -> Upstream {
         let socket = tokio::net::TcpSocket::new_v4().unwrap();
         socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let url = format!("http://{}", socket.local_addr().unwrap());
-        return Upstream { url, seen, _unlistening: Some(socket) };
+        return Upstream {
+            url,
+            seen,
+            _unlistening: Some(socket),
+        };
     }
     let log = seen.clone();
     tokio::spawn(async move {
@@ -128,7 +132,11 @@ pub(super) async fn upstream(answers: Answers) -> Upstream {
             });
         }
     });
-    Upstream { url, seen, _unlistening: None }
+    Upstream {
+        url,
+        seen,
+        _unlistening: None,
+    }
 }
 
 pub(super) struct Rig {
