@@ -87,6 +87,8 @@ async fn a_turn_s_parts_are_the_system_blocks_its_request_carried() {
     );
     std::fs::write(&path, "Answer in one word.\n").unwrap();
     aged(Path::new(&path));
+    // The daemon's start step: the context file is accepted, once.
+    r.core.held_first_start().unwrap();
     let res = turn(&r.core, None, "what is 2 + 2?").await;
     let x = explain(&r.core, &res.session_id, None, true);
     let sent = &r.fake.requests()[0].system;
@@ -134,9 +136,20 @@ async fn a_turn_s_parts_are_the_system_blocks_its_request_carried() {
     );
     assert_eq!(x.class, "private");
 
-    // The file changes: the parts are today's, and say so.
+    // The file changes, and the owner accepts it at his terminal (`theseus
+    // own-file accept --file`): the parts are today's, and say so.
     std::fs::write(&path, "Answer in one word, in capitals.\n").unwrap();
     aged(Path::new(&path));
+    let digest = r.core.own_file_show_of(Some(&path)).unwrap().digest;
+    crate::tests_m3::rpc_as(
+        &r.core,
+        crate::tests_m3::surface("sock#1", crate::approval::Surface::Cli)
+            .behind(crate::peer_proc::Behind::Owner),
+        theseus_protocol::method::OWN_FILE_ACCEPT,
+        serde_json::json!({"digest": digest, "file": path}),
+    )
+    .await
+    .unwrap();
     let after = explain(&r.core, &res.session_id, None, true);
     assert_eq!(after.unchanged, Some(false));
     let file = after.parts.iter().find(|p| p.block == "context").unwrap();

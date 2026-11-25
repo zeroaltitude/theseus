@@ -57,7 +57,7 @@ mod mcp;
 mod memory;
 mod methods;
 mod modes;
-mod own_file;
+pub(crate) mod own_file;
 mod owner_input;
 mod owner_proof;
 mod proof_gate;

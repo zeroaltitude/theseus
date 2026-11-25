@@ -87,6 +87,8 @@ fn text(r: &ProviderRequest, i: usize) -> String {
 async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byte_for_byte() {
     let dir = tempfile::tempdir().unwrap();
     let (core, fake) = build(dir.path(), texts(2), |c| project(dir.path(), c));
+    // The daemon's start step: the project's context file is accepted, once.
+    core.held_first_start().unwrap();
     crate::tests_day_ceiling::bind_dm(&core);
     let (a, b) = (session(&core, None), session(&core, Some("dm:5150")));
     let add = |scope: StandingScope, text: &str| {

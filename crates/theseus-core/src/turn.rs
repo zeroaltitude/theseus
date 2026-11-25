@@ -90,6 +90,7 @@ mod families_step;
 mod fill_step;
 pub(crate) mod helper_step;
 mod inbound_step;
+mod instructions_step;
 mod join_step;
 mod later_step;
 mod model_call;
@@ -1086,6 +1087,7 @@ impl TurnRunner {
             Ok(us) => us,
             Err(r) => return Err(self.refuse(&req, r)),
         };
+        self.instructions_ready(&req).await?;
         // The frames the turn writes before its store handle exists
         // (theseus-wz4y): its execution's opening, a superseded question,
         // and its admission. Each stretch between two reads of this thread's

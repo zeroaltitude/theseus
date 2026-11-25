@@ -315,6 +315,8 @@ fn rig_defer(
         parts.scrubber = Arc::new(s);
     }
     let core = Core::build(parts).unwrap();
+    // The daemon's start step: the context files above are accepted, once.
+    core.held_first_start().unwrap();
     tokio::spawn(crate::harness::drive(core.clone()));
     Rig {
         core,

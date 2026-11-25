@@ -4013,6 +4013,8 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
     );
     let rule = "End every answer with the word 'Theseus'.\n";
     std::fs::write(&path, rule).unwrap();
+    // The daemon's start step: the file is accepted, once.
+    r.core.held_first_start().unwrap();
     let res = turn(&r.core, None, "what is 2 + 2?").await;
     let system = system_of(&r, 0);
     let header = format!("# Context file (system): {path}");
@@ -4082,6 +4084,8 @@ async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
     );
     std::fs::write(&path, "End every answer with 'Theseus'.\n").unwrap();
     aged(&path, 60);
+    // The daemon's start step: the file is accepted, once.
+    r.core.held_first_start().unwrap();
     let sid = turn(&r.core, None, "one").await.session_id;
     let reads = r.core.runner.context_files.reads();
     turn(&r.core, Some(&sid), "two").await;
@@ -4093,6 +4097,17 @@ async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
     let edited = "End every answer with 'Ithaca'.\n";
     std::fs::write(&path, edited).unwrap();
     aged(&path, 30);
+    // The owner accepts the edit at his terminal (`theseus own-file accept
+    // --file`): a context file is carried as its accepted version.
+    let digest = r.core.own_file_show_of(Some(&path)).unwrap().digest;
+    rpc_as(
+        &r.core,
+        surface("sock#1", crate::approval::Surface::Cli).behind(crate::peer_proc::Behind::Owner),
+        theseus_protocol::method::OWN_FILE_ACCEPT,
+        json!({"digest": digest, "file": path}),
+    )
+    .await
+    .unwrap();
     turn(&r.core, Some(&sid), "three").await;
     turn(&r.core, Some(&sid), "four").await;
     let field = |kind: &str, key: &str| -> Vec<String> {
@@ -4183,6 +4198,8 @@ async fn a_context_file_over_the_cap_is_cut_and_marked_as_cut() {
         cfg.context.files = vec![path.clone().into()];
     });
     std::fs::write(&path, "y".repeat(MAX_BYTES + 1_000)).unwrap();
+    // The daemon's start step: the file is accepted, once.
+    r.core.held_first_start().unwrap();
     let res = turn(&r.core, None, "hi").await;
     let system = system_of(&r, 0);
     assert!(system.ends_with(&format!(
@@ -4249,6 +4266,8 @@ async fn system_then_persona_files_compile_in_that_order_each_labeled_by_its_lev
     });
     std::fs::write(&sys, "The operator is zeroaltitude.\n").unwrap();
     std::fs::write(&own, "End every answer with 'Ithaca'.\n").unwrap();
+    // The daemon's start step: the system level's file is accepted, once.
+    r.core.held_first_start().unwrap();
     let res = turn(&r.core, None, "hi").await;
     let system = system_of(&r, 0);
     let (a, b) = (
@@ -4315,6 +4334,8 @@ async fn a_persona_that_names_no_files_adds_nothing_to_the_system_block() {
             .insert("quiet".into(), crate::config::PersonaConfig::default());
     });
     std::fs::write(&sys, "The operator is zeroaltitude.\n").unwrap();
+    // The daemon's start step: the file is accepted, once.
+    r.core.held_first_start().unwrap();
     let res = turn(&r.core, None, "hi").await;
     assert_eq!(
         system_of(&r, 0),

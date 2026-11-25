@@ -9,6 +9,10 @@
 //! edit reaches the next turn (and starts a new chain inside a turn), and an
 //! unchanged file keeps every byte.
 //!
+//! What a compile carries of the system level's files is the version the
+//! owner last accepted of each (`project_context::held`), which this reader
+//! reads and compares; the persona's are carried as read.
+//!
 //! FAST: nothing is read at startup. Each compile stats each file and
 //! rereads it only when its size, mtime, or inode changed, or when it
 //! changed less than two seconds before it was read (a second edit inside
@@ -217,10 +221,34 @@ pub struct ContextFiles {
     /// by their record's key and the digest they were read for
     /// (`project_context::own_file`), so each is read from the store once a
     /// daemon run.
-    accepted: Mutex<HashMap<String, Arc<str>>>,
+    accepted: Mutex<HashMap<String, Arc<crate::project_context::own_file::Kept>>>,
     /// What this daemon run could not confirm of the owner's own file
     /// (`project_context::own_file::Missed`): for the run, never stored.
     own_missed: Mutex<Option<crate::project_context::own_file::Missed>>,
+    /// Where the daemon's start step that accepts the instruction files
+    /// stands: a turn waits while it runs (`TurnRunner::instructions_ready`).
+    adoption: Adoption,
+}
+
+/// Where the daemon's start step that accepts the owner's instruction files
+/// (`Core::own_file_after_serving`) stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Adopting {
+    /// Done, or never begun: a core built without the daemon's start.
+    Done,
+    /// Begun before the daemon serves, and not yet done.
+    Pending,
+    /// The step ended without finishing (it panicked).
+    Unfinished,
+}
+
+/// [`Adopting`], with a wait for its end.
+struct Adoption(tokio::sync::watch::Sender<Adopting>);
+
+impl Default for Adoption {
+    fn default() -> Self {
+        Self(tokio::sync::watch::channel(Adopting::Done).0)
+    }
 }
 
 impl ContextFiles {
@@ -278,6 +306,26 @@ impl ContextFiles {
         (files, unreadable)
     }
 
+    /// The start step that accepts the instruction files has begun: a turn
+    /// waits until [`ContextFiles::adoption_ends`].
+    pub(crate) fn adoption_begins(&self) {
+        self.adoption.0.send_replace(Adopting::Pending);
+    }
+
+    /// The start step has ended, as `how`.
+    pub(crate) fn adoption_ends(&self, how: Adopting) {
+        self.adoption.0.send_replace(how);
+    }
+
+    /// How the start step ended, once it has: at once when it is not
+    /// running.
+    pub(crate) async fn adopted(&self) -> Adopting {
+        let mut rx = self.adoption.0.subscribe();
+        rx.wait_for(|a| *a != Adopting::Pending)
+            .await
+            .map_or(Adopting::Unfinished, |a| *a)
+    }
+
     /// What this daemon run could not confirm of the owner's own file.
     pub(crate) fn own_missed(&self) -> Option<crate::project_context::own_file::Missed> {
         *self.own_missed.lock().unwrap()
@@ -289,22 +337,23 @@ impl ContextFiles {
         *self.own_missed.lock().unwrap() = Some(m);
     }
 
-    /// The text kept under `key`, read by `read` the first time it is asked
-    /// for; a `read` that finds none keeps nothing, and is asked again.
+    /// The accepted version kept under `key`, read by `read` the first time
+    /// it is asked for; a `read` that finds none keeps nothing, and is asked
+    /// again.
     pub(crate) fn accepted(
         &self,
         key: &str,
-        read: impl FnOnce() -> Option<String>,
-    ) -> Option<Arc<str>> {
-        if let Some(t) = self.accepted.lock().unwrap().get(key) {
-            return Some(t.clone());
+        read: impl FnOnce() -> Option<crate::project_context::own_file::Kept>,
+    ) -> Option<Arc<crate::project_context::own_file::Kept>> {
+        if let Some(k) = self.accepted.lock().unwrap().get(key) {
+            return Some(k.clone());
         }
-        let text: Arc<str> = read()?.into();
+        let kept = Arc::new(read()?);
         self.accepted
             .lock()
             .unwrap()
-            .insert(key.to_string(), text.clone());
-        Some(text)
+            .insert(key.to_string(), kept.clone());
+        Some(kept)
     }
 
     /// Files read since the daemon started (a reused file is not read).
@@ -358,6 +407,15 @@ pub(crate) fn header(shown: &str, level: &Level) -> String {
         Level::User => format!("# Context file (user): {shown}"),
         Level::Project => format!("# Context file (project): {shown}"),
     }
+}
+
+/// What the reader carries of a file holding `bytes`: its record (digest,
+/// size, cut) and the text under its header, as a read of it would give
+/// them. The daemon's own write of a context file keeps this
+/// (`Core::held_written`), never the file read back.
+pub(crate) fn as_read(shown: &str, bytes: &[u8]) -> (ContextFileRef, String) {
+    let held = section(shown, bytes[..bytes.len().min(MAX_BYTES + MARGIN)].to_vec());
+    (held.file, held.body)
 }
 
 /// A file's record and text from up to `MAX_BYTES + MARGIN` bytes of it:

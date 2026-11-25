@@ -34,6 +34,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub own_file: Option<String>,
+    /// The context files the settings name, one line each while what is on disk is not the version
+    /// accepted (or none is accepted), naming `theseus own-file accept --file PATH`. Empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_files: Vec<String>,
     /// The self loop has started nothing for longer than it should, held on its slots (issue 41):
     /// how long, the trees that hold them, and the one act that clears each. Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]

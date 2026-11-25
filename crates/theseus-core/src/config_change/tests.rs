@@ -302,6 +302,9 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         requests: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    // The daemon's start step: the context files the tweak named are
+    // accepted, once, as they are on disk.
+    core.held_first_start().unwrap();
     Rig {
         core,
         model,

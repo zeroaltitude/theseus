@@ -7,6 +7,10 @@
 //! again). Then the text it replaces is kept as a numbered copy and the new
 //! text is written in one step: a temporary file in the same directory, synced,
 //! given the old file's permissions, renamed over it, the directory synced.
+//!
+//! The owner's yes to a context file's change is also the accept of the text
+//! written (`Core::held_written`): what Theseus wrote at his asking is the
+//! version carried from the next request, with no second accept.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -27,12 +31,15 @@ pub fn is_card(args: &Value) -> bool {
 
 impl Core {
     /// Write the text the card named over the file it was built from, or say
-    /// why not. The copy number it is kept as, the digest of the file before
-    /// and the digest after.
+    /// why not, and keep the text written as the accepted version of a
+    /// context file, by `by` through `via`. The copy number it is kept as,
+    /// the digest of the file before and the digest after.
     pub(crate) fn write_prompt_file(
         &self,
         a: &Action,
         args: &Value,
+        by: &str,
+        via: &str,
     ) -> Result<(u32, String, String), String> {
         let state = &self.tools.config_change.state;
         proof_seam::at_yes(&self.store, &a.correlation_id, Needs::Proof)?;
@@ -57,7 +64,9 @@ impl Core {
             Kept::FileNew,
             args["candidate_sha256"].as_str().unwrap_or_default(),
         )?;
-        if let Some(why) = put::refusal(self, &named, &now, &new) {
+        if let Some(why) =
+            put::refusal(self, &named, &now, &new).or_else(|| put::held_base(self, &named, &now))
+        {
             return Err(format!("{why}, so nothing was written"));
         }
         let (previous, _) = write::keep_previous_file(state, &now).map_err(|e| {
@@ -68,6 +77,7 @@ impl Core {
             .map_err(|e| format!("{shown} cannot be read: {e}"))?;
         write::atomic(&path, &new, Some(mode))
             .map_err(|e| format!("the file could not be written: {e}"))?;
+        self.held_written(&named.path, &new, by, via);
         Ok((previous, sha256(&now), sha256(&new)))
     }
 }

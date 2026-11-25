@@ -1755,6 +1755,14 @@ pub fn fmt_price(p: f64) -> String {
     }
 }
 
+/// Health's lines about the owner's own instruction file and the context
+/// files the settings name, while one is not carried as it is on disk.
+fn push_accepted(o: &mut Vec<Line>, h: &theseus_protocol::HealthResult) {
+    for line in h.own_file.iter().chain(&h.held_files) {
+        push(o, Tag::Plain, line);
+    }
+}
+
 /// `theseus health`: every line, `now_ms` for the ones that say how long ago.
 /// All `Plain`.
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
@@ -1832,9 +1840,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         h.joined_not_running.as_deref(),
         h.build.commit.as_deref(),
     );
-    if let Some(line) = &h.own_file {
-        push(o, Tag::Plain, line);
-    }
+    push_accepted(o, h);
     memory::push_health(o, h.memory.as_ref(), now_ms);
     ledger_gap::push_health(o, h.ledger_gap.as_ref());
     mcp_server::push_health(o, h.mcp_server.as_ref());

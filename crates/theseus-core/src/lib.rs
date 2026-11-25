@@ -323,6 +323,8 @@ mod tests_content_race;
 #[cfg(test)]
 mod tests_context;
 #[cfg(test)]
+mod tests_context_held;
+#[cfg(test)]
 mod tests_continuations;
 #[cfg(test)]
 mod tests_cut_last;

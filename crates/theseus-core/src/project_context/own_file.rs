@@ -116,6 +116,19 @@ pub fn sum(text: Option<&str>) -> String {
     hex::encode(Sha256::digest(text.unwrap_or_default().as_bytes()))
 }
 
+/// What [`resolve`] read of an accepted version: its text (none for an
+/// absence), and its size and cut.
+type Resolved = (Option<Arc<str>>, (u64, bool));
+
+/// An accepted version's text, read and checked once a daemon run, with
+/// its size and cut as the reader recorded them (`ContextFiles::accepted`).
+#[derive(Debug)]
+pub struct Kept {
+    pub text: Arc<str>,
+    pub bytes: u64,
+    pub cut: bool,
+}
+
 /// The pointer: which version stands, its digest, and when it was accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Now {
@@ -289,6 +302,21 @@ impl Disk {
         }
     }
 
+    /// The disk as it is once the daemon itself has written `text` to the
+    /// file `found` names: what the reader would read of it, without
+    /// reading it back.
+    pub fn written(found: Option<Found>, text: &str) -> Self {
+        let shown = found.as_ref().map(|f| f.shown.clone()).unwrap_or_default();
+        let (file, body) = crate::context_files::as_read(&shown, text.as_bytes());
+        Self {
+            found,
+            digest: file.digest,
+            text: Some(body),
+            bytes: file.bytes,
+            cut: file.cut,
+        }
+    }
+
     /// The version that accepting what is on disk now would keep.
     pub fn version(&self, path: &Path, at_ms: u64, by: &str, via: &str, how: &str) -> Version {
         Version {
@@ -306,6 +334,65 @@ impl Disk {
     }
 }
 
+/// Whose file a [`Look`] is, for the words that name it: the owner's own
+/// instruction file, or a context file the settings name
+/// (`project_context::held`), on the same records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Whose {
+    Own,
+    Context,
+}
+
+impl Whose {
+    /// The file as the model's line names it.
+    fn name(self, path: &Path) -> String {
+        match self {
+            Whose::Own => "The owner's own instruction file".to_string(),
+            Whose::Context => format!("The context file {}", path.display()),
+        }
+    }
+
+    /// Where it is, after [`Whose::name`].
+    fn at(self, path: &Path) -> String {
+        match self {
+            Whose::Own => format!(" is at {}", path.display()),
+            Whose::Context => " is on disk".to_string(),
+        }
+    }
+
+    /// That it is not on disk, after [`Whose::name`].
+    fn not_at(self, path: &Path) -> String {
+        match self {
+            Whose::Own => format!(" is not on disk at {}", path.display()),
+            Whose::Context => " is not on disk".to_string(),
+        }
+    }
+
+    /// The file as the owner's own lines name it.
+    pub fn yours(self, path: &Path) -> String {
+        match self {
+            Whose::Own => "Your own instruction file".to_string(),
+            Whose::Context => format!("Your context file {}", path.display()),
+        }
+    }
+
+    /// The words that name its show.
+    pub fn show(self, path: &Path) -> String {
+        let file = path.display().to_string();
+        theseus_protocol::own_file::show_command_for(
+            (self == Whose::Context).then_some(file.as_str()),
+        )
+    }
+
+    /// The words that name its accept.
+    pub fn accept(self, path: &Path) -> String {
+        let file = path.display().to_string();
+        theseus_protocol::own_file::accept_command_for(
+            (self == Whose::Context).then_some(file.as_str()),
+        )
+    }
+}
+
 /// The file's state: its path, what the store accepted, and the disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Look {
@@ -315,6 +402,10 @@ pub struct Look {
     /// The accepted version's text, read and checked with its pointer; none
     /// for an absence accepted, and with nothing accepted.
     pub text: Option<Arc<str>>,
+    /// The accepted version's size and cut as the reader recorded them when
+    /// it was accepted ([`Version::bytes`], [`Version::cut`]); none with no
+    /// text.
+    pub size: Option<(u64, bool)>,
     pub disk: Disk,
 }
 
@@ -346,10 +437,27 @@ impl Look {
         found: Option<Found>,
     ) -> Self {
         let pid = pid(&path);
-        let (accepted, text) = resolve(store, files, &pid);
+        Self::bound(store, files, path, pid, found)
+    }
+
+    /// The file at `path` whose records are under `pid`, with discovery's
+    /// stat of it.
+    pub fn bound(
+        store: &crate::store::Store,
+        files: &ContextFiles,
+        path: PathBuf,
+        pid: String,
+        found: Option<Found>,
+    ) -> Self {
+        let (accepted, kept) = resolve(store, files, &pid);
+        let (text, size) = match kept {
+            Some((t, size)) => (t, Some(size)),
+            None => (None, None),
+        };
         Self {
             accepted,
             text,
+            size,
             disk: Disk::read(files, found),
             path,
             pid,
@@ -420,44 +528,52 @@ impl Look {
         now_ms: u64,
         missed: Option<Missed>,
     ) -> Option<String> {
-        let accept = theseus_protocol::own_file::accept_command();
+        self.health_as(store, now_ms, missed, Whose::Own)
+    }
+
+    /// [`Look::health`], in the words for `whose` file it is.
+    pub fn health_as(
+        &self,
+        store: &crate::store::Store,
+        now_ms: u64,
+        missed: Option<Missed>,
+        whose: Whose,
+    ) -> Option<String> {
+        let name = whose.yours(&self.path);
+        let accept = whose.accept(&self.path);
         match &self.accepted {
             Accepted::Some(_) if self.differs() => Some(format!(
-                "Your own instruction file differs from the accepted version since {}: `{accept}`",
+                "{name} differs from the accepted version since {}: `{accept}`",
                 crate::owner_note::day(self.since_ms(store, now_ms))
             )),
             Accepted::None if self.disk.found.is_some() => Some(format!(
-                "Your own instruction file has no accepted version, so none of it is carried: \
-                 `{accept}`"
+                "{name} has no accepted version, so none of it is carried: `{accept}`"
             )),
             Accepted::Unread => Some(match missed {
                 Some(Missed::Read) => format!(
-                    "Your own instruction file could not be read at the first start, so no \
-                     version is accepted and none of it is carried until you accept one: \
-                     `{accept}`"
+                    "{name} could not be read at the first start, so no version is accepted and \
+                     none of it is carried until you accept one: `{accept}`"
                 ),
                 Some(Missed::Write) => format!(
-                    "Your own instruction file: its accept at the first start could not be \
-                     written, so nothing was kept, no version is accepted and none of it is \
-                     carried until you accept one: `{accept}`"
+                    "{name}: its accept at the first start could not be written, so nothing was \
+                     kept, no version is accepted and none of it is carried until you accept \
+                     one: `{accept}`"
                 ),
                 _ => format!(
-                    "Your own instruction file could not be read at the first start, or its \
-                     accept could not be written, so no version is accepted and none of it is \
-                     carried until you accept one: `{accept}`"
+                    "{name} could not be read at the first start, or its accept could not be \
+                     written, so no version is accepted and none of it is carried until you \
+                     accept one: `{accept}`"
                 ),
             }),
-            Accepted::Unreadable | Accepted::Damaged(_) => Some(
-                "Your own instruction file: its accepted version cannot be read from the store, \
-                 so none of it is carried"
-                    .to_string(),
-            ),
-            Accepted::Unknown => Some(
-                "Your own instruction file: an accept of it may already be written that this \
-                 daemon cannot read back, so none of it is carried and every accept is refused \
-                 until the daemon is restarted"
-                    .to_string(),
-            ),
+            Accepted::Unreadable | Accepted::Damaged(_) => Some(format!(
+                "{name}: its accepted version cannot be read from the store, so none of it is \
+                 carried"
+            )),
+            Accepted::Unknown => Some(format!(
+                "{name}: an accept of it may already be written that this daemon cannot read \
+                 back, so none of it is carried and every accept is refused until the daemon is \
+                 restarted"
+            )),
             _ => None,
         }
     }
@@ -473,24 +589,31 @@ impl Look {
 
     /// What a compile carries of the file (see the module's doc).
     pub fn carry(&self, store: &crate::store::Store, now_ms: u64) -> Carry {
+        self.carry_as(store, now_ms, Whose::Own)
+    }
+
+    /// [`Look::carry`], its line in the words for `whose` file it is. The
+    /// section is the owner's own file's, under the user level's header.
+    pub fn carry_as(&self, store: &crate::store::Store, now_ms: u64, whose: Whose) -> Carry {
         let shown = self.path.display().to_string();
         let size = || crate::narrative::thousands(self.disk.found.as_ref().map_or(0, |f| f.bytes));
-        let accept = theseus_protocol::own_file::accept_command();
+        let accept = whose.accept(&self.path);
+        let (name, at) = (whose.name(&self.path), whose.at(&self.path));
         let n = match &self.accepted {
             Accepted::None | Accepted::Unread | Accepted::Unknown => {
                 return Carry {
                     section: None,
                     line: self.disk.found.as_ref().map(|_| {
                         format!(
-                            "The owner's own instruction file is at {shown} ({} B). No version \
-                             of it has been accepted yet, so its text is not here. The owner \
-                             accepts it with `{accept}` at a terminal.",
+                            "{name}{at} ({} B). No version of it has been accepted yet, so its \
+                             text is not here. The owner accepts it with `{accept}` at a \
+                             terminal.",
                             size()
                         )
                     }),
                 };
             }
-            Accepted::Unreadable | Accepted::Damaged(_) => return self.unreadable(&shown),
+            Accepted::Unreadable | Accepted::Damaged(_) => return self.unreadable(whose),
             Accepted::Some(n) => n,
         };
         let section = self.text.as_ref().map(|text| {
@@ -509,19 +632,18 @@ impl Look {
         let since = crate::owner_note::day(self.since_ms(store, now_ms));
         let line = match (&n.digest, &self.disk.found) {
             (Some(_), Some(_)) => format!(
-                "The owner's own instruction file on disk differs from the version accepted on \
-                 {on} (changed since {since}); the accepted version is what is above. The owner \
-                 accepts the new one with `{accept}` at a terminal."
+                "{name} on disk differs from the version accepted on {on} (changed since \
+                 {since}); the accepted version is what is above. The owner accepts the new one \
+                 with `{accept}` at a terminal."
             ),
             (Some(_), None) => format!(
-                "The owner's own instruction file is gone from disk (since {since}); the version \
-                 accepted on {on} is what is above. The owner accepts its removal with \
-                 `{accept}` at a terminal."
+                "{name} is gone from disk (since {since}); the version accepted on {on} is what \
+                 is above. The owner accepts its removal with `{accept}` at a terminal."
             ),
             (None, _) => format!(
-                "The owner's own instruction file is at {shown} ({} B) and its text is not here: \
-                 the version accepted on {on} is no file at all, and this one appeared since \
-                 {since}. The owner accepts it with `{accept}` at a terminal.",
+                "{name}{at} ({} B) and its text is not here: the version accepted on {on} is no \
+                 file at all, and this one appeared since {since}. The owner accepts it with \
+                 `{accept}` at a terminal.",
                 size()
             ),
         };
@@ -566,16 +688,19 @@ impl Look {
 
     /// Nothing carried, because the store did not answer for the accepted
     /// version; one line, with the file or without it.
-    fn unreadable(&self, shown: &str) -> Carry {
+    fn unreadable(&self, whose: Whose) -> Carry {
+        let name = whose.name(&self.path);
         let line = match &self.disk.found {
             Some(f) => format!(
-                "The owner's own instruction file is at {shown} ({} B). Its accepted version \
-                 could not be read from the store, so its text is not here.",
+                "{name}{} ({} B). Its accepted version could not be read from the store, so its \
+                 text is not here.",
+                whose.at(&self.path),
                 crate::narrative::thousands(f.bytes)
             ),
             None => format!(
-                "The owner's own instruction file is not on disk at {shown}, and its accepted \
-                 version could not be read from the store, so its text is not here."
+                "{name}{}, and its accepted version could not be read from the store, so its text \
+                 is not here.",
+                whose.not_at(&self.path)
             ),
         };
         Carry {
@@ -597,7 +722,7 @@ fn resolve(
     store: &crate::store::Store,
     files: &ContextFiles,
     pid: &str,
-) -> (Accepted, Option<Arc<str>>) {
+) -> (Accepted, Option<Resolved>) {
     if files.own_missed() == Some(Missed::Unknown) {
         return (Accepted::Unknown, None);
     }
@@ -609,14 +734,18 @@ fn resolve(
     };
     let key = version_key(pid, n.seq);
     let digest = n.digest.as_deref().unwrap_or("-");
-    let text = files.accepted(&format!("{key}.{digest}"), || {
+    let kept = files.accepted(&format!("{key}.{digest}"), || {
         let v = store.get_meta::<Version>(&key).ok().flatten()?;
-        v.holds(&n).then(|| v.text.unwrap_or_default())
+        v.holds(&n).then(|| Kept {
+            text: v.text.unwrap_or_default().into(),
+            bytes: v.bytes,
+            cut: v.cut,
+        })
     });
-    match text {
-        Some(t) => {
-            let text = n.digest.is_some().then_some(t);
-            (Accepted::Some(n), text)
+    match kept {
+        Some(k) => {
+            let text = n.digest.is_some().then(|| k.text.clone());
+            (Accepted::Some(n), Some((text, (k.bytes, k.cut))))
         }
         None => (Accepted::Damaged(n), None),
     }
@@ -650,6 +779,14 @@ pub fn first_start(look: &Look, store: &crate::store::Store, at_ms: u64) -> Opti
     if !first_start_due(look, store) {
         return None;
     }
+    first_version(look, at_ms)
+}
+
+/// The version a first start keeps of the file `look` read: what is on
+/// disk, or its absence. None when the disk holds a file the reader cannot
+/// read. Whether the start is due is the caller's ([`first_start_due`]
+/// for the owner's own file, `held::first_start_due` for a context file).
+pub fn first_version(look: &Look, at_ms: u64) -> Option<Version> {
     if look.disk.found.is_some() && look.disk.digest.is_none() {
         return None;
     }
@@ -697,6 +834,7 @@ pub fn check_line(store_dir: &Path, path: &Path) -> String {
                 pid: pid(path),
                 accepted: Accepted::Some(n.clone()),
                 text: None,
+                size: None,
                 disk: disk.clone(),
             };
             let on = crate::owner_note::day(n.at_ms);
@@ -733,22 +871,42 @@ pub fn check_line(store_dir: &Path, path: &Path) -> String {
 /// decodes, read from the start of the log. No log: none of them. A pointer
 /// that does not decode is an error, never "none".
 fn pointers_in_log(wal: &Path, pid: &str) -> Result<(Option<Now>, bool, Option<Version>)> {
+    let (mut each, any) = pointers_of(wal, &[pid.to_string()])?;
+    let (this, version) = each.pop().unwrap_or_default();
+    Ok((this, any, version))
+}
+
+/// One file's pointer in the log, and the version record it names.
+pub(crate) type InLog = (Option<Now>, Option<Version>);
+
+/// [`pointers_in_log`] for each of `pids` in one read of the log: each
+/// one's pointer and the version record it names, in order, and whether the
+/// log holds a pointer for any path.
+pub(crate) fn pointers_of(wal: &Path, pids: &[String]) -> Result<(Vec<InLog>, bool)> {
     use theseus_follow::{Cursor, WalFollower};
+    let mut this: Vec<Option<Now>> = vec![None; pids.len()];
     if !wal.is_dir() {
-        return Ok((None, false, None));
+        return Ok((this.into_iter().map(|n| (n, None)).collect(), false));
     }
-    let key = now_key(pid);
-    let (mut this, mut any) = (None, false);
+    let keys: Vec<String> = pids.iter().map(|p| now_key(p)).collect();
+    let mut any = false;
     let mut versions: std::collections::HashMap<String, Option<Version>> = Default::default();
     let mut f = WalFollower::open(wal, Cursor::start())?;
     loop {
         let b = f.read(8 << 20)?;
         if b.is_empty() {
-            let version = this
-                .as_ref()
-                .and_then(|n: &Now| versions.remove(&version_key(pid, n.seq)))
-                .flatten();
-            return Ok((this, any, version));
+            let each = this
+                .into_iter()
+                .zip(pids)
+                .map(|(n, pid)| {
+                    let version = n
+                        .as_ref()
+                        .and_then(|n| versions.remove(&version_key(pid, n.seq)))
+                        .flatten();
+                    (n, version)
+                })
+                .collect();
+            return Ok((each, any));
         }
         for r in b.records {
             if let Some(k) = r.key.as_deref().filter(|k| k.starts_with(VERSION_PREFIX)) {
@@ -761,8 +919,10 @@ fn pointers_in_log(wal: &Path, pid: &str) -> Result<(Option<Now>, bool, Option<V
             };
             let set = r.kind == kinds::META;
             any |= set;
-            if k == key {
-                this = if set { Some(r.decode::<Now>()?) } else { None };
+            for (i, key) in keys.iter().enumerate() {
+                if k == key {
+                    this[i] = if set { Some(r.decode::<Now>()?) } else { None };
+                }
             }
         }
     }
