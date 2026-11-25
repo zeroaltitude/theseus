@@ -217,4 +217,4 @@ pub fn own_laid(n: Stub, f: &Frozen) -> Stub {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

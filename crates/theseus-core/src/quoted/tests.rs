@@ -288,7 +288,7 @@ const READERS: &[&str] = &[
 ];
 
 /// `s` up to its first inline test module.
-fn product(s: &str) -> &str {
+pub(crate) fn product(s: &str) -> &str {
     let mut at = 0;
     while let Some(i) = s[at..].find("#[cfg(test)]") {
         let start = at + i;
@@ -328,7 +328,8 @@ fn readers_in(s: &str) -> usize {
     n
 }
 
-fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+/// The `.rs` files under `dir`, none of them a test's (named `tests…`, or under a `tests…` directory).
+pub(crate) fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap().flatten() {
         let p = e.path();
         let name = e.file_name().to_string_lossy().into_owned();
