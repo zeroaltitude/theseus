@@ -10,8 +10,11 @@
 //!   its rendering: every edge in a one-line form's rendering is an edge of its bytes. An open's `Margin1` quote
 //!   keeps the whole lines it keeps as `Margin1`, and of a line it cuts, the margin as code and the words as
 //!   `Line1`.
-//! - **A value written over lines** (a key file's) is never split at its line breaks: the lines it runs over stay
-//!   one `Margin1` quote, and a cut that keeps part of a line beside it falls at the value's edge, which shows less.
+//! - **A value written over lines** (a key file's): over the cases tried, the cap keeps it whole, not split at its
+//!   line breaks: the lines it runs over stay one `Margin1` quote, and a cut that keeps part of a line beside it
+//!   falls at the value's edge, which shows less. That is not every field: where the cap does split one (a value
+//!   that begins with a line break is such a case), the check before storing (`quotes::edges_hold`) refuses the
+//!   quote, and the words are stored instead.
 //! - **What does not read.** A quote whose record does not read as words when the cap runs is the fixed line it
 //!   shows, as code: it names nothing that could be read again.
 //! - **The runtime's words** around a result are code: the fit note before it ([`noted`]), which the cap may cut
