@@ -127,7 +127,8 @@ fn a_short_turns_context_word_start_inside_a_known_value_is_no_place_to_cut() {
     ];
     let (q, _) = crate::recall::query_of(&nodes, "turn_1").expect("a query");
     let vector = q.vector.expect("a short turn embeds the reply's end");
-    assert_eq!(vector, format!("yes\n{spaced}{}", "z".repeat(100)));
+    // The end starts after the value, so it is left out whole.
+    assert_eq!(vector, format!("yes\n{}", "z".repeat(100)));
     whole_or_absent("the vector query", &vector, spaced);
 }
 
