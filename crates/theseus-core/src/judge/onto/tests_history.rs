@@ -1078,7 +1078,7 @@ async fn queued(core: &Core, n: usize) {
 }
 
 /// Wait until the ledger holds `n` judgments' rows.
-async fn rows_written(core: &Core, n: usize) {
+pub(super) async fn rows_written(core: &Core, n: usize) {
     let t0 = std::time::Instant::now();
     while of_kind(core, LedgerKind::JudgeCall).len() < n {
         assert!(t0.elapsed().as_secs() < 30, "{n} judgment row(s) written");
@@ -1087,7 +1087,7 @@ async fn rows_written(core: &Core, n: usize) {
 }
 
 /// A frame that holds a judgment's row (keyed by its `jdg_` id).
-fn a_judgments_row(records: &[theseus_store::NewRecord]) -> bool {
+pub(super) fn a_judgments_row(records: &[theseus_store::NewRecord]) -> bool {
     (records.iter()).any(|r| r.key.as_deref().is_some_and(|k| k.starts_with("jdg_")))
 }
 

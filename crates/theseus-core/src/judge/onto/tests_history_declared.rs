@@ -9,7 +9,8 @@ use theseus_protocol::exchange::ExchangeTopicsParams;
 use theseus_protocol::{error_code, method, LedgerKind};
 
 use super::tests_history::{
-    ledger, ledger_topic, of_kind, params, run, said, timeline, untouch, SAID, WORDS,
+    a_judgments_row, ledger, ledger_topic, of_kind, params, rows_written, run, said, timeline,
+    untouch, SAID, WORDS,
 };
 use crate::approval::{Client, Surface};
 use crate::exchange::{self, Exchange, Opener};
@@ -27,6 +28,11 @@ fn declared(dry_run: bool) -> ExchangeTopicsParams {
     }
 }
 
+/// The owner's own DM as an exchange records it: the place code its
+/// message stored, and the exchange's recorded place, the DM `bound` binds
+/// (whose person the default rule makes the owner).
+const HIS_DM: (Option<&str>, &str) = (Some("discord:dm"), "discord:dm:42");
+
 /// An old exchange as the rebuild wrote it from history before marks: no
 /// person, no place, and an opening message with no mark, which arrived at
 /// the place code `at` (none: before places were recorded).
@@ -37,13 +43,25 @@ fn unmarked(
     at: Option<&str>,
     start_ms: u64,
 ) -> Node {
+    unmarked_in(core, (sid, turn), text, (at, "unknown"), start_ms)
+}
+
+/// An old unmarked exchange, no person, whose message stored the place code
+/// `at` and whose exchange recorded the place `place`.
+fn unmarked_in(
+    core: &Core,
+    (sid, turn): (&str, &str),
+    text: &str,
+    (at, place): (Option<&str>, &str),
+    start_ms: u64,
+) -> Node {
     let mut n = Node::user(sid, Some(turn), "sock#1", text);
     n.surface = at.map(str::to_string);
     core.store.append(&[n.record().unwrap()]).unwrap();
     let e = Exchange {
         turn_id: turn.into(),
         session_id: sid.into(),
-        place: "unknown".into(),
+        place: place.into(),
         private: false,
         opened_by: Opener::Message,
         person: None,
@@ -77,7 +95,7 @@ async fn an_unmarked_dm_exchange_is_asked_only_when_he_declares() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     let plain = run(&r.core, params(false, None)).await;
     assert_eq!(
         (plain.unproven, plain.declared, plain.to_ask, plain.asked),
@@ -226,7 +244,7 @@ async fn a_declared_exchange_keeps_no_person() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     let out = run(&r.core, declared(false)).await;
     assert_eq!(out.filed, 1, "{out:?}");
     let ex = exchange::exchange(&r.core.store, "turn_dm")
@@ -256,7 +274,7 @@ async fn a_declared_exchange_is_asked_as_private() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     unmarked(&r.core, (&sid, "turn_cli"), SAID, Some("terminal"), 6_000);
     let out = run(&r.core, declared(false)).await;
     assert_eq!(out.asked, 2, "{out:?}");
@@ -282,7 +300,7 @@ async fn declared_rows_are_replayed_only_under_the_declaration() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     let first = run(&r.core, declared(false)).await;
     assert_eq!(first.filed, 1, "{first:?}");
     untouch(&r.core, "turn_dm");
@@ -327,7 +345,7 @@ async fn only_his_own_terminal_declares() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     let callers = [
         ("the owner's web UI", Client::new("ws#1", Surface::Web)),
         (
@@ -375,7 +393,7 @@ async fn his_declaration_at_his_terminal_runs_and_no_word_reaches_a_row() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     let mut answers = String::new();
     for p in declarations() {
         let v = rpc_as(
@@ -419,7 +437,7 @@ async fn undo_ends_only_the_touches_of_declared_rows() {
     ledger_topic(&r.core);
     let sid = bound(&r.core);
     said(&r.core, &sid, "turn_his", SAID, 4_000);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     let out = run(&r.core, declared(false)).await;
     assert_eq!((out.asked, out.filed), (2, 2), "{out:?}");
     assert_eq!(timeline(&r.core, "topic:ledger").len(), 2);
@@ -455,7 +473,7 @@ async fn a_run_after_undo_without_the_flag_touches_nothing() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     run(&r.core, declared(false)).await;
     let u = run(&r.core, undo(false)).await;
     assert_eq!(u.ended, 1, "{u:?}");
@@ -492,7 +510,7 @@ async fn the_undo_dry_run_counts_and_writes_nothing() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     run(&r.core, declared(false)).await;
     let rows = ledger(&r.core).len();
     let d = run(&r.core, undo(true)).await;
@@ -529,7 +547,7 @@ async fn the_undo_ends_a_moved_touch_of_a_retired_topic() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     run(&r.core, declared(false)).await;
     untouch(&r.core, "turn_dm");
     let moved = exchange::touch(
@@ -568,7 +586,7 @@ async fn an_agents_process_cannot_undo() {
     let r = rig(jev);
     ledger_topic(&r.core);
     let sid = bound(&r.core);
-    unmarked(&r.core, (&sid, "turn_dm"), SAID, Some("discord:dm"), 5_000);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
     run(&r.core, declared(false)).await;
     let callers = [
         ("the owner's web UI", Client::new("ws#1", Surface::Web)),
@@ -620,5 +638,161 @@ async fn an_agents_process_cannot_undo() {
         (json!(true), json!(1)),
         "{v}"
     );
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
+}
+
+/// A conversation bound to the DM of Discord user `user`.
+fn dm_of(core: &Core, user: &str) -> String {
+    let rec = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    core.outbox
+        .bind_place(&format!("dm:{user}"), &rec.session_id)
+        .unwrap();
+    core.runner.place_rule.bind_one(crate::places::BoundPlace {
+        target: format!("discord:dm:{user}"),
+        name: "DM".into(),
+        private: false,
+        ..Default::default()
+    });
+    rec.session_id
+}
+
+/// KEY (fail closed, the review's A2-1): the code `discord:dm` is written
+/// for every bound DM, so it is no proof the DM was his. With an owner set
+/// (`[places] owner`) that holds only his own DM's person, a bound guest's DM in the shape
+/// history before marks has (the rebuild's place `unknown`), and one whose
+/// recorded place is the guest's DM, are counted apart, never asked and
+/// never written; his own DM, by its recorded place, is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dm_no_stored_record_shows_to_be_his_is_not_declared() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let owner = crate::tests_places::OWNER.to_string();
+    let r = crate::tests_onto::rig_with(jev, Vec::new(), |c| {
+        c.places.owner = Some(vec![format!("discord:{}", crate::tests_places::OWNER)]);
+    });
+    ledger_topic(&r.core);
+    let sid = dm_of(&r.core, &owner);
+    let guest = dm_of(&r.core, "77");
+    let words = ["Wrenquist", "Haddleby"];
+    unmarked(
+        &r.core,
+        (&guest, "turn_rebuilt"),
+        &format!("ask {} now", words[0]),
+        Some("discord:dm"),
+        1_000,
+    );
+    unmarked_in(
+        &r.core,
+        (&guest, "turn_guest_dm"),
+        &format!("ask {} now", words[1]),
+        (Some("discord:dm"), "discord:dm:77"),
+        2_000,
+    );
+    let his = format!("discord:dm:{owner}");
+    unmarked_in(
+        &r.core,
+        (&sid, "turn_his_dm"),
+        SAID,
+        (Some("discord:dm"), &his),
+        3_000,
+    );
+    let dry = run(&r.core, declared(true)).await;
+    assert_eq!(
+        (dry.unproven, dry.declared, dry.unshown_dm, dry.to_ask),
+        (3, 1, 2, 1),
+        "{dry:?}"
+    );
+    let out = run(&r.core, declared(false)).await;
+    assert_eq!((out.asked, out.filed, out.touches), (1, 1, 1), "{out:?}");
+    let seen = sent(&r.jev);
+    for w in words {
+        assert!(!seen.contains(w), "{w} was sent");
+    }
+    let touched: Vec<String> = timeline(&r.core, "topic:ledger")
+        .into_iter()
+        .map(|t| t.exchange)
+        .collect();
+    assert_eq!(touched, vec!["turn_his_dm".to_string()]);
+    let calls = of_kind(&r.core, LedgerKind::JudgeCall);
+    let [call] = calls.as_slice() else {
+        panic!("one judgment: {calls:?}");
+    };
+    assert_eq!(call.data["context"]["turn"], "turn_his_dm");
+}
+
+/// KEY (the review's A2-2): a declared run stopped at its cap says to go on
+/// with the declaration; a plain one, as before, without it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_declared_run_stopped_at_its_cap_goes_on_with_the_declaration() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
+    said(&r.core, &sid, "turn_his", SAID, 6_000);
+    let tiny = Some(0.000_001);
+    let declared_run = ExchangeTopicsParams {
+        include_unmarked: true,
+        ..params(false, tiny)
+    };
+    let out = run(&r.core, declared_run).await;
+    let why = out.stopped.as_deref().unwrap_or_default();
+    assert!(why.starts_with("stopped at the cap"), "{out:?}");
+    assert!(
+        why.ends_with("Go on with: theseus ledger topics --include-unmarked --cap-usd <dollars>"),
+        "{why}"
+    );
+    let plain = run(&r.core, params(false, tiny)).await;
+    let why = plain.stopped.as_deref().unwrap_or_default();
+    assert!(
+        why.ends_with("Go on with: theseus ledger topics --cap-usd <dollars>"),
+        "{why}"
+    );
+    assert!(r.jev.seen().is_empty(), "nothing asked");
+}
+
+/// KEY (the review's B-1): a declared answer's row is durable before any
+/// touch of it. The sink's frame holding the row fails once (it is retried
+/// later, as a full disk's would be) and the run's wait for it runs out:
+/// the run stops with no touch written, so nothing is left that the undo
+/// cannot find. Once the row is written, the undo finds it and ends
+/// nothing; a declared rerun writes the touch from it, with no call, and
+/// the undo then ends that touch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_declared_answer_is_written_before_its_touch() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    let bounds = (
+        std::time::Duration::from_millis(300),
+        std::time::Duration::from_secs(20),
+    );
+    r.core.runner.judge.history_bounds.set(bounds).unwrap();
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    unmarked_in(&r.core, (&sid, "turn_dm"), SAID, HIS_DM, 5_000);
+    r.core.store.fail_plain_frame(a_judgments_row);
+    let first = r.core.topics_history(&declared(false)).await.unwrap();
+    let why = first.stopped.as_deref().unwrap_or_default();
+    assert!(why.contains("was not written within"), "{first:?}");
+    assert_eq!((first.asked, first.touches), (1, 0), "{first:?}");
+    assert!(
+        timeline(&r.core, "topic:ledger").is_empty(),
+        "no touch before its row"
+    );
+    rows_written(&r.core, 1).await;
+    let u = run(&r.core, undo(false)).await;
+    assert_eq!((u.declared_rows, u.undone, u.ended), (1, 0, 0), "{u:?}");
+    let again = run(&r.core, declared(false)).await;
+    assert_eq!(
+        (again.asked_before, again.asked, again.touches),
+        (1, 0, 1),
+        "{again:?}"
+    );
+    assert_eq!(r.jev.seen().len(), 1, "no second call");
+    let u = run(&r.core, undo(false)).await;
+    assert_eq!(u.ended, 1, "{u:?}");
     assert!(timeline(&r.core, "topic:ledger").is_empty());
 }

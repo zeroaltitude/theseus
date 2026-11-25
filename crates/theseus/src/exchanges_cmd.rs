@@ -465,19 +465,25 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
         r.no_message,
         r.not_acting
     ));
-    if r.include_unmarked || r.declared > 0 || r.unplaced > 0 {
+    if r.include_unmarked || r.declared > 0 || r.unplaced > 0 || r.unshown_dm > 0 {
         let counted = match r.include_unmarked {
             true => "you count them as yours, their words still author unknown",
             false => "--include-unmarked counts them as yours",
         };
         s.push_str(&format!(
             "\nof the {} no record proves: {} arrived in your own places (your terminal, the web \
-             UI, your DM, a channel bound private), and {counted}; {} have no recorded place and \
-             {} arrived elsewhere (a shared channel, voice), and these stay out",
+             UI, your DM, a channel bound private), and {counted}; {} of these are in a channel \
+             bound private, whose listed members' old words count too, since no stored record \
+             tells theirs from yours; {} arrived in a direct message that no stored record shows \
+             to be yours, {} have no recorded place and {} arrived elsewhere (a shared channel, \
+             voice), and these stay out",
             r.unproven,
             r.declared,
+            r.private_channel,
+            r.unshown_dm,
             r.unplaced,
-            r.unproven.saturating_sub(r.declared + r.unplaced)
+            r.unproven
+                .saturating_sub(r.declared + r.unshown_dm + r.unplaced)
         ));
     }
     match r.dry_run {
@@ -1008,18 +1014,22 @@ mod tests {
 
     /// His declaration's line (issue 51): of the exchanges no record proves,
     /// how many arrived in his own places and whether this run counts them
-    /// as his, how many have no recorded place, and how many arrived
-    /// elsewhere. Counts only; shown when one of them is not zero or he
-    /// declared.
+    /// as his, how many of those are in a channel bound private (whose
+    /// members' words count too), how many arrived in a DM no stored record
+    /// shows to be his, how many have no recorded place, and how many
+    /// arrived elsewhere. Counts only; shown when one of them is not zero or
+    /// he declared.
     #[test]
     fn the_topics_lines_say_what_his_declaration_counts() {
         let plain = ExchangeTopicsResult {
             dry_run: true,
             cap_usd: 10.0,
-            exchanges: 9,
-            not_owner: 7,
-            unproven: 6,
+            exchanges: 11,
+            not_owner: 9,
+            unproven: 8,
             declared: 3,
+            private_channel: 1,
+            unshown_dm: 2,
             unplaced: 2,
             ..ExchangeTopicsResult::default()
         };
@@ -1027,10 +1037,12 @@ mod tests {
         assert_eq!(
             line.lines().nth(2),
             Some(
-                "of the 6 no record proves: 3 arrived in your own places (your terminal, the web \
+                "of the 8 no record proves: 3 arrived in your own places (your terminal, the web \
                  UI, your DM, a channel bound private), and --include-unmarked counts them as \
-                 yours; 2 have no recorded place and 1 arrived elsewhere (a shared channel, \
-                 voice), and these stay out"
+                 yours; 1 of these are in a channel bound private, whose listed members' old \
+                 words count too, since no stored record tells theirs from yours; 2 arrived in a \
+                 direct message that no stored record shows to be yours, 2 have no recorded \
+                 place and 1 arrived elsewhere (a shared channel, voice), and these stay out"
             ),
             "{line}"
         );
@@ -1044,10 +1056,13 @@ mod tests {
         assert_eq!(
             line.lines().nth(2),
             Some(
-                "of the 6 no record proves: 3 arrived in your own places (your terminal, the web \
+                "of the 8 no record proves: 3 arrived in your own places (your terminal, the web \
                  UI, your DM, a channel bound private), and you count them as yours, their words \
-                 still author unknown; 2 have no recorded place and 1 arrived elsewhere (a shared \
-                 channel, voice), and these stay out"
+                 still author unknown; 1 of these are in a channel bound private, whose listed \
+                 members' old words count too, since no stored record tells theirs from yours; 2 \
+                 arrived in a direct message that no stored record shows to be yours, 2 have no \
+                 recorded place and 1 arrived elsewhere (a shared channel, voice), and these stay \
+                 out"
             ),
             "{line}"
         );
@@ -1056,6 +1071,20 @@ mod tests {
                 "would ask 3: $0.0006 at worst for all 3 of them (it may be more \
              than the cap); a run stops at its cap of $10.00"
             ),
+            "{line}"
+        );
+        // A DM no record shows to be his is said even when nothing else is.
+        let dm_only = ExchangeTopicsResult {
+            dry_run: true,
+            cap_usd: 10.0,
+            unproven: 1,
+            unshown_dm: 1,
+            ..ExchangeTopicsResult::default()
+        };
+        let line = topics_lines(&dm_only);
+        assert!(
+            (line.lines().nth(2)).is_some_and(|l| l
+                .contains("1 arrived in a direct message that no stored record shows to be yours")),
             "{line}"
         );
     }

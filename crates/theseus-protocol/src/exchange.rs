@@ -329,6 +329,12 @@ pub struct ExchangeTopicsResult {
     /// before places were recorded), which no declaration counts.
     pub declared: u64,
     pub unplaced: u64,
+    /// Of the declared, those in a channel bound private, where its listed
+    /// members' words arrive too and nothing stored tells theirs from his.
+    pub private_channel: u64,
+    /// Of the unproven, those in a direct message no stored record shows to
+    /// be his (the place code is written for every bound DM): out.
+    pub unshown_dm: u64,
     /// The run counted his declaration (`include_unmarked`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub include_unmarked: bool,

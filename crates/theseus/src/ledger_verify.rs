@@ -106,8 +106,10 @@ pub enum LedgerCmd {
         #[arg(long, value_parser = cap_usd, allow_negative_numbers = true)]
         cap_usd: Option<f64>,
         /// Count as yours the old messages no mark proves that arrived in your own places. Some
-        /// at your terminal may have been typed by your agents. A message with no recorded place
-        /// (from before places were recorded) stays out.
+        /// at your terminal may have been typed by your agents. A direct message counts only where
+        /// its stored place shows it was your own DM. A channel bound private admits its listed
+        /// members' old words too. A message with no recorded place (from before places were
+        /// recorded) stays out.
         #[arg(long)]
         include_unmarked: bool,
         /// Undo your declaration: end every topic touch it filed, and nothing else. Asks nothing

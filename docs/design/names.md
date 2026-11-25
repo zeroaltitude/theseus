@@ -47,10 +47,15 @@ first: it counts the exchanges it would ask and prices their worst case, and ask
   arrived, by the place code stored on it at arrival (`surface::code_of`), in one of his own places: `terminal`,
   `terminal:ask`, `terminal:tui`, `cockpit`, `discord:dm`, `discord:channel:private:*`. A shared channel, voice, a
   Discord place no record names, a message whose mark proves someone else, and a message with no recorded place
-  (before 2026-10-14; counted on its own line) stay out. Some terminal messages were typed by his agents: that is
+  (before 2026-10-14; counted on its own line) stay out. `discord:dm` is written for every bound DM, so a DM counts
+  only where the exchange's recorded place is a DM whose person `PlaceRule::owners` holds an owner; the rebuild's
+  `unknown`, or another person's DM, stays out and is counted on its own. A channel bound private admits its listed
+  members' words too: no stored record tells theirs from his, so they are counted apart and counted in. A guest's
+  message stays out only where a stored person or mark proves it is not his. Some terminal messages were typed by his agents: that is
   his to accept. The exchange's person is never written, so its words stay "author unknown" in the view; it is
   asked as a private place's, and its row's context says `declared: unmarked`. Only a run with the flag writes a
-  declared answer's touches again from its row. `--undo-declared` (alone; `--dry-run` counts first) ends every
+  declared answer's touches again from its row, and a declared answer's row is written before any touch of it, so a
+  stop between the two leaves nothing the undo cannot find. `--undo-declared` (alone; `--dry-run` counts first) ends every
   touch of a category a declared answer chose by the exchange it was about, a touch the rebuild moved and one of a
   topic retired since included, and nothing else (`judge::onto::history_undo`); the rows stay, as history, and
   running it twice ends nothing more.
