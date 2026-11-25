@@ -37,6 +37,8 @@ pub use cut::Cuts;
 
 mod cut;
 mod escaped;
+#[cfg(test)]
+pub(crate) mod oracle;
 mod replay;
 #[cfg(test)]
 mod tests_cut;

@@ -205,6 +205,15 @@ impl<'a> Since<'a> {
         ))
     }
 
+    /// The line for `id`, a node a stored rendering quoted (`quotes::render`), when it is labelled; none when it is
+    /// not.
+    pub fn quoted(&self, id: &str) -> Result<Option<String>> {
+        match self.wrong.contains(id) {
+            true => self.line(id, false).map(Some),
+            false => Ok(None),
+        }
+    }
+
     /// Every node's first retraction row, read once.
     fn retractions(&self) -> Result<&HashMap<String, Retracted>> {
         if let Some(r) = self.retracted.get() {

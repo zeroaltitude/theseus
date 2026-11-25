@@ -124,6 +124,7 @@ fn a_node_of_every_kind_reencodes_unchanged() {
                 image: None,
                 external: None,
                 payload: None,
+                parts: Vec::new(),
             },
         ),
     ];

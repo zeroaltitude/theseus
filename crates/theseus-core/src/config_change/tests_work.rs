@@ -343,6 +343,7 @@ async fn a_harness_line_it_shows_links_its_node() {
         crate::node::Body::UserMessage {
             text: "[The harness: 9 minutes left in this turn]".into(),
             attachments: vec![],
+            parts: Vec::new(),
         },
     );
     r.core.store.append(&[note.record().unwrap()]).unwrap();

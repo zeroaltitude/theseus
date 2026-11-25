@@ -308,6 +308,7 @@ fn result(sid: &str, turn: &str, text: &str) -> Node {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     )
 }

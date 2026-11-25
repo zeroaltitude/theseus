@@ -415,6 +415,7 @@ fn read_a_page_in(store: &crate::store::Store, session: &str, turn: Option<&str>
             url: "http://site.test/page.html".into(),
         }),
         payload: None,
+        parts: Vec::new(),
     };
     let n = crate::node::Node::tool_result(session, turn, None, body);
     store.append(&[n.record().unwrap()]).unwrap();
@@ -971,6 +972,7 @@ fn an_unreadable_transcript_record_counts_as_outside() {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         };
         let n = crate::node::Node::tool_result(S, None, None, body);
         s.append(&[n.record().unwrap()]).unwrap()[0]

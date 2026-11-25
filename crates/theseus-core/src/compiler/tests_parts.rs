@@ -82,6 +82,7 @@ pub(super) fn result(id: &str, content: &str) -> Node {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     )
 }

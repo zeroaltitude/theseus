@@ -890,6 +890,7 @@ impl ToolRuntime {
                 // Its whole output is held out of every compile and read
                 // back by hand (theseus-czpp).
                 payload,
+                parts: Vec::new(),
             },
         )
     }
