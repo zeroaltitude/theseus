@@ -410,8 +410,7 @@ impl Tool for DriveTool {
             }
             Op::Share => {
                 "Share a Drive file with `email` or `anyone_with_link` as `role`, `remove` that \
-                 access, or `trash` the file. A share or a remove asks the owner every time; a \
-                 trash or restore is told, and he can put it back."
+                 access, or `trash` the file. A share or remove asks every time."
             }
         }
     }

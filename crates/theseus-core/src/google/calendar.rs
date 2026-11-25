@@ -707,7 +707,13 @@ fn change(input: &Value, zone: ZoneAt<'_>) -> Result<Change, String> {
     } else {
         None
     };
-    debug_assert!(resolved.class.class != Class::Authority || why.is_some());
+    // Off `google.call`'s allow list every event write is authority there
+    // (issue 57); a KEEP reason of the classifier's own must be this tool's too.
+    debug_assert!(
+        resolved.class.class != Class::Authority
+            || resolved.class.why == Some(theseus_google::classify::UNLISTED)
+            || why.is_some()
+    );
     let said = if told { ", emailing the attendees" } else { "" };
     Ok(Change {
         request: resolved.request,
