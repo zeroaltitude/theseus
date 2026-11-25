@@ -344,7 +344,7 @@ fn the_cases_carry_the_states_the_design_gives_them() {
     assert_eq!(case("W1").state.est_tokens, 200_000);
     assert_eq!(case("W13").state.price_period, "peak");
     assert_eq!(case("W14").state.restricted_models, "not_allowed");
-    assert_eq!(case("W15").state.restricted_models, "not_allowed");
+    assert_eq!(case("W15").state.restricted_models, "allowed");
     assert_eq!(
         case("W14").message,
         case("W11").message,

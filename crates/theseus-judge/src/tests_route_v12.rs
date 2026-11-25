@@ -129,3 +129,23 @@ fn v10s_cases_are_read_for_v12_and_for_v11() {
         b.cases.iter().map(|c| (&c.id, &c.want)).collect::<Vec<_>>()
     );
 }
+
+/// W15 tested the restricted-models rule, which issue 46 removed: its state no longer sets
+/// `restricted_models` and its reason names the rule only as what the case was. The label, effort and
+/// `must` stay: an ordinary fix with a known cause, warm on Sonnet, stays on the usual model.
+#[test]
+fn w15_names_no_removed_rule() {
+    let file: toml::Table = toml::from_str(V10).unwrap();
+    let raw = file["case"].as_array().unwrap().iter();
+    let w15 = raw.filter_map(toml::Value::as_table).find(|c| c["id"].as_str() == Some("W15"));
+    let w15 = w15.expect("W15 is in the file");
+    assert!(!w15.contains_key("restricted_models"), "{w15:?}");
+    let s = CaseSet::parse(V10, &by_name("route.v12").expect("route.v12")).unwrap();
+    let c = s.cases.iter().find(|c| c.id == "W15").unwrap();
+    for gone in ["restricted_models", "not_allowed", "China-origin"] {
+        assert!(!c.why.contains(gone), "{gone:?} in {:?}", c.why);
+    }
+    assert!(c.why.contains("removed by issue 46"), "{:?}", c.why);
+    let want = (c.want.model.as_str(), c.want.effort.as_str(), c.must);
+    assert_eq!(want, ("sonnet", "medium", true));
+}
