@@ -32,7 +32,7 @@ use crate::view::text::{labels, literal};
 use crate::view::timeline::Cursor;
 use crate::view::Author;
 
-use super::open::{author_of, margin1, OPEN_TOKENS};
+use super::open::{author_of, margined, OPEN_TOKENS};
 use super::page::{cursor_text, flat, when, Lens};
 use super::written::{self, Written};
 
@@ -462,17 +462,14 @@ fn line_of(lens: &Lens<'_>, position: u64, n: &Node, left: &mut Left) -> Option<
     if words.trim().is_empty() {
         return None;
     }
+    let body = margined(&words);
     let trimmed = words.trim();
     let from = trimmed.as_ptr() as usize - words.as_ptr() as usize;
-    // The words' edges where a cut may fall (`cuts`): a known value that begins or ends in the blanks trimmed is
-    // kept whole.
-    let (from, to) = lens.cuts.around(&words, from, from + trimmed.len());
-    let shown = margin1(&words[from..to]);
-    let body = shown.clone();
+    let range = from..from + trimmed.len();
     let quoted = written::quoted(
         (&n.id, position),
         (Field::Chunk, &words),
-        from..to,
+        range,
         Form::Margin1,
     );
     let (label, body) = match who {
@@ -504,7 +501,7 @@ fn line_of(lens: &Lens<'_>, position: u64, n: &Node, left: &mut Left) -> Option<
     let mut w = Written::default();
     w.code(&format!("{} · {label}{mark}\n", when(n.created_at_ms)));
     // The words behind their margin, wrapped when they are another person's: the wrapping is code.
-    let at = body.rfind(shown.as_str()).unwrap_or(0);
+    let at = body.rfind(margined(&words).as_str()).unwrap_or(0);
     w.code(&body[..at]);
     w.said(&body[at..], quoted.as_ref());
     Some(Line {

@@ -123,9 +123,7 @@ fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<(u64, Node)>> {
     }
 }
 
-/// `text` behind the margin, line by line. The writers quote between edges a cut may fall at, and lay
-/// [`margin1`] of those; this is it of the text trimmed, as the tests read it.
-#[cfg(test)]
+/// `text` behind the margin, line by line.
 pub(super) fn margined(text: &str) -> String {
     margin1(text.trim())
 }
@@ -217,18 +215,16 @@ fn render(
                 .map_or_else(String::new, |m| format!("\n({m})"));
             let trimmed = p.text.trim();
             let from = trimmed.as_ptr() as usize - p.text.as_ptr() as usize;
-            // The words' edges where a cut may fall (`cuts`): a known value that begins or ends in the blanks
-            // trimmed is kept whole.
-            let (from, to) = lens.cuts.around(&p.text, from, from + trimmed.len());
             let source = n.and_then(|n| at.get(&n.id).map(|pos| (n, *pos)));
             let q = source.and_then(|(n, pos)| {
                 let field = match n.body {
                     Body::AssistantMessage { .. } => Field::ReplyText,
                     _ => Field::Chunk,
                 };
-                written::quoted((&n.id, pos), (field, &p.text), from..to, Form::Margin1)
+                let range = from..from + trimmed.len();
+                written::quoted((&n.id, pos), (field, &p.text), range, Form::Margin1)
             });
-            p.text = format!("{}{mark}", margin1(&p.text[from..to]));
+            p.text = format!("{}{mark}", margined(&p.text));
             if let Some(q) = q {
                 quoted.insert(p.node.clone(), (q, p.text.clone()));
             }

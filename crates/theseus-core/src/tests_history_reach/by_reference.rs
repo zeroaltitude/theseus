@@ -13,6 +13,7 @@ use crate::session::{SessionRecord, TaskOf};
 mod cut;
 mod kinds;
 mod parts;
+mod stored;
 
 /// Why the line said is retracted.
 const WHY: &str = "the heron nests by the south weir";
