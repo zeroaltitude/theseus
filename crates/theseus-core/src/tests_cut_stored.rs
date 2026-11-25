@@ -469,10 +469,12 @@ async fn an_arrangements_piece_holds_a_known_value_whole_or_not_at_all() {
         .session_nodes(&task_session)
         .unwrap()
         .into_iter()
-        .find_map(|(_, n)| match crate::arrangement::laid(&r.core.store, &n).body {
-            Body::Arrangement { pieces, .. } => Some(pieces),
-            _ => None,
-        })
+        .find_map(
+            |(_, n)| match crate::arrangement::laid(&r.core.store, &n).body {
+                Body::Arrangement { pieces, .. } => Some(pieces),
+                _ => None,
+            },
+        )
         .expect("the task's arrangement");
     let text = pieces[0].text.clone().expect("the piece's text");
     assert!(text.contains("not shown"), "the piece was cut");
