@@ -11,7 +11,7 @@ use theseus_core::approval::Answerer;
 use theseus_core::owner_note::told::{self, Undo};
 use theseus_core::provider::{FakeProvider, Provider};
 use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
-use theseus_sim::fake_discord::Msg;
+use theseus_sim::fake_discord::{Guild, Msg, DEFAULT_GUILD};
 
 use super::{bindings, guild, Rig, ANA, ANA_DM, BEN, LAB};
 
@@ -173,4 +173,54 @@ async fn the_owners_press_in_private_undoes_once_and_no_other_press_counts() {
     let p = r.press(&again, "Undo", (ANA, "ana"));
     told_to(&r, &p, "↩️ Already undone by discord:ana").await;
     assert_eq!(ends(&r, &id), 1, "not revoked again");
+}
+
+/// The notices channel, an invented id.
+const NOTICES: u64 = 900_000_000_000_000_050;
+
+/// `#lab`, a private notices channel (bound `notify = true` when `notify`)
+/// and ana's DM; ana alone is the owner.
+async fn noticed_rig(notify: bool) -> Rig {
+    let file = format!(
+        "guild_id = \"{DEFAULT_GUILD}\"\n\
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
+         [[channel]]\nid = \"{NOTICES}\"\nname = \"notices\"\nusers = [\"{ANA}\"]\nprivate = true\nnotify = {notify}\n\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+    );
+    let g = Guild::new(DEFAULT_GUILD, (ANA, "ana"))
+        .member(BEN, "ben")
+        .private_channel(LAB, "lab", &[ANA])
+        .private_channel(NOTICES, "notices", &[ANA]);
+    Rig::start_tweaked(model, g, &file, &[], |c| {
+        c.places.owner = Some(vec![format!("discord:{ANA}")])
+    })
+    .await
+}
+
+/// With a notices place bound the note goes there, not to the DM, and the
+/// owner's Undo there (a private place) counts; with none bound it is in the
+/// DM, as every FYI was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_told_note_goes_to_the_notices_place_when_one_is_bound_and_else_to_the_dm() {
+    for notify in [true, false] {
+        let r = noticed_rig(notify).await;
+        let (id, post) = ordered(&r);
+        let custom = format!("told:undo:{post}");
+        let has = |m: &Msg| m.buttons.iter().any(|b| b.custom_id == custom);
+        let (to, not) = match notify {
+            true => (NOTICES, ANA_DM),
+            false => (ANA_DM, NOTICES),
+        };
+        r.until_on(&[to], "the note", || r.posted(to).iter().any(has))
+            .await;
+        assert!(
+            !r.posted(not).iter().any(has),
+            "notify={notify}: not in {not}"
+        );
+        let m = r.posted(to).into_iter().find(has).unwrap();
+        let p = r.press(&m.id, "Undo", (ANA, "ana"));
+        told_to(&r, &p, "↩️ Undone.").await;
+        assert_eq!(ends(&r, &id), 1, "notify={notify}");
+        r.stop();
+    }
 }
