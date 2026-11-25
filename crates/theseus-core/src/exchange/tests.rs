@@ -1436,3 +1436,82 @@ async fn a_touch_that_does_not_read_is_named_by_its_key_alone() {
     assert_eq!(text.matches(key.as_str()).count(), 1, "{text}");
     assert!(!text.contains(TOUCH_WORDS), "the record was quoted: {text}");
 }
+
+/// Words planted records hold where a decoder's error would quote them.
+const LINE_WORDS: &str = "LINE-WORDS-r2";
+const NODE_WORDS: &str = "NODE-WORDS-n8";
+
+/// A record under the summary lines' prefix and one under the fold nodes', neither of which reads: their
+/// keys.
+fn unread_line_and_node(c: &Core) -> [String; 2] {
+    let line = format!("{}odd", crate::ladder::did::DID_PREFIX);
+    let node = format!("{}odd", crate::view::fold::FOLD_PREFIX);
+    let odd_line = json!({"turn_id": "trn_odd", "session_id": "ses_odd", "line": "", "model": "",
+                          "writer": LINE_WORDS});
+    let odd_node = json!({"id": "fld_odd", "place": "local:odd", "level": NODE_WORDS});
+    c.store.put_meta(&line, &odd_line).unwrap();
+    c.store.put_meta(&node, &odd_node).unwrap();
+    [line, node]
+}
+
+/// The reading sheet passes over a summary line and a fold node it cannot read (issue 46): it completes,
+/// counts each, draws from the rest and leaves both records as they are.
+#[tokio::test]
+async fn the_reading_sheet_passes_over_records_that_do_not_read() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let keys = unread_line_and_node(c);
+    let held = || {
+        (keys.iter())
+            .map(|k| (c.store.inner()).latest_by_key(theseus_store::kinds::META, k))
+            .map(|r| r.unwrap().map(|r| (r.position, r.payload)))
+            .collect::<Vec<_>>()
+    };
+    let before = held();
+    let got = call(
+        c,
+        owner_cli(),
+        "exchange.gists",
+        json!({"lines": 5, "nodes": 5, "seed": 1}),
+    )
+    .await;
+    assert!(got.error.is_none(), "{:?}", got.error);
+    let got = got.result.unwrap();
+    assert_eq!(
+        (
+            got["lines_unread"].as_u64(),
+            got["nodes_unread"].as_u64(),
+            got["lines_total"].as_u64(),
+            got["nodes_total"].as_u64()
+        ),
+        (Some(1), Some(1), Some(0), Some(0)),
+        "{got}"
+    );
+    assert_eq!(held(), before, "left as they are");
+}
+
+/// The reading sheet names a record it cannot read by its key alone in the log, never by what it holds
+/// (issue 46).
+#[tokio::test]
+async fn the_reading_sheet_names_a_record_it_cannot_read_by_its_key_alone() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let keys = unread_line_and_node(c);
+    let p = theseus_protocol::exchange::ExchangeGistsParams {
+        lines: 5,
+        nodes: 5,
+        seed: Some(1),
+        ..Default::default()
+    };
+    let log = crate::test_support::Log::default();
+    let read = log.capture(|| crate::ladder::gists::sheet(&c.store, &c.tools.scrubber, &p));
+    let read = read.unwrap();
+    assert_eq!((read.lines_unread, read.nodes_unread), (1, 1));
+    let text = log.text();
+    for key in &keys {
+        assert_eq!(text.matches(key.as_str()).count(), 1, "{key} once: {text}");
+    }
+    for quoted in [LINE_WORDS, NODE_WORDS] {
+        assert!(!text.contains(quoted), "a record was quoted: {text}");
+    }
+}

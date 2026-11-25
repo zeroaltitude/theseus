@@ -207,6 +207,14 @@ pub struct ExchangeGistsResult {
     pub seed: u64,
     pub lines_total: u64,
     pub nodes_total: u64,
+    /// Records under the summary lines' prefix, and under the fold nodes'
+    /// where it looked, that could not be read: passed over, not drawn from,
+    /// and left as they are. A line's place is in its record, so every line
+    /// record that could not be read is counted, whatever place was asked.
+    #[serde(default)]
+    pub lines_unread: u64,
+    #[serde(default)]
+    pub nodes_unread: u64,
     pub lines: Vec<GistLine>,
     pub nodes: Vec<GistNode>,
 }
