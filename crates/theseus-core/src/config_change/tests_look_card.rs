@@ -47,10 +47,12 @@ async fn a_held_shell_command_says_which_program_and_where_the_look_is() {
 }
 
 /// Issue 57: the owner's own `theseusd` command, with no `sandbox` key, is not
-/// held: it runs in the sandbox, so no card is drawn for it.
+/// held where L1 was seen to run: it runs in the sandbox, so no card is drawn
+/// for it.
 #[tokio::test]
 async fn the_owners_theseusd_command_is_not_held() {
     let r = rig();
+    r.core.tools.sandbox.set_l1_verified(true);
     let sid = r.session();
     r.turn_with(
         "proc_run",

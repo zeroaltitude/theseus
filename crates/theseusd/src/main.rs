@@ -696,6 +696,11 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     core.tools.look.set_vault(op.clone());
     // No L1 job's view shows this daemon's socket (M4 17b).
     core.tools.sandbox.hide(socket_path.clone());
+    // Whether L1 runs a job on this host, probed once before anything is served (issue 57): the
+    // owner's `theseusd` command moves into L1 unasked only where it does.
+    if !core.tools.sandbox.verify_l1().await {
+        tracing::info!("L1 did not run its self-test here: the owner's theseusd command asks");
+    }
     if let Some((first, began)) = check {
         tokio::spawn(config_gate::check(core.clone(), op, Some(first), began));
     }

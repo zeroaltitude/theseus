@@ -10,12 +10,23 @@
 //! the call of a self builder runs, and the same call from another session, or one that names anything
 //! else the floor holds, is asked.
 //!
-//! Since issue 57 the owner's own session (the operator principal) is moved the same way, and he is
-//! told once instead of asked; everything else the floor holds still asks him, and so does his own
-//! `[policy.tools]` line for `proc.run`.
+//! Since issue 57 the owner's own conversation is moved the same way where L1 was seen to run at the
+//! daemon's start, and he is told once instead of asked; everything else the floor holds still asks
+//! him, and so does his own `[policy.tools]` line for `proc.run`. Which sessions are his, through
+//! the real producers of a task, a routine's run and a fork, is `tests_owner_move`. The sessions
+//! here are conversations opened with the principal a test names.
 
-use super::self_own::{base, builder, drive, drive_says, jobs_of, nothing, tree};
+use super::self_own::{
+    base, builder, drive, drive_launched, drive_says, jobs_of, nothing, tree,
+};
 use super::*;
+
+/// The owner's conversation (the operator principal's), on a host where L1 ran its probe.
+fn owners(input: impl FnOnce(&Path) -> Value, tweak: impl FnOnce(&mut Config)) -> (Rig, String) {
+    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", input, tweak);
+    r.core.tools.sandbox.set_l1_verified(true);
+    (r, sid)
+}
 
 /// The call that parked the build, with `extra` at its end: a shell line in its own tree whose one tie
 /// to the floor is the package name after `-p` (a program position to the floor).
@@ -79,7 +90,7 @@ async fn the_same_call_from_any_other_principal_is_asked() {
 /// that quote none of the command.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_owners_own_call_runs_in_the_sandbox_and_he_is_told_once() {
-    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", line(""), nothing);
+    let (r, sid) = owners(line(""), nothing);
     r.turn(&sid).await;
     assert!(r.asked().is_empty(), "{:?}", r.asked());
     let jobs = jobs_of(&sid);
@@ -94,10 +105,10 @@ async fn the_owners_own_call_runs_in_the_sandbox_and_he_is_told_once() {
     assert_eq!(
         crate::tests_places::told_notes(&r.core),
         [format!(
-            "ℹ️ FYI · A command that names theseusd ran in the sandbox\n\
-             conversation `{}` ran it, and you were not asked\n\
+            "ℹ️ FYI · Theseus is starting a command that names theseusd, in the sandbox\n\
+             conversation `{}` asked for it, and you were not asked\n\
              Theseus's store, settings file and socket are not in the sandbox, and what the command \
-             wrote there is gone, so there is nothing to undo. To be asked first, set \
+             writes in the sandbox is discarded when it ends. To be asked first, set \
              `[policy.tools] \"proc.run\" = \"approve\"`.",
             crate::task::short(&sid)
         )]
@@ -144,7 +155,7 @@ async fn what_else_the_floor_holds_still_asks_the_owner() {
             v["command"] = json!(format!("{cmd}{more}"));
             v
         };
-        let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", call, nothing);
+        let (r, sid) = owners(call, nothing);
         r.turn(&sid).await;
         let asked = r.asked();
         assert_eq!(asked.len(), 1, "{what}: {:?}", r.results(&sid));
@@ -160,7 +171,7 @@ async fn what_else_the_floor_holds_still_asks_the_owner() {
         let own = tree(t, "sails");
         json!({"command": format!("cd {}; op item get x", own.display()), "cwd": own.to_string_lossy()})
     };
-    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", op, nothing);
+    let (r, sid) = owners(op, nothing);
     r.turn(&sid).await;
     let asked = r.asked();
     assert_eq!(asked.len(), 1, "op alone: {:?}", r.results(&sid));
@@ -172,7 +183,7 @@ async fn what_else_the_floor_holds_still_asks_the_owner() {
         v["sandbox"] = json!(false);
         v
     };
-    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", explicit, nothing);
+    let (r, sid) = owners(explicit, nothing);
     r.turn(&sid).await;
     assert_eq!(r.asked().len(), 1, "sandbox: false: {:?}", r.results(&sid));
     assert_eq!(r.asked()[0]["floor"], true, "sandbox: false");
@@ -181,7 +192,7 @@ async fn what_else_the_floor_holds_still_asks_the_owner() {
     let approve = |c: &mut Config| {
         c.policy.tools.insert("proc.run".into(), Posture::Approve);
     };
-    let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", line(""), approve);
+    let (r, sid) = owners(line(""), approve);
     r.turn(&sid).await;
     let asked = r.asked();
     assert_eq!(asked.len(), 1, "his own line: {:?}", r.results(&sid));
@@ -192,6 +203,118 @@ async fn what_else_the_floor_holds_still_asks_the_owner() {
     );
     assert!(jobs_of(&sid).is_empty(), "his own line: nothing ran");
     assert!(crate::tests_places::told_notes(&r.core).is_empty());
+}
+
+/// Issue 57: where L1 was not seen to run, the owner's call asks as it did before, with the floor's
+/// own card, and nothing starts; no note. Two hosts: one whose probe has not run (unknown is no),
+/// and a non-root one whose probe ran and failed. The second is real, not set: the unit tests'
+/// binary cannot be L1's init, so the daemon's own probe, `/bin/true` started as a job starts,
+/// fails here as it would on a host without user namespaces.
+#[tokio::test(flavor = "multi_thread")]
+async fn where_l1_was_not_seen_to_run_the_owners_call_asks_as_before() {
+    for probe in [false, true] {
+        let (r, sid) = drive_says(REVERSIBLE, "operator", "proc_run", line(""), nothing);
+        let sandbox = &r.core.tools.sandbox;
+        assert!(sandbox.refusal().is_none(), "a non-root daemon");
+        if probe {
+            assert!(!sandbox.verify_l1().await, "the probe failed here");
+        }
+        assert!(!sandbox.l1_verified(), "probe {probe}");
+        r.turn(&sid).await;
+        let asked = r.asked();
+        assert_eq!(asked.len(), 1, "probe {probe}: {:?}", r.results(&sid));
+        assert_eq!(asked[0]["floor"], true, "probe {probe}");
+        let reason = asked[0]["reason"].as_str().unwrap();
+        assert!(
+            reason.contains("`theseusd` is Theseus's own binary"),
+            "probe {probe}: the floor's own card: {reason}"
+        );
+        assert!(jobs_of(&sid).is_empty(), "probe {probe}: nothing ran");
+        assert!(
+            crate::tests_places::told_notes(&r.core).is_empty(),
+            "probe {probe}"
+        );
+    }
+}
+
+/// The note the owner's moved call stages, word for word.
+fn moved_note(sid: &str) -> String {
+    format!(
+        "ℹ️ FYI · Theseus is starting a command that names theseusd, in the sandbox\n\
+         conversation `{}` asked for it, and you were not asked\n\
+         Theseus's store, settings file and socket are not in the sandbox, and what the command \
+         writes in the sandbox is discarded when it ends. To be asked first, set \
+         `[policy.tools] \"proc.run\" = \"approve\"`.",
+        crate::task::short(sid)
+    )
+}
+
+/// Issue 57: an L1 launch that fails stays a failure. The unit tests' binary cannot be L1's init,
+/// so the moved job fails as it starts; it is not run again outside the sandbox (one job, and that
+/// one bound for L1), and the one note staged said only what was true when it was written: that
+/// Theseus was starting it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_moved_call_whose_l1_launch_fails_is_a_failure_and_its_note_was_true() {
+    let (r, sid) = owners(line(""), nothing);
+    r.turn(&sid).await;
+    assert!(r.asked().is_empty(), "{:?}", r.asked());
+    let jobs = jobs_of(&sid);
+    assert_eq!(jobs.len(), 1, "never again at L0: {:?}", r.results(&sid));
+    assert!(jobs[0].sandbox.is_some(), "the one job was L1's");
+    let results = r.results(&sid);
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert!(
+        results[0].1.contains("could not start in L1"),
+        "the launch failed, and says so: {results:?}"
+    );
+    assert_eq!(crate::tests_places::told_notes(&r.core), [moved_note(&sid)]);
+}
+
+/// Every job launched by [`Hangs`], which never ends one.
+static HUNG: std::sync::Mutex<Vec<theseus_kernel::job::WrapperArgs>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// A launcher whose jobs are still running: it starts nothing and never says one ended.
+struct Hangs;
+
+impl crate::toolrun::JobLauncher for Hangs {
+    fn launch(
+        &self,
+        _: &theseus_kernel::spool::Spool,
+        args: &theseus_kernel::job::WrapperArgs,
+        _: crate::toolrun::JobDone,
+    ) -> anyhow::Result<u32> {
+        HUNG.lock().unwrap().push(args.clone());
+        Ok(std::process::id())
+    }
+}
+
+/// Issue 57: a moved call still running in the background has its note staged already, and the note
+/// says only what is true while it runs: Theseus is running it, and what it writes in the sandbox is
+/// discarded when it ends.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_moved_call_still_running_has_a_note_that_is_true_while_it_runs() {
+    let background = |t: &Path| {
+        let mut v = line("")(t);
+        v["background"] = json!(true);
+        v
+    };
+    let (r, sid) = drive_launched(
+        REVERSIBLE,
+        "operator",
+        "proc_run",
+        background,
+        nothing,
+        Arc::new(Hangs),
+    );
+    r.core.tools.sandbox.set_l1_verified(true);
+    r.turn(&sid).await;
+    assert!(r.asked().is_empty(), "{:?}", r.asked());
+    let hung = HUNG.lock().unwrap().clone();
+    assert_eq!(hung.len(), 1, "{:?}", r.results(&sid));
+    assert!(hung[0].sandbox.is_some(), "bound for L1");
+    assert!(r.rows("tool.late_result").is_empty(), "it has not ended");
+    assert_eq!(crate::tests_places::told_notes(&r.core), [moved_note(&sid)]);
 }
 
 /// A self session that is no builder (its item's tree is not open), and a builder that asks for no

@@ -654,6 +654,9 @@ pub struct Sandbox {
     /// a job that went on in the background, until its action ends
     /// (`prune`). In memory only: the row is the record.
     running: Mutex<std::collections::BTreeMap<String, RunningJob>>,
+    /// Whether L1 ran a job here at this daemon's start ([`Sandbox::verify_l1`], issue 57): set
+    /// once, by the probe. Not yet set reads as no, as a failed probe does.
+    verified: std::sync::OnceLock<bool>,
 }
 
 impl Sandbox {
@@ -698,6 +701,7 @@ impl Sandbox {
             refused_last: Mutex::default(),
             telemetry: std::sync::OnceLock::new(),
             running: Mutex::default(),
+            verified: std::sync::OnceLock::new(),
         }
     }
 
@@ -871,7 +875,8 @@ impl Sandbox {
 
     /// `theseusd check`'s self-test, on demand (theseus-gyin): `/bin/true`
     /// in L1 over the view a job gets, started as a job starts, on a thread
-    /// that lives until it ends. A serving daemon never runs it.
+    /// that lives until it ends. A serving daemon runs it once, at its start
+    /// ([`Sandbox::verify_l1`]), and a self build before it starts.
     pub async fn self_test(&self) -> SandboxLaunch {
         let view = self.job_view();
         let at_ms = theseus_protocol::now_unix_ms();
@@ -882,6 +887,28 @@ impl Sandbox {
                     "error": {"stage": "running the self-test", "error": e.to_string()}}})
             });
         launch_of(&detail, at_ms).unwrap_or_default()
+    }
+
+    /// The daemon's one probe of L1 at its start (issue 57): the self-test, unless L1 refuses
+    /// every job here (a root daemon). What it found is kept for [`Sandbox::l1_verified`]; a
+    /// second call keeps the first answer.
+    pub async fn verify_l1(&self) -> bool {
+        let ok = self.refuses.is_none() && self.self_test().await.ok;
+        *self.verified.get_or_init(|| ok)
+    }
+
+    /// Whether L1 was seen to run a job on this host: the probe at the start ran `/bin/true` in
+    /// it. Unknown (no probe yet) is no. What moves the owner's `theseusd` command into L1
+    /// unasked reads this, so that where L1 cannot start, the call asks as it did.
+    pub fn l1_verified(&self) -> bool {
+        self.verified.get().copied().unwrap_or(false)
+    }
+
+    /// A test's probe answer: the unit tests' binary cannot start a real L1 job (the daemon's
+    /// tests run the real probe).
+    #[cfg(test)]
+    pub(crate) fn set_l1_verified(&self, ok: bool) {
+        let _ = self.verified.set(ok);
     }
 
     pub fn health(&self) -> SandboxHealth {

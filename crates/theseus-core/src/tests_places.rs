@@ -565,12 +565,14 @@ async fn a_private_address_fetch_asks_and_a_shared_places_card_says_where_the_pa
                 assert_eq!(
                     told_notes(&r.core),
                     [format!(
-                        "ℹ️ FYI · A fetch of an address on this machine or your network ran\n\
-                         conversation `{}` ran it, and you were not asked\n\
-                         127.0.0.1 is a loopback address. A fetch only reads, so Theseus has \
-                         nothing to undo; a service there that acts on a request has acted. A \
-                         link-local address, such as a cloud's metadata service, still asks. To \
-                         be asked first, set `[policy.tools] \"http.fetch\" = \"approve\"`.",
+                        "ℹ️ FYI · Theseus is fetching an address on this machine or your \
+                         network\n\
+                         conversation `{}` asked for it, and you were not asked\n\
+                         127.0.0.1 is a loopback address. A fetch only reads, so Theseus will \
+                         have nothing to undo, but a service there that acts on a request may \
+                         act on this one. A link-local address, such as a cloud's metadata \
+                         service, still asks. To be asked first, set \
+                         `[policy.tools] \"http.fetch\" = \"approve\"`.",
                         crate::task::short(&sid)
                     )],
                     "{place}"
@@ -641,7 +643,7 @@ pub(crate) fn told_notes(core: &Core) -> Vec<String> {
                 .map(str::to_string)
         })
         .filter(|t| t.starts_with(crate::owner_note::Kind::Fyi.tag()))
-        .filter(|t| t.contains("ran it, and you were not asked"))
+        .filter(|t| t.contains("asked for it, and you were not asked"))
         .collect()
 }
 
