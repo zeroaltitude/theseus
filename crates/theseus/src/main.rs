@@ -80,7 +80,6 @@ mod self_cmd;
 #[cfg(test)]
 mod spawn_args_tests;
 mod standing_cmd;
-mod told_cmd;
 mod status;
 mod status_notify;
 mod status_progress;
@@ -90,6 +89,7 @@ mod tasks_forecast;
 mod tasks_tree;
 mod thread;
 mod thread_import;
+mod told_cmd;
 mod undo_cmd;
 mod vault_keep_cmd;
 mod vestige;

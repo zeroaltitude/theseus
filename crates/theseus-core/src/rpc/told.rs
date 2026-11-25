@@ -51,8 +51,7 @@ static UNDOING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// How many times the tests' undo with no method ran.
 #[cfg(test)]
-pub(crate) static PROBED: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+pub(crate) static PROBED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// A fault planted between an undo's effect and its receipt (tests only).
 #[cfg(test)]

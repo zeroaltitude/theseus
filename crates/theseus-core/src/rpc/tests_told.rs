@@ -225,7 +225,10 @@ async fn a_method_less_notes_undo_line_names_the_verb_with_its_own_post_id() {
     );
     let a = core.kernel.outbox_action(&post).unwrap().unwrap();
     let stored = crate::outbox::body_of(&a)["text"].clone();
-    assert!(stored.as_str().unwrap().contains(told::THIS_POST), "{stored}");
+    assert!(
+        stored.as_str().unwrap().contains(told::THIS_POST),
+        "{stored}"
+    );
 }
 
 /// `theseus told undo` from a terminal: `told.undo` on a CLI connection,

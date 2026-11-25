@@ -147,7 +147,10 @@ pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
         return Ok(None);
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
-    Ok(Some((filled(body["text"].as_str().unwrap_or(""), post), undo)))
+    Ok(Some((
+        filled(body["text"].as_str().unwrap_or(""), post),
+        undo,
+    )))
 }
 
 /// The note `name` names: its post id, or the end of one no other told
