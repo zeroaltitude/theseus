@@ -148,4 +148,3 @@ fn a_subject_trimmed_inside_a_known_value_keeps_it_whole_or_not_at_all() {
     assert_eq!(subject, "self: Sign in with  (x1)");
     whole_or_absent("the subject", &subject, lines);
 }
-
