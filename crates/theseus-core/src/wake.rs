@@ -541,8 +541,10 @@ pub fn set(
 }
 
 /// What the model reads when its wake is set (or was, by this call before): when
-/// it fires, how many check-ins are pending, and what the turn's input will be;
-/// a reminder says whom it is for.
+/// it fires, how many check-ins are pending, and that the turn's input will be
+/// the note it gave, which it does not repeat: every result goes to the content
+/// judge, and a result that holds an order to the session reads as an attempt to
+/// steer it. A reminder says whom it is for.
 fn set_text(set: &WakeSet, when: &str, series: Option<&str>, max: usize) -> String {
     let w = &set.wake;
     let s = crate::task::short(&w.id);
@@ -561,21 +563,17 @@ fn set_text(set: &WakeSet, when: &str, series: Option<&str>, max: usize) -> Stri
         format!(
             "Set wake {s}, {}, first at {when}; {} of {max} wakes are pending (a series \
              counts once), and its id is {}. This conversation gets a turn at each occurrence, \
-             whose input is this line:\n{}",
+             whose input is the note you gave in this call.",
             series.unwrap_or(""),
             checks(&set.list),
-            w.id,
-            line(w, None, w.note.as_str())
+            w.id
         )
     } else if set.set {
         format!(
             "Set wake {s} for {when}; {} of {max} wakes are pending, and its id is {}. \
-             This conversation gets a turn then, whose input is this line:\n\
-             ⏰ wake (set {}): {}",
+             This conversation gets a turn then, whose input is the note you gave in this call.",
             checks(&set.list),
-            w.id,
-            local(w.set_at_ms).hm(),
-            w.note
+            w.id
         )
     } else {
         format!(

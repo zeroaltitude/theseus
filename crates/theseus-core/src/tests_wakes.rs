@@ -93,6 +93,23 @@ fn last_user(req: &ProviderRequest) -> String {
         .unwrap_or_default()
 }
 
+/// A note that is one order to the session: `wake.at`'s result confirms the
+/// wake without saying it again, since the content judge reads a result that
+/// holds an order to the session as an attempt to steer it.
+const ORDER: &str = "Rerun failing benchmarks.";
+
+/// Whether `text` holds none of the words of `note`.
+fn says_none_of(note: &str, text: &str) -> bool {
+    let words = |s: &str| -> Vec<String> {
+        s.split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let said = words(text);
+    words(note).iter().all(|w| !said.contains(w))
+}
+
 fn answers_a_call(req: &ProviderRequest) -> bool {
     req.messages
         .last()
@@ -255,7 +272,7 @@ async fn a_wake_after_two_seconds_runs_a_turn_with_its_note_and_not_before() {
     let l = life(dir.path(), true);
     let sid = session(&l.core);
     let t0 = Instant::now();
-    let res = turn(&l.core, &sid, "WAKE 2s: check the build").await;
+    let res = turn(&l.core, &sid, &format!("WAKE 2s: {ORDER}")).await;
     assert!(res.output.ends_with("Wake set."), "{}", res.output);
     assert!(
         t0.elapsed() < Duration::from_secs(2),
@@ -268,10 +285,11 @@ async fn a_wake_after_two_seconds_runs_a_turn_with_its_note_and_not_before() {
     );
     assert_eq!(e.wakes.len(), 1);
     let w = e.wakes[0].clone();
-    assert_eq!(w.note, "check the build");
+    assert_eq!(w.note, ORDER);
     assert_eq!(w.target.as_deref(), Some(TARGET));
     assert!(w.due_at_ms.abs_diff(w.set_at_ms + 2_000) < 50);
-    // The tool's result says when, and what the turn's input will be.
+    // The tool's result says when, how many are pending and its id, and that
+    // the turn's input is the note, without saying the note again.
     let result = l
         .core
         .store
@@ -284,13 +302,19 @@ async fn a_wake_after_two_seconds_runs_a_turn_with_its_note_and_not_before() {
         })
         .unwrap();
     assert!(result.starts_with("Set wake "), "{result}");
-    assert!(result.contains("⏰ wake (set "), "{result}");
+    assert!(!result.contains("⏰ wake"), "{result}");
     assert!(result.contains("1 of 5 wakes are pending"), "{result}");
     assert!(
-        result.contains("whose input is this line:\n⏰ wake (set ")
-            && result.ends_with("): check the build"),
-        "the line ends the result, with the note as it was: {result}"
+        result.contains(&w.id) && result.contains(&crate::wake::local(w.due_at_ms).full()),
+        "{result}"
     );
+    assert!(
+        result.ends_with(
+            "This conversation gets a turn then, whose input is the note you gave in this call."
+        ),
+        "{result}"
+    );
+    assert!(says_none_of(ORDER, &result), "{result}");
 
     until("the wake's turn", 10, || {
         !wake_nodes(&l.core, &sid).is_empty()
@@ -306,10 +330,7 @@ async fn a_wake_after_two_seconds_runs_a_turn_with_its_note_and_not_before() {
         n.created_at_ms - w.due_at_ms
     );
     let set = crate::wake::local(w.set_at_ms).hm();
-    assert_eq!(
-        node_text(n),
-        format!("⏰ wake (set {set}): check the build")
-    );
+    assert_eq!(node_text(n), format!("⏰ wake (set {set}): {ORDER}"));
     until("the wake turn's reply", 10, || replies(&l.core).len() == 2).await;
     let reply = replies(&l.core).pop().unwrap();
     assert_eq!(reply["wakes"][0]["wake_id"], w.id);
@@ -543,7 +564,7 @@ async fn a_repeating_wake_is_set_at_once_one_span_from_now() {
     let clean = SessionRecord::new(SessionKind::Conversation, None);
     l.core.store.put_session(&clean.session_id, &clean).unwrap();
     let t0 = theseus_protocol::now_unix_ms();
-    let set = turn(&l.core, &clean.session_id, "REPEAT 1d: write me a haiku").await;
+    let set = turn(&l.core, &clean.session_id, &format!("REPEAT 1d: {ORDER}")).await;
     assert!(set.awaiting_confirm.is_none(), "{set:?}");
     let e = exec_of(&l.core, &clean.session_id);
     let w = &e.wakes[0];
@@ -574,9 +595,17 @@ async fn a_repeating_wake_is_set_at_once_one_span_from_now() {
         "{result}"
     );
     assert!(
-        result.ends_with("⏰ wake (every 1d, #1): write me a haiku"),
+        result.ends_with(
+            "This conversation gets a turn at each occurrence, whose input is the note you gave \
+             in this call."
+        ),
         "{result}"
     );
+    assert!(
+        result.contains(&w.id) && result.contains(&crate::wake::local(w.due_at_ms).full()),
+        "{result}"
+    );
+    assert!(says_none_of(ORDER, &result), "{result}");
     let row = &rows(&l.core, "wake.set")
         .into_iter()
         .find(|r| r["wake_id"] == w.id.as_str())
