@@ -60,9 +60,11 @@ pub(crate) fn restart_spent(tc: &TurnCtx<'_>) -> Result<NewRecord, String> {
     let word = last_word(tc).ok_or("no message of the owner's in this conversation")?;
     let key = format!("{SPENT_PREFIX}{}", tc.session_id);
     if tc.store.get_meta::<u64>(&key).ok().flatten() == Some(word) {
-        return Err("this conversation already restarted Theseus with no card since your last \
+        return Err(
+            "this conversation already restarted Theseus with no card since your last \
                     message"
-            .into());
+                .into(),
+        );
     }
     NewRecord::json(kinds::META, Some(&key), &word).map_err(|e| format!("{e:#}"))
 }
@@ -197,8 +199,10 @@ pub fn restart_note(args: &Value, setting: &str) -> String {
 /// The note for a server removed with no card.
 pub fn detach_note(args: &Value, name: &str, setting: &str) -> String {
     let when = match args["restart"] == true {
-        true => "Theseus started it from the settings file, so it stops at a restart, which \
-                 Theseus does now.",
+        true => {
+            "Theseus started it from the settings file, so it stops at a restart, which \
+                 Theseus does now."
+        }
         false => "It stopped, and its tools are gone from your next message.",
     };
     crate::owner_note::note(

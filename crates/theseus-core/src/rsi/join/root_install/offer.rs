@@ -47,7 +47,6 @@ impl Core {
         }
     }
 
-
     /// Whether the service runs a root-owned build and `[self] install` is not `"off"`: whether a join is this
     /// module's to take. Cheap: it reads the unit.
     pub(crate) async fn root_install_applies(&self) -> bool {

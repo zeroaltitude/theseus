@@ -26,7 +26,8 @@ impl Core {
         via: &str,
         session: &str,
     ) -> Result<String, String> {
-        let ask = format!("ask Theseus in a conversation to undo change #{number}, and it asks you");
+        let ask =
+            format!("ask Theseus in a conversation to undo change #{number}, and it asks you");
         let w = &self.tools.config_change;
         let base = read_base(&self.tools)?;
         let rows = history::rows(&self.store);
@@ -43,7 +44,9 @@ impl Core {
             || settings.iter().any(diff::too_long)
             || !going_live(&self.store, w.started_ms).is_empty();
         if asks {
-            return Err(format!("putting change #{number} back is a change Theseus asks you about: {ask}"));
+            return Err(format!(
+                "putting change #{number} back is a change Theseus asks you about: {ask}"
+            ));
         }
         let digest = write::keep_candidate(&w.state, &candidate)
             .map_err(|e| format!("the undo could not be kept, so nothing was written: {e}"))?;

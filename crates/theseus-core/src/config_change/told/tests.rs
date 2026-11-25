@@ -24,7 +24,12 @@ fn a_secret_an_address_and_a_host_reach_and_the_rest_does_not() {
     ] {
         assert!(reaches(&p(s)), "{s}");
     }
-    for s in ["import.notes.enabled", "model.effort", "tui.theme", "secret"] {
+    for s in [
+        "import.notes.enabled",
+        "model.effort",
+        "tui.theme",
+        "secret",
+    ] {
         assert!(!reaches(&p(s)), "{s}");
     }
     assert_eq!(going_live_line(&[]), "");
@@ -65,8 +70,15 @@ fn each_note_says_what_was_done_where_and_how_to_undo_it() {
     assert!(crate::owner_note::is_headed(&r), "{r}");
     assert!(r.contains("nothing to undo"), "{r}");
     for (restart, says) in [(true, "stops at a restart"), (false, "It stopped")] {
-        let d = detach_note(&json!({"restart": restart}), "\"wc\"", "enforcement = notify");
-        assert!(d.starts_with("ℹ️ FYI · Removed the MCP server \"wc\"\n"), "{d}");
+        let d = detach_note(
+            &json!({"restart": restart}),
+            "\"wc\"",
+            "enforcement = notify",
+        );
+        assert!(
+            d.starts_with("ℹ️ FYI · Removed the MCP server \"wc\"\n"),
+            "{d}"
+        );
         assert!(d.contains(says), "{d}");
         assert!(d.contains("attaching a server asks you"), "{d}");
     }

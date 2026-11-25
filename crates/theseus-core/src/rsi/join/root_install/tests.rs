@@ -523,7 +523,9 @@ async fn the_install_asks_with_the_card_alone() {
     let q = t.cards()[0].clone();
     assert!(!q.needs_proof && !q.needs_fresh_proof, "{q:?}");
     assert!(
-        !t.notices().join("\n").contains("theseus owner proof enroll"),
+        !t.notices()
+            .join("\n")
+            .contains("theseus owner proof enroll"),
         "{:?}",
         t.notices()
     );
