@@ -161,14 +161,6 @@ pub(crate) fn l1_of(
 /// or names any path on the floor, or any line the floor did not finish reading, is held.
 /// A self session that is no builder (its item's tree is not open) is not moved either.
 /// `docs/design/self-own-tree-asks.md` says why the floor held it and what is and is not moved.
-///
-/// The owner's own conversation is moved the same way (issue 57; the owner, 2026-11-25: the
-/// approve is for what is truly dangerous and cannot be undone): `cargo test -p theseusd` in his
-/// own conversation runs in the sandbox and he is told, where it asked him every time he worked on
-/// Theseus with Theseus. Only where L1 was seen to run a job at the daemon's start
-/// (`Sandbox::l1_verified`): elsewhere it asks as before. Which sessions are his is
-/// [`owners_conversation`]; a task's, a routine's, an agent's MCP session's are held as before,
-/// whatever authority they inherited.
 fn l1_instead_of_floor(
     rt: &ToolRuntime,
     session: Option<&str>,
@@ -176,107 +168,20 @@ fn l1_instead_of_floor(
     plan: &theseus_tools::Plan,
     input: &serde_json::Value,
 ) -> Option<String> {
-    let why = match moved_off_floor(rt, session, tool, plan, input)? {
-        Moved::SelfBuilder => {
-            "a self builder's command that runs Theseus's own binary runs in the sandbox, where it \
-             reaches none of Theseus's own state"
-        }
-        Moved::Owner => {
-            "a command that names Theseus's own program runs in the sandbox, where it reaches none \
-             of Theseus's own state"
-        }
-    };
-    Some(why.to_string())
-}
-
-/// Whose command [`l1_instead_of_floor`] moved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Moved {
-    SelfBuilder,
-    Owner,
-}
-
-/// [`l1_instead_of_floor`]'s question: is this a command the floor holds only for `theseusd`, of a
-/// self builder or of the owner's own session, which L1 can take?
-fn moved_off_floor(
-    rt: &ToolRuntime,
-    session: Option<&str>,
-    tool: &dyn Tool,
-    plan: &theseus_tools::Plan,
-    input: &serde_json::Value,
-) -> Option<Moved> {
     // The cheap tests first: most calls are neither a program's nor a self session's.
     if tool.name() != "proc.run" || input.get("sandbox").is_some() || rt.sandbox.refusal().is_some()
     {
         return None;
     }
     let session = session?;
-    if !rt.policy.floor_is_only_the_daemons_binary(plan) {
-        return None;
-    }
-    if is_self(rt, session) {
-        return builder_path(rt, session).map(|_| Moved::SelfBuilder);
-    }
-    (rt.sandbox.l1_verified() && owners_conversation(rt, session)).then_some(Moved::Owner)
-}
-
-/// Whether `session`'s call runs in L1 only because it is the owner's command that names
-/// `theseusd` ([`l1_instead_of_floor`]): what the owner is told of once it runs (issue 57). A call
-/// that asked for L1 itself, or that `[sandbox]` sends there, is not this.
-pub(crate) fn moved_for_owner(
-    rt: &ToolRuntime,
-    session: Option<&str>,
-    tool: &dyn Tool,
-    plan: &theseus_tools::Plan,
-    input: &serde_json::Value,
-) -> bool {
-    rt.sandbox
-        .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
-        .is_none()
-        && moved_off_floor(rt, session, tool, plan, input) == Some(Moved::Owner)
-}
-
-/// Whether `session` is one of the owner's own conversations (issue 57), read from its records and
-/// failing closed: any record that is missing or cannot be read is a no. It is a conversation, not
-/// a task (its record's `task` and its execution's `parent` empty, both kinds `Conversation`), its
-/// execution's authority names the operator in so many words, and it is not a routine's own
-/// session. A fork is its source's: a fork of his conversation is his, a fork of a task's is not.
-pub(crate) fn owners_conversation(rt: &ToolRuntime, session: &str) -> bool {
-    let Some(core) = rt.self_pr.core.get().and_then(std::sync::Weak::upgrade) else {
-        return false;
-    };
-    let mut at = session.to_string();
-    // A fork of a fork names the fork; a chain this long is no conversation of his.
-    for _ in 0..16 {
-        let Ok(Some(rec)) = core.store.get_session::<crate::session::SessionRecord>(&at) else {
-            return false;
-        };
-        if rec.kind != theseus_protocol::SessionKind::Conversation || rec.task.is_some() {
-            return false;
-        }
-        let Some(id) = rec.execution_id.as_deref() else {
-            return false;
-        };
-        let Ok(Some(exec)) = core.kernel.execution(id) else {
-            return false;
-        };
-        let routines = match rt.routines.load(&core.store) {
-            Ok(r) => r,
-            Err(_) => return false,
-        };
-        if exec.kind != theseus_protocol::SessionKind::Conversation
-            || exec.parent.is_some()
-            || exec.authority.principal != crate::turn::OPERATOR
-            || routines.values().any(|r| r.execution_id == exec.id)
-        {
-            return false;
-        }
-        match rec.forked_from {
-            Some(origin) => at = origin.session,
-            None => return true,
-        }
-    }
-    false
+    (rt.policy.floor_is_only_the_daemons_binary(plan)
+        && is_self(rt, session)
+        && builder_path(rt, session).is_some())
+    .then(|| {
+        "a self builder's command that runs Theseus's own binary runs in the sandbox, where it \
+         reaches none of Theseus's own state"
+            .to_string()
+    })
 }
 
 /// Why a self session's call may not write where it would, or none: a path with a `.git`

@@ -684,10 +684,13 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
     let policy = open_policy();
     let c = ctx(false);
     let (fetch, search) = (Fetch(w.clone()), Search(w));
-    // Planned and decided only: nothing connects. A name and a link-local
-    // address (a cloud's metadata service) still wait.
+    // Planned and decided only: nothing connects. A name, a link-local
+    // address (a cloud's metadata service) and a literal with credentials in
+    // it still wait.
     for (url, why) in [
         ("http://localhost/", "localhost is this machine"),
+        ("http://user:pw@127.0.0.1/", "127.0.0.1 is a loopback address"),
+        ("http://user@192.168.1.1/", "192.168.1.1 is a private address"),
         (
             "http://169.254.169.254/",
             "169.254.169.254 is a link-local address",

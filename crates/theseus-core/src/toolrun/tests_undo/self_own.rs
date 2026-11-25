@@ -84,18 +84,6 @@ pub(super) fn drive_says(
     input: impl FnOnce(&Path) -> Value,
     tweak: impl FnOnce(&mut Config),
 ) -> (Rig, String) {
-    drive_launched(verdict, principal, name, input, tweak, Arc::new(Recorder))
-}
-
-/// [`drive_says`] with its jobs started by `launcher`.
-pub(super) fn drive_launched(
-    verdict: &str,
-    principal: &str,
-    name: &'static str,
-    input: impl FnOnce(&Path) -> Value,
-    tweak: impl FnOnce(&mut Config),
-    launcher: Arc<dyn crate::toolrun::JobLauncher>,
-) -> (Rig, String) {
     let r = rig_launched(
         verdict,
         0.96,
@@ -111,7 +99,7 @@ pub(super) fn drive_launched(
                 Scripted::text("Done."),
             ]
         },
-        Some(launcher),
+        Some(Arc::new(Recorder)),
     );
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     let authority = Authority {

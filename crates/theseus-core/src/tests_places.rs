@@ -583,8 +583,8 @@ async fn a_private_address_fetch_asks_and_a_shared_places_card_says_where_the_pa
 }
 
 /// Issue 57's neighbours of the told fetch, in the owner's DM: a link-local
-/// address (a cloud's metadata service) and a name (`localhost`) still ask in
-/// the words they did, and the owner's own `[policy.tools]` line for the tool
+/// address (a cloud's metadata service), a name (`localhost`) and a literal
+/// with credentials before its host still ask in the words they did, and the owner's own `[policy.tools]` line for the tool
 /// makes the told address ask too. None of them is told.
 #[tokio::test]
 async fn in_the_owners_dm_a_metadata_address_a_name_and_his_own_line_still_ask() {
@@ -596,6 +596,9 @@ async fn in_the_owners_dm_a_metadata_address_a_name_and_his_own_line_still_ask()
         ),
         ("http://[fe80::1]/x", "[fe80::1] is a link-local address"),
         ("http://localhost:7455/notes", "localhost is this machine"),
+        // A literal with credentials in it: the client would send them.
+        ("http://user:pw@127.0.0.1/", "127.0.0.1 is a loopback address"),
+        ("http://user@192.168.1.1/", "192.168.1.1 is a private address"),
     ] {
         let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
         turn(&r.core, &sid, &format!("FETCH {url}")).await;

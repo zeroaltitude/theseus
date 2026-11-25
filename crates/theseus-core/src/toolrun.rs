@@ -1084,7 +1084,7 @@ impl ToolRuntime {
             return Ok((self.ask(tc, a, call, tool.name(), g)?, judged));
         }
         // What runs unasked and is told instead (issue 57).
-        self.tell_owner(tc, tool.as_ref(), &call.input, &g);
+        self.tell_owner(tc, tool.as_ref(), &g);
         let (posture, class) = (g.decision.posture, g.class);
         // `execute` holds for the act key itself, on every one of its call
         // sites rather than on this one.

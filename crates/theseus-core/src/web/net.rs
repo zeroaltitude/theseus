@@ -75,7 +75,13 @@ pub fn private_url(url: &str) -> Option<String> {
 /// metadata service), a unique-local IPv6 address (AWS's metadata service is
 /// `fd00:ec2::254`), the shared range (100.64.0.0/10: a tailnet, and one
 /// cloud's metadata service), the unspecified address, and the reserved ones.
+/// So does a URL that carries credentials, a user name or a password before
+/// the host, read from the parsed URL: the client sends them as an
+/// `Authorization` header, so a turn could log in to a local service.
 pub fn told_host(url: &Url) -> Option<String> {
+    if !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
     let host = url.host_str()?;
     let (ip, shown) = match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
         Some(v6) => {
@@ -277,6 +283,15 @@ mod tests {
             "https://doc.rust-lang.org/std/",
         ] {
             assert_eq!(told_url(url), None, "{url}");
+        }
+        // Credentials before the host: a loopback or LAN literal, but not told.
+        for (url, why) in [
+            ("http://user:pw@127.0.0.1/", "127.0.0.1 is a loopback address"),
+            ("http://user@192.168.1.1/", "192.168.1.1 is a private address"),
+            ("http://:pw@10.0.0.1/", "10.0.0.1 is a private address"),
+        ] {
+            assert_eq!(told_url(url), None, "{url}");
+            assert_eq!(private_url(url).as_deref(), Some(why), "{url}");
         }
     }
 
