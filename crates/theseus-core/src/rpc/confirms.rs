@@ -1280,6 +1280,11 @@ pub(crate) enum Act<'a> {
     /// every recall, writes notes into sessions, and posts a card, so a job's process
     /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
     Retract { what: &'a str },
+    /// The Undo of a note that told the owner of an act done unasked (issue
+    /// 57, `told.undo`): one act whatever the undo calls, judged by the
+    /// general rule, the owner from a private place. `what` names it: `the
+    /// undo of note out_…`.
+    Told { what: &'a str },
 }
 
 impl Act<'_> {
@@ -1313,6 +1318,7 @@ impl Act<'_> {
             Act::Stop { .. } => theseus_protocol::method::JOB_STOP,
             Act::UndoAllow { .. } => theseus_protocol::method::UNDO_ALLOW,
             Act::Settings { .. } => theseus_protocol::method::CONFIG_HISTORY,
+            Act::Told { .. } => theseus_protocol::method::TOLD_UNDO,
         }
     }
 }

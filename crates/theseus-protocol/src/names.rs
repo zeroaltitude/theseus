@@ -113,6 +113,8 @@ pub mod method {
         WAKE_LIST = "wake.list",
         /// Cancel a pending wake: nothing fires.
         WAKE_CANCEL = "wake.cancel",
+        /// The Undo of a note that told the owner of an act done unasked (issue 57, `owner_note::told`): the owner, from a private place.
+        TOLD_UNDO = "told.undo",
         /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a reminder, snooze one, hold and resume a series, settle a fired one.
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
         /// Routines (theseus-pvm5c, `routines.rs`): recurring work, every run a fresh task.

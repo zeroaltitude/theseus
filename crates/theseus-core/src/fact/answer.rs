@@ -213,7 +213,8 @@ impl ActRefused<'_> {
             | Act::Watch { .. }
             | Act::Google { .. }
             | Act::UndoAllow { .. }
-            | Act::Settings { .. } => None,
+            | Act::Settings { .. }
+            | Act::Told { .. } => None,
         }
     }
 }
@@ -256,7 +257,8 @@ impl Fact for ActRefused<'_> {
             | Act::Watch { what, .. }
             | Act::Google { what, .. }
             | Act::UndoAllow { what }
-            | Act::Settings { what } => {
+            | Act::Settings { what }
+            | Act::Told { what } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -355,6 +357,9 @@ impl Fact for ActRefused<'_> {
             ),
             Act::Settings { what } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. Nothing was shown."
+            ),
+            Act::Told { what } => format!(
+                "{what}, from {who} through {via}, did not count: {why}. Nothing was undone."
             ),
             Act::Trust { what, .. } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. The repository is as \

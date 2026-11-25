@@ -223,6 +223,7 @@ mod tests {
     /// (it is one of the owner's acts, refused at its own judgment) and read
     /// `docs/design/imported-surface.md` first.
     const NOT_FOR_MCP: &[&str] = &[
+        method::TOLD_UNDO,
         method::OWNER_PROOF_ENROLL,
         method::OWNER_PROOF_CONFIRM,
         method::OWNER_PROOF_STATUS,
