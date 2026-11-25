@@ -463,8 +463,9 @@ fn the_topic_block_is_held_to_its_cap_and_recall_is_cut_first() {
         [Residue {
             band: Band::Recall,
             pieces: 1,
-            tokens: card
-        }]
+            tokens: 300
+        }],
+        "the residue counts the card's own tokens"
     );
 
     let v = run(pieces(), &capped(2 * card + 2 * R)).expect("fits");
