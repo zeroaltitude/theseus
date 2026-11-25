@@ -472,7 +472,7 @@ async fn explain_does_not_list_the_user_file_as_gone() {
 }
 
 /// The store's directory of a rig, for `theseusd check`'s line.
-fn store_dir(r: &Rig) -> PathBuf {
+pub(crate) fn store_dir(r: &Rig) -> PathBuf {
     r.state.parent().unwrap().join("store")
 }
 
@@ -675,14 +675,15 @@ async fn a_first_start_that_cannot_read_the_file_is_still_the_first_start() {
     assert_eq!(
         core.health().own_file.as_deref(),
         Some(
-            "Your own instruction file could not be read at the first start, so no version is \
-             accepted and none of it is carried until you accept one: `theseus own-file accept`"
+            "Your own instruction file could not be read at the first start, or its accept \
+             could not be written, so no version is accepted and none of it is carried until \
+             you accept one: `theseus own-file accept`"
         )
     );
     assert_eq!(
         own_file::check_line(&store_dir(&r), &r.path()),
-        "Your own instruction file: it could not be read at the first start, so no version is \
-         accepted, none of it is carried, and a start accepts nothing by itself: an accept is \
-         needed, `theseus own-file accept`."
+        "Your own instruction file: at the first start it could not be read, or its accept \
+         could not be written, so no version is accepted, none of it is carried, and a start \
+         accepts nothing by itself: an accept is needed, `theseus own-file accept`."
     );
 }

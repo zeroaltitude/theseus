@@ -53,25 +53,35 @@ impl Core {
         if !own_file::first_start_due(&look, &self.store) {
             return Ok(None);
         }
-        match self.own_file_first_accept(&look) {
+        let not_written = match self.own_file_first_accept(&look) {
             First::Kept(v) => return Ok(Some(v)),
             First::Unconfirmed => return Ok(None),
-            First::Not => {}
+            First::Unread => None,
+            First::NotWritten(e) => Some(e),
+        };
+        let missed = if not_written.is_some() {
+            Missed::Write
+        } else {
+            Missed::Read
+        };
+        if !self.own_file_unread(&look, missed)? {
+            return Ok(None);
         }
-        if self.own_file_unread(&look)? {
-            tracing::warn!(path = %look.path.display(),
-                "your own instruction file could not be read at this first start, so no version is accepted and none of it is carried until `theseus own-file accept`");
+        match not_written {
+            None => tracing::warn!(path = %look.path.display(),
+                "your own instruction file could not be read at this first start, so no version is accepted and none of it is carried until `theseus own-file accept`"),
+            Some(e) => tracing::warn!(path = %look.path.display(), error = %e,
+                "your own instruction file: this first start's accept could not be written, so nothing was kept, no version is accepted and none of it is carried until `theseus own-file accept`"),
         }
         Ok(None)
     }
 
     /// The first start's accept of what is on disk, with its line in the
-    /// log. [`First::Not`] when the disk holds a file the reader cannot
-    /// read, or the accept was not written.
+    /// log when it is kept.
     fn own_file_first_accept(&self, look: &Look) -> First {
         let Some(v) = own_file::first_start(look, &self.store, theseus_protocol::now_unix_ms())
         else {
-            return First::Not;
+            return First::Unread;
         };
         match self.own_file_kept(look, &v, true) {
             Ok(seq) => {
@@ -81,26 +91,26 @@ impl Core {
                 First::Kept(v)
             }
             Err(e) if e.is::<own_file::Unconfirmed>() => First::Unconfirmed,
-            Err(e) => {
-                tracing::warn!(path = %look.path.display(), error = %e,
-                    "your own instruction file: the first start's accept was not written, and nothing of it is carried");
-                First::Not
-            }
+            Err(e) => First::NotWritten(e),
         }
     }
 
     /// The first start recorded as having happened with no version
-    /// (`Look::unread_record`), under the accepts' lock, and made durable.
-    /// False, and nothing written, when a pointer stands by then; false too
-    /// when the store cannot confirm the record ([`own_file::Unconfirmed`]).
-    fn own_file_unread(&self, look: &Look) -> Result<bool> {
+    /// (`Look::unread_record`), under the accepts' lock, and made durable;
+    /// `missed`, what the start could not do, is kept for the run. False,
+    /// and nothing written, when a pointer stands by then; false too when
+    /// the store cannot confirm the record ([`own_file::Unconfirmed`]).
+    fn own_file_unread(&self, look: &Look, missed: Missed) -> Result<bool> {
         let _one = own_file::one_at_a_time();
         if own_file::read_now(&self.store, &look.pid) != Accepted::None {
             return Ok(false);
         }
         let at_ms = theseus_protocol::now_unix_ms();
         match self.own_file_settle(&[look.unread_record(at_ms)?], true) {
-            Ok(()) => Ok(true),
+            Ok(()) => {
+                self.runner.context_files.set_own_missed(missed);
+                Ok(true)
+            }
             Err(e) if e.is::<own_file::Unconfirmed>() => Ok(false),
             Err(e) => Err(e),
         }
@@ -181,8 +191,11 @@ impl Core {
 
     /// `theseus health`'s line about the file (`Look::health`).
     pub(super) fn own_file_health(&self) -> Option<String> {
-        Look::of(&self.cfg, &self.store, &self.runner.context_files)
-            .health(&self.store, theseus_protocol::now_unix_ms())
+        Look::of(&self.cfg, &self.store, &self.runner.context_files).health(
+            &self.store,
+            theseus_protocol::now_unix_ms(),
+            self.runner.context_files.own_missed(),
+        )
     }
 }
 
@@ -361,9 +374,10 @@ impl Core {
 /// What became of the first start's accept.
 enum First {
     Kept(Version),
-    /// Not accepted: the disk holds a file the reader cannot read, or the
-    /// accept was not written.
-    Not,
+    /// The disk holds a file the reader cannot read.
+    Unread,
+    /// The accept was not written: the append's error.
+    NotWritten(anyhow::Error),
     /// The store may hold it ([`own_file::Unconfirmed`]).
     Unconfirmed,
 }

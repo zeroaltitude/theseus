@@ -197,3 +197,58 @@ async fn a_first_start_record_whose_barrier_fails_is_unconfirmed() {
     assert_eq!(look_of(&r.core).accepted, Accepted::Unread);
     assert_eq!(r.core.own_file_first_start().unwrap(), None);
 }
+
+/// The first start's lines say which thing failed: in the run that made
+/// it, health says the file could not be read, or that its accept could
+/// not be written; a later run, and `theseusd check`, read only the record
+/// that the start accepted nothing, and say both.
+#[tokio::test]
+async fn the_first_start_says_which_thing_failed() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let accept = "`theseus own-file accept`";
+    let unread = rig();
+    unread.write(&format!("{KEPT}\n"));
+    std::fs::set_permissions(unread.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(
+        std::fs::read(unread.path()).is_err(),
+        "a user the mode keeps out"
+    );
+    assert_eq!(unread.core.own_file_first_start().unwrap(), None);
+    assert_eq!(
+        unread.core.health().own_file,
+        Some(format!(
+            "Your own instruction file could not be read at the first start, so no version is \
+             accepted and none of it is carried until you accept one: {accept}"
+        ))
+    );
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    let key = own_file::version_key(&own_file::pid(&r.path()), 1);
+    r.core
+        .store
+        .fail_plain_frame(move |rows| rows.iter().any(|x| x.key.as_deref() == Some(&key)));
+    assert_eq!(r.core.own_file_first_start().unwrap(), None);
+    assert_eq!(look_of(&r.core).accepted, Accepted::Unread);
+    assert_eq!(
+        r.core.health().own_file,
+        Some(format!(
+            "Your own instruction file: its accept at the first start could not be written, so \
+             nothing was kept, no version is accepted and none of it is carried until you accept \
+             one: {accept}"
+        ))
+    );
+    let either = format!(
+        "Your own instruction file could not be read at the first start, or its accept could \
+         not be written, so no version is accepted and none of it is carried until you accept \
+         one: {accept}"
+    );
+    assert_eq!(r.restarted().health().own_file, Some(either));
+    assert_eq!(
+        own_file::check_line(&crate::tests_own_file::store_dir(&r), &r.path()),
+        format!(
+            "Your own instruction file: at the first start it could not be read, or its accept \
+             could not be written, so no version is accepted, none of it is carried, and a start \
+             accepts nothing by itself: an accept is needed, {accept}."
+        )
+    );
+}

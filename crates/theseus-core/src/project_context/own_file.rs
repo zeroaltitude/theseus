@@ -170,6 +170,12 @@ pub enum Accepted {
 /// stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Missed {
+    /// The first start found a file it could not read, and recorded that it
+    /// had happened ([`Accepted::Unread`]).
+    Read,
+    /// The first start's accept was not written, and the start recorded
+    /// that it had happened instead ([`Accepted::Unread`]).
+    Write,
     /// An accept's frame the log kept and the index did not, or a first
     /// start's record whose durability barrier failed: it may be written.
     Unknown,
@@ -405,8 +411,15 @@ impl Look {
 
     /// `theseus health`'s line: while the disk differs from the accepted
     /// version, or while nothing of the file is carried for want of one.
-    /// None otherwise.
-    pub fn health(&self, store: &crate::store::Store, now_ms: u64) -> Option<String> {
+    /// None otherwise. `missed`: what this daemon run's first start could
+    /// not do, when it knows; a later run's store says only that the first
+    /// start accepted nothing.
+    pub fn health(
+        &self,
+        store: &crate::store::Store,
+        now_ms: u64,
+        missed: Option<Missed>,
+    ) -> Option<String> {
         let accept = theseus_protocol::own_file::accept_command();
         match &self.accepted {
             Accepted::Some(_) if self.differs() => Some(format!(
@@ -417,10 +430,23 @@ impl Look {
                 "Your own instruction file has no accepted version, so none of it is carried: \
                  `{accept}`"
             )),
-            Accepted::Unread => Some(format!(
-                "Your own instruction file could not be read at the first start, so no version \
-                 is accepted and none of it is carried until you accept one: `{accept}`"
-            )),
+            Accepted::Unread => Some(match missed {
+                Some(Missed::Read) => format!(
+                    "Your own instruction file could not be read at the first start, so no \
+                     version is accepted and none of it is carried until you accept one: \
+                     `{accept}`"
+                ),
+                Some(Missed::Write) => format!(
+                    "Your own instruction file: its accept at the first start could not be \
+                     written, so nothing was kept, no version is accepted and none of it is \
+                     carried until you accept one: `{accept}`"
+                ),
+                _ => format!(
+                    "Your own instruction file could not be read at the first start, or its \
+                     accept could not be written, so no version is accepted and none of it is \
+                     carried until you accept one: `{accept}`"
+                ),
+            }),
             Accepted::Unreadable | Accepted::Damaged(_) => Some(
                 "Your own instruction file: its accepted version cannot be read from the store, \
                  so none of it is carried"
@@ -656,9 +682,9 @@ pub fn check_line(store_dir: &Path, path: &Path) -> String {
     };
     match (this, disk.found.as_ref()) {
         (Some(n), _) if n.seq == 0 && n.digest.is_none() => format!(
-            "Your own instruction file: it could not be read at the first start, so no version is \
-             accepted, none of it is carried, and a start accepts nothing by itself: an accept \
-             is needed, `{accept}`."
+            "Your own instruction file: at the first start it could not be read, or its accept \
+             could not be written, so no version is accepted, none of it is carried, and a start \
+             accepts nothing by itself: an accept is needed, `{accept}`."
         ),
         (Some(n), _) if !version.is_some_and(|v| v.holds(&n)) => {
             "Your own instruction file: its accepted version cannot be read from the store, so \
