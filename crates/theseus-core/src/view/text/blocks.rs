@@ -178,7 +178,9 @@ pub fn residue_line(r: &Residue, handle: &Handle) -> Option<String> {
 /// `[Older exchanges from every place: context_history with place "*" and before {"at_ms":…,"turn_id":"…"}]`.
 pub fn every_place_pager(oldest: &Cursor) -> String {
     let before = serde_json::to_string(oldest).unwrap_or_default();
-    format!("[Older exchanges from every place: context_history with place \"*\" and before {before}]")
+    format!(
+        "[Older exchanges from every place: context_history with place \"*\" and before {before}]"
+    )
 }
 
 /// A band in plain words.
