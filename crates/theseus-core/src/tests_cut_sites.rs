@@ -218,3 +218,58 @@ async fn a_retractions_gist_stops_before_a_known_value() {
         whole_or_absent("the gist", &gist, value);
     }
 }
+
+/// A retraction's card to the owner, as the outbox stores it, stops before a known value: a task named by 1,300
+/// characters and then a 600-character value runs past the card's 1,800, so the cut would fall inside it.
+#[tokio::test]
+async fn a_retractions_card_stops_before_a_known_value() {
+    use crate::graph::{Edge, EdgeKind};
+    use crate::node::Node;
+    use theseus_protocol::SessionKind;
+    let long = V.repeat(25);
+    let r = knowing_core(&long, |_| {}, |_| Scripted::text("Noted."));
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:dm:5150".into(),
+        name: "DM @owner".into(),
+        private: true,
+        ..Default::default()
+    }]);
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "The relay listens on port 7714.").await;
+    let node = (r.core.store.session_nodes(&sid).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .find(|n| matches!(&n.body, crate::node::Body::UserMessage { .. }))
+        .expect("the message")
+        .id;
+    let mut rec = SessionRecord::new(SessionKind::Task, None);
+    rec.title = Some(format!("{}{long} after", "x".repeat(1_300)));
+    rec.task = Some(crate::session::TaskOf {
+        parent_session: sid.clone(),
+        parent_execution: "exe_none".into(),
+        by: "call_none".into(),
+        target: None,
+        arrangement: None,
+        check: None,
+        notify_done: false,
+    });
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let rn = Node::recall(&rec.session_id, "turn_t", "rcl_task", "baseline", vec![]);
+    let edge = Edge::new(EdgeKind::DerivedFrom, &rn.id, &node, crate::graph::VIA_RECALL);
+    (r.core.store)
+        .append(&[rn.record().unwrap(), edge.record().unwrap()])
+        .unwrap();
+    let p = theseus_protocol::retract::FactRetractParams {
+        node,
+        why: "a test".into(),
+        session_id: None,
+    };
+    assert!(r.core.fact_retract(&p, "cli").unwrap().card);
+    let cards: Vec<String> = (r.core.outbox.open_for(crate::outbox::OPERATOR_TARGET).iter())
+        .filter(|a| crate::outbox::kind_of(a) == "retraction")
+        .map(|a| crate::outbox::body_of(a)["text"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    let card = &cards[0];
+    assert!(card.ends_with(&format!("{}…", "x".repeat(1_300))), "{card}");
+    whole_or_absent("the card", card, &long);
+}
