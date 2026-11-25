@@ -80,6 +80,30 @@ fn probe_body() -> serde_json::Value {
     })
 }
 
+/// Every other place a value of the sign-in is sent to, when its endpoints
+/// are not all the issuer's: each is shown on a line of its own.
+fn places_elsewhere(server: &discover::AuthServer) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if server.elsewhere.is_empty() {
+        return out;
+    }
+    let signs_at = place(&server.authorization_endpoint);
+    for u in [Some(&server.token_endpoint)]
+        .into_iter()
+        .chain([
+            server.registration_endpoint.as_ref(),
+            server.revocation_endpoint.as_ref(),
+        ])
+        .flatten()
+    {
+        let p = place(u);
+        if p != signs_at && !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
 /// Where an address is, for the owner to read: its host, and its port when
 /// it is not the scheme's own.
 fn place(u: &reqwest::Url) -> String {
@@ -173,25 +197,7 @@ impl McpBoard {
             .host_str()
             .unwrap_or("?")
             .to_string();
-        // Every other place a value of the sign-in is sent to: shown, each
-        // on a line of its own, when its endpoints are not all the issuer's.
-        let signs_at = place(&found.server.authorization_endpoint);
-        let mut elsewhere: Vec<String> = Vec::new();
-        if !found.server.elsewhere.is_empty() {
-            for u in [Some(&found.server.token_endpoint)]
-                .into_iter()
-                .chain([
-                    found.server.registration_endpoint.as_ref(),
-                    found.server.revocation_endpoint.as_ref(),
-                ])
-                .flatten()
-            {
-                let p = place(u);
-                if p != signs_at && !elsewhere.contains(&p) {
-                    elsewhere.push(p);
-                }
-            }
-        }
+        let elsewhere = places_elsewhere(&found.server);
         let (tx, rx) = oneshot::channel();
         let waits = loopback.expect(&pkce, &found.server);
         let paste = loopback.expect(&pkce, &found.server);
@@ -235,6 +241,51 @@ impl McpBoard {
         self: &Arc<Self>,
         p: &McpLoginFinishParams,
     ) -> Result<McpLoginFinishResult, String> {
+        let (code, pending) = match self.redirect_of(p).await? {
+            Got::Code(code, pending) => (code, pending),
+            Got::Waiting(w) => return Ok(w),
+        };
+        let (s, url, signed) = self.signing(&pending.server)?;
+        let reach: Reach = signed
+            .reach()
+            .cloned()
+            .ok_or("the sign-in's HTTP client could not start")?;
+        let tokens = exchange::redeem(
+            &reach,
+            &pending.found.server.token_endpoint,
+            &pending.client,
+            &code,
+            pending.pkce.verifier(),
+            &pending.redirect,
+            &pending.found.resource,
+        )
+        .await
+        .map_err(|e| format!("the sign-in was not completed: {e}"))?;
+        if let Err(e) = signed.put(kept_of(&url, &pending, &tokens)).await {
+            return Err(format!(
+                "the sign-in could not be kept ({e}), so it is not used: nothing changed. Run \
+                 `theseus mcp login {}` again",
+                s.name
+            ));
+        }
+        tracing::info!(server = %s.name, "an MCP server was signed in");
+        let changes = s.changed.subscribe();
+        self.restart(&s.name);
+        let (connected, tools) = came_up(&s, changes).await;
+        Ok(McpLoginFinishResult {
+            state: "done".into(),
+            name: s.name.clone(),
+            host: pending.host.clone(),
+            connected,
+            tools,
+            note: String::new(),
+        })
+    }
+
+    /// The code of the open sign-in `p` names: its paste, or its listener's
+    /// redirect (waited for `p.wait_secs`); or that it is still waiting. The
+    /// sign-in is taken off the board with its code: one use.
+    async fn redirect_of(&self, p: &McpLoginFinishParams) -> Result<Got, String> {
         let mut slot = self.login.lock().await;
         let Some(pending) = slot
             .as_mut()
@@ -254,10 +305,8 @@ impl McpBoard {
         let (_, _, signed) = self.signing(&pending.server)?;
         let code = match p.pasted.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             Some(pasted) => {
-                let hold: theseus_mcp::oauth::Holder = {
-                    let signed = signed.clone();
-                    Arc::new(move |what, v| signed.hold_value(what, v))
-                };
+                let hold: theseus_mcp::oauth::Holder =
+                    Arc::new(move |what, v| signed.hold_value(what, v));
                 request::parse_pasted(pasted, &pending.paste, &hold).map_err(|e| e.to_string())?
             }
             None => {
@@ -265,7 +314,7 @@ impl McpBoard {
                     return Err("the redirect was taken: run `theseus mcp login` again".into());
                 };
                 match tokio::time::timeout(Duration::from_secs(p.wait_secs), rx).await {
-                    Err(_) => return Ok(waiting(&pending.server, &pending.host)),
+                    Err(_) => return Ok(Got::Waiting(waiting(&pending.server, &pending.host))),
                     Ok(Err(_)) => {
                         *slot = None;
                         return Err("the listener stopped: run `theseus mcp login` again".into());
@@ -279,66 +328,9 @@ impl McpBoard {
             }
         };
         // The code is one use: whatever follows, this sign-in is over, and
-        // its listener closes when `pending` goes.
+        // its listener closes when the pending sign-in goes.
         let pending = slot.take().expect("a pending sign-in");
-        drop(slot);
-        let (s, url, signed) = self.signing(&pending.server)?;
-        let reach: Reach = signed
-            .reach()
-            .cloned()
-            .ok_or("the sign-in's HTTP client could not start")?;
-        let tokens = exchange::redeem(
-            &reach,
-            &pending.found.server.token_endpoint,
-            &pending.client,
-            &code,
-            pending.pkce.verifier(),
-            &pending.redirect,
-            &pending.found.resource,
-        )
-        .await
-        .map_err(|e| format!("the sign-in was not completed: {e}"))?;
-        let now = theseus_protocol::now_unix_ms();
-        let mut kept = Kept {
-            url: url.to_string(),
-            resource: pending.found.resource.clone(),
-            issuer: pending.found.server.issuer.clone(),
-            token_endpoint: pending.found.server.token_endpoint.to_string(),
-            revocation_endpoint: pending
-                .found
-                .server
-                .revocation_endpoint
-                .as_ref()
-                .map(ToString::to_string),
-            elsewhere: pending.found.server.elsewhere.clone(),
-            client_id: pending.client.id.clone(),
-            client_secret: pending.client.secret.as_ref().map(|s| s.to_string()),
-            client_basic: pending.client.basic,
-            access_token: String::new(),
-            refresh_token: None,
-            expires_at_ms: None,
-            signed_in_at_ms: now,
-        };
-        kept.renewed(&tokens, now);
-        if let Err(e) = signed.put(kept).await {
-            return Err(format!(
-                "the sign-in could not be kept ({e}), so it is not used: nothing changed. Run \
-                 `theseus mcp login {}` again",
-                s.name
-            ));
-        }
-        tracing::info!(server = %s.name, "an MCP server was signed in");
-        let changes = s.changed.subscribe();
-        self.restart(&s.name);
-        let (connected, tools) = came_up(&s, changes).await;
-        Ok(McpLoginFinishResult {
-            state: "done".into(),
-            name: s.name.clone(),
-            host: pending.host.clone(),
-            connected,
-            tools,
-            note: String::new(),
-        })
+        Ok(Got::Code(code, pending))
     }
 
     /// Forget `name`'s sign-in: the file removed, revoked at its server when
@@ -396,6 +388,36 @@ impl McpBoard {
             kept_remains,
         })
     }
+}
+
+/// What the redirect gave: the code and its sign-in, or "still waiting".
+enum Got {
+    Code(Code, Pending),
+    Waiting(McpLoginFinishResult),
+}
+
+/// What a finished sign-in keeps: its address, what discovery found, its
+/// client, and the tokens.
+fn kept_of(url: &reqwest::Url, pending: &Pending, tokens: &exchange::Tokens) -> Kept {
+    let now = theseus_protocol::now_unix_ms();
+    let server = &pending.found.server;
+    let mut kept = Kept {
+        url: url.to_string(),
+        resource: pending.found.resource.clone(),
+        issuer: server.issuer.clone(),
+        token_endpoint: server.token_endpoint.to_string(),
+        revocation_endpoint: server.revocation_endpoint.as_ref().map(ToString::to_string),
+        elsewhere: server.elsewhere.clone(),
+        client_id: pending.client.id.clone(),
+        client_secret: pending.client.secret.as_ref().map(|s| s.to_string()),
+        client_basic: pending.client.basic,
+        access_token: String::new(),
+        refresh_token: None,
+        expires_at_ms: None,
+        signed_in_at_ms: now,
+    };
+    kept.renewed(tokens, now);
+    kept
 }
 
 /// Ask the server with no token, read its challenge, discover its

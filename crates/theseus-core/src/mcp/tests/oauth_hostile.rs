@@ -90,6 +90,14 @@ async fn nothing_a_hostile_server_writes_reaches_a_word_and_the_scrubber_knows_a
                 .to_string(),
         );
     }
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    scan(&r, &sid, said, &log);
+}
+
+/// The scan: every value of all five kinds is in no node, ledger row, note,
+/// log line or word said, and the scrubber knows each; and the sinks scanned
+/// were written to.
+fn scan(r: &Rig, sid: &str, mut said: Vec<String>, log: &str) {
     let secrets = r.auth.seen().secrets;
     let code = secrets
         .iter()
@@ -107,7 +115,7 @@ async fn nothing_a_hostile_server_writes_reaches_a_word_and_the_scrubber_knows_a
     let nodes: Vec<String> = r
         .core
         .store
-        .session_nodes(&sid)
+        .session_nodes(sid)
         .unwrap()
         .into_iter()
         .map(|(_, n)| format!("{n:?}"))
@@ -120,9 +128,8 @@ async fn nothing_a_hostile_server_writes_reaches_a_word_and_the_scrubber_knows_a
         .into_iter()
         .map(|(_, row)| format!("{row:?}"))
         .collect();
-    let note = notes(&r, &sid);
+    let note = notes(r, sid);
     assert_eq!(note.len(), 1, "{note:?}");
-    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
     // The sinks scanned were written to.
     for seen in [
         "MCP server ended; restarting",
@@ -150,7 +157,7 @@ async fn nothing_a_hostile_server_writes_reaches_a_word_and_the_scrubber_knows_a
             ("a node", nodes.join("\n")),
             ("the ledger", all_rows.join("\n")),
             ("a note", note.join("\n")),
-            ("a log line", log.clone()),
+            ("a log line", log.to_string()),
             ("what was said", said.join("\n")),
         ] {
             assert!(!text.contains(value.as_str()), "a value is in {what}");
