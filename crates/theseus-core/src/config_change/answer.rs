@@ -62,15 +62,13 @@ pub(super) struct Applied {
     pub(super) pending: Option<Pending>,
 }
 
-/// The question a write answers: its id, its session and its arguments, and the
-/// planned question itself when there is one (a change written with no card has
-/// none, `told.rs`).
+/// The question a write answers: its id, its session and its arguments (a
+/// change written with no card has no question, only its call, `told.rs`).
 #[derive(Clone, Copy)]
 pub(super) struct Asked<'a> {
     pub(super) id: &'a str,
     pub(super) session_id: &'a str,
     pub(super) args: &'a Value,
-    pub(super) action: Option<&'a Action>,
 }
 
 impl<'a> Asked<'a> {
@@ -79,7 +77,6 @@ impl<'a> Asked<'a> {
             id: &a.correlation_id,
             session_id: &a.session_id,
             args,
-            action: Some(a),
         }
     }
 }

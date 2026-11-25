@@ -245,7 +245,6 @@ impl Core {
             id: t.id,
             session_id: t.session_id,
             args: t.args,
-            action: None,
         };
         let applied = self.write_change(q, t.by, t.setting)?;
         let (said, note) = words(applied.previous);
