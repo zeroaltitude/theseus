@@ -326,8 +326,8 @@ impl Cell {
         });
         match decoded {
             Ok(n) => n,
-            Err(e) => {
-                tracing::warn!(node_id = id, position = self.position, error = %format!("{e:#}"),
+            Err(_) => {
+                tracing::warn!(node_id = id, position = self.position,
                     "a stub's node could not be read back; it reads as a harness note");
                 if let Some(c) = &self.cache {
                     c.failed();

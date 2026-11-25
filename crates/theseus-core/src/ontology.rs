@@ -217,12 +217,12 @@ pub fn load(store: &Store) -> Result<Ontology> {
             .and_then(|v| Record::decode(&key, v));
         match decoded {
             Ok(rec) => records.push(rec),
-            Err(e) => tracing::warn!(key, error = %e, "an ontology record does not read: left out"),
+            Err(_) => tracing::warn!(key, "an ontology record does not read: left out"),
         }
     }
     let (onto, dropped) = Ontology::load_from(records, Arc::new(StoreMembers::new(store)));
-    for (key, why) in dropped {
-        tracing::warn!(key, error = %why, "an ontology record does not check: left out");
+    for (key, _) in dropped {
+        tracing::warn!(key, "an ontology record does not check: left out");
     }
     Ok(onto)
 }

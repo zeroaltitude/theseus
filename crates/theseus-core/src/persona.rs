@@ -270,7 +270,7 @@ fn read_seen(store: &Store) -> BTreeMap<String, Seen> {
                     Ok(s) => {
                         out.insert(name.to_string(), s);
                     }
-                    Err(e) => tracing::warn!(persona = name, error = %e,
+                    Err(_) => tracing::warn!(persona = name,
                         "a persona's last-seen state does not read: it counts as new"),
                 }
             }

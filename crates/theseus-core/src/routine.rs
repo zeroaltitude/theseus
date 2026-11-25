@@ -105,8 +105,7 @@ impl Book {
                         all.insert(s.session_id.clone(), Arc::new(s));
                     }
                     Ok(_) => {}
-                    Err(e) => tracing::warn!(key = ?r.key, error = %e,
-                        "a routine's record does not read: left out"),
+                    Err(_) => tracing::warn!(key = ?r.key, "a routine's record does not read: left out"),
                 }
             }
             let all = Arc::new(all);

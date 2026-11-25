@@ -77,8 +77,8 @@ pub fn load<T: DeserializeOwned>(path: &Path) -> Option<T> {
     let bytes = fs::read(path).ok()?;
     match serde_json::from_slice(&bytes) {
         Ok(v) => Some(v),
-        Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "index: unreadable, so ignored");
+        Err(_) => {
+            tracing::warn!(path = %path.display(), "index: unreadable, so ignored");
             None
         }
     }

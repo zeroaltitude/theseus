@@ -60,9 +60,9 @@ impl Kernel {
         for (position, payload) in records {
             match self.decode_execution(payload) {
                 Ok(e) => out.push(e),
-                Err(e) => {
+                Err(_) => {
                     skipped += 1;
-                    tracing::warn!(position, error = %format!("{e:#}"), "an execution record did not decode; it is left out of the listing");
+                    tracing::warn!(position, "an execution record did not decode; it is left out of the listing");
                 }
             }
         }
