@@ -298,9 +298,9 @@ fn disk_back() -> serde_json::Value {
 
 /// With the notices place bound, an FYI that answers no conversation goes there
 /// and not to the DM, the mint keeping its Undo: the note the owner named, a plain
-/// FYI notice and one the binding words itself. A question, an alert, a card and
-/// the kept-standing note (his own words just said in his DM, answered there)
-/// stay in the DM. Both sides are counted, so an empty run cannot pass.
+/// FYI notice, one the binding words itself, and capture's kept-standing note (an FYI
+/// since issue 57, its Undo with it). A question, an alert and a card stay in the
+/// DM. Both sides are counted, so an empty run cannot pass.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn with_a_notices_place_bound_an_fyi_goes_there_and_what_needs_the_owner_stays_in_the_dm() {
     use theseus_core::owner_note::{note, Kind};
@@ -332,12 +332,18 @@ async fn with_a_notices_place_bound_an_fyi_goes_there_and_what_needs_the_owner_s
         "dm-retraction",
     );
     stage(&r, json!({"kind": "retraction", "text": retraction}));
-    let kept = theseus_core::capture::kept_card("dm-kept-standing");
+    // Capture's kept record is an FYI: it moves (issue 57). Its ask, a Decision, would not.
+    let kept = theseus_core::capture::kept_card("fyi-kept-standing");
     stage(
         &r,
         json!({"kind": "standing_card", "text": kept, "card": {"mode": "kept", "id": "std_1"}}),
     );
-    let moved = ["fyi-mint-pier", "fyi-sweep-stopped", "back to normal"];
+    let moved = [
+        "fyi-mint-pier",
+        "fyi-sweep-stopped",
+        "back to normal",
+        "fyi-kept-standing",
+    ];
     for text in moved {
         landed(&r, NOTIFY, text).await;
         assert!(
@@ -345,12 +351,7 @@ async fn with_a_notices_place_bound_an_fyi_goes_there_and_what_needs_the_owner_s
             "{text:?} only informs: not in the DM"
         );
     }
-    let kept_dm = [
-        "dm-onto-ask",
-        "dm-hands-alert",
-        "dm-retraction",
-        "dm-kept-standing",
-    ];
+    let kept_dm = ["dm-onto-ask", "dm-hands-alert", "dm-retraction"];
     for text in kept_dm {
         landed(&r, ANA_DM, text).await;
         assert!(!carries(&r, NOTIFY, text), "{text:?} stays in the DM");
