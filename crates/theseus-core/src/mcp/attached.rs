@@ -59,7 +59,10 @@ fn refusal(why: &str) -> Option<String> {
         let status: u16 = status.parse().ok()?;
         let body: Value = serde_json::from_str(body).unwrap_or_default();
         let code = match &body["error"] {
-            Value::String(c) => CODES.iter().find(|k| **k == c.as_str()).map(|k| k.to_string()),
+            Value::String(c) => CODES
+                .iter()
+                .find(|k| **k == c.as_str())
+                .map(|k| k.to_string()),
             e => e["code"].as_i64().map(|n| n.to_string()),
         };
         return Some(match code {
@@ -79,7 +82,10 @@ pub(crate) fn failed_note(server: &str, why: &str) -> String {
         Some(r) => format!("it refused the connection with {r}"),
         None => "its connection did not come up".to_string(),
     };
-    let sign_in = match refused.as_deref().is_some_and(|r| r.starts_with("HTTP 401")) {
+    let sign_in = match refused
+        .as_deref()
+        .is_some_and(|r| r.starts_with("HTTP 401"))
+    {
         true => "; a server that wants a sign-in in a browser cannot be used yet",
         false => "",
     };

@@ -26,11 +26,12 @@ async fn attach(r: &Rig, name: &str) -> String {
     )
     .await;
     let q = r.asked().remove(0);
-    assert!(r
-        .core
-        .confirm_action(&q.correlation_id, true, None, "cli")
-        .unwrap()
-        .approved);
+    assert!(
+        r.core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap()
+            .approved
+    );
     sid
 }
 
@@ -91,8 +92,14 @@ async fn a_server_refused_after_the_yes_is_told_to_the_session_that_attached_it(
     assert!(note.contains("HTTP 401 (invalid_token)"), "{note}");
     assert!(note.contains("`theseus mcp restart docs`"), "{note}");
     assert!(note.contains("sign-in in a browser"), "{note}");
-    assert!(!note.contains("harbour portal"), "the server's words: {note}");
-    assert!(!note.contains("base"), "a server no session attached: {note}");
+    assert!(
+        !note.contains("harbour portal"),
+        "the server's words: {note}"
+    );
+    assert!(
+        !note.contains("base"),
+        "a server no session attached: {note}"
+    );
     let given = r.says(&sid, "is it up?").await;
     assert_eq!(given.matches(TOLD).count(), 1, "{given}");
     assert!(given.contains("HTTP 401 (invalid_token)"), "{given}");
@@ -111,7 +118,10 @@ fn only_the_status_and_a_standard_code_are_said() {
     assert!(!own.contains("harbour"), "{own}");
     let plain = said("HTTP 503: the harbour is closed today");
     assert!(plain.contains("with HTTP 503, and"), "{plain}");
-    assert!(!plain.contains("harbour") && !plain.contains("sign-in"), "{plain}");
+    assert!(
+        !plain.contains("harbour") && !plain.contains("sign-in"),
+        "{plain}"
+    );
     let rpc = said("the server answered error -32001: the harbour wants a pass");
     assert!(rpc.contains("with JSON-RPC error -32001, and"), "{rpc}");
     assert!(!rpc.contains("harbour"), "{rpc}");
