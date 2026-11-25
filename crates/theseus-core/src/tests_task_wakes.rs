@@ -272,7 +272,7 @@ impl Life {
     }
 }
 
-fn parent_session(core: &Arc<Core>) -> String {
+pub(crate) fn parent_session(core: &Arc<Core>) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place(PLACE, &rec.session_id).unwrap();

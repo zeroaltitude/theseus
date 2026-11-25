@@ -262,13 +262,14 @@ fn a_rephrased_preference_is_kept_with_its_own_notice_not_counted_as_a_repeat() 
     assert!(reply.get("error").is_none(), "{reply}");
 
     hears(&jev, "preference", 0.9);
-    let res = r
-        .call(
-            "turn.submit",
-            json!({"session_id": first_turn["session_id"], "input": "I said no tables with me",
-                "author": "test", "attachments": []}),
-        )
-        .unwrap();
+    // The owner's, at a terminal, as `ask` sends it (issue 57).
+    let res = common::rpc::call_at_a_terminal(
+        &r.path("sock"),
+        "turn.submit",
+        json!({"session_id": first_turn["session_id"], "input": "I said no tables with me",
+            "author": "test", "attachments": []}),
+    )
+    .unwrap();
     assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
     let live = r.wait("the rephrase's own record", || {
         let l = r.live();

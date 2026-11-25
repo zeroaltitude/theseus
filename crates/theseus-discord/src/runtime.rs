@@ -1585,12 +1585,22 @@ impl Shared {
         content: Option<String>,
         ephemeral: bool,
     ) {
-        let data = content.map(|c| InteractionResponseData {
-            content: Some(command_reply::leaving(&self.core.exits, &c)),
-            flags: ephemeral.then_some(MessageFlags::EPHEMERAL),
-            allowed_mentions: Some(AllowedMentions::default()),
-            ..Default::default()
-        });
+        let data = match content {
+            Some(c) => Some(InteractionResponseData {
+                content: Some(command_reply::leaving(&self.core.exits, &c)),
+                flags: ephemeral.then_some(MessageFlags::EPHEMERAL),
+                allowed_mentions: Some(AllowedMentions::default()),
+                ..Default::default()
+            }),
+            // A private answer deferred says so now, as what completes it is private only if
+            // its first answer was: a press in a shared place is answered to the presser alone
+            // (issue 57: a note's Undo in a shared notices place).
+            None if ephemeral => Some(InteractionResponseData {
+                flags: Some(MessageFlags::EPHEMERAL),
+                ..Default::default()
+            }),
+            None => None,
+        };
         let resp = InteractionResponse { kind, data };
         if let Err(e) = self
             .interact

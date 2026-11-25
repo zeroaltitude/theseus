@@ -583,12 +583,9 @@ impl Core {
             let Some(t) = by_id.get(id.as_str()) else {
                 continue;
             };
-            if t.state != TaskState::Proposed {
-                continue;
-            }
             // A finding filed from chat waits before its first build (issue 57): its note,
             // written with it, is the owner's to read, and its Undo his to press, first.
-            if chat_held(t, now) {
+            if t.state != TaskState::Proposed || chat_held(t, now) {
                 continue;
             }
             let (n, findings, at) = rejections(t);

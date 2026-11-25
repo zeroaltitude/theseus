@@ -256,8 +256,10 @@ async fn a_filing_whose_note_cannot_be_written_files_nothing_and_a_retry_files_o
     };
     assert!(all(&r.core).is_empty(), "no item without its note");
     assert!(notes(&r.core).is_empty());
-    let a = Args::parse(&json!({"finding": "The digest folds two kinds into one line.",
-                                "title": "digest folds two kinds"}))
+    let a = Args::parse(
+        &json!({"finding": "The digest folds two kinds into one line.",
+                                "title": "digest folds two kinds"}),
+    )
     .unwrap();
     filed(&r.core, true, &res.session_id, a).unwrap();
     let items = all(&r.core);

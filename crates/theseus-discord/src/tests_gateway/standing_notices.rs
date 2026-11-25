@@ -102,9 +102,7 @@ fn kept(d: Done) -> String {
 /// How many revokes ended record `id`.
 fn ends(r: &Rig, id: &str) -> usize {
     let all = r.core.runner.standing.all(&r.core.store).unwrap();
-    all.iter()
-        .filter(|x| x.ends.as_deref() == Some(id))
-        .count()
+    all.iter().filter(|x| x.ends.as_deref() == Some(id)).count()
 }
 
 /// The presser hears `start`, alone: the press's first answer is private.
@@ -160,7 +158,10 @@ async fn a_kept_records_note_goes_to_the_notices_place_when_one_is_bound_and_els
         }
         // A question of capture's is a Decision: the DM, notices place or none.
         let twice = verdict(Heard::Correction, Band::Escalate, 0.4);
-        assert_eq!(in_dm(&r, "stop using tables for lists", &twice), Done::Noted);
+        assert_eq!(
+            in_dm(&r, "stop using tables for lists", &twice),
+            Done::Noted
+        );
         let asked = in_dm(&r, "again, no tables for lists please", &twice);
         assert!(matches!(asked, Done::Asked(_)), "{asked:?}");
         let ask = |m: &Msg| m.content.contains("said this twice");

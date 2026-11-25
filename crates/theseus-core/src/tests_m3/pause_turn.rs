@@ -209,7 +209,11 @@ async fn a_change_whose_note_cannot_be_written_is_not_made_and_a_retry_makes_it_
         assert_eq!(rs.len(), 1, "{action}: {rs:?}");
         assert_eq!(rs[0].0, ResultStatus::Error, "{action}: {rs:?}");
         assert!(rs[0].1.contains("nothing changed"), "{action}: {}", rs[0].1);
-        assert_eq!(r.core.self_paused().is_some(), before, "{action}: as it was");
+        assert_eq!(
+            r.core.self_paused().is_some(),
+            before,
+            "{action}: as it was"
+        );
         assert!(notes(&r.core).is_empty(), "{action}");
         let a = Args::parse(&json!({"action": action})).unwrap();
         paused(&r.core, true, &res.session_id, &a).unwrap();

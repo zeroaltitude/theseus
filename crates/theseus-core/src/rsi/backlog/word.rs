@@ -233,13 +233,8 @@ impl Core {
         Ok(true)
     }
 
-    /// A chat session's filing (theseus-cux0o): the same write with no
-    /// `judge_act`, because the caller has judged it. `super::tool` is the
-    /// only caller, and its own wall is stricter than the place rule here --
-    /// a private place the owner is alone in, never a task's -- while the
-    /// gate has already asked for a person's yes at every posture
-    /// (`Plan::authority`). The shape is `self_drop_vetoed`'s: the caller
-    /// judges, this only writes.
+    /// `self_file_in_chat_told` with no note: a test's filing as chat files it.
+    #[cfg(test)]
     pub(crate) fn self_file_in_chat(
         &self,
         finding: &str,
@@ -251,9 +246,13 @@ impl Core {
         self.file_on_backlog(&finding, &title, by, None)
     }
 
-    /// `self_file_in_chat`, with the owner's note (issue 57): `note` stages it from the filing,
-    /// and the filing and its note are one frame, so neither is written without the other. The
-    /// pipeline is woken once the frame is written.
+    /// A chat session's filing (theseus-cux0o), with the owner's note (issue 57): the same write
+    /// with no `judge_act`, because the caller has judged it. `super::tool` is the only caller,
+    /// and its own wall is stricter than the place rule here -- a private place the owner is
+    /// alone in, never a task's; the call follows the tool's own posture. The shape is
+    /// `self_drop_vetoed`'s: the caller judges, this only writes. `note` stages the note from the
+    /// filing, and the filing and its note are one frame, so neither is written without the
+    /// other. The pipeline is woken once the frame is written.
     pub(crate) fn self_file_in_chat_told(
         &self,
         finding: &str,

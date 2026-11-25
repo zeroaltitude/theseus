@@ -214,7 +214,9 @@ pub(crate) fn filed(
     };
     let f = core
         .self_file_in_chat_told(&a.finding, a.title.as_deref(), OWNER, &note)
-        .map_err(|e| format!("nothing was filed: the filing and its note could not be written: {e:#}"))?;
+        .map_err(|e| {
+            format!("nothing was filed: the filing and its note could not be written: {e:#}")
+        })?;
     Ok(ToolOutput {
         text: format!(
             "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and the loop picks it up on its next pass. `theseus self move {} 1` puts it first.",

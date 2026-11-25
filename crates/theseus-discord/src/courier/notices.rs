@@ -275,7 +275,8 @@ mod tests {
     /// (a Decision): the list is by kind and by head (issue 57).
     #[test]
     fn capture_s_kept_card_informs_and_its_ask_never_does() {
-        let kept = theseus_core::capture::kept_card("📌 Kept as a standing preference everywhere: x");
+        let kept =
+            theseus_core::capture::kept_card("📌 Kept as a standing preference everywhere: x");
         assert!(informs("standing_card", &kept));
         let ask = theseus_core::capture::ask_card("📌 Keep as a standing order everywhere?");
         assert!(!informs("standing_card", &ask));

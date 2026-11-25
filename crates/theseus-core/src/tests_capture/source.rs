@@ -47,7 +47,7 @@ async fn an_agents_cli_and_web_turn_with_no_marker_is_not_heard() {
 /// Only the owner's own message is heard.
 #[tokio::test]
 async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
-    use crate::tests_task_wakes::{exec, life_with, only_task, until as within};
+    use crate::tests_task_wakes::{exec, life_with, only_task, parent_session, until as within};
     let jev = FakeJev::start().unwrap();
     hears(&jev, "preference", 0.97, ("everywhere", 0.95));
     let dir = tempfile::tempdir().unwrap();
@@ -57,7 +57,8 @@ async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
         crate::tests_inbound::inbound_only(&mut p.cfg);
         p.secrets = crate::tests_judge::board();
     });
-    let parent = crate::tests_places::session(&l.core, None);
+    // The owner's DM, as the task tests bind it; her message through the producer.
+    let parent = parent_session(&l.core);
     let said = "START CHILD AGAIN 3s: check the build";
     let res = call_on(
         &l.core,
@@ -67,6 +68,13 @@ async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
     )
     .await;
     assert!(res.error.is_none(), "{:?}", res.error);
+    let waits = res.result.as_ref().map(|v| v["awaiting_confirm"].clone());
+    assert!(waits.as_ref().is_some_and(Value::is_null), "{:?}", res.result);
+    let tasks = |core: &Core| {
+        let rec: crate::session::SessionRecord = core.store.get_session(&parent).unwrap().unwrap();
+        core.kernel.tasks(rec.execution_id.as_deref()).unwrap().len()
+    };
+    within("the task", 10, || tasks(&l.core) == 1).await;
     let task = only_task(&l.core, &parent);
     let pid = task.parent.clone().unwrap();
     within("the task's report and the parent's turn", 30, || {
@@ -108,7 +116,10 @@ async fn a_quoted_instruction_is_asked_as_an_order_and_kept_as_a_preference() {
     let one = ask(&r.core, None, quoted).await;
     until("the ask", || !rows(&r.core, "standing.asked").is_empty()).await;
     let l = list(&r.core).await;
-    assert!(captured(&r.core).is_empty(), "an order is never kept unasked");
+    assert!(
+        captured(&r.core).is_empty(),
+        "an order is never kept unasked"
+    );
     assert_eq!(l.asks.len(), 1, "{l:?}");
     assert_eq!(
         (l.asks[0].kind, l.asks[0].why.as_str()),
