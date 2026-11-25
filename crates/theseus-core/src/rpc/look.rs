@@ -42,7 +42,10 @@ impl Core {
         if !surface.reads_private() {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
-                format!("{} does not move where the owner last looked", surface.name()),
+                format!(
+                    "{} does not move where the owner last looked",
+                    surface.name()
+                ),
             ));
         }
         let core = Arc::clone(self);
@@ -68,8 +71,7 @@ impl Core {
                 return Ok(WorkLookResult { look: old });
             }
             // Anything but the look's own record between it and here?
-            let since =
-                theseus_store::Store::scan(&**inner, old.position + 1, Some(position), 2)?;
+            let since = theseus_store::Store::scan(&**inner, old.position + 1, Some(position), 2)?;
             if since.iter().all(|r| r.position == rec.position) {
                 return Ok(WorkLookResult { look: old });
             }

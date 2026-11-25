@@ -161,13 +161,13 @@ mod tests_live_pin;
 #[cfg(test)]
 mod tests_live_release;
 #[cfg(test)]
+mod tests_look;
+#[cfg(test)]
 mod tests_money;
 #[cfg(test)]
 mod tests_node_names;
 #[cfg(test)]
 mod tests_ordered;
-#[cfg(test)]
-mod tests_look;
 #[cfg(test)]
 mod tests_peek;
 #[cfg(test)]
