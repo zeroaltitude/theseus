@@ -169,8 +169,6 @@ pub mod method {
         /// An operator's label on a node recall offered or should have (`memory::MemoryLabelParams`; M6 step 30b):
         /// `wrong` and `stale` keep it out of recall. Acting: the owner, from a private place.
         MEMORY_LABEL = "memory.label",
-        /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
-        MEMORY_LOOKUP = "memory.lookup",
         /// The history tool for an MCP client (`memory::HistoryReadParams`; issue 46): a place's exchanges, by
         /// words, a thing or a handle, with no model call. A read.
         HISTORY_READ = "history.read",

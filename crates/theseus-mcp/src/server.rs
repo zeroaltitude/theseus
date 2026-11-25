@@ -36,9 +36,8 @@
 //! rule for `Surface::Mcp`.
 //!
 //! **Tools.** `conversation_open`, `conversation_send`,
-//! `conversation_status`, `task_list`, `wake_list`, (theseus-02i1h,
-//! `memory_tools`) `memory_search` and `memory_get`, and (issue 46)
-//! `context_history`, named with `_` for
+//! `conversation_status`, `task_list`, `wake_list`, and (issue 46,
+//! `memory_tools`) `context_history`, named with `_` for
 //! clients whose tool names cannot carry dots. Each answer is JSON, as
 //! `structuredContent` and as text; a core's refusal is an `isError`
 //! result the client's model reads.
@@ -287,14 +286,6 @@ pub trait CoreClient: Send + Sync + 'static {
         &self,
         caller: Caller,
         session_id: Option<String>,
-    ) -> impl Future<Output = Result<Value, CoreError>> + Send;
-
-    /// `memory.lookup`'s answer, as JSON, for `params` the tool's mapping made
-    /// (`memory_tools::params`).
-    fn memory(
-        &self,
-        caller: Caller,
-        params: Value,
     ) -> impl Future<Output = Result<Value, CoreError>> + Send;
 
     /// `history.read`'s answer, as JSON, for `params` the tool's mapping made
@@ -979,16 +970,13 @@ async fn call<C: CoreClient>(
                 Err(e) => (text("session_id"), Err(CoreError(e))),
             }
         }
-        _ => match crate::memory_tools::params(name, &args, &client_name) {
-            Some(p) => (None, core.memory(caller, p).await),
-            None => {
-                return jsonrpc::error_response(
-                    id,
-                    code::INVALID_PARAMS,
-                    &format!("Unknown tool: {}", clip(name, 80)),
-                )
-            }
-        },
+        _ => {
+            return jsonrpc::error_response(
+                id,
+                code::INVALID_PARAMS,
+                &format!("Unknown tool: {}", clip(name, 80)),
+            )
+        }
     };
     let ok = answered.is_ok();
     s.calls.fetch_add(1, Ordering::Relaxed);
@@ -1198,14 +1186,6 @@ impl CoreClient for FakeCore {
     async fn wakes(&self, caller: Caller, session_id: Option<String>) -> Result<Value, CoreError> {
         self.seen(caller);
         Ok(json!({ "wakes": [], "session_id": session_id }))
-    }
-
-    async fn memory(&self, caller: Caller, params: Value) -> Result<Value, CoreError> {
-        self.seen(caller);
-        if params["op"] == "search" && params["words"].as_str().is_none_or(str::is_empty) {
-            return Err(CoreError("memory_search needs words".into()));
-        }
-        Ok(json!({ "hits": [], "total": 0, "params": params }))
     }
 
     async fn history(&self, caller: Caller, params: Value) -> Result<Value, CoreError> {
