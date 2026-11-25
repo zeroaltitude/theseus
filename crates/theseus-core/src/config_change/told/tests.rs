@@ -74,7 +74,7 @@ fn each_note_says_what_was_done_where_and_how_to_undo_it() {
          Or ask Theseus to undo change #4.\n"
     );
     assert_eq!(undo, crate::owner_note::told::Undo::ConfigUndo(4));
-    assert_eq!(undo.command(), "ask Theseus to undo settings change #4");
+    assert_eq!(undo.command(), crate::owner_note::told::by_door());
     let undid = json!({"undoes": {"number": 4}, "asked_by": {}});
     let Note::Undo {
         title, by, undo, ..
