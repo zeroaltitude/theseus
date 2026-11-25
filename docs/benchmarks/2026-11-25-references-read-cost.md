@@ -61,7 +61,7 @@ window's list distinct; in these rows no message is quoted twice, so that change
 
 **Look backs that quote the same messages** (`same`: every look back of the window quotes the same `q` messages),
 measured at `bd118f52` on another `c7i.8xlarge` fleet box (Intel Xeon Platinum 8488C, 32 vCPU), the same two
-profiles. The unique rows of that run came within 7% of the table above.
+profiles. The medians of that run's unique rows came within 9% of the table above (most within 3%).
 
 | Look backs × quotes | Erase checks | Quotes read | Store reads, lay | Reads, each call | Lay, release: median (first) | Call, release | Lay, dev | Call, dev |
 |---|---|---|---|---|---|---|---|---|
