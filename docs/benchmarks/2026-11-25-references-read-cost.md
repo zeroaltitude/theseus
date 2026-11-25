@@ -1,7 +1,8 @@
 # What laying results kept by reference reads, per turn (2026-11-25)
 
 **The answer first.** Laying a look back kept by reference reads **three store records per quote** when the view is
-frozen, and **one more per quote at every call** of the turn. A window of 40 look backs of 50 quotes each (2,000
+frozen, and **one more per distinct quoted message at every call** of the turn (per quote in the first table, where
+no message is quoted twice). A window of 40 look backs of 50 quotes each (2,000
 quotes, far more than a turn lays) took **6,000 reads and 12.6 ms (median; 14.8 ms the first time)** to lay on a release build and
 **2,000 reads and 3.9 ms** to check at each call. A small window (10 look backs of 10 quotes) took **300 reads and
 0.64 ms**, and **100 reads and 0.19 ms** a call. The cost grows in a straight line with the number of quotes.
@@ -14,17 +15,23 @@ pays for them:
 
 - **the window's lay** (`quoted::lay_window`, when the view is frozen): for each result, a check that each quoted node
   is not erased (its newest record), then each quote read (its node's newest record and its record by position);
-- **each call's check** (`quoted::erased_since`, from `view_gone`): the newest record of each node the lay read.
+- **each call's check** (`quoted::erased_since`, from `view_gone`): the newest record of each node the window's
+  lay read, made distinct over the whole window when the view is frozen (`turn::view_step`, the window's
+  `quoted.sort(); quoted.dedup()`), and then of each node each of the turn's own results read.
 
-A turn's own results kept by reference are rendered once, by the same rendering (`quoted::freeze`), so they cost
-what the window's do, once each. A child's opening (`arrangement::laid`) was not measured.
+A turn's own results kept by reference are rendered once each, by the same rendering (`quoted::freeze`), and each
+keeps its own list of the nodes it read, distinct within that result only. The call's check chains those lists
+after the window's, so they were not measured here and are not made distinct across results. A child's opening
+(`arrangement::laid`) was not measured.
 
 ## Setup
 
 - `crates/theseus-core/src/quoted/tests_cost.rs`, `the_read_cost_of_laying_by_reference` (`#[ignore]`). A store in a
   temp dir, nothing else opened. 2,000 messages that no look back quotes, then each look back's messages.
-- Each look back is a page of `q` lines, one quote of a different message each, in a window of `n` look backs. No
-  message is quoted twice and nothing is marked wrong, so no retraction rows are read.
+- Each look back is a page of `q` lines, one quote of a different message each, in a window of `n` look backs. In
+  the first fixture no message is quoted twice; in the second (`same`) every look back quotes the same `q`
+  messages. Nothing is marked wrong, so no retraction rows are read.
+- The lay's list of nodes read is made distinct over the window, as the frozen view keeps it, before a call checks it.
 - Counted: the newest records the erase check reads (a test-only count in `quoted::erased`) and the quotes the
   renderer reads (through `quotes::render_with`, the renderer's own loop). Store reads = erase checks + 2 × quotes.
 - Timed: the first lay, and the median of 20 lays and 20 checks, on one `c7i.8xlarge` fleet box (Intel Xeon Platinum
@@ -49,16 +56,34 @@ cargo nextest run -p theseus-core --cargo-profile release --run-ignored only --n
 | 40 × 10 | 400 | 400 | 1,200 | 400 | 2.57 ms (3.03 ms) | 762 µs | 8.03 ms | 2.08 ms |
 | 40 × 50 | 2,000 | 2,000 | 6,000 | 2,000 | 12.6 ms (14.8 ms) | 3.92 ms | 39.9 ms | 10.7 ms |
 
-The counts are the same on every run and on both profiles.
+The counts are the same on every run and on both profiles. Measured at `52966b8e`, before the measure made the
+window's list distinct; in these rows no message is quoted twice, so that changes no count.
+
+**Look backs that quote the same messages** (`same`: every look back of the window quotes the same `q` messages),
+measured at `bd118f52` on another `c7i.8xlarge` fleet box (Intel Xeon Platinum 8488C, 32 vCPU), the same two
+profiles. The medians of that run's unique rows came within 9% of the table above (most within 3%).
+
+| Look backs × quotes | Erase checks | Quotes read | Store reads, lay | Reads, each call | Lay, release: median (first) | Call, release | Lay, dev | Call, dev |
+|---|---|---|---|---|---|---|---|---|
+| 10 × the same 10 | 100 | 100 | 300 | 10 | 636 µs (790 µs) | 19 µs | 2.03 ms | 53 µs |
+| 40 × the same 50 | 2,000 | 2,000 | 6,000 | 50 | 12.4 ms (12.6 ms) | 93 µs | 40.3 ms | 275 µs |
+
+The lay reads as much as the unique rows of the same size; a call reads one record per distinct message, a tenth
+and a fortieth of what the unique rows read.
 
 ## What it teaches
 
-- **The erase check reads one newest record per quote, not per quoted node.** Here every quote is of a different
-  message, so the two are the same count. But by the code, `quoted::rendering` checks each quote's node before it makes
-  the list distinct, so a look back that quotes one message many times reads its record as many times. Making the list
-  distinct first would read each node once. This is not changed here.
-- **The call's check reads one record per node the lay read, at every call.** The list is distinct per result but
-  not across results, so a node two look backs both quote is checked twice a call.
+- **The window's lay checks erase once per quote, not once per quoted node.** `quoted::rendering` checks each quote's
+  node before it makes the result's list distinct, so a look back that quotes one message many times reads its
+  record as many times, and so does each look back that quotes it. In the `same` rows every message is quoted by
+  every look back: the lay's reads are the same as in the unique rows of the same size. Making the list distinct
+  first would read each node once per result. This is not changed here.
+- **A call's check of the frozen window reads one record per distinct node the whole window read.** The frozen
+  view sorts and dedups the window's list over all its results, so in the `same` rows a call checks `q` nodes, not
+  `n × q`: 10 look backs quoting the same 10 messages cost 10 reads a call, not 100.
+- **A call's check of the turn's own results is per result.** Each own result's list is distinct within itself and
+  chained after the window's, so a node two of the turn's own results both quote is checked twice a call, and a
+  node the window and an own result both quote is checked twice too. This path was not measured.
 - **Each record read is a lookup and a decode through the store's node cache.** The first lay pays more than the
   median (the cache is cold); later lays and checks hit it.
 - **For a turn as it is today it is small.** A window holds a few look backs, each of a few dozen lines. That is
@@ -69,4 +94,4 @@ The counts are the same on every run and on both profiles.
 - A synthetic store: the records are small, there is no other load, and the whole store fits in memory. On a large
   store a cold read costs a disk read the cache does not hide.
 - The release build here has no fat LTO and 16 codegen units; an install's has fat LTO and one.
-- One machine, one run of 20 lays each.
+- One machine per table, one run of 20 lays each.
