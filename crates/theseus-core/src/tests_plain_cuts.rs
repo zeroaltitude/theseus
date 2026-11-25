@@ -1,8 +1,30 @@
-//! Every cut of text in the core goes through `scrub::safe`, which stops at a
-//! known value's edge, or says why a plain cut is right there. The scan walks
-//! `src/`, leaving out `scrub/` (the helpers' home), test files and inline
-//! test modules, and finds the idioms that exist only on text. A found line
-//! passes when it, or the line above it, carries `// plain cut: <reason>`.
+//! A cut of text in the core written in one of the recognised spellings below
+//! goes through `scrub::safe`, which stops at a known value's edge, or says
+//! why a plain cut is right there. The scan walks `src/`, leaving out
+//! `scrub/` (the helpers' home), test files and inline test modules, and
+//! reads each line's code (its string and character literals blanked, its
+//! comments left out) for the spellings that exist only on text. A found
+//! line passes when it, or the line above it, carries
+//! `// plain cut: <reason>`.
+//!
+//! It is a check of spellings, not of meaning. Not seen:
+//! - an iterator bound to a name and cut on a later statement
+//!   (`let cs = s.chars(); cs.take(n)`);
+//! - a cut after another adapter (`.chars().filter(..).take(n)`), or a
+//!   second cut on a line whose first is marked: one marker passes the line;
+//! - `truncate`, `pop`, `split_off`, `drain`, a range slice (`&s[..n]`) or a
+//!   format precision (`{:.8}`) on text, unless a boundary step above is
+//!   spelled out;
+//! - a helper given `Cuts::none()`, which cuts as plainly as `take` does;
+//! - helpers in other crates but the three listed, and a bare imported name;
+//! - a line of a string literal that runs over several lines, read as code.
+//!
+//! Read wrongly: `.get(..` on a slice that is not text, and
+//! `is_char_boundary` that checks an offset and cuts nothing, are listed;
+//! such a line is marked with its reason. Files named `tests*` or
+//! `*_tests.rs`, and the text between a column-0 `#[cfg(test)]` + `mod x {`
+//! and the next column-0 `}`, are skipped by their shape, not by what
+//! compiles.
 
 use std::path::{Path, PathBuf};
 
@@ -69,9 +91,84 @@ fn marker(line: &str) -> Option<bool> {
         .map(|at| !line[at + MARKER.len()..].trim().is_empty())
 }
 
+/// `line`'s code: the text of its string and character literals blanked out,
+/// and its comments (`//` to the end, `/* .. */` within the line) left out.
+fn code_of(line: &str) -> String {
+    let c: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    while i < c.len() {
+        let next = c.get(i + 1).copied();
+        match c[i] {
+            '/' if next == Some('/') => break,
+            '/' if next == Some('*') => {
+                i += 2;
+                while i < c.len() && !(c[i] == '*' && c.get(i + 1) == Some(&'/')) {
+                    i += 1;
+                }
+                i += 2;
+                out.push(' ');
+                continue;
+            }
+            '"' => {
+                i += 1;
+                while i < c.len() && c[i] != '"' {
+                    i += if c[i] == '\\' { 2 } else { 1 };
+                }
+                out.push_str("\"\"");
+            }
+            'r' if matches!(next, Some('"' | '#'))
+                && !out.ends_with(|p: char| p.is_alphanumeric() || p == '_') =>
+            {
+                let mut j = i + 1;
+                while c.get(j) == Some(&'#') {
+                    j += 1;
+                }
+                if c.get(j) != Some(&'"') {
+                    out.push('r');
+                    i += 1;
+                    continue;
+                }
+                let close: Vec<char> = std::iter::once('"')
+                    .chain(c[i + 1..j].iter().copied())
+                    .collect();
+                j += 1;
+                while j < c.len() && !c[j..].starts_with(&close) {
+                    j += 1;
+                }
+                i = j + close.len();
+                out.push_str("\"\"");
+                continue;
+            }
+            '\'' => {
+                // A character literal (`'x'`, `'\n'`, `'\u{2026}'`); a
+                // lifetime has no closing quote.
+                let end = if next == Some('\\') {
+                    c.get(i + 2..)
+                        .and_then(|r| r.iter().position(|&d| d == '\''))
+                        .map(|p| i + 2 + p)
+                } else {
+                    (c.get(i + 2) == Some(&'\'')).then_some(i + 2)
+                };
+                match end {
+                    Some(e) => {
+                        out.push_str("' '");
+                        i = e + 1;
+                        continue;
+                    }
+                    None => out.push('\''),
+                }
+            }
+            ch => out.push(ch),
+        }
+        i += 1;
+    }
+    out
+}
+
 /// The code of the chain that line `k`, a line starting with `.`, goes on:
 /// the lines before it back to the chain's first, comment lines left out and
-/// each line's own trailing comment too, joined.
+/// each line's own comments and literals too, joined.
 fn chain_before(lines: &[(usize, &str)], k: usize) -> String {
     let mut parts = Vec::new();
     for (_, l) in lines[..k].iter().rev() {
@@ -79,8 +176,11 @@ fn chain_before(lines: &[(usize, &str)], k: usize) -> String {
         if t.starts_with("//") {
             continue;
         }
-        parts.push(t.split(" //").next().unwrap_or(t).trim_end());
-        if !t.starts_with('.') {
+        let code = code_of(t);
+        let code = code.trim_end().to_string();
+        let link = code.starts_with('.');
+        parts.push(code);
+        if !link {
             break;
         }
     }
@@ -101,12 +201,13 @@ fn scan(code: &str) -> Found {
         }
         // A chain rustfmt broke over lines, comment lines among its links:
         // the line found is the one where an idiom ends, its cutting call.
-        let before = if text.starts_with('.') {
+        let code = code_of(text);
+        let before = if code.starts_with('.') {
             chain_before(&lines, k)
         } else {
             String::new()
         };
-        let joined = format!("{before}{text}");
+        let joined = format!("{before}{code}");
         let ends_here = |i: &&str| {
             joined
                 .match_indices(*i)
@@ -244,9 +345,29 @@ fn k(s: &str) -> String {
         .take(8)
         .collect()
 }
+fn l(s: &str) -> usize {
+    let m = \"use s.chars().take(4)\";
+    let n = 1; // s.chars().take(2)
+    let k = /* s.chars().take(3) */ 2;
+    m.len() + n + k + s.len()
+}
+fn m(v: &[u8]) -> Option<&[u8]> {
+    v.get(..2)
+}
+fn n(s: &str) -> String {
+    let q = '\"';
+    s.chars().take(1).chain(std::iter::once(q)).collect()
+}
+fn o(s: &str) -> &str {
+    let r = r#\"s.chars().take(9)\"#;
+    &s[..r.len().min(s.len())]
+}
 ";
     let found = scan(code);
     let lines = |v: &[(usize, String)]| v.iter().map(|(n, _)| *n).collect::<Vec<_>>();
-    assert_eq!(lines(&found.unmarked), vec![2, 29, 34, 40]);
+    // `l` and `o` hold the spellings only in literals and comments; `m`'s
+    // `.get(..` on bytes is listed, as the module says; `n`'s character
+    // literal `'"'` opens no string.
+    assert_eq!(lines(&found.unmarked), vec![2, 29, 34, 40, 62, 66]);
     assert_eq!(lines(&found.no_reason), vec![14]);
 }
