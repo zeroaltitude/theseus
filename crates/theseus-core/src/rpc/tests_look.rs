@@ -77,7 +77,11 @@ fn woke_count(d: &WorkDigestResult) -> u32 {
 async fn digest_telling(r: &Rig, p: WorkDigestParams, n: u32) -> WorkDigestResult {
     let mut last = None;
     for _ in 0..100 {
-        let d = r.core.work_digest_for(p.clone(), Surface::Cli).await.unwrap();
+        let d = r
+            .core
+            .work_digest_for(p.clone(), Surface::Cli)
+            .await
+            .unwrap();
         if woke_count(&d) == n {
             return d;
         }
@@ -178,7 +182,10 @@ async fn a_restored_older_backup_starts_from_its_own_look() {
         .await
         .unwrap();
     let fresh = woke(&restored, &exe);
-    assert!(fresh < p2, "the new work lands below the newer history's look");
+    assert!(
+        fresh < p2,
+        "the new work lands below the newer history's look"
+    );
     let d = digest_telling(&restored, since_look(), 1).await;
     assert_eq!(d.from, p1);
     assert_eq!(d.look.map(|l| l.position), Some(p1));
@@ -216,8 +223,16 @@ async fn two_stores_each_keep_their_own_look() {
     look(&b, pb).await;
     let a2 = copied(&a);
     let b2 = copied(&b);
-    let da = a2.core.work_digest_for(since_look(), Surface::Cli).await.unwrap();
-    let db = b2.core.work_digest_for(since_look(), Surface::Cli).await.unwrap();
+    let da = a2
+        .core
+        .work_digest_for(since_look(), Surface::Cli)
+        .await
+        .unwrap();
+    let db = b2
+        .core
+        .work_digest_for(since_look(), Surface::Cli)
+        .await
+        .unwrap();
     assert_eq!((da.from, db.from), (pa, pb));
 }
 
@@ -269,7 +284,11 @@ async fn a_look_never_moves_back_and_never_past_the_head() {
         .unwrap_err();
     assert_eq!(past.code, error_code::INVALID_PARAMS);
     assert_eq!(past.message, PAST_HEAD);
-    assert_eq!(stored(&r).map(|(l, _)| l.position), Some(p), "never clamped");
+    assert_eq!(
+        stored(&r).map(|(l, _)| l.position),
+        Some(p),
+        "never clamped"
+    );
 }
 
 /// A look at the look's own record writes nothing: a client that looks at
