@@ -34,9 +34,12 @@ pub fn mark(correlation_id: &str, fresh: bool) -> anyhow::Result<NewRecord> {
 pub fn marked(store: &Store, correlation_id: &str) -> Option<bool> {
     match store.get_meta::<Mark>(&key(correlation_id)) {
         Ok(found) => found.map(|m| m.fresh),
-        Err(e) => {
+        Err(_) => {
             // A mark that cannot be read is read as the strictest one, never as none.
-            tracing::warn!(error = %e, "an owner proof mark could not be read; treating it as fresh");
+            tracing::warn!(
+                correlation_id,
+                "an owner proof mark could not be read; treating it as fresh"
+            );
             Some(true)
         }
     }

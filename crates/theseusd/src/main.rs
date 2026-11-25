@@ -754,10 +754,9 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
         sd.notify.ready("serving on stdio");
         let served = tokio::select! {
             r = conn => {
-                // Its client went away: the stop begins here, as at a signal,
-                // so a pass that takes the store afresh for each unit starts
-                // none that could outlive the runtime (issue 46).
-                theseus_core::startup::stop_began();
+                // Its client went away: the same stop as a signal's, its row
+                // written and the outbox's sending stopped (issues 46, 51).
+                core.stopping_as_the_client_left();
                 r
             }
             () = &mut stop => {
@@ -1275,9 +1274,6 @@ fn warm_after_serving(core: &Arc<Core>) {
     // Recall's labels (M6 30b), by one scan of their scope, so a turn's
     // recall reads them from memory.
     core.warm_labels();
-    // The ladder (M5 26a): each pack's mode, read once the socket answers,
-    // and the adoptions it lacks written then, never on the start path.
-    core.warm_ladder();
     // Jev's connections (theseus-ddbi): opened now and kept warm, so a
     // fresh daemon's first message pays no connection setup on route.v1's
     // request, and nothing on the start path touches the network.
@@ -1307,6 +1303,19 @@ fn own_file_first_start(core: &Core) {
     }
 }
 
+/// The first of what runs once the socket answers: the ladder's warm read
+/// begun, then the serving rows. The ladder (M5 26a): each pack's mode, read
+/// once the socket answers, and the adoptions it lacks written then, never on
+/// the start path. Begun first, on the blocking pool: until it has read, every
+/// pack that would act judges in shadow, so the steps after it that write (the
+/// own file's first start passes the store's barrier) would hold a fresh
+/// daemon's first message out of routing.
+fn serving_begins(core: &Arc<Core>, serving: u64) {
+    tracing::info!(serving_ms = serving / 1000, "serving");
+    core.warm_ladder();
+    core.announce_serving(serving);
+}
+
 /// What runs once the socket answers: the kernel's startup report and the
 /// start path's phases in the ledger (one frame), the kernel's counts in the
 /// log, the index tender (the socket daemon's, row 51), and the GitHub token
@@ -1317,7 +1326,6 @@ fn own_file_first_start(core: &Core) {
 /// Discord (`bindings`: the socket daemon only), and the GitHub check. A
 /// copy the daemon wrote acts at once (theseus-zmgb). `keep` is a note read
 /// before serving, kept as the copy now.
-#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn after_serving(
     core: Arc<Core>,
     keep: Option<String>,
@@ -1326,12 +1334,12 @@ async fn after_serving(
     mode: &'static str,
 ) {
     let serving = core.startup_log.us(Instant::now());
-    tracing::info!(serving_ms = serving / 1000, "serving");
-    core.announce_serving(serving);
+    serving_begins(&core, serving);
     // The crash file the last run left, if it panicked: said and kept.
     core.report_crash(&state_dir, mode);
     // A test's planted panic (a debug build's `THESEUS_TEST_PANIC`).
     theseus_core::crash::planted("after_serving");
+    stdio::planted_slow_after_serving().await;
     // The owner's own instruction file: at the first start of a store that
     // has accepted no version, what is on disk is accepted, once.
     own_file_first_start(&core);

@@ -377,6 +377,8 @@ mod tests_fit;
 #[cfg(test)]
 mod tests_floor_config_copies;
 #[cfg(test)]
+mod tests_floor_crash;
+#[cfg(test)]
 mod tests_floor_shapes;
 #[cfg(test)]
 mod tests_floor_stdio;
@@ -770,6 +772,8 @@ mod tests_turn_reserve;
 mod tests_turn_retry;
 #[cfg(test)]
 mod tests_unlabel;
+#[cfg(test)]
+mod tests_unread_logs;
 #[cfg(test)]
 mod tests_view_between;
 #[cfg(test)]

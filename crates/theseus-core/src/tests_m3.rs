@@ -1848,7 +1848,7 @@ async fn a_job_whose_child_holds_its_output_says_its_end_was_held() {
                 &[(
                     "t1",
                     "proc_run",
-                    json!({"argv": ["bash", "-c", "sleep 1.5; head -c 100000 /dev/zero | tr '\\0' x; (sleep 1; echo late) &"]}),
+                    json!({"argv": ["bash", "-c", "sleep 1.5; head -c 100000 /dev/zero | tr '\\0' '\\n'; (sleep 1; echo late) &"]}),
                 )],
             ),
             Scripted::text("Started."),
@@ -1887,13 +1887,13 @@ async fn a_job_whose_child_holds_its_output_says_its_end_was_held() {
     let bytes = std::fs::read(&out).unwrap();
     let marker = theseus_kernel::redact::marker(100_005 - 32_640 - 32_768, 32_768);
     assert_eq!(bytes.len(), 32_640 + marker.len() + 32_768);
-    assert!(bytes[..32_640].iter().all(|&b| b == b'x'), "the head");
+    assert!(bytes[..32_640].iter().all(|&b| b == b'\n'), "the head");
     assert_eq!(
         String::from_utf8_lossy(&bytes[32_640..32_640 + marker.len()]),
         marker
     );
     let end = &bytes[32_640 + marker.len()..];
-    assert!(end[..32_763].iter().all(|&b| b == b'x'), "the end");
+    assert!(end[..32_763].iter().all(|&b| b == b'\n'), "the end");
     assert_eq!(&end[32_763..], b"late\n");
     // The next turn reads the late result, which says what was held.
     r.core.heartbeat("test");

@@ -30,6 +30,10 @@ pub(super) enum Answers {
     Whole { input: u64, output: u64 },
     /// A stream that stops after its first event.
     Cut,
+    /// A request received, but no response headers returned.
+    Dropped,
+    /// No provider listening at the selected address.
+    Disconnected,
     /// A whole answer (1000 in, 200 out) given once `HELD` is notified.
     Held,
 }
@@ -47,12 +51,24 @@ pub(super) struct Seen {
 pub(super) struct Upstream {
     pub url: String,
     pub seen: Arc<Mutex<Vec<Seen>>>,
+    _unlistening: Option<tokio::net::TcpSocket>,
 }
 
 pub(super) async fn upstream(answers: Answers) -> Upstream {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
+    if matches!(answers, Answers::Disconnected) {
+        // Reserve an address without listening; no other test can reuse its port.
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let url = format!("http://{}", socket.local_addr().unwrap());
+        return Upstream {
+            url,
+            seen,
+            _unlistening: Some(socket),
+        };
+    }
     let log = seen.clone();
     tokio::spawn(async move {
         while let Ok((mut conn, _)) = listener.accept().await {
@@ -84,6 +100,9 @@ pub(super) async fn upstream(answers: Answers) -> Upstream {
                     .find_map(|l| l.strip_prefix("x-api-key:"))
                     .map(|v| v.trim().to_string());
                 log.lock().unwrap().push(Seen { key, body });
+                if matches!(answers, Answers::Dropped) {
+                    return;
+                }
                 let event = |kind: &str, data: Value| format!("event: {kind}\ndata: {data}\n\n");
                 if matches!(answers, Answers::Held) {
                     HELD.notified().await;
@@ -93,6 +112,7 @@ pub(super) async fn upstream(answers: Answers) -> Upstream {
                     _ => (1000, 200),
                 };
                 let events = match answers {
+                    Answers::Dropped | Answers::Disconnected => unreachable!(),
                     Answers::Whole { .. } | Answers::Held => [
                         event("message_start", json!({"type": "message_start", "message": {"id": "msg_1", "model": "stand-in", "role": "assistant", "content": [], "usage": {"input_tokens": input}}})),
                         event("content_block_start", json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})),
@@ -112,7 +132,11 @@ pub(super) async fn upstream(answers: Answers) -> Upstream {
             });
         }
     });
-    Upstream { url, seen }
+    Upstream {
+        url,
+        seen,
+        _unlistening: None,
+    }
 }
 
 pub(super) struct Rig {
@@ -509,4 +533,71 @@ async fn the_items_line_tells_the_owner_once_for_the_item() {
     assert_eq!(ask_async(&relay, big).await.0, 403);
     assert_eq!(rule_posts(&r.core).len(), 2, "once for each item");
     assert!(untouched(&r), "nothing was forwarded");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_call_the_provider_took_but_never_answered_settles_at_its_worst_case() {
+    let r = rig(Answers::Dropped, |_| {}).await;
+    let relay = new_relay(&r);
+    relay.begin(1.0);
+    let sent = request(&r.model, "x");
+    assert_eq!(ask_async(&relay, sent.clone()).await.0, 502);
+    assert_eq!(
+        r.up.seen.lock().unwrap().len(),
+        1,
+        "the provider read the whole request"
+    );
+    let worst = r
+        .core
+        .catalog
+        .get(&r.model)
+        .unwrap()
+        .reserve_micros(1024, sent.to_string().len().div_ceil(3) as u64);
+    let m = relay.finish();
+    assert!(
+        (m.usd - worst as f64 / 1e6).abs() < 1e-9,
+        "{} vs {worst} micros",
+        m.usd
+    );
+    assert_eq!(m.calls, 1);
+    let day = r.core.runner.self_budget.view().unwrap().day_spent_usd;
+    assert!((day - worst as f64 / 1e6).abs() < 1e-9, "{day}");
+    let log = relay.log();
+    assert_eq!(log.len(), 1, "every charge has a usage line");
+    assert_eq!(log[0].status, 502);
+    assert_eq!(log[0].model, r.model);
+    assert!((log[0].usd - m.usd).abs() < 1e-9);
+    assert_eq!(log[0].usage.input_tokens, 0);
+    assert_eq!(log[0].usage.output_tokens, 0);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_missing_key_does_not_spend_or_count_a_call() {
+    let r = rig(Answers::Dropped, |_| {}).await;
+    r.core.secrets.publish(
+        [(
+            r.core.cfg.model.api_key_secret.clone(),
+            Err("missing".into()),
+        )]
+        .into(),
+        "test",
+    );
+    let relay = new_relay(&r);
+    relay.begin(1.0);
+    assert_ne!(ask_async(&relay, request(&r.model, "x")).await.0, 200);
+    let m = relay.finish();
+    assert_eq!((m.usd, m.calls), (0.0, 0));
+    assert_eq!(r.core.runner.self_budget.view().unwrap().day_spent_usd, 0.0);
+    assert!(untouched(&r));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_connect_failure_does_not_spend_or_count_a_call() {
+    let r = rig(Answers::Disconnected, |_| {}).await;
+    let relay = new_relay(&r);
+    relay.begin(1.0);
+    assert_eq!(ask_async(&relay, request(&r.model, "x")).await.0, 502);
+    let m = relay.finish();
+    assert_eq!((m.usd, m.calls), (0.0, 0));
+    assert_eq!(r.core.runner.self_budget.view().unwrap().day_spent_usd, 0.0);
 }

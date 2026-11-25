@@ -182,6 +182,12 @@ fn base_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>) {
         // chosen text into every prompt, permanently, and block 3 is not a
         // `ContentItem`, so no injection label can ever be raised on it.
         canon_path(state.join(crate::project_context::USER_FILE)),
+        // The crash file each daemon's panic hook writes, and the directory
+        // a start keeps every one in (`crash.rs`): a panic's message can
+        // quote any text the daemon held.
+        canon_path(crate::crash::file(&state, "socket")),
+        canon_path(crate::crash::file(&state, "stdio")),
+        canon_path(state.join(crate::crash::DIR)),
         canon("~/.config/op"),
     ]);
     // The token file the daemon was given, by flag or by environment, the
@@ -461,6 +467,23 @@ mod tests {
             assert!(hidden.contains(&path), "{name} is not hidden: {hidden:?}");
         }
         assert_eq!(crate::owner_proof::FILE, "owner-proof.json");
+    }
+
+    /// Both daemons' crash files and the directory a start keeps them in
+    /// are on the floor and hidden from every L1 view, each by its own name,
+    /// written as words on purpose: a rename that moved one off the floor
+    /// reds here.
+    #[test]
+    fn the_crash_files_are_floored_and_hidden() {
+        let state = std::path::Path::new("/nonexistent/theseus-guarded/crash");
+        let cfg = cfg_over(state);
+        let floor = guarded_paths(&cfg).1;
+        let hidden = super::sandbox_for(&cfg).job_view().hidden;
+        for name in ["crash-socket.json", "crash-stdio.json", "crashes"] {
+            let path = state.join(name);
+            assert!(floor.contains(&path), "{name} is not floored: {floor:?}");
+            assert!(hidden.contains(&path), "{name} is not hidden: {hidden:?}");
+        }
     }
 
     /// The files that go into every prompt are on the floor and hidden from

@@ -496,6 +496,7 @@ fn counted(out: &mut CardProposeResult, scan: &Scan) {
     out.withheld = scan.withheld;
     out.setup = scan.setup;
     out.one_task = scan.one_task;
+    out.tags_unread = (scan.tags_unread > 0).then_some(scan.tags_unread);
 }
 
 /// The statements of one call with no conflicting pair: of two that conflict

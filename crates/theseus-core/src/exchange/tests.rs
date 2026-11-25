@@ -1355,3 +1355,181 @@ async fn a_record_under_labels_that_does_not_read_is_named_by_its_key_alone() {
     assert!(!text.contains(PAYLOAD), "a payload was quoted: {text}");
     assert!(!text.contains("labels.odd-ended"), "{text}");
 }
+
+/// Words a planted record holds where a decoder's error would quote them.
+const TOUCH_WORDS: &str = "TOUCH-WORDS-m3";
+
+/// A record at the key of a touch the rebuild would move, which does not read as a touch: its time is words.
+async fn unread_touch(c: &Arc<Core>) -> (Exchange, String) {
+    let res = turn(c, owner_cli(), None, "a message that names nothing").await;
+    let ex = exchange(&c.store, &res.turn_id).unwrap().unwrap();
+    let at = ex.end_ms.unwrap() + 5;
+    let key = touch(Root::Thing("file:x.rs"), &ex.turn_id, &ex.session_id, at)
+        .unwrap()
+        .key
+        .unwrap();
+    let odd = json!({"exchange": ex.turn_id, "session_id": ex.session_id, "at_ms": TOUCH_WORDS});
+    c.store.put_meta(&key, &odd).unwrap();
+    (ex, key)
+}
+
+/// A touch the rebuild would move that does not read as a touch fails neither the run nor the dry run
+/// (issue 46): it is passed over and counted, never moved, rewritten or ended, and the rest is moved.
+#[tokio::test]
+async fn a_rebuild_passes_over_a_touch_that_does_not_read() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let (ex, key) = unread_touch(c).await;
+    let readable = Root::Thing("file:y.rs");
+    let moved = touch(
+        readable,
+        &ex.turn_id,
+        &ex.session_id,
+        ex.end_ms.unwrap() + 5,
+    )
+    .unwrap();
+    c.store.append(&[moved]).unwrap();
+    let held = || {
+        let r = (c.store.inner()).latest_by_key(theseus_store::kinds::META, &key);
+        r.unwrap().map(|r| (r.position, r.payload))
+    };
+    let before = held();
+    assert!(before.is_some());
+    let end = c.store.last_position();
+    let dry = call(c, owner_cli(), "exchange.rebuild", json!({"dry_run": true})).await;
+    assert!(dry.error.is_none(), "{:?}", dry.error);
+    let dry = dry.result.unwrap();
+    assert_eq!(
+        (
+            dry["touches_passed_over"].as_u64(),
+            dry["repaired"].as_u64()
+        ),
+        (Some(1), Some(1)),
+        "{dry}"
+    );
+    assert_eq!(c.store.last_position(), end, "the dry run appended");
+    let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
+    assert!(run.error.is_none(), "{:?}", run.error);
+    let run = run.result.unwrap();
+    assert_eq!(
+        (
+            run["touches_passed_over"].as_u64(),
+            run["repaired"].as_u64()
+        ),
+        (Some(1), Some(1)),
+        "{run}"
+    );
+    assert_eq!(held(), before, "the run left it as it is");
+    let got = newest(&c.store, readable, 8).unwrap();
+    assert_eq!(
+        got.iter().map(|t| t.at_ms).collect::<Vec<_>>(),
+        [ex.start_ms],
+        "the touch that reads is moved"
+    );
+}
+
+/// A touch that does not read is named in the log by its key alone, never by what the record holds
+/// (issue 46).
+#[tokio::test]
+async fn a_touch_that_does_not_read_is_named_by_its_key_alone() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let (ex, key) = unread_touch(c).await;
+    let starts = std::collections::HashMap::from([(ex.turn_id.as_str(), ex.start_ms)]);
+    let log = Log::default();
+    let sub = tracing_subscriber::fmt()
+        .with_writer(log.clone())
+        .with_ansi(false)
+        .finish();
+    let read = tracing::subscriber::with_default(sub, || rebuild::misplaced(&c.store, &starts));
+    let (moves, passed) = read.unwrap();
+    assert_eq!((moves.len(), passed), (0, 1));
+    let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+    // A touch's key holds its separator, which the log writes escaped, as `{:?}` does.
+    let shown = format!("{key:?}");
+    assert_eq!(
+        text.matches(shown.as_str()).count(),
+        1,
+        "{shown} once: {text}"
+    );
+    assert!(!text.contains(TOUCH_WORDS), "the record was quoted: {text}");
+}
+
+/// Words planted records hold where a decoder's error would quote them.
+const LINE_WORDS: &str = "LINE-WORDS-r2";
+const NODE_WORDS: &str = "NODE-WORDS-n8";
+
+/// A record under the summary lines' prefix and one under the fold nodes', neither of which reads: their
+/// keys.
+fn unread_line_and_node(c: &Core) -> [String; 2] {
+    let line = format!("{}odd", crate::ladder::did::DID_PREFIX);
+    let node = format!("{}odd", crate::view::fold::FOLD_PREFIX);
+    let odd_line = json!({"turn_id": "trn_odd", "session_id": "ses_odd", "line": "", "model": "",
+                          "writer": LINE_WORDS});
+    let odd_node = json!({"id": "fld_odd", "place": "local:odd", "level": NODE_WORDS});
+    c.store.put_meta(&line, &odd_line).unwrap();
+    c.store.put_meta(&node, &odd_node).unwrap();
+    [line, node]
+}
+
+/// The reading sheet passes over a summary line and a fold node it cannot read (issue 46): it completes,
+/// counts each, draws from the rest and leaves both records as they are.
+#[tokio::test]
+async fn the_reading_sheet_passes_over_records_that_do_not_read() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let keys = unread_line_and_node(c);
+    let held = || {
+        (keys.iter())
+            .map(|k| (c.store.inner()).latest_by_key(theseus_store::kinds::META, k))
+            .map(|r| r.unwrap().map(|r| (r.position, r.payload)))
+            .collect::<Vec<_>>()
+    };
+    let before = held();
+    let got = call(
+        c,
+        owner_cli(),
+        "exchange.gists",
+        json!({"lines": 5, "nodes": 5, "seed": 1}),
+    )
+    .await;
+    assert!(got.error.is_none(), "{:?}", got.error);
+    let got = got.result.unwrap();
+    assert_eq!(
+        (
+            got["lines_unread"].as_u64(),
+            got["nodes_unread"].as_u64(),
+            got["lines_total"].as_u64(),
+            got["nodes_total"].as_u64()
+        ),
+        (Some(1), Some(1), Some(0), Some(0)),
+        "{got}"
+    );
+    assert_eq!(held(), before, "left as they are");
+}
+
+/// The reading sheet names a record it cannot read by its key alone in the log, never by what it holds
+/// (issue 46).
+#[tokio::test]
+async fn the_reading_sheet_names_a_record_it_cannot_read_by_its_key_alone() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let keys = unread_line_and_node(c);
+    let p = theseus_protocol::exchange::ExchangeGistsParams {
+        lines: 5,
+        nodes: 5,
+        seed: Some(1),
+        ..Default::default()
+    };
+    let log = crate::test_support::Log::default();
+    let read = log.capture(|| crate::ladder::gists::sheet(&c.store, &c.tools.scrubber, &p));
+    let read = read.unwrap();
+    assert_eq!((read.lines_unread, read.nodes_unread), (1, 1));
+    let text = log.text();
+    for key in &keys {
+        assert_eq!(text.matches(key.as_str()).count(), 1, "{key} once: {text}");
+    }
+    for quoted in [LINE_WORDS, NODE_WORDS] {
+        assert!(!text.contains(quoted), "a record was quoted: {text}");
+    }
+}
