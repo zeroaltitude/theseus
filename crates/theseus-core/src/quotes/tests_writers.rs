@@ -209,7 +209,8 @@ fn assigns(s: &[char]) -> Vec<usize> {
         .filter(|i| word_at(s, *i, "parts"))
         .filter(|i| matches!(before(s, *i), Some('.' | '*')))
         .filter(|i| {
-            let mut rest = (s[i + "parts".len()..].iter().copied()).skip_while(|c| c.is_whitespace());
+            let mut rest =
+                (s[i + "parts".len()..].iter().copied()).skip_while(|c| c.is_whitespace());
             rest.next() == Some('=') && !matches!(rest.next(), Some('=' | '>'))
         })
         .collect()
