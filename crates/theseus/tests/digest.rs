@@ -42,9 +42,13 @@ fn digest() -> Value {
 type Asked = Arc<Mutex<Vec<(String, Value)>>>;
 
 /// A daemon on `sock` that answers `work.digest` (with the store's look, when
-/// it has one) and `work.look`, and records their params, and an empty board
-/// for `executions.watch`.
-fn daemon(sock: &Path, look: Option<Value>) -> (std::thread::JoinHandle<()>, Asked) {
+/// it has one) and `work.look` (or refuses it, when `refuse`), and records
+/// their params, and an empty board for `executions.watch`.
+fn daemon(
+    sock: &Path,
+    look: Option<Value>,
+    refuse: bool,
+) -> (std::thread::JoinHandle<()>, Asked) {
     let listener = UnixListener::bind(sock).unwrap();
     let asked = Arc::new(Mutex::new(Vec::new()));
     let seen = asked.clone();
@@ -58,7 +62,7 @@ fn daemon(sock: &Path, look: Option<Value>) -> (std::thread::JoinHandle<()>, Ask
                     s.set_nonblocking(false).unwrap();
                     let seen = seen.clone();
                     let look = look.clone();
-                    std::thread::spawn(move || serve(s, &seen, look.as_ref()));
+                    std::thread::spawn(move || serve(s, &seen, look.as_ref(), refuse));
                 }
                 Err(_) => std::thread::sleep(std::time::Duration::from_millis(5)),
             }
@@ -67,7 +71,7 @@ fn daemon(sock: &Path, look: Option<Value>) -> (std::thread::JoinHandle<()>, Ask
     (h, asked)
 }
 
-fn serve(s: UnixStream, asked: &Mutex<Vec<(String, Value)>>, look: Option<&Value>) {
+fn serve(s: UnixStream, asked: &Mutex<Vec<(String, Value)>>, look: Option<&Value>, refuse: bool) {
     let mut reader = BufReader::new(&s);
     let mut line = String::new();
     while reader.read_line(&mut line).unwrap_or(0) > 0 {
@@ -101,7 +105,12 @@ fn serve(s: UnixStream, asked: &Mutex<Vec<(String, Value)>>, look: Option<&Value
             "work.watch" => json!({"position": 10, "views": [], "total": 0}),
             _ => json!({}),
         };
-        let answer = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
+        let answer = if refuse && m == "work.look" {
+            json!({"jsonrpc": "2.0", "id": req["id"],
+                   "error": {"code": -32000, "message": "the store is busy"}})
+        } else {
+            json!({"jsonrpc": "2.0", "id": req["id"], "result": result})
+        };
         (&s).write_all(format!("{answer}\n").as_bytes()).unwrap();
     }
 }
@@ -110,6 +119,8 @@ struct World {
     dir: tempfile::TempDir,
     /// The store's look, as `work.digest` answers it.
     look: Option<Value>,
+    /// The daemon refuses `work.look`.
+    refuse_look: bool,
 }
 
 /// What a run printed, the params of each `work.digest`, and of each `work.look`.
@@ -124,6 +135,7 @@ impl World {
         Self {
             dir: tempfile::tempdir().unwrap(),
             look: None,
+            refuse_look: false,
         }
     }
     /// The store's look is at `position`, from `at_ms`.
@@ -149,7 +161,7 @@ impl World {
         .unwrap();
     }
     fn run(&self, args: &[&str], job: bool) -> Ran {
-        let (d, asked) = daemon(&self.sock(), self.look.clone());
+        let (d, asked) = daemon(&self.sock(), self.look.clone(), self.refuse_look);
         let mut c = Command::new(THESEUS);
         c.arg("--socket")
             .arg(self.sock())
@@ -308,4 +320,29 @@ fn a_machine_file_past_the_stores_head_does_not_silence_the_digest() {
     assert_eq!(ran.looks, [json!({"position": 900})]);
     let file = std::fs::read_to_string(w.seen()).unwrap();
     assert!(!file.contains("looked"), "carried over once: {file}");
+}
+
+/// The time an older build kept in the seen file is the only copy of when the
+/// owner last looked before the store kept its own (issue 46): another client's
+/// write of the file keeps it, and so does a look the daemon refuses; the next
+/// digest asks from it again, and the look the daemon takes hands it over.
+#[test]
+fn the_old_time_waits_for_a_look_the_daemon_takes() {
+    let mut w = World::new();
+    w.old_file_looked(999_999, at(0, 0));
+    theseus_client::seen::record(&w.seen(), &[]).unwrap();
+    w.refuse_look = true;
+    let ran = w.run(&["digest"], false);
+    assert_eq!(ran.digests[0]["since_ms"], at(0, 0), "{:?}", ran.digests);
+    assert_eq!(ran.looks, [json!({"position": 900})]);
+    w.refuse_look = false;
+    let ran = w.run(&["digest"], false);
+    assert_eq!(
+        ran.digests[0]["since_ms"],
+        at(0, 0),
+        "a refused look kept it: {:?}",
+        ran.digests
+    );
+    let file = std::fs::read_to_string(w.seen()).unwrap();
+    assert!(!file.contains("looked"), "handed over: {file}");
 }

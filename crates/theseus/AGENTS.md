@@ -94,7 +94,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   the real tree on the same wire. Tests inside it.
 - `src/digest.rs` (theseus-qkoi3): `theseus digest [--since 2h | --since-seen] [--session S]`, one `work.digest` read (the
   default is `--since-seen`: the store's look, issue 46, `since_look`; before the store has one, the time of the look an
-  older build kept in the seen file, carried over once (`seen::old_look_time`, never its position), else the last 24
+  older build kept in the seen file, kept there until the store has taken a look (`seen::old_look_time`, never its position), else the last 24
   hours). It prints the protocol's summary, a line each, what the board holds, and the questions waiting (`theseus
   answer`), and moves the store's look (`work.look`) unless it was scoped to a session or ran in a job. `theseus status`
   ends with its summary and ` · theseus digest` when something happened since that look and says nothing on a first

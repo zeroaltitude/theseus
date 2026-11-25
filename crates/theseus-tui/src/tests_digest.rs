@@ -7,8 +7,8 @@
 use crossterm::event::Event as TermEvent;
 use serde_json::json;
 
-use crate::app::AWAY_MS;
-use crate::tests::{harbour_world, opened, script, Rig, NOW, T0};
+use crate::app::{Effect, AWAY_MS};
+use crate::tests::{harbour_rig_seen, harbour_world, opened, script, Rig, NOW, T0};
 
 fn digest() -> serde_json::Value {
     json!({
@@ -157,6 +157,68 @@ async fn a_daemon_that_does_not_know_the_digest_costs_the_operator_no_word() {
     rig.asked("work.digest", 1).await;
     rig.settle().await;
     assert!(!footer(&rig).contains("unknown method"), "{}", footer(&rig));
+}
+
+/// The time an older build's seen file kept is carried into the store once (issue 46): a save of the file before
+/// the store has taken a look keeps it, and so does a look the daemon refuses, so the next digest asks from it
+/// again; the look the daemon takes hands it over.
+#[tokio::test]
+async fn the_old_time_waits_for_a_look_the_daemon_takes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("theseus").join("seen.json");
+    let old = T0 - 2 * 3_600_000;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let file = json!({"version": 1, "board_read": true, "executions": {},
+        "looked": {"position": 999_999, "at_ms": old}});
+    std::fs::write(&path, file.to_string()).unwrap();
+    let mut none = digest();
+    none.as_object_mut().unwrap().remove("look");
+    let world = harbour_world();
+    {
+        let mut w = world.lock().unwrap();
+        w.answers.insert("work.digest".into(), Ok(none.clone()));
+        let busy = (-32000, "the store is busy".to_string());
+        w.answers.insert("work.look".into(), Err(busy));
+    }
+    let mut rig = harbour_rig_seen(140, 24, world.clone(), &path);
+    rig.asked("work.digest", 1).await;
+    rig.asked("work.look", 1).await;
+    rig.settle().await;
+    assert_eq!(rig.daemon().asked("work.digest")[0]["since_ms"], old);
+    // The TUI saves, and another client records what it showed: neither is the look.
+    save(&mut rig);
+    theseus_client::seen::record(&path, &[]).unwrap();
+    assert_eq!(theseus_client::seen::old_look_time(&path), Some(old));
+    // Back after an absence: asked from the old time again, and this look is taken.
+    none["to"] = json!(950);
+    {
+        let mut w = world.lock().unwrap();
+        w.answers.insert("work.digest".into(), Ok(none));
+        let took = json!({"look": {"position": 950, "at_ms": T0 + 1}});
+        w.answers.insert("work.look".into(), Ok(took));
+    }
+    send(&mut rig, TermEvent::FocusLost).await;
+    NOW.with(|n| n.set(T0 + AWAY_MS));
+    send(&mut rig, TermEvent::FocusGained).await;
+    rig.asked("work.digest", 2).await;
+    rig.asked("work.look", 2).await;
+    rig.settle().await;
+    NOW.with(|n| n.set(T0));
+    let asked = rig.daemon().asked("work.digest");
+    assert_eq!(asked[1]["since_ms"], old, "{asked:?}");
+    save(&mut rig);
+    assert_eq!(theseus_client::seen::old_look_time(&path), None, "handed over");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let on_disk: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(on_disk["store_look"], json!({"position": 950, "at_ms": T0 + 1}));
+}
+
+/// The TUI's save, as its loop writes it.
+fn save(rig: &mut Rig) {
+    rig.runner.app.seen.dirty = true;
+    if let Some(Effect::Save(path, text)) = rig.runner.app.save() {
+        theseus_client::seen::write_merged(&path, &text).unwrap();
+    }
 }
 
 async fn send(rig: &mut Rig, e: TermEvent) {

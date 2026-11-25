@@ -58,6 +58,17 @@ struct File {
     /// again (`Seen::store_looked`). Two writers keep the later.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     store_look: Option<Looked>,
+    /// The last look an older build kept here, as it wrote it (issue 46): the
+    /// only copy of when the owner last looked before the store kept its own.
+    /// Only its time is read (`old_look_time`), never its position, which may
+    /// be another history's. Every write keeps it, until a look the store took
+    /// hands it over (`record_store_look`, or a TUI's save after one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    looked: Option<serde_json::Value>,
+    /// The TUI took a look (`Seen::wrote_look`): its save hands the older
+    /// build's time over. Never written to disk.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    handed_off: bool,
     /// Executions to drop from the file (the TUI's board no longer holds
     /// them). Never written to disk.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -165,9 +176,12 @@ fn update(
             board_read: false,
             executions: HashMap::new(),
             store_look: None,
+            looked: None,
+            handed_off: false,
             forget: Vec::new(),
         });
         change(&mut file);
+        file.handed_off = false;
         let text = serde_json::to_string(&file).map_err(io::Error::other)?;
         write_atomic(path, text.as_bytes(), rename)?;
         Ok(file)
@@ -182,6 +196,9 @@ pub fn write_merged(path: &Path, text: &str) -> io::Result<HashMap<String, Mark>
     let file = update(path, &|a, b| std::fs::rename(a, b), |cur| {
         cur.board_read |= mine.board_read;
         cur.store_look = later(cur.store_look, mine.store_look);
+        if mine.handed_off {
+            cur.looked = None;
+        }
         for id in &mine.forget {
             cur.executions.remove(id);
         }
@@ -196,10 +213,13 @@ fn later(a: Option<Looked>, b: Option<Looked>) -> Option<Looked> {
 }
 
 /// A look this machine wrote (`work.look`'s answer), for the TUI's next start
-/// to know the store by (issue 46).
+/// to know the store by (issue 46). The store has taken a look, so the time an
+/// older build kept here is handed over: this write, after the look, is the
+/// only one that drops it.
 pub fn record_store_look(path: &Path, look: Looked) -> io::Result<()> {
     update(path, &|a, b| std::fs::rename(a, b), |cur| {
         cur.store_look = later(cur.store_look, Some(look));
+        cur.looked = None;
     })
     .map(|_| ())
 }
@@ -207,17 +227,12 @@ pub fn record_store_look(path: &Path, look: Looked) -> io::Result<()> {
 /// The time of the last look an older build kept in this file (issue 46), to
 /// start the store's look from before it has one: carried over by its time,
 /// never by its position, which may belong to another store's history. None
-/// when the file holds none; a file this build writes holds none.
+/// when the file holds none: this build never writes one, and keeps an older
+/// build's until the store has taken a look (`record_store_look`).
 pub fn old_look_time(path: &Path) -> Option<u64> {
     let text = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
     v.get("looked")?.get("at_ms")?.as_u64().filter(|ms| *ms > 0)
-}
-
-/// The older build's look has been carried over: the file is written again
-/// without it, so it is offered once.
-pub fn forget_old_look(path: &Path) -> io::Result<()> {
-    update(path, &|a, b| std::fs::rename(a, b), |_| {}).map(|_| ())
 }
 
 /// How many executions finished since the operator last looked at them, as the
@@ -308,6 +323,9 @@ pub struct Seen {
     fresh: bool,
     /// The store's look as this machine last read or wrote it (issue 46).
     store_look: Option<Looked>,
+    /// A look this TUI sent was taken: the next write hands an older build's
+    /// time over.
+    handed_off: bool,
     /// The marks of another history, dropped from the file at the next write.
     dropped: Vec<String>,
     /// Changed since the file was last written.
@@ -332,6 +350,7 @@ impl Seen {
                 marks: f.executions,
                 fresh: !f.board_read,
                 store_look: f.store_look,
+                handed_off: false,
                 dropped: Vec::new(),
                 dirty: false,
             },
@@ -340,6 +359,7 @@ impl Seen {
                 marks: HashMap::new(),
                 fresh: true,
                 store_look: None,
+                handed_off: false,
                 dropped: Vec::new(),
                 dirty: false,
             },
@@ -381,10 +401,12 @@ impl Seen {
         other
     }
 
-    /// A look this machine wrote: the store's look it knows.
+    /// A look this machine wrote: the store's look it knows, and the store has
+    /// taken one, so the next write hands an older build's time over.
     pub fn wrote_look(&mut self, look: Looked) {
-        if self.store_look != Some(look) {
+        if self.store_look != Some(look) || !self.handed_off {
             self.store_look = Some(look);
+            self.handed_off = true;
             self.dirty = true;
         }
     }
@@ -498,6 +520,8 @@ impl Seen {
             board_read: !self.fresh,
             executions,
             store_look: self.store_look,
+            looked: None,
+            handed_off: self.handed_off,
             forget,
         })
         .unwrap_or_default()

@@ -4,8 +4,8 @@
 //! "Since you last looked" is the store's look (issue 46): `since_look` asks
 //! from it, and `work.look` moves it when this command has shown the board.
 //! Before the store has one, the time of the look an older build kept in the
-//! machine's seen file is carried over once (`seen::old_look_time`), never its
-//! position. `--since 2h` names a time instead. `theseus status` prints the
+//! machine's seen file is carried over (`seen::old_look_time`), never its
+//! position, and the file keeps it until the store has taken a look. `--since 2h` names a time instead. `theseus status` prints the
 //! digest's summary as its last line when there is something to say
 //! (`status_line`).
 //!
@@ -81,8 +81,9 @@ pub async fn run(conn: &mut Conn, json: bool, a: DigestArgs) -> Result<()> {
         match conn.request(method::WORK_LOOK, look).await {
             Err(e) => eprintln!("could not record that you looked: {e}"),
             Ok(v) => {
-                // The terminal's next start knows this store by it (issue 46);
-                // the write drops an older build's look too.
+                // The terminal's next start knows this store by it (issue 46),
+                // and the store has taken a look: the write hands an older
+                // build's time over, and no write before it does.
                 let r = serde_json::from_value::<WorkLookResult>(v);
                 if let (Some(p), Ok(r)) = (path, r) {
                     let _ = seen::record_store_look(&p, r.look);

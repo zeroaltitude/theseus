@@ -372,11 +372,6 @@ impl Runner {
                 }
                 Effect::Quit => self.quit = true,
                 Effect::Bell => self.write(b"\x07"),
-                Effect::ForgetOldLook(path) => {
-                    drop(tokio::task::spawn_blocking(move || {
-                        let _ = theseus_client::seen::forget_old_look(&path);
-                    }));
-                }
                 Effect::StoreLook(path, look) => {
                     drop(tokio::task::spawn_blocking(move || {
                         let _ = theseus_client::seen::record_store_look(&path, look);

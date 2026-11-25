@@ -431,11 +431,6 @@ impl App {
         if let Some(line) = theseus_protocol::digest_summary(&r.lines, since, &self.hm) {
             self.flash = Some((Tag::Ok, format!("{line} · theseus digest")));
         }
-        if old.is_some() {
-            // Carried over: the next save writes the file without it.
-            self.seen.dirty = true;
-            self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
-        }
         self.position = self.position.max(r.to);
         self.look_at(r.to).into_iter().collect()
     }
@@ -455,7 +450,8 @@ impl App {
     }
 
     /// `work.look`'s answer: the store's look this machine wrote, which the
-    /// seen file keeps for the next start.
+    /// seen file keeps for the next start; its save hands an older build's
+    /// time over, now that the store has taken a look.
     pub fn look_said(&mut self, v: Value) {
         if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkLookResult>(v) {
             self.seen.wrote_look(r.look);
@@ -463,8 +459,8 @@ impl App {
         }
     }
 
-    /// The time of the look an older build kept in the seen file, carried over
-    /// once (issue 46).
+    /// The time of the look an older build kept in the seen file, kept there
+    /// until the store has taken a look (issue 46).
     fn old_look(&self) -> Option<u64> {
         seen::old_look_time(self.seen.path()?)
     }
