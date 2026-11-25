@@ -107,7 +107,8 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
     );
     assert!(
         note.ends_with(&format!(
-            "\nUndo: `ask Theseus to undo settings change #{n}`"
+            "\nUndo: no terminal command does this; ask Theseus to undo settings change #{n}, \
+             or press this note's Undo button in Discord."
         )),
         "{note}"
     );

@@ -85,11 +85,23 @@ impl Undo {
             Undo::ConfigUndo(n) => format!("ask Theseus to undo settings change #{n}"),
         }
     }
+
+    /// The note's last line: the command that does the same from a shell, in
+    /// backticks; for an undo no shell command does, what does, in plain words.
+    pub fn line(&self) -> String {
+        match self {
+            Undo::ConfigUndo(n) => format!(
+                "Undo: no terminal command does this; ask Theseus to undo settings change #{n}, \
+                 or press this note's Undo button in Discord."
+            ),
+            u => format!("Undo: `{}`", u.command()),
+        }
+    }
 }
 
 /// Stage the note to the operator: `title` (what was done), `by` (which
 /// conversation did it, the note's second line), `body` (more, or empty),
-/// then the command that undoes it. Append the records with the act's own (or
+/// then the way to undo it ([`Undo::line`]). Append the records with the act's own (or
 /// alone), then `outbox.posted` the action, as `stage_to_operator`'s callers do.
 pub fn stage(
     outbox: &Outbox,
@@ -99,7 +111,7 @@ pub fn stage(
     body: &str,
     undo: &Undo,
 ) -> Result<(Action, Vec<NewRecord>)> {
-    let undo_line = format!("Undo: `{}`", undo.command());
+    let undo_line = undo.line();
     let body = match body.trim_end() {
         "" => undo_line,
         b => format!("{b}\n{undo_line}"),
@@ -152,7 +164,7 @@ pub fn mark_undone(store: &Store, post: &str, by: &str) -> Result<()> {
 
 /// The note's text once undone: the Undo line goes, a line says who undid it.
 pub fn undone_text(text: &str, by: &str) -> String {
-    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: `")).collect();
+    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: ")).collect();
     format!("{}\n↩️ Undone by {by}.", kept.join("\n"))
 }
 
@@ -218,6 +230,20 @@ mod tests {
         );
         assert_eq!(u.params("ana", None), json!({"id": 4, "author": "ana"}));
         assert_eq!(u.command(), "ask Theseus to undo settings change #4");
+        assert_eq!(
+            u.line(),
+            "Undo: no terminal command does this; ask Theseus to undo settings change #4, or \
+             press this note's Undo button in Discord."
+        );
+        assert_eq!(
+            Undo::WakeCancel("w".into()).line(),
+            "Undo: `theseus cancel w`"
+        );
+        let text = "ℹ️ FYI · Changed 1 setting\nasked here\n- a: on → off\n".to_string() + &u.line();
+        assert_eq!(
+            undone_text(&text, "cli"),
+            "ℹ️ FYI · Changed 1 setting\nasked here\n- a: on → off\n↩️ Undone by cli."
+        );
     }
 
     /// A restart: the core gone and its store opened again under a new one.

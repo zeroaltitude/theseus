@@ -134,7 +134,7 @@ async fn the_notes_undo_through_told_undo_puts_the_settings_back_byte_for_byte()
     let done = r.core.told_undo(&post, &owner).await.expect("undone");
     assert_eq!(r.file_text(), FILE, "byte for byte as it was");
     assert!(done.text.ends_with("\n↩️ Undone by cli."), "{}", done.text);
-    assert!(!done.text.contains("Undo: `"), "{}", done.text);
+    assert!(!done.text.contains("Undo: "), "{}", done.text);
     assert_eq!(r.rows("config.undone").len(), 1);
     back(&r);
     let again = r.core.told_undo(&post, &owner).await.unwrap_err();
