@@ -76,6 +76,8 @@ pub trait Waiting {
 pub trait Things {
     /// The things named in an exchange, by him or by Theseus, or whose handle was opened in it.
     fn named_in(&self, turn_id: &str) -> anyhow::Result<Vec<String>>;
+    /// The topics the judge filed an exchange under (`item_labels::topics`), each a thing of the table.
+    fn filed_in(&self, turn_id: &str) -> anyhow::Result<Vec<String>>;
     /// A thing's card and current facts, with any stale fact sharing a unit with its correction.
     fn card(&self, thing: &str) -> anyhow::Result<Vec<Ref>>;
     /// The card of what is at hand.

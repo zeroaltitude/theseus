@@ -236,6 +236,10 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # it is carried whole and flagged in `theseus census`, health and a note (it sits in every
 # DM's cached persona layer).
 # persona_max_tokens = 2000
+# The topic block beside the message (a joined task's card, the things named and in play, then
+# recall) is held to this many tokens inside the view's one ceiling; over it, recall is cut first
+# (1000 to 20000). A value out of range stops the daemon at start, naming it; it is never clamped.
+# topic_max_tokens = 8000
 # The persona in play: a key of [personas], read once like them (the ontology's default persona is
 # `theseus persona default KEY` now; Jev's `none` engages it).
 # default_persona = "theseus"

@@ -112,14 +112,16 @@ pub enum Slot {
     WhoAndWhere,
     /// C: what is certainly waiting between them.
     Waiting,
-    /// D: the work at hand and the things named in the last three exchanges here.
+    /// D: the work at hand and the things named in the last three exchanges here, as an older view record
+    /// names it; laid in [`Slot::Called`], the topic block, since issue 48.
     InPlay,
     /// F: EVERYWHERE, the newest exchanges from every place this conversation does not show (`select::everywhere`).
     /// Its stored name is slot F's, so an old record's slot reads as it did.
     Elsewhere,
     /// G: this place's window and ladder, with its own allowance.
     Here,
-    /// H: what this message calls in.
+    /// H, the topic block, with its own cap inside the ceiling: a joined task's card, the things this message
+    /// names, what is in play (at hand, named in or filed under the last three exchanges here), then recall.
     Called,
     /// I: the clock, the branch line, the task ticker, then his message.
     Now,

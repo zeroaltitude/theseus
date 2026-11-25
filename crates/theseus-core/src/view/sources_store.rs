@@ -285,6 +285,9 @@ impl Things for StoreSources<'_> {
     fn named_in(&self, _: &str) -> anyhow::Result<Vec<String>> {
         Ok(Vec::new())
     }
+    fn filed_in(&self, _: &str) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
     fn card(&self, _: &str) -> anyhow::Result<Vec<Ref>> {
         Ok(Vec::new())
     }

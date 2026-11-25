@@ -185,6 +185,7 @@ mod tests {
             reserve: 0,
             floor_only: false,
             bare: false,
+            topic: room,
         };
         let v = fit(&pov, pieces, &budget).expect("no floor here");
         let shown: Vec<(&str, Form, u64)> = (v.shown.iter())

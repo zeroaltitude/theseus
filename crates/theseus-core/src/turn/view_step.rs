@@ -381,14 +381,18 @@ impl TurnRunner {
         }
     }
 
-    /// The view's one budget: the provider's window, less the reply's room.
+    /// The view's one budget: the provider's window, less the reply's room; the topic block's cap is
+    /// `[context] topic_max_tokens`.
     fn view_budget(&self, spec: &RequestSpec) -> Budget {
         let provider_window = (self.working_window(spec))
             .or_else(|| self.catalog.get(&spec.model).map(|e| e.context_window))
             .unwrap_or(u64::MAX);
         // The reply's room and the headroom the compiler keeps for the turn's own calls
         // (`compiler::budget::request_budget`), so a view that fits is one the compiler sends.
-        Budget::new(provider_window, u64::from(spec.max_tokens) + CALL_HEADROOM)
+        Budget {
+            topic: self.cfg.context.topic_cap(),
+            ..Budget::new(provider_window, u64::from(spec.max_tokens) + CALL_HEADROOM)
+        }
     }
 }
 

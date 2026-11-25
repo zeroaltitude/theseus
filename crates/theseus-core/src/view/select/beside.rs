@@ -27,7 +27,8 @@ impl<'a> Beside<'a> {
         Self { band, src }
     }
 
-    /// The things touched in the newest exchanges here since `/new`, newest first, each once.
+    /// The things touched in the newest exchanges here since `/new`, newest first, each once: those named in
+    /// each exchange, then the topics the judge filed it under.
     fn in_play(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
         let Some(place) = anchor_place(pov) else {
             return Ok(Vec::new());
@@ -44,7 +45,9 @@ impl<'a> Beside<'a> {
         }
         let mut things = BTreeSet::new();
         for turn in self.played(pov, snap, place)? {
-            for thing in self.src.things.named_in(&turn)? {
+            let mut touched = self.src.things.named_in(&turn)?;
+            touched.extend(self.src.things.filed_in(&turn)?);
+            for thing in touched {
                 if things.insert(thing.clone()) {
                     out.extend(
                         self.src

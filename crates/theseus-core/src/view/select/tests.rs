@@ -59,6 +59,10 @@ struct Store {
     owners: Vec<String>,
     /// What laying a recent line adds beyond its estimate and one heading (names, wrappers).
     framing: u64,
+    /// The topics the judge filed an exchange under: a turn, and a topic.
+    filed: Vec<(String, String)>,
+    /// A task is joined: its card is the one the task's source returns.
+    task: bool,
 }
 
 impl Timeline for Store {
@@ -244,6 +248,12 @@ impl Things for Store {
             .map(|(_, x)| x.clone())
             .collect())
     }
+    fn filed_in(&self, turn: &str) -> anyhow::Result<Vec<String>> {
+        Ok((self.filed.iter())
+            .filter(|(t, _)| t == turn)
+            .map(|(_, x)| x.clone())
+            .collect())
+    }
     fn card(&self, thing: &str) -> anyhow::Result<Vec<Ref>> {
         let set: Vec<Ref> = self
             .cards
@@ -280,7 +290,7 @@ impl Names for Store {
 
 impl TaskCards for Store {
     fn joined(&self, _: &PointOfView, _: &str) -> anyhow::Result<Vec<Ref>> {
-        Ok(Vec::new())
+        Ok(self.task.then(|| card("task")).into_iter().collect())
     }
 }
 
@@ -947,7 +957,7 @@ proptest! {
         ceiling in 0u64..20_000,
         here in 0u64..20_000,
     ) {
-        let budget = Budget { ceiling, here_allowance: here, provider_window: 400_000, reserve: 0, floor_only: false, bare: false };
+        let budget = Budget { ceiling, here_allowance: here, provider_window: 400_000, reserve: 0, floor_only: false, bare: false, topic: ceiling };
         let mut s = Store { ex: base, ..Store::default() };
         s.ex.sort_by(|a, b| a.turn.cmp(&b.turn));
         s.ex.dedup_by(|a, b| a.turn == b.turn);
@@ -1591,4 +1601,95 @@ fn the_walk_reads_at_most_its_allowance() {
     let mut w = walk::Walk::every_person(&roomy, 1_000).expect("lists persons");
     assert_eq!(walked(&mut w), all);
     assert!(!w.stopped());
+}
+
+/// The cards of the topic block (slot H) as a whole turn shows them, in order.
+fn topic_block(s: &Store, message: &str) -> Vec<(Band, String)> {
+    let v = assembled(s, &AllowPrivate, message).view.expect("fits");
+    (v.shown.iter())
+        .filter(|x| x.piece.slot == Slot::Called)
+        .map(|x| (x.piece.band, x.piece.handle.0.clone()))
+        .collect()
+}
+
+#[test]
+fn topic_lays_the_task_card_then_named_then_in_play_then_recall() {
+    let mut s = Store {
+        task: true,
+        ..Store::default()
+    };
+    s.ex.push(ex("t1", "local", 1));
+    s.named.push(("t1".into(), "issue:44".into()));
+    s.filed.push(("t1".into(), "topic:ledger".into()));
+    let block = topic_block(&s, "see crate:x");
+    let want = [
+        (Band::TaskCard, "card:task"),
+        (Band::Named, "card:crate:x"),
+        (Band::InPlay, "card:topic:ledger"),
+        (Band::InPlay, "card:issue:44"),
+        (Band::Recall, "card:recalled"),
+    ]
+    .map(|(b, h)| (b, h.to_string()));
+    assert_eq!(
+        block, want,
+        "one block, in one order: the task, named, in play, recall"
+    );
+}
+
+#[test]
+fn a_topic_the_judge_filed_the_last_exchange_under_is_in_view() {
+    let mut s = Store::default();
+    s.ex.push(ex("t1", "local", 1));
+    s.ex.push(ex("a1", "a", 1));
+    s.filed.push(("t1".into(), "topic:ledger".into()));
+    s.filed.push(("a1".into(), "topic:elsewhere".into()));
+    let played: Vec<String> = (select(&s, Band::InPlay, Present::OwnerAlone).into_iter())
+        .map(|p| p.handle.0)
+        .collect();
+    assert_eq!(
+        played,
+        ["card:topic:ledger"],
+        "the topic of an exchange here, not of one in another place"
+    );
+}
+
+#[test]
+fn a_thing_named_twice_is_one_card() {
+    let mut s = Store::default();
+    s.ex.push(ex("t1", "local", 2));
+    s.ex.push(ex("t2", "local", 1));
+    s.filed.push(("t1".into(), "topic:ledger".into()));
+    s.filed.push(("t2".into(), "topic:ledger".into()));
+    let v = assembled(&s, &AllowPrivate, "see topic:ledger")
+        .view
+        .expect("fits");
+    let cards: Vec<&budget::Shown> = (v.shown.iter())
+        .filter(|x| x.piece.handle.0 == "card:topic:ledger")
+        .collect();
+    assert_eq!(cards.len(), 1, "one card: {cards:?}");
+    assert_eq!(
+        cards[0].piece.reasons,
+        BTreeSet::from([Reason::Named, Reason::InPlay]),
+        "named in this message, and in play by the last two exchanges' filing"
+    );
+}
+
+#[test]
+fn an_old_record_naming_in_play_and_reached_still_reads() {
+    for (band, want) in [
+        ("\"in_play\"", Band::InPlay),
+        ("\"reached\"", Band::Reached),
+    ] {
+        assert_eq!(serde_json::from_str::<Band>(band).unwrap(), want);
+    }
+    assert_eq!(
+        serde_json::from_str::<Slot>("\"in_play\"").unwrap(),
+        Slot::InPlay,
+        "an older record's slot D reads as it was written"
+    );
+    assert_eq!(
+        Band::InPlay.row().slot,
+        Slot::Called,
+        "what is in play is laid in the topic block now"
+    );
 }

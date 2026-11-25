@@ -56,7 +56,8 @@ pub enum Band {
     TaskCard,
     /// H: named things.
     Named,
-    /// D.
+    /// H, the topic block: what is at hand, the things named in the newest exchanges here and the topics the
+    /// judge filed them under.
     InPlay,
     /// H: recall.
     Recall,
@@ -122,7 +123,7 @@ pub const ADMISSION: &[Row] = &[
     row(Band::Reached, Slot::Called, false),
     row(Band::TaskCard, Slot::Called, false),
     row(Band::Named, Slot::Called, false),
-    row(Band::InPlay, Slot::InPlay, false),
+    row(Band::InPlay, Slot::Called, false),
     row(Band::Recall, Slot::Called, false),
     row(Band::PeopleRecent, Slot::WhoAndWhere, false),
 ];

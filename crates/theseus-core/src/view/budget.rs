@@ -12,7 +12,8 @@
 //! 5. One budget, [`Budget::total`]: the smaller of the ceiling plus slot G's allowance and the provider's
 //!    window, less the reserve for the reply and the turn's own calls. Everything is charged to it, headings
 //!    and residue lines included. Sizes are today's estimate. Only never-cut text may stand over its own
-//!    pool (see [`fit`]).
+//!    pool (see [`fit`]). Inside the ceiling, the topic block (slot H) is held to its own cap,
+//!    [`Budget::topic`]: over it, the block is cut from its own end, recall first.
 //! 6. Admission follows [`super::select::ADMISSION`]; within a row, newest first, then by id.
 //! 7. Over budget, cut from the end of that order; a piece steps down a form (`Whole → Spoken → Line`)
 //!    before it is dropped, and what is dropped is counted in its band's [`Residue`].
@@ -60,6 +61,9 @@ pub(super) mod ops {
 pub const CEILING: u64 = 60_000;
 /// Slot G's own allowance (the window and the ladder), outside the ceiling.
 pub const HERE_ALLOWANCE: u64 = 150_000;
+/// The topic block's own cap (slot H: the task's card, the things named and in play, then recall), inside the
+/// ceiling; `[context] topic_max_tokens` sets it.
+pub const TOPIC_MAX_TOKENS: u64 = 8_000;
 /// What a shown piece's heading and handle cost when rendered, charged to every shown piece (a conservative
 /// bound; the renderer's own headings decide the real number). At least [`RESIDUE_LINE_TOKENS`], so a drop
 /// never adds tokens.
@@ -86,6 +90,13 @@ pub struct Budget {
     /// turn's message and the fixed blocks stand.
     #[serde(default)]
     pub bare: bool,
+    /// The topic block's own cap, inside the ceiling (the view's slot H).
+    #[serde(default = "topic_max_tokens")]
+    pub topic: u64,
+}
+
+fn topic_max_tokens() -> u64 {
+    TOPIC_MAX_TOKENS
 }
 
 impl Budget {
@@ -98,6 +109,7 @@ impl Budget {
             reserve,
             floor_only: false,
             bare: false,
+            topic: TOPIC_MAX_TOKENS,
         }
     }
 

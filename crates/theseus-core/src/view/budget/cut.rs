@@ -157,11 +157,13 @@ fn shown_cost(it: &Item, form: Form) -> u128 {
     u128::from(it.piece.sizes.at(form)) + u128::from(HEADING_TOKENS)
 }
 
-/// The sums rule 5 holds: slot G against its allowance, everything else against the ceiling, and the whole
-/// against the one budget. A band's residue line is charged to the pool of the first piece it counts.
+/// The sums rule 5 holds: slot G against its allowance, everything else against the ceiling, the topic block
+/// (a part of everything else) against its own cap, and the whole against the one budget. A band's residue
+/// line is charged to the pool of the first piece it counts.
 struct Pools {
     here: u128,
     rest: u128,
+    topic: u128,
     residue: BTreeSet<Band>,
 }
 
@@ -170,21 +172,27 @@ impl Pools {
         let mut p = Self {
             here: 0,
             rest: 0,
+            topic: 0,
             residue: BTreeSet::new(),
         };
         for (it, f) in items.iter().zip(fate) {
             if let Fate::Shown(f) = f {
-                *p.pool(it) += shown_cost(it, *f);
+                p.charge(it, 0, shown_cost(it, *f));
             }
         }
         p
     }
 
-    fn pool(&mut self, it: &Item) -> &mut u128 {
-        if it.here() {
+    /// Take `from` off the pools `it` is charged to and put `to` on them.
+    fn charge(&mut self, it: &Item, from: u128, to: u128) {
+        let pool = if it.here() {
             &mut self.here
         } else {
             &mut self.rest
+        };
+        *pool = *pool - from + to;
+        if it.topic() {
+            self.topic = self.topic - from + to;
         }
     }
 
@@ -199,13 +207,12 @@ impl Pools {
         } else {
             self.rest > u128::from(b.ceiling)
         };
-        mine || self.total() > u128::from(b.total())
+        let topic = it.topic() && self.topic > u128::from(b.topic);
+        mine || topic || self.total() > u128::from(b.total())
     }
 
     fn step(&mut self, it: &Item, from: Form, to: Form) {
-        let (from, to) = (shown_cost(it, from), shown_cost(it, to));
-        let pool = self.pool(it);
-        *pool = *pool - from + to;
+        self.charge(it, shown_cost(it, from), shown_cost(it, to));
     }
 
     fn drop(&mut self, it: &Item, from: Form) {
@@ -215,7 +222,6 @@ impl Pools {
         } else {
             0
         };
-        let pool = self.pool(it);
-        *pool = *pool - cost + line;
+        self.charge(it, cost, line);
     }
 }

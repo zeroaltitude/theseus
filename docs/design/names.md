@@ -189,8 +189,11 @@ not read is named or makes an alias ambiguous. A tool's result is never matched;
 typed message counts as his message (so an ordinary alias in pasted prose may call a card for him alone). A card keeps each excerpt's author: words not his are
 outside text inside it. A matched thing brings its card
 (`names::card`, every part admitted first): its title, what it is, its current facts, its open tasks and its
-newest exchanges, as one piece of slot H. What is in play (slot D) is the things the person's words name in the
-newest three admitted exchanges here. A numbered item's card is its key and its admitted exchanges; an item
+newest exchanges, as one piece of slot H. What is in play is the things the person's words name in the
+newest three admitted exchanges here, then the topics the judge filed them under (`item_labels::topics`), each
+once. Since issue 48 it is laid in slot H too: the topic block (the joined task's card, the things named, what is
+in play, then recall), held to its own cap inside the ceiling (`[context] topic_max_tokens`, 8000 by default)
+and cut from its own end, recall first. A numbered item's card is its key and its admitted exchanges; an item
 with none has no card.
 
 What waits (slot C, `view::sources_waiting`) is the kernel's pending confirmations and the tasks waiting on the

@@ -429,6 +429,19 @@ impl Things for Called<'_> {
         }
     }
 
+    /// The topics the judge filed an exchange in play under, read only once the exchange is admitted whole;
+    /// each brings its card only as the gate admits that topic ([`Things::card`]).
+    fn filed_in(&self, turn_id: &str) -> anyhow::Result<Vec<String>> {
+        let Some(ex) = crate::exchange::exchange(self.store(), turn_id)? else {
+            return Ok(Vec::new());
+        };
+        if !self.admits.exchange(&ex) {
+            return Ok(Vec::new());
+        }
+        let o = self.core.runner.ontology.snapshot(self.store())?;
+        crate::item_labels::topics(self.store(), &o, turn_id)
+    }
+
     fn card(&self, thing: &str) -> anyhow::Result<Vec<Ref>> {
         let Some((c, marks, from)) = self.read(thing)? else {
             return Ok(Vec::new());
