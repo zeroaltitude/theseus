@@ -70,7 +70,8 @@ fn each_note_says_what_was_done_where_and_how_to_undo_it() {
         "- import.notes.enabled: on → off\n\
          Theseus restarts itself to apply it.\n\
          This conversation had read text from outside since your last message (a page, a search \
-         or a server).\n"
+         or a server).\n\
+         Or ask Theseus to undo change #4.\n"
     );
     assert_eq!(undo, crate::owner_note::told::Undo::ConfigUndo(4));
     assert_eq!(undo.command(), "ask Theseus to undo settings change #4");

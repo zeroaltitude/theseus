@@ -107,8 +107,7 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
     );
     assert!(
         note.ends_with(&format!(
-            "\nUndo: no terminal command does this; ask Theseus to undo settings change #{n}, \
-             or press this note's Undo button in Discord."
+            "\nOr ask Theseus to undo change #{n}.\nUndo: `theseus told undo <this-note>`"
         )),
         "{note}"
     );
@@ -118,6 +117,22 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
     let posted = &notes(&r)[0];
     assert_eq!(posted["kind"], json!(crate::owner_note::told::KIND));
     assert_eq!(posted["undo"], json!({"method": "config.undo", "id": n}));
+    // As read, the note names its own post: the terminal's way back works.
+    let post = r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .into_iter()
+        .find(|a| crate::outbox::kind_of(a) == crate::owner_note::told::KIND)
+        .expect("the note")
+        .correlation_id;
+    let (read, _) = crate::owner_note::told::of(&r.core.kernel, &post)
+        .unwrap()
+        .expect("a told note");
+    assert!(
+        read.ends_with(&format!("\nUndo: `theseus told undo {post}`")),
+        "{read}"
+    );
     // The yes path's restart, with its marker, as a card's yes leaves it.
     let marker = super::restart::marker_path(&r.state);
     let p = super::restart::load(&marker).expect("the marker");

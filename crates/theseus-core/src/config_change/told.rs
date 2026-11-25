@@ -190,6 +190,9 @@ pub fn change_note(
              search or a server).\n",
         );
     }
+    body.push_str(&format!(
+        "Or ask Theseus to undo change #{number}.\n"
+    ));
     let title = match args["undoes"]["number"].as_u64() {
         Some(n) => format!("Undid settings change #{n}"),
         None => format!(
