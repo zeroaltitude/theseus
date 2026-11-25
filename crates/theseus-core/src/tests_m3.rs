@@ -4547,7 +4547,9 @@ async fn a_text_attachment_reaches_the_model_labeled_with_its_name() {
         .iter()
         .rev()
         .find_map(|(_, n)| match &n.body {
-            Body::UserMessage { text, attachments } => Some((text.clone(), attachments.clone())),
+            Body::UserMessage {
+                text, attachments, ..
+            } => Some((text.clone(), attachments.clone())),
             _ => None,
         })
         .unwrap();

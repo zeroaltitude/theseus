@@ -18,7 +18,10 @@ impl TurnRunner {
     /// do, but the turn's route stays the running one: the route verdict and
     /// the owner's words about the route apply from the next turn.
     pub(super) fn inbound_point(&self, t: &mut Turn<'_>, node: &Node, author: &str, steered: bool) {
-        let Body::UserMessage { text, attachments } = &node.body else {
+        let Body::UserMessage {
+            text, attachments, ..
+        } = &node.body
+        else {
             return;
         };
         // The owner's own message, for the card's observer (theseus-6f8t0):

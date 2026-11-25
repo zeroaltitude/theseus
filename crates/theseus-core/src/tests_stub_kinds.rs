@@ -115,6 +115,7 @@ fn sample(i: usize) -> Node {
                 image: None,
                 external: None,
                 payload: None,
+                parts: Vec::new(),
             },
         ),
         4 => Node::recall(SID, "trn_1", "rcl_wren", "baseline", Vec::new()),

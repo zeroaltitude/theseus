@@ -1039,7 +1039,10 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
         if n.turn_id.as_deref() != Some(turn_id) {
             continue;
         }
-        if let Body::UserMessage { text, attachments } = &n.body {
+        if let Body::UserMessage {
+            text, attachments, ..
+        } = &n.body
+        {
             parts.push(text.clone());
             new.push(text.as_str());
             parts.extend(attachments.iter().map(|a| a.name.clone()));
@@ -1102,7 +1105,9 @@ pub fn short_context(reply: &str) -> String {
 /// A node's text, as the index reads it: for `memory.recalls`'s excerpts.
 pub fn text_of(n: &Node) -> String {
     match &n.body {
-        Body::UserMessage { text, attachments } => {
+        Body::UserMessage {
+            text, attachments, ..
+        } => {
             let mut t = text.clone();
             for a in attachments {
                 if let AttachmentContent::Text { text, .. } = &a.content {

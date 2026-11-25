@@ -159,6 +159,11 @@ pub enum Body {
         /// message without any, so stored nodes keep their bytes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<Attachment>,
+        /// What it relays, by reference (issue 44; store format 61): the code's own words and quotes of what
+        /// nodes said, which `quotes::render` reads, `text` then empty. Absent on every message written with its
+        /// words, so stored nodes keep their bytes.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        parts: Vec<crate::quotes::Part>,
     },
     AssistantMessage {
         /// Content blocks exactly as the provider returned them.
@@ -248,6 +253,11 @@ pub enum Body {
         /// largest (`clippy::large_enum_variant`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         payload: Option<Box<crate::payload::Marked>>,
+        /// What it showed, by reference (issue 44; store format 61): the code's own words and quotes of what
+        /// nodes said, which `quotes::render` reads, `content` then empty. Absent on every result written with
+        /// its words, which reads as it always did.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        parts: Vec<crate::quotes::Part>,
     },
     /// What recall put in front of the model (M6 step 30b, §2.8): references
     /// to its sources, never copies. It renders after the turn's new message,
@@ -488,6 +498,7 @@ impl Node {
             Body::UserMessage {
                 text: text.into(),
                 attachments,
+                parts: Vec::new(),
             },
         );
         n.author = Some(author.into());
@@ -527,6 +538,7 @@ impl Node {
             Body::UserMessage {
                 text: text.into(),
                 attachments: Vec::new(),
+                parts: Vec::new(),
             },
         );
         n.author = Some(author.into());
@@ -673,9 +685,9 @@ impl Node {
     /// A short human preview (Observatory, CLI).
     pub fn preview(&self, max: usize) -> String {
         let s = match &self.body {
-            Body::UserMessage { text, attachments } => {
-                crate::attach::display_text(text, attachments, self.author.as_deref())
-            }
+            Body::UserMessage {
+                text, attachments, ..
+            } => crate::attach::display_text(text, attachments, self.author.as_deref()),
             Body::AssistantMessage { blocks, .. } => {
                 let t = crate::provider::text_of(blocks);
                 let calls: Vec<String> = crate::provider::tool_uses_in(blocks)

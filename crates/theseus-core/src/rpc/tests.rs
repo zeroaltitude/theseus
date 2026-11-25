@@ -1398,6 +1398,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
             image: None,
             external: None,
             payload: None,
+            parts: Vec::new(),
         },
     );
     let mut old = serde_json::to_value(&n).unwrap();

@@ -643,6 +643,7 @@ fn piece_of(
         first_line: title_from(quote, cuts),
         trusted: false,
         superseded_by: None,
+        parts: Vec::new(),
     }
 }
 

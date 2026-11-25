@@ -212,6 +212,10 @@ pub struct Piece {
     /// The index of the piece that supersedes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub superseded_by: Option<u32>,
+    /// The node's words by reference (issue 44; store format 61), which `quotes::render` reads, `text` then
+    /// none. Absent on every piece written with its words.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<crate::quotes::Part>,
 }
 
 /// A refused arrangement: the class the ledger counts, and what the model
@@ -377,6 +381,7 @@ pub fn resolve(
             first_line: crate::session::title_from(&text, cuts),
             trusted: trusted.contains(&i),
             superseded_by,
+            parts: Vec::new(),
         });
     }
     Ok(out)
@@ -698,6 +703,7 @@ mod tests {
                 image: None,
                 external: None,
                 payload: None,
+                parts: Vec::new(),
             },
         )
     }
