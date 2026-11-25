@@ -105,6 +105,9 @@ pub struct Where {
     /// Held across a yes's re-read, keep and write, so two yeses never both
     /// pass the digest check before either writes.
     pub(crate) writes: Arc<std::sync::Mutex<()>>,
+    /// The secrets a told `vault.use` wrote since this start, each name and
+    /// reference: what a restart makes live, which its card names.
+    pub(crate) told: Arc<std::sync::Mutex<Vec<(String, String)>>>,
 }
 
 impl Where {
@@ -114,6 +117,7 @@ impl Where {
             state,
             core: Arc::default(),
             writes: Arc::default(),
+            told: Arc::default(),
         }
     }
 
@@ -448,6 +452,7 @@ pub fn restart(
         steered,
         reason: &reason,
         wait_secs: RESTART_WAIT_SECS,
+        secrets: &vault_use::told::waiting(&rt.config_change),
     });
     let proposal = Proposal {
         tool: ACK.into(),

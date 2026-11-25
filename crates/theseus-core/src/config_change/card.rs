@@ -99,6 +99,9 @@ pub struct RestartFacts<'a> {
     pub steered: bool,
     pub reason: &'a str,
     pub wait_secs: u64,
+    /// What a told use of a secret wrote since this start, which this start
+    /// makes live: each in words, with the settings that read it.
+    pub secrets: &'a [String],
 }
 
 /// The question for a restart the owner asked for in words: what it cuts.
@@ -117,6 +120,13 @@ pub fn restart_question(f: &RestartFacts<'_>) -> String {
          not healthy afterwards it restarts once more.\n",
         f.wait_secs
     );
+    if !f.secrets.is_empty() {
+        out.push_str(&format!(
+            "Your settings file holds what a use of a secret wrote, and this start makes it live: \
+             from this start on, {}.\n",
+            f.secrets.join("; ")
+        ));
+    }
     if f.waiting > 0 {
         out.push_str(&format!(
             "{} waiting on a question to you (a self-improvement build parked on one is among them, \

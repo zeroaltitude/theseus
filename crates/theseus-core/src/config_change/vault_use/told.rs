@@ -54,12 +54,46 @@ pub fn ours(s: &diff::Setting, name: &str) -> bool {
 /// What `sensitivity::key_reason` says of a key that names where a secret is read from.
 const SECRET_KEY: &str = "where a secret is read from";
 
-/// The note: FYI-headed, the conversation, what now reads where, that a restart is needed, and
-/// the undo. Names and references only, never the value.
+/// What a restart makes live of the secrets told uses wrote since this start, in words: each name
+/// the settings file still points where its use pointed it, its reference, and what reads it.
+/// Names and references only.
+pub(crate) fn waiting(w: &super::super::Where) -> Vec<String> {
+    let told = w.told.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let Some(file) = w.file.as_ref().filter(|_| !told.is_empty()) else {
+        return Vec::new();
+    };
+    let Some((written, _)) = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|t| crate::Config::parse(&t).ok())
+    else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (name, reference) in told.iter().rev() {
+        if !seen.insert(name.clone()) || written.secrets.get(name) != Some(reference) {
+            continue;
+        }
+        let readers = super::given_to(&written, name);
+        out.push(match readers.is_empty() {
+            true => format!("the secret `{name}` is read from {reference}, and nothing reads it yet"),
+            false => format!(
+                "the secret `{name}` is read from {reference} by {}",
+                readers.join(" and ")
+            ),
+        });
+    }
+    out.reverse();
+    out
+}
+
+/// The note: FYI-headed, the conversation, what now reads where (and, for a re-pointed name, what
+/// it read before), that a restart is needed, and the undo. Names and references only, never the
+/// value.
 pub(crate) fn note_text(
     title: Option<&str>,
     used: &Chosen,
-    repointed: bool,
+    before: Option<&str>,
     readers: &[String],
     number: u32,
 ) -> String {
@@ -79,9 +113,12 @@ pub(crate) fn note_text(
         true => "Nothing is given it yet.".to_string(),
         false => format!("Given to: {}.", readers.join("; ")),
     };
+    let was = before.map_or(String::new(), |b| {
+        format!(" It was re-pointed: until now `{}` was read from {b}.", used.name)
+    });
     crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
-        match repointed {
+        match before.is_some() {
             true => "Theseus pointed a secret at another vault item",
             false => "Theseus put a secret from the vault to use",
         },
@@ -91,7 +128,7 @@ pub(crate) fn note_text(
         ),
         &format!(
             "The item \"{}\", field \"{}\"{section}, in the vault \"{}\", is kept under the name \
-             `{}`, read from {}.{by_id} {given} Its value was read once to check it and is shown \
+             `{}`, read from {}.{was}{by_id} {given} Its value was read once to check it and is shown \
              nowhere.\nIt takes effect when Theseus next restarts; nothing restarts it but you.\n\
              Undo: ask Theseus to undo settings change {number} (`config.undo`), which puts back \
              each setting this changed; `theseus config history` lists it.",
@@ -131,9 +168,11 @@ pub(super) fn put_told(
                 .into(),
         );
     }
-    let repointed = crate::config_change::history::doc_of(base)
-        .and_then(|d| crate::config_change::history::value_at(&d, &["secrets".into(), used.name.clone()]))
-        .is_some();
+    let before = crate::config_change::history::doc_of(base)
+        .and_then(|d| {
+            crate::config_change::history::value_at(&d, &["secrets".into(), used.name.clone()])
+        })
+        .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string));
     let (number, _) = write::keep_previous(&w.state, &now).map_err(|e| {
         format!("the previous settings could not be kept, so nothing was written: {e}")
     })?;
@@ -170,7 +209,11 @@ pub(super) fn put_told(
         .ok()
         .flatten()
         .and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
-    let text = note_text(title.as_deref(), used, repointed, &readers, number);
+    w.told
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((used.name.clone(), used.checked.reference.clone()));
+    let text = note_text(title.as_deref(), used, before.as_deref(), &readers, number);
     crate::config_change::hold::tell_owner(tc, &text, super::USE);
     let said = format!(
         "Done, and the owner is told (no card): `secrets.{}` now reads the vault's item \"{}\", \

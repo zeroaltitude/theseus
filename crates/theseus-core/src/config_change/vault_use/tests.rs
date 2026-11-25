@@ -786,6 +786,10 @@ async fn a_repointing_use_is_told_and_its_undo_puts_the_file_back_exactly() {
     assert_ne!(after, crate::config_change::tests::FILE);
     let told = use_notes(&r);
     assert!(told[0].contains("pointed a secret at another vault item"), "{told:?}");
+    assert!(
+        told[0].contains("It was re-pointed: until now `anthropic_api_key` was read from op://v/i/f."),
+        "{told:?}"
+    );
     let n = r.rows("config.changed")[0]["previous_copy"].as_u64().unwrap() as u32;
     assert!(told[0].contains(&format!("undo settings change {n}")), "{told:?}");
     let rows = history::rows(&r.core.store);
@@ -888,4 +892,64 @@ async fn a_use_that_also_reaches_a_sensitive_setting_keeps_its_proof() {
     assert!(asks[0].needs_proof, "policy keeps its proof");
     assert!(asks[0].reason.contains("second proof"), "{}", asks[0].reason);
     assert!(!asks[0].reason.contains("secrets.lantern_key ("), "{}", asks[0].reason);
+}
+
+/// A told use waits for a restart: no setting takes effect without one (`sensitivity::LIVE` is
+/// empty), the running settings do not read the new secret, nothing restarts, and a restart a turn
+/// asks for keeps its card with no second proof, which names the secret and what reads it from
+/// that start on.
+#[tokio::test]
+async fn a_told_use_waits_for_a_restart_whose_card_says_what_it_makes_live() {
+    assert!(crate::config::sensitivity::LIVE.is_empty());
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(json!([]))).await;
+    assert!(r.asked().is_empty(), "{:?}", r.asked());
+    assert!(!r.core.cfg.secrets.contains_key("lantern_key"), "live before a restart");
+    assert!(r.core.restart_requested().is_none(), "something restarted");
+    r.turn_with("daemon_restart", &sid, json!({"reason": "it feels stuck"}))
+        .await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(!asks[0].needs_proof, "{}", asks[0].reason);
+    assert!(
+        asks[0].reason.contains(
+            "this start makes it live: from this start on, the secret `lantern_key` is read from \
+             op://Harbor/Lantern key/credential, and nothing reads it yet.\n"
+        ),
+        "{}",
+        asks[0].reason
+    );
+    assert!(r.core.restart_requested().is_none(), "restarted before a yes");
+}
+
+/// The restart's card names only what the settings file still holds as a told use wrote it: a use
+/// undone since, or pointed elsewhere by hand, is not named.
+#[test]
+fn the_restart_names_only_what_the_file_still_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("theseus.toml");
+    std::fs::write(&file, crate::config_change::tests::FILE).unwrap();
+    let w = crate::config_change::Where::new(Some(file), dir.path().into());
+    assert!(told::waiting(&w).is_empty(), "nothing was told");
+    w.told
+        .lock()
+        .unwrap()
+        .push(("lantern_key".into(), "op://Harbor/Lantern key/credential".into()));
+    assert!(told::waiting(&w).is_empty(), "the use was undone");
+    w.told
+        .lock()
+        .unwrap()
+        .push(("anthropic_api_key".into(), "op://v/i/f".into()));
+    let said = told::waiting(&w);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("the secret `anthropic_api_key` is read from op://v/i/f"),
+        "{said:?}"
+    );
+    w.told
+        .lock()
+        .unwrap()
+        .push(("anthropic_api_key".into(), "op://v/other/f".into()));
+    assert!(told::waiting(&w).is_empty(), "the file no longer holds the last use's reference");
 }

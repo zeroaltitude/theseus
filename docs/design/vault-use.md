@@ -45,7 +45,11 @@ for `config.propose`) the other settings that should read that name: a provider'
    file is written whole, a `config.changed` row records it (`approved_by` "told: the owner's own turn", `told: true`), and
    one FYI note to the owner names the item and field, the name, what reads it, that it takes effect at the next restart
    (nothing here restarts Theseus; only the owner does), and the undo: `config.undo` of that change number, which puts back
-   each setting the use touched, byte for byte. No card, no second proof.
+   each setting the use touched, byte for byte. A re-pointed name's note says so, and names the reference it read until
+   now. No card, no second proof. The undo is said in words: the shared note's Undo button calls an existing method, and
+   none undoes a settings change. A restart a turn asks for keeps its card, which says, while the settings file still holds
+   what a told use wrote since this start, which secret name is read from which reference by which settings from that
+   start on.
 6. **otherwise puts the whole change to the owner as one card** (`config_change::put_using`, the path every settings change
    takes): when `also` sets anything else (a provider's address beside its key, which is where the value would be sent,
    or a setting that has nothing to do with the secret). The card says the item and field as the owner would say them,
