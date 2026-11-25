@@ -806,7 +806,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   secrets), `approval.rs` (who answers, and from where), `peer.rs` (the web UI's other-uid check at accept), and `peer_proc.rs` (who is behind a CLI answer).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
   unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both
-  (`web::net::PrivateAddresses`, `Web.private`).
+  (`web::net::PrivateAddresses`, `Web.private`). A literal loopback or LAN address is told, not asked
+  (issue 57: `web::net::told_host`, `ToolPolicy::told_address`, `toolrun/told.rs`, which also keeps a shared
+  place's card for it and tells the owner of the owner's `theseusd` command moved to L1, `rsi::own_tree`).
   **Reversibility** (theseus-p5kln, row B6 `theseus-2yowd`; `toolrun/reversible.rs`, `judge/undo.rs`,
   `judge/undo/state.rs`; `[judge] reversibility`, on by default, the owner's word 2026-11-12; the design of the
   consumption is `docs/design/undo-v1.md`): `undo.v2` (undo.v1 until issue 46) is asked ONCE for a planned call, on the gate's own path
