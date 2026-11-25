@@ -189,7 +189,11 @@ impl Core {
                 .self_item_closed(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item has left the backlog"),
-            Undo::TaskUndo { .. } => None,
+            Undo::TaskUndo { task, version } => {
+                crate::task_graph::undo::undone(&self.store, task, *version)
+                    .map_err(RpcFailure::invalid)?
+                    .then_some("the task is back as it was")
+            }
         })
     }
 
