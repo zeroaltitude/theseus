@@ -78,7 +78,7 @@ pub struct Frozen {
     /// The verified point of view it was assembled under; a different reading before a later call (a steer
     /// narrowed it) reassembles under the new permit.
     pub verified: Option<theseus_memory::gate::PointOfView>,
-    /// The block beside the new message (waiting, in play, elsewhere lately, called).
+    /// The block beside the new message (every place's newest exchanges, waiting, in play, called).
     pub beside: Option<Node>,
     /// The memory page, at the end of the system part; empty for none.
     pub memory_page: String,

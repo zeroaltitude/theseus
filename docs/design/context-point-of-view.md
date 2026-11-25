@@ -105,8 +105,8 @@ description and the owner's guidance for it; and for each but the owner, their n
 **named things and their cards** (slot D, and slot H's named things:
 the names table built once for the turn through its permit, the message's names and numbered items matched
 against it; `docs/design/names.md`, "The view's sources"). Slot H also holds recall, and a joined task's card
-when the judge's existing `addressed_task` answer names one task. Slots F and G (his words elsewhere lately,
-and here: the window and the ladder) are read from the store. What is in play is the things
+when the judge's existing `addressed_task` answer names one task. Slots F and G (the newest exchanges from every
+place, and here: the window and the ladder) are read from the store. What is in play is the things
 his words named in the newest exchanges here; the things Theseus's replies named and old exchanges' numbered
 items are not read for it.
 
@@ -180,9 +180,20 @@ shared space), and a stricter rule would be a change to that one function. The o
 none of his own, by identity (every effective owner handle, those the bindings make among them, and the records
 they resolve to; a filter of what is chosen, never authority): they are in the window and the look-backs. A turn
 no person opened (a wake, an agent's process) is told none of it, and a self-loop session's turn lays none of the
-lines beside the message. **Not built yet**: the topic block,
-and the look-back over every place that replaces slot F, with the one walk over every place they share. The
-folded ladder stays above the 30 (his answer).
+lines beside the message.
+
+**EVERYWHERE** (slot F, built 2026-11-24; `view/select/everywhere.rs`) replaced "his words elsewhere lately": the
+newest 15 exchanges from every place this conversation does not already show, whoever opened them, one line each
+(the person's words and the `did` line, cut beyond 150 tokens with the handle) headed with its place, its time
+and whose words they are, laid beside the message so that activity elsewhere never rewrites the cached front. It
+walks every person's timeline as one, within 300 references read; a wake, which no person opened, is on none.
+It leaves out every exchange of this place (since its `/new` mark they are its window and ladder; before it, his
+past, which is never laid as anything else), a task's own workings, the exchanges of a person present but the
+owner (the people block lays their newest) and anything the gate denies. On a guest's turn the owner's own
+newest exchanges from elsewhere are laid as on his (`everywhere::THE_OWNERS_LINES_ON_A_GUESTS_TURN`, one
+constant). A turn no person opened is told none of it, and a self-loop session's turn lays none. **Not built
+yet**: the topic block, and a closing line saying where an every-place pager resumes (it waits for that
+pager). The folded ladder stays above the 30 (his answer).
 
 ---
 
@@ -413,7 +424,7 @@ For a conversation where the owner is alone. Sizes are typical / cap, in tokens 
 | C | **Waiting** | what is certainly waiting between them, from any place: questions Theseus has parked for him, tasks waiting on him, a message of his still being answered elsewhere | records that exist today | 300 / 1,000 |
 | D | **In play** | the work at hand and the things named in the last three exchanges here: card, current facts, open tasks a line each | at hand; the touch index | 800 / 3,000 |
 | E | **Past**: removed (the owner's ruling, 2026-11-24; §5.3) | nothing | none | 0 |
-| F | **Lately, everywhere** | the last 48 hours in his other private places, merged by time: **his words verbatim**; per place the newest reply in full (over 1,500 tokens: its first 500 and last 1,000, since questions and conclusions sit at the ends), older replies as their `did` line with a handle. And always, whatever its age, his newest exchange in each other private place (five places at most) | the person's timeline, less this place | 2,500 / 12,000 |
+| F | **Everywhere** | the newest 15 exchanges from every place this conversation does not already show, whoever opened them, a line each (the person's words and the `did` line, 150 tokens at most, with the handle), headed with the place, the time and whose words they are. Replaced "lately, everywhere" (his words of the last 48 hours, the newest reply per place, his newest exchange in five places) on 2026-11-24 | every person's timeline as one, less this place, tasks, wakes and the people present but the owner | 1,650 / 2,850 (est.) |
 | G | **Here** | this place's window and ladder (§5.2) | the place's timeline | its own allowance (§5.2); in a long conversation 75,000 to 140,000 (est.: words 15,000 to 33,000; tool output 40,000 to 80,000; the ladder 20,000 to 30,000) |
 | H | **Called, this turn** | what this message calls in: named things not in view, a reached exchange, a joined task's card, recall | the name matcher, the reach, recall | 1,800 / 8,000 |
 | I | **Now, and the message** | the clock, the branch line, the task ticker; then his words | code | about 300 |
@@ -470,8 +481,8 @@ joined task's card, say) is neither listed nor counted.
 3. G's ladder, oldest node first. Marked blocks.
 4. G's window, as real turns of the person and of Theseus, in the order they happened, with tool calls and
    results paired as the provider requires. Nothing else is sent as conversation.
-5. Beside the new message, in one marked block that is never stored: C (waiting), D (in play), F (elsewhere
-   in the last two days), H (called by this message), and B's recent lines of the people present. Then his
+5. Beside the new message, in one marked block that is never stored: F (the newest exchanges from every place),
+   C (waiting), D (in play), H (called by this message), and B's recent lines of the people present. Then his
    message.
 
 Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2), when a fact about
@@ -654,9 +665,8 @@ per turn today, so step 1 adds it). A new session does not start a new place or 
 ### 5.3 His words from everywhere: how they thin with age
 
 **Removed, 2026-11-24** (the owner's ruling: the slices of his words by age go). Slot E, which laid his words
-older than two days in bands to 7 days, to 30 days and older, is gone, with its selector and its bands. His
-words from other places in the last two days are slot F's; anything older is reached by the history tool and
-by recall. A view record kept before it still reads: its pieces of those bands are listed as `retired`.
+older than two days in bands to 7 days, to 30 days and older, is gone, with its selector and its bands. The
+newest exchanges from every place are slot F's; anything older is reached by the history tool and by recall. A view record kept before it still reads: its pieces of those bands are listed as `retired`.
 
 ### 5.4 How a mention calls a thing in, and how it stays
 

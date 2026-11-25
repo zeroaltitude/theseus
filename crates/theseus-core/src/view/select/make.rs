@@ -21,13 +21,7 @@ pub fn unsummarised_tokens() -> u64 {
 pub enum Cut {
     /// The window: whole is with its tool traffic, spoken with stubs, a line his ask and the `did` line.
     Window,
-    /// Elsewhere lately: a line is his words and the `did` line; spoken is his words and the reply in full,
-    /// or over 1,500 tokens its first 500 and last 1,000 (§5.1, slot F).
-    Elsewhere,
 }
-
-/// The longest reply slot F shows in full, and what it keeps of a longer one.
-const REPLY_WHOLE: u64 = 1_500;
 
 /// The sizes of an exchange as a band shows it.
 pub fn sizes(f: &ExchangeFacts, cut: Cut) -> Sizes {
@@ -36,11 +30,6 @@ pub fn sizes(f: &ExchangeFacts, cut: Cut) -> Sizes {
         Cut::Window => Sizes {
             whole: f.his.saturating_add(f.reply).saturating_add(f.tools),
             spoken: f.his.saturating_add(f.reply).saturating_add(f.stubs),
-            line: f.his.saturating_add(did),
-        },
-        Cut::Elsewhere => Sizes {
-            whole: f.his.saturating_add(f.reply.min(REPLY_WHOLE)),
-            spoken: f.his.saturating_add(f.reply.min(REPLY_WHOLE)),
             line: f.his.saturating_add(did),
         },
     }

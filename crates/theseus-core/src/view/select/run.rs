@@ -12,7 +12,7 @@ use super::super::{
     SourceRange, Space,
 };
 use super::beside::Beside;
-use super::elsewhere::Elsewhere;
+use super::everywhere::Everywhere;
 use super::here::Here;
 use super::people::People;
 use super::sources::Sources;
@@ -103,9 +103,7 @@ pub fn table<'a>(
                 b @ (Band::Floor | Band::WindowWords | Band::WindowTools | Band::Ladder) => {
                     Box::new(Here::new(b, src))
                 }
-                b @ (Band::ElsewhereWords | Band::ElsewhereReplies) => {
-                    Box::new(Elsewhere::new(b, src))
-                }
+                Band::Everywhere => Box::new(Everywhere::new(src)),
                 b @ (Band::WhoAndWhere | Band::PeopleRecent) => Box::new(People::new(b, src)),
                 b @ (Band::Waiting
                 | Band::Reached
@@ -160,7 +158,7 @@ pub fn assemble_counted(
     let mut faults = 0u32;
     for s in selectors {
         // A self-loop session's turn lays its own place only (a scope of the self loop, `Gate::own_place_only`):
-        // nothing waiting (C), nothing elsewhere (F), no person's exchanges elsewhere (B's recent lines).
+        // nothing waiting (C), nothing from every place (F), no person's exchanges elsewhere (B's recent lines).
         let scoped_out = matches!(s.band().row().slot, Slot::Waiting | Slot::Elsewhere)
             || s.band() == Band::PeopleRecent;
         if gate.own_place_only() && scoped_out {

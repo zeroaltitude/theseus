@@ -774,6 +774,8 @@ mod tests_view_between;
 #[cfg(test)]
 mod tests_view_compile;
 #[cfg(test)]
+mod tests_view_everywhere;
+#[cfg(test)]
 mod tests_view_gate;
 #[cfg(test)]
 mod tests_view_hand_backs;

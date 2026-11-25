@@ -1,8 +1,8 @@
 //! The renderer over the store (`super::render::Renderer`), with the view's text (`super::text`): the memory
 //! page; the budgeter's pieces as marked blocks, those of who and where and his older words in the fixed
-//! front, those that move every turn (waiting, in play, elsewhere lately, called) in the one block beside the
-//! message; and the ladder's nodes as fold blocks. The window is not the renderer's: the compiler renders
-//! the window's exchanges as real turns (`compiler::view`).
+//! front, those that move every turn (every place's newest exchanges, waiting, in play, called) in the one
+//! block beside the message; and the ladder's nodes as fold blocks. The window is not the renderer's: the
+//! compiler renders the window's exchanges as real turns (`compiler::view`).
 //!
 //! A piece is read by its range: an exchange of a place from the store, in the piece's form, each node with
 //! the mark of what has been said about it since (`copies::since::Since::beside`: that it was marked wrong
@@ -121,7 +121,9 @@ impl TextRenderer<'_> {
         if p.range.last.id != p.range.first.id {
             ids.push(p.range.last.id.as_str());
         }
-        let recent = p.band == Band::PeopleRecent;
+        // A person's recent line elsewhere, or a line from every place: within its own bound, cut with its
+        // handle, its words headed with the person's name.
+        let lined = matches!(p.band, Band::PeopleRecent | Band::Everywhere);
         let mut out = Vec::new();
         for turn in ids {
             let nodes = self.exchange_nodes(turn)?;
@@ -129,8 +131,7 @@ impl TextRenderer<'_> {
             let said = match form {
                 Form::Whole => forms::whole(&nodes),
                 Form::Spoken => forms::spoken(&nodes),
-                // A person's recent line elsewhere: within its own bound, cut with its handle.
-                Form::Line if recent => forms::fit(
+                Form::Line if lined => forms::fit(
                     line(&nodes, self.summary(turn)?, &handle),
                     RECENT_LINE_TOKENS,
                     &handle,
@@ -138,7 +139,7 @@ impl TextRenderer<'_> {
                 Form::Line => line(&nodes, self.summary(turn)?, &handle),
             };
             // Its words are headed with the person's name, as the owner's records hold it.
-            let person = match recent {
+            let person = match lined {
                 true => self.person_name(turn)?,
                 false => None,
             };
