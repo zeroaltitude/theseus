@@ -327,6 +327,54 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     assert_eq!(cases.bar, Some(true));
 }
 
+/// `parent` is the stay: `routing::model::decide` keeps the turn on the model it is on. The replay
+/// grades it by the case's `current_model`, resolved through the one option table: the file's warm
+/// models are options there, a case with none has nothing to stay on, and W15 under the bar (Sonnet
+/// at 0.33, as route.v12 answered it) stays on Sonnet, its label, so the must is met.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_replay_stays_where_decide_stays() {
+    let (set, _) = set_of("route.v12", V10);
+    let not_sonnet: Vec<(&str, Option<&str>)> = (set.cases.iter())
+        .map(|c| (c.id.as_str(), super::replay_cases::stays(c)))
+        .filter(|(_, s)| *s != Some("sonnet"))
+        .collect();
+    assert_eq!(
+        not_sonnet,
+        [
+            ("W34", None),
+            ("W35", None),
+            ("W36", None),
+            ("W37", None),
+            ("W38", None),
+            ("W42", Some("haiku")),
+            ("W43", None)
+        ]
+    );
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    script(&jev, "route.v12", V10, "model", &|id| match id {
+        "W15" => Some(("sonnet", 0.33)),
+        _ => None,
+    });
+    let out = r.core.judge_replay(params(), "cli").await.unwrap();
+    let cases = out.cases.unwrap();
+    let w15 = cases.cases.iter().find(|c| c.id == "W15").unwrap();
+    assert_eq!(
+        (
+            w15.model.got.as_str(),
+            w15.model.sub_confirm,
+            w15.model.agrees
+        ),
+        ("parent", true, true)
+    );
+    assert!(w15.must);
+    assert_eq!((cases.model_ok, cases.under_model), (62, 1));
+    assert_eq!(
+        (cases.must_ok, cases.must_total, cases.must_under_confirm),
+        (13, 13, 1)
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_refusals_send_nothing() {
     let jev = FakeJev::start().unwrap();

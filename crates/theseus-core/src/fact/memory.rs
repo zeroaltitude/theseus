@@ -119,7 +119,8 @@ impl Fact for MemoryUsed<'_> {
 pub struct MemoryRead<'a> {
     pub principal: &'a str,
     pub client: Option<&'a str>,
-    /// `memory_search` or `memory_get`.
+    /// `context_history`; an older row may name `memory_search` or
+    /// `memory_get`, the MCP tools that went (issue 46).
     pub tool: &'a str,
     /// The first 16 hex digits of the SHA-256 of the words, the id or the
     /// session asked for.
