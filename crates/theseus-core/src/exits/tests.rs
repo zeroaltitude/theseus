@@ -524,3 +524,125 @@ fn a_200_kb_transcript_of_ordinary_output_is_scanned_in_bounded_time() {
         );
     }
 }
+
+// Record both exits, including the fake's otherwise unrecorded token counter.
+struct FieldNameProvider(Arc<FakeProvider>);
+
+impl Provider for FieldNameProvider {
+    fn name(&self) -> &str {
+        "fake"
+    }
+
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        sink: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        self.0.stream_message(req, sink)
+    }
+
+    fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
+        self.0.requests.lock().unwrap().push(req.clone());
+        self.0.count_tokens(req)
+    }
+}
+
+fn field_name_rig(on: bool) -> (Substituting, Arc<FakeProvider>, Store, tempfile::TempDir) {
+    let (_, fake, store, dir) = rig(on);
+    let inner = Arc::new(FieldNameProvider(fake.clone()));
+    let p = Substituting::new("fake", inner, exits(on), Some(store.clone()));
+    (p, fake, store, dir)
+}
+
+#[test]
+fn field_names_at_the_top_level_and_nested_are_masked() {
+    for value in [json!({KEY: "plain"}), json!({"outer": [{KEY: "plain"}]})] {
+        let mut req = request("plain");
+        req.tools = vec![value];
+        let before = req.tools.clone();
+        let (sent, found) = exits(true).request(&req);
+        let sent = sent.expect("secret field names require substitution");
+        assert!(!wire(&sent).contains(KEY));
+        assert!(wire(&sent).contains("[redacted:anthropic_key]"));
+        assert_eq!(found.names(), ["anthropic_key"]);
+        assert_eq!(found.count(), 1);
+        assert_eq!(req.tools, before, "local request remains raw");
+    }
+}
+
+#[test]
+fn field_names_in_extra_fields_are_masked() {
+    let mut req = request("plain");
+    req.extra.insert(KEY.into(), json!({OTHER: "plain"}));
+    let (sent, found) = exits(true).request(&req);
+    let sent = sent.expect("extra field names require substitution");
+    assert_eq!(
+        sent.extra["[redacted:anthropic_key]"],
+        json!({"[redacted:db_password]": "plain"})
+    );
+    assert_eq!(found.names(), ["anthropic_key", "db_password"]);
+    assert_eq!(found.count(), 2);
+    assert_eq!(req.extra[KEY], json!({OTHER: "plain"}));
+}
+
+#[test]
+fn field_names_with_encoded_secrets_are_masked() {
+    let mut req = request("plain");
+    let encoded = b64(ENC.as_bytes());
+    req.tools = vec![json!({encoded.clone(): "plain"})];
+    let (sent, found) = encoded_exits(true).request(&req);
+    let sent = sent.expect("encoded field names require substitution");
+    assert!(!wire(&sent).contains(&encoded));
+    assert_eq!(sent.tools, vec![json!({"[redacted:demo_secret]": "plain"})]);
+    assert_eq!(found.names(), ["demo_secret"]);
+}
+
+#[tokio::test]
+async fn field_name_collisions_refuse_stream_and_token_dispatch() {
+    for extra in [false, true] {
+        let (p, fake, _store, _dir) = field_name_rig(true);
+        let mut req = request("plain");
+        let fields = json!({KEY: "secret-key value", "[redacted:anthropic_key]": "existing value"});
+        if extra {
+            req.extra = fields.as_object().unwrap().clone().into_iter().collect();
+        } else {
+            req.tools = vec![json!({"nested": fields})];
+        }
+        let mut sink = |_: Delta<'_>| {};
+        let stream = p.stream_message(&req, &mut sink).await;
+        let count = p.count_tokens(&req).await;
+        assert!(
+            fake.requests().is_empty(),
+            "colliding fields must never dispatch"
+        );
+        assert!(stream.unwrap_err().to_string().contains("field names"));
+        assert!(count.unwrap_err().to_string().contains("field names"));
+    }
+}
+
+#[tokio::test]
+async fn field_names_with_redaction_off_are_sent_as_written() {
+    let (p, fake, store, _dir) = field_name_rig(false);
+    let mut req = request("plain");
+    req.tools = vec![json!({KEY: "plain", "[redacted:anthropic_key]": "kept"})];
+    req.extra.insert(KEY.into(), json!({OTHER: "plain"}));
+    let mut sink = |_: Delta<'_>| {};
+    p.stream_message(&req, &mut sink).await.unwrap();
+    p.count_tokens(&req).await.unwrap();
+    let sent = fake.requests();
+    assert_eq!(sent.len(), 2);
+    for sent in sent {
+        assert_eq!(wire(&sent), wire(&req));
+        assert_eq!(sent.extra, req.extra);
+    }
+    let rows = rows(&store);
+    assert_eq!(
+        rows.len(),
+        2,
+        "disabled redaction still names encountered secrets"
+    );
+    for row in rows {
+        assert_eq!(row.data["substituted"], false);
+        assert_eq!(row.data["names"], json!(["anthropic_key", "db_password"]));
+    }
+}
