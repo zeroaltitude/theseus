@@ -204,10 +204,17 @@ pub fn risk_of(req: &ConfirmRequest) -> &'static str {
         "git.show",
         "self.evidence",
         "self.open_work",
+        "config.show",
+        "look.theseus",
+        "look.vault",
+        "look.work",
     ]
     .contains(&t)
     {
         "read-only"
+    } else if t == crate::profile_tool::ASK {
+        // One priced model call: it changes nothing, and it is paid for.
+        "spends"
     } else {
         "writes"
     }

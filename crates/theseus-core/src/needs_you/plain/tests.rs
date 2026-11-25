@@ -198,3 +198,25 @@ fn a_holds_words_are_printed_whole_without_layer_one() {
         Some("layer 1: the task's objective is yours")
     );
 }
+
+/// A call that only reads is not said to write: the looks and the settings read
+/// are read-only, and `profile.ask`, one priced model call, spends; the calls
+/// that change something keep "writes" (a profile hold, a task started, a
+/// setting that uses a secret, a secret kept).
+#[test]
+fn a_reading_look_is_not_said_to_write() {
+    let risk = |tool: &str| {
+        risk_of(&ConfirmRequest {
+            tool: tool.into(),
+            input: json!({}),
+            ..Default::default()
+        })
+    };
+    for tool in ["config.show", "look.theseus", "look.vault", "look.work"] {
+        assert_eq!(risk(tool), "read-only", "{tool}");
+    }
+    assert_eq!(risk("profile.ask"), "spends");
+    for tool in ["profile.hold", "profile.run", "vault.use", "vault.keep"] {
+        assert_eq!(risk(tool), "writes", "{tool}");
+    }
+}
