@@ -207,10 +207,17 @@ async fn the_old_time_waits_for_a_look_the_daemon_takes() {
     let asked = rig.daemon().asked("work.digest");
     assert_eq!(asked[1]["since_ms"], old, "{asked:?}");
     save(&mut rig);
-    assert_eq!(theseus_client::seen::old_look_time(&path), None, "handed over");
+    assert_eq!(
+        theseus_client::seen::old_look_time(&path),
+        None,
+        "handed over"
+    );
     let text = std::fs::read_to_string(&path).unwrap();
     let on_disk: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(on_disk["store_look"], json!({"position": 950, "at_ms": T0 + 1}));
+    assert_eq!(
+        on_disk["store_look"],
+        json!({"position": 950, "at_ms": T0 + 1})
+    );
 }
 
 /// The TUI's save, as its loop writes it.

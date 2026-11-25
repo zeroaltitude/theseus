@@ -44,11 +44,7 @@ type Asked = Arc<Mutex<Vec<(String, Value)>>>;
 /// A daemon on `sock` that answers `work.digest` (with the store's look, when
 /// it has one) and `work.look` (or refuses it, when `refuse`), and records
 /// their params, and an empty board for `executions.watch`.
-fn daemon(
-    sock: &Path,
-    look: Option<Value>,
-    refuse: bool,
-) -> (std::thread::JoinHandle<()>, Asked) {
+fn daemon(sock: &Path, look: Option<Value>, refuse: bool) -> (std::thread::JoinHandle<()>, Asked) {
     let listener = UnixListener::bind(sock).unwrap();
     let asked = Arc::new(Mutex::new(Vec::new()));
     let seen = asked.clone();
