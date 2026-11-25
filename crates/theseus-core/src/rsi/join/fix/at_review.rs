@@ -20,6 +20,20 @@ use crate::fact::rsi_fix::{Moved, NoFix};
 use crate::rsi::join::{blocking, git, remote_of, Run};
 use crate::rsi::tree;
 
+/// Why a fix at review is not on the remote.
+enum NotPushed {
+    /// It did not hold, in these words: the item returns, as a reject does.
+    Returned(String),
+    /// Its push was refused for what must not leave: the head is held for the owner.
+    Held(tree::Refused),
+}
+
+impl From<String> for NotPushed {
+    fn from(why: String) -> Self {
+        NotPushed::Returned(why)
+    }
+}
+
 impl Run<'_> {
     /// What the review just asked a fix to repair.
     pub(in crate::rsi::join) fn asked_fix(&mut self) -> Vec<String> {
@@ -111,21 +125,32 @@ impl Run<'_> {
         if let Err(e) = blocking(move || tree::close(&p, &tr)).await {
             tracing::warn!(error = %format!("{e:#}"), branch = %t.branch, "self fix: the tree was not closed");
         }
-        if let Err(why) = out {
-            self.fix_returned(&why)?;
+        match out {
+            Ok(_) => {}
+            // What must not leave holds the head for the owner, as an unsigned join does.
+            Err(NotPushed::Held(why)) => {
+                let lift = format!("run `{}`", theseus_protocol::rsi::retry_command(&self.b.item));
+                let text = crate::rsi::pr::withheld_text(&self.b.branch, &self.b.item, &why, &lift);
+                self.card(text);
+                self.hold("push", &why.to_string(), Value::Null);
+            }
+            Err(NotPushed::Returned(why)) => self.fix_returned(&why)?,
         }
         Ok(true)
     }
 
-    /// Make, gate, approve and push: the approver, or the words of why the fix did not hold.
-    async fn fixed_at_review(&self, job: &Job<'_>, remote: &str) -> Result<String, String> {
+    /// Make, gate, approve and push: the approver once the fix is on the remote; else why it is not.
+    async fn fixed_at_review(&self, job: &Job<'_>, remote: &str) -> Result<String, NotPushed> {
         let made = job.make().await?;
         let (p, t) = (self.place.clone(), job.tree.clone());
         let gated = tree::gate(&p, &t).await.and_then(tree::Gated::ran);
         match gated {
             Ok(run) if run.verdict == tree::Verdict::Green => {}
-            Ok(run) => return Err(job.red_again(&made, &run.tail)),
-            Err(e) => return Err(job.red_again(&made, &format!("the gate did not run: {e:#}"))),
+            Ok(run) => return Err(job.red_again(&made, &run.tail).into()),
+            Err(e) => {
+                let why = job.red_again(&made, &format!("the gate did not run: {e:#}"));
+                return Err(why.into());
+            }
         }
         let approver = job.approve(&made).await?;
         if let Err(e) = self.fix_report(job, &made, &approver) {
@@ -135,14 +160,23 @@ impl Run<'_> {
             let (p, t, r) = (self.place.clone(), job.tree.clone(), remote.to_string());
             let b = t.branch.clone();
             let scrubber = self.core.tools.scrubber.clone();
+            let (store, item) = (self.core.store.clone(), self.b.item.clone());
+            let builder = self.b.session.clone().unwrap_or_default();
             let pushed = blocking(move || {
-                Ok(tree::push(&p, &t, &r, &b, &|s| scrubber.scrub(s).1).map_err(|e| e.to_string()))
+                let heard = crate::rsi::outgoing::Heard::of(&store, &item, &[&builder]);
+                let heard = heard.as_ref().map_err(|e| format!("{e:#}"));
+                Ok(tree::push(&p, &t, &r, &b, &|s| scrubber.scrub(s).1, heard))
             })
             .await
-            .map_err(|e| format!("{e:#}"))
-            .and_then(|r| r);
-            if let Err(e) = pushed {
-                tracing::warn!(branch = %job.tree.branch, "self fix: the fixed branch was not pushed: {e}");
+            .map_err(|e| NotPushed::Returned(format!("the fixed branch was not pushed: {e:#}")))?;
+            match pushed {
+                Ok(_) => {}
+                Err(e) if e.holds() => return Err(NotPushed::Held(e)),
+                Err(e) => {
+                    return Err(NotPushed::Returned(format!(
+                        "the fixed branch was not pushed: {e}"
+                    )))
+                }
             }
         }
         Ok(approver)

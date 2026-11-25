@@ -21,7 +21,7 @@ use crate::rsi::tests_tree::{fixture_with, git};
 use crate::rsi::tree::Place;
 use crate::Config;
 
-const WIRE: &str = "self_propose_change";
+pub(super) const WIRE: &str = "self_propose_change";
 pub(super) const ITEM: &str = "trim-the-sails";
 
 /// Red in clippy while `lint.txt` is in the tree and `lint-fixed.txt` is not, red in the suite at
@@ -38,13 +38,13 @@ echo "gate: ok"
 "#;
 
 /// The change: a lint the gate fails on, and a fix with its test.
-const LINTED: &[(&str, &str)] = &[
+pub(super) const LINTED: &[(&str, &str)] = &[
     ("lint.txt", "let x = 1;\n"),
     ("fix.txt", "fixed\n"),
     ("tests/fix.sh", "test -f fix.txt\n"),
 ];
 /// The fixer's repair of it.
-const REPAIR: &[(&str, &str)] = &[("lint-fixed.txt", "let _x = 1;\n")];
+pub(super) const REPAIR: &[(&str, &str)] = &[("lint-fixed.txt", "let _x = 1;\n")];
 
 /// Main's last gate was red.
 struct RedMain;
@@ -65,12 +65,12 @@ pub(super) fn rig(edit: impl FnOnce(&mut Config)) -> Rig {
     })
 }
 
-fn input() -> Value {
+pub(super) fn input() -> Value {
     json!({"item": ITEM, "issue": "theseus-sail1", "why": "Trim the sails before the wind."})
 }
 
 /// The item a builder works on: a self task in progress in its session.
-fn item(r: &Rig) -> String {
+pub(super) fn item(r: &Rig) -> String {
     let sid = r.session("self");
     let t = TaskRecord {
         id: ITEM.into(),
@@ -99,11 +99,11 @@ fn item(r: &Rig) -> String {
     sid
 }
 
-fn tree_of(r: &Rig) -> PathBuf {
+pub(super) fn tree_of(r: &Rig) -> PathBuf {
     r.f.place.trees().canonicalize().unwrap().join(ITEM)
 }
 
-fn write(dir: &Path, files: &[(&str, &str)]) {
+pub(super) fn write(dir: &Path, files: &[(&str, &str)]) {
     for (p, t) in files {
         let p = dir.join(p);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -131,7 +131,7 @@ pub(super) async fn build(
     (sid, said)
 }
 
-fn green() -> Arc<dyn main_red::Main> {
+pub(super) fn green() -> Arc<dyn main_red::Main> {
     Arc::new(main_red::Unrecorded)
 }
 
@@ -165,7 +165,7 @@ fn tries(r: &Rig) -> (usize, String) {
     (attempts::tries(&t, 0).len(), note)
 }
 
-fn built(r: &Rig) -> Value {
+pub(super) fn built(r: &Rig) -> Value {
     rows(r, "self.branch.built").pop().expect("a built row")
 }
 
@@ -998,7 +998,7 @@ async fn an_approval_answered_by_the_fixers_model_is_refused() {
 }
 
 /// Push `files` onto the fixture's main.
-fn onto_main(r: &Rig, name: &str, files: &[(&str, &str)]) {
+pub(super) fn onto_main(r: &Rig, name: &str, files: &[(&str, &str)]) {
     let root = r.f.upstream.parent().unwrap().to_path_buf();
     let work = root.join(name);
     git(

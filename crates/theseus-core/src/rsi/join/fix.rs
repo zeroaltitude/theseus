@@ -32,6 +32,8 @@ mod tests;
 #[cfg(test)]
 mod tests_gate;
 #[cfg(test)]
+mod tests_outgoing;
+#[cfg(test)]
 mod tests_review;
 pub(crate) mod turns;
 

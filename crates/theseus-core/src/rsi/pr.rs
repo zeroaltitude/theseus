@@ -597,8 +597,8 @@ pub async fn propose(
     };
     if keel_mark(&place, &t).exists() {
         return Err(format!(
-            "Not run: {} stopped at the keel and waits for the owner's answer; it is never \
-             retried around.",
+            "Not run: {} is held for the owner (a keel stop, or a push refused for what must not \
+             leave) and waits for the owner's answer; it is never retried around.",
             i.item
         ));
     }
@@ -739,8 +739,15 @@ async fn attempt(
     if let Some(remote) = core.cfg.self_improve.remote.clone() {
         let (p, t, b) = (place.clone(), a.tree.clone(), a.tree.branch.clone());
         let scrubber = core.tools.scrubber.clone();
+        let (store, item, session) = (
+            core.store.clone(),
+            a.i.item.trim().to_string(),
+            tc.session_id.to_string(),
+        );
         let pushed = blocking(move || {
-            Ok(tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1)
+            let heard = super::outgoing::Heard::of(&store, &item, &[&session]);
+            let heard = heard.as_ref().map_err(|e| format!("{e:#}"));
+            Ok(tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1, heard)
                 .map(|spec| format!("{remote} {spec}")))
         })
         .await?;
@@ -749,6 +756,8 @@ async fn attempt(
                 after = format!("Pushed to {to}. ");
                 a.pushed = Some(to);
             }
+            // What must not leave holds the item for the owner, as a keel stop does: nothing goes on.
+            Err(e) if e.holds() => return withheld(core, place, tc, a, &e),
             Err(e) => {
                 a.stopped_at = Some(PUSH);
                 after = format!("Not pushed: {e}. ");
@@ -1115,6 +1124,61 @@ fn keel(
     tc: &TurnCtx<'_>,
     a: &mut Attempt<'_>,
 ) -> Result<(String, Value), String> {
+    let text = keel_text(
+        &a.tree.branch,
+        &a.i.item,
+        a.report.as_deref().unwrap_or("none"),
+    );
+    held_for_owner(core, place, tc, a, (text, "It stopped at the keel"))
+}
+
+/// A push refused for what must not leave (`tree::Refused::holds`): held for the owner as a keel stop is,
+/// by its mark and the owner's card, which says what was refused and never a word of it.
+fn withheld(
+    core: &Core,
+    place: &Place,
+    tc: &TurnCtx<'_>,
+    a: &mut Attempt<'_>,
+    why: &tree::Refused,
+) -> Result<(String, Value), String> {
+    let lift = format!("remove its hold, {}.keel among the self trees", a.tree.slug);
+    let text = withheld_text(&a.tree.branch, &a.i.item, why, &lift);
+    let stopped = format!("It was not pushed ({why}); it is held");
+    held_for_owner(core, place, tc, a, (text, &stopped))
+}
+
+/// The owner's card for a push refused for what must not leave.
+/// `lift` says how its hold is lifted.
+pub(crate) fn withheld_text(branch: &str, item: &str, why: &tree::Refused, lift: &str) -> String {
+    let (what, then) = match why {
+        tree::Refused::Outgoing(super::outgoing::Refusal::Words { .. }) => (
+            "a commit holds words from one of your conversations, which a session working on it read",
+            "Read the branch in its tree: drop it, or take the words out of its commits",
+        ),
+        _ => (
+            "what it would send could not be cleared",
+            "Read the branch in its tree and the record of why: drop it, or make it one that clears",
+        ),
+    };
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        &format!("Self branch {branch} was not pushed"),
+        &format!("{what} ({item}): {why}"),
+        &format!(
+            "Nothing of it left this machine and it is never retried around. {then}, then {lift}."
+        ),
+    )
+}
+
+/// Hold the attempt for the owner: the mark that stops every later attempt, and the owner's card `text`;
+/// `stopped` begins what the model is told.
+fn held_for_owner(
+    core: &Core,
+    place: &Place,
+    tc: &TurnCtx<'_>,
+    a: &mut Attempt<'_>,
+    (text, stopped): (String, &str),
+) -> Result<(String, Value), String> {
     a.stopped_at = Some(PUSH);
     let mut notice = String::new();
     if let Err(e) = std::fs::write(keel_mark(place, &a.tree), &a.tree.branch) {
@@ -1135,16 +1199,12 @@ fn keel(
         return Ok(said(
             a,
             &format!(
-                "It stopped at the keel and waits for the owner's word; no DM is \
-             bound, so no card was posted.{notice}"
+                "{stopped} and waits for the owner's word; no DM is bound, so no card was \
+                 posted.{notice}"
             ),
         ));
     }
-    let mut text = keel_text(
-        &a.tree.branch,
-        &a.i.item,
-        a.report.as_deref().unwrap_or("none"),
-    );
+    let mut text = text;
     text.push_str(&notice);
     let card = (|| -> anyhow::Result<()> {
         let body = json!({"kind": "self_keel", "text": text});
@@ -1158,7 +1218,7 @@ fn keel(
     }
     Ok(said(
         a,
-        &format!("It stopped at the keel: the owner's card asks for an answer.{notice}"),
+        &format!("{stopped}: the owner's card asks for an answer.{notice}"),
     ))
 }
 

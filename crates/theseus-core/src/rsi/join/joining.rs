@@ -275,7 +275,7 @@ impl Run<'_> {
             close(self);
             return Ok(Try::Stopped);
         };
-        if !self.phase("push") {
+        if !self.phase("push") || !self.cleared(&m.t, &m.base, &signed).await {
             close(self);
             return Ok(Try::Stopped);
         }
@@ -338,6 +338,50 @@ impl Run<'_> {
                 Ok(Try::Stopped)
             }
         }
+    }
+
+    /// Whether the signed merge may leave for main: every commit it sends past `base`, the merge and its
+    /// generated message among them, through the daemon's scrub and the outgoing check (`rsi::outgoing`). A
+    /// refusal holds the head for the owner, as an unsigned join is, with a card that names no word of it.
+    async fn cleared(&mut self, t: &Tree, base: &str, signed: &str) -> bool {
+        use crate::rsi::outgoing::{base_text, commits, Heard, Refusal};
+        use tree::Refused;
+        let (p, dir, base, signed) = (
+            self.place.clone(),
+            t.dir.clone(),
+            base.to_string(),
+            signed.to_string(),
+        );
+        let (store, item) = (self.core.store.clone(), self.b.item.clone());
+        let builder = self.b.session.clone().unwrap_or_default();
+        let scrubber = self.core.tools.scrubber.clone();
+        let checked = blocking(move || {
+            let commits = commits(&p, &dir, &base, &signed)?;
+            let all: Vec<&str> = commits.iter().map(|c| c.text.as_str()).collect();
+            let hits = scrubber.scrub(&all.join("\n")).1;
+            if hits > 0 {
+                let by = "the daemon's scrubber".to_string();
+                return Ok(Some(Refused::Scrub { hits, by }));
+            }
+            let heard = match Heard::of(&store, &item, &[&builder]) {
+                Ok(h) => h,
+                Err(e) => return Ok(Some(Refused::Outgoing(Refusal::Unresolved(format!("{e:#}"))))),
+            };
+            let checked = heard.check(&commits, || base_text(&p, &dir, &base));
+            Ok(checked.err().map(Refused::Outgoing))
+        })
+        .await;
+        let why = match checked {
+            Ok(None) => return true,
+            Ok(Some(why)) => why,
+            Err(e) => Refused::Outgoing(Refusal::Unresolved(format!(
+                "the commits it would send cannot be read: {e:#}"
+            ))),
+        };
+        let lift = format!("run `{}`", theseus_protocol::rsi::retry_command(&self.b.item));
+        self.card(crate::rsi::pr::withheld_text(&self.b.branch, &self.b.item, &why, &lift));
+        self.hold("push", &why.to_string(), Value::Null);
+        false
     }
 
     /// The dry run on the remote's main, then the merge in its tree with the count folded in
