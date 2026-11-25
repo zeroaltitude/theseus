@@ -105,6 +105,9 @@ pub struct ExchangeRebuildResult {
     /// Records under the item labels' prefix (`labels.`) that could not be
     /// read as an item's labels: passed over, and left as they are.
     pub labels_passed_over: u64,
+    /// Records under the touches' prefix that would be moved and could not be
+    /// read as a touch: passed over, and left as they are.
+    pub touches_passed_over: u64,
     /// Why the things named in them were not looked for, if they were not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -204,6 +207,14 @@ pub struct ExchangeGistsResult {
     pub seed: u64,
     pub lines_total: u64,
     pub nodes_total: u64,
+    /// Records under the summary lines' prefix, and under the fold nodes'
+    /// where it looked, that could not be read: passed over, not drawn from,
+    /// and left as they are. A line's place is in its record, so every line
+    /// record that could not be read is counted, whatever place was asked.
+    #[serde(default)]
+    pub lines_unread: u64,
+    #[serde(default)]
+    pub nodes_unread: u64,
     pub lines: Vec<GistLine>,
     pub nodes: Vec<GistNode>,
 }
@@ -304,11 +315,17 @@ pub struct ExchangeTopicsResult {
     /// Those that already touch a topic, and those this job asked before.
     pub touched_before: u64,
     pub asked_before: u64,
-    /// Those opened by someone other than the owner: a guest in a shared
-    /// place, or a person no record proves. His decision was about his own
-    /// history, so they are never sent.
+    /// Those a person's typed message opened that is not the owner's: a
+    /// guest's, an agent's, or one whose author no record proves. His
+    /// decision was about his own history, so they are never sent.
     pub not_owner: u64,
-    /// Those opened by no person's message that can be read.
+    /// Of those, the ones whose author no record proves (no person, and no
+    /// mark on the message), and of these, the ones in places the
+    /// ontology's judge would not act on now.
+    pub unproven: u64,
+    pub unproven_not_acting: u64,
+    /// Those opened by no person's message that can be read: a wake, a
+    /// task's brief, Theseus's own turn among them.
     pub no_message: u64,
     /// Those the ontology's judge would not act on now (off, or in shadow).
     pub not_acting: u64,

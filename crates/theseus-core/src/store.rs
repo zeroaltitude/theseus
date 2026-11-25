@@ -564,8 +564,10 @@ impl TurnState {
                     nodes.insert(at, (p, n));
                 }
             }
-            (Err(e), _) => {
-                tracing::warn!(error = %e, "a node the turn wrote did not decode; its transcript is read again");
+            (Err(_), _) => {
+                tracing::warn!(
+                    "a node the turn wrote did not decode; its transcript is read again"
+                );
                 *t = None;
             }
             (Ok(_), None) => {}

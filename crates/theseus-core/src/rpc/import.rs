@@ -354,6 +354,7 @@ impl Core {
             facets: a.facets,
             withheld: None,
             version: cat.version.clone(),
+            tags_unread: (!list.unread.is_empty()).then_some(list.unread.len() as u64),
             built_ms,
             ms: t0.elapsed().as_secs_f64() * 1e3,
         })

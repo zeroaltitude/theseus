@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at the merge of c7a9f7f1 into 4209ef7e, over every file git tracks:
+Counted at the merge of 4de570a0 into 0ab0fd32, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -13,26 +13,26 @@ Counted at the merge of c7a9f7f1 into 4209ef7e, over every file git tracks:
 | Where | Code | Test code | Comments |
 |---|---:|---:|---:|
 | bench/ | 68,934 | 58,761 | 16,607 |
-| cockpit/ | 46,972 | 14,892 | 20,903 |
+| cockpit/ | 46,978 | 14,892 | 20,933 |
 | crates/ (in no crate) | 93 | 62 | 159 |
-| crates/theseus | 35,458 | 29,055 | 7,391 |
+| crates/theseus | 35,530 | 29,301 | 7,416 |
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
 | crates/theseus-aws-catalog | 5,996 | 1,394 | 644 |
 | crates/theseus-aws-guard | 2,861 | 1,522 | 323 |
-| crates/theseus-core | 267,528 | 302,976 | 95,192 |
+| crates/theseus-core | 267,635 | 303,652 | 95,325 |
 | crates/theseus-discord | 32,796 | 42,831 | 10,562 |
 | crates/theseus-exam | 5,403 | 3,237 | 1,247 |
 | crates/theseus-files | 2,377 | 682 | 297 |
 | crates/theseus-follow | 657 | 875 | 283 |
 | crates/theseus-google | 3,676 | 682 | 316 |
-| crates/theseus-index | 12,444 | 6,577 | 3,027 |
+| crates/theseus-index | 12,447 | 6,577 | 3,027 |
 | crates/theseus-judge | 13,307 | 11,642 | 4,536 |
-| crates/theseus-kernel | 13,155 | 13,972 | 5,600 |
+| crates/theseus-kernel | 13,220 | 14,248 | 5,653 |
 | crates/theseus-lsp | 3,189 | 1,496 | 695 |
 | crates/theseus-mcp | 4,272 | 1,658 | 668 |
 | crates/theseus-memory | 722 | 770 | 372 |
 | crates/theseus-ontology | 3,618 | 4,160 | 960 |
-| crates/theseus-protocol | 20,964 | 7,967 | 8,386 |
+| crates/theseus-protocol | 20,980 | 7,967 | 8,404 |
 | crates/theseus-root-install | 696 | 440 | 122 |
 | crates/theseus-sandbox | 2,891 | 3,616 | 1,642 |
 | crates/theseus-sim | 18,165 | 3,692 | 3,927 |
@@ -40,10 +40,10 @@ Counted at the merge of c7a9f7f1 into 4209ef7e, over every file git tracks:
 | crates/theseus-tools | 4,918 | 3,315 | 1,128 |
 | crates/theseus-tui | 13,020 | 12,806 | 3,055 |
 | crates/theseus-voice | 6,144 | 6,651 | 2,023 |
-| crates/theseusd | 5,340 | 33,147 | 5,680 |
+| crates/theseusd | 5,340 | 33,188 | 5,687 |
 | infra/ | 554 | 1,432 | 193 |
 | scripts/ | 10,129 | 8,028 | 3,567 |
-| **Total** | **615,299** | **586,634** | **202,723** |
+| **Total** | **615,568** | **587,873** | **202,989** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes

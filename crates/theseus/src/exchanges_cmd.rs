@@ -287,6 +287,12 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
             r.labels_passed_over
         ));
     }
+    if r.touches_passed_over > 0 {
+        s.push_str(&format!(
+            "; {} records under the touches' prefix could not be read as touches: left as they are",
+            r.touches_passed_over
+        ));
+    }
     s
 }
 
@@ -311,15 +317,21 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
     s
 }
 
-/// The reading sheet: what exists and what was drawn, the seed, what its material is and what a sample
-/// holds, fewer than asked said so, then each item numbered: its warnings, its writer's material rebuilt
-/// today, it as the view shows it, and a blank verdict.
-pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> String {
-    let whence = match &r.place {
-        Some(p) => format!("in {p}"),
-        None => "in every place".to_string(),
-    };
-    let mut out = vec![
+/// The sheet's header: what it is, how many items follow, what is drawn and from what, what each mark and
+/// label means, and the owner's bar.
+fn gists_header(whence: &str, r: &ExchangeGistsResult) -> Vec<String> {
+    vec![
+        "What this sheet is: the one-line notes Theseus wrote about its own past work, and the longer \
+         summaries it wrote of runs of exchanges, each shown beside the material it was written from, \
+         so you can check each one against its source."
+            .to_string(),
+        format!(
+            "Items that follow: {} in all, {} of them one-line notes (each headed \"Summary\") and {} of \
+             them longer summaries (each headed \"Fold node\").",
+            r.lines.len() + r.nodes.len(),
+            r.lines.len(),
+            r.nodes.len()
+        ),
         format!(
             "Reading sheet, {whence}: {} of {} one-line summaries and {} of {} first-level fold nodes \
              (seed {}; --seed {} draws the same ones again while no more are written).",
@@ -339,11 +351,38 @@ pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> Stri
          none is named: it can include exchanges opened by a guest or by an agent's process, and \
          lines from before a /new."
             .to_string(),
-        "Mark each one: wrong number/name/choice, other error, or ok. An item marked !! may not show \
-         what its writer was given: skip it, or judge it knowing that. Nothing here is stored; keep \
+        "What each mark and label means: a line starting \"==\" heads an item (which one it is, where and \
+         when it was written, by which model, and by which version of the writer: \"writer 1\" is older \
+         than today's). \"-- Its writer's material, rebuilt today\" is what the note or summary was \
+         written from. \"-- The summary, as the view shows it\" (or \"The node\") is the note or \
+         summary itself, as Theseus sees it. The blank \"Verdict\" line ending each item is yours to \
+         fill in."
+            .to_string(),
+        "A line starting \"!!\", right under an item's heading, is a warning: that item's material may \
+         not be what its writer was given (an older writer, or a source gone from the store). Skip \
+         it, or judge it knowing that."
+            .to_string(),
+        "Mark each one: wrong number/name/choice, other error, or ok. Nothing here is stored; keep \
          your counts."
             .to_string(),
-    ];
+        "Your bar: of 50 notes, at most 1 with a wrong number, name or choice and at most 5 with any \
+         other error; of 10 summaries, none with a wrong number, name or choice and at most 1 with \
+         any other error. The notes are the items headed \"Summary\"; the summaries are the items \
+         headed \"Fold node\"."
+            .to_string(),
+    ]
+}
+
+/// The reading sheet: a plain header (what the sheet is, how many items follow, what each mark and label
+/// means, and the owner's bar), what exists and what was drawn, the seed, what its material is and what a
+/// sample holds, fewer than asked said so, then each item numbered: its warnings, its writer's material rebuilt
+/// today, it as the view shows it, and a blank verdict.
+pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> String {
+    let whence = match &r.place {
+        Some(p) => format!("in {p}"),
+        None => "in every place".to_string(),
+    };
+    let mut out = gists_header(&whence, r);
     for (what, total, want) in [
         ("One-line summaries", r.lines_total, asked.lines),
         ("First-level fold nodes", r.nodes_total, asked.nodes),
@@ -354,6 +393,13 @@ pub fn gists_lines(asked: &ExchangeGistsParams, r: &ExchangeGistsResult) -> Stri
                  rest when they exist."
             ));
         }
+    }
+    if r.lines_unread + r.nodes_unread > 0 {
+        out.push(format!(
+            "Not read: {} summary line records and {} fold node records could not be read: none is \
+             drawn, and they are left as they are.",
+            r.lines_unread, r.nodes_unread
+        ));
     }
     for (i, l) in r.lines.iter().enumerate() {
         out.push(String::new());
@@ -420,9 +466,19 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
         false => format!("a run with a cap of ${cap}\n"),
     };
     s.push_str(&format!(
-        "{} exchanges: {} already touch a topic, {} are not yours, {} were asked before, {} open \
-         with no message of yours, {} are in places the ontology's judge does not act on now",
-        r.exchanges, r.touched_before, r.not_owner, r.asked_before, r.no_message, r.not_acting
+        "{} exchanges: {} already touch a topic, {} are not yours ({} someone else's, {} whose \
+         author no stored record proves, {} of these in places the ontology's judge does not act \
+         on now), {} were asked before, {} open with no message of yours, {} of yours are in \
+         places the ontology's judge does not act on now",
+        r.exchanges,
+        r.touched_before,
+        r.not_owner,
+        r.not_owner.saturating_sub(r.unproven),
+        r.unproven,
+        r.unproven_not_acting,
+        r.asked_before,
+        r.no_message,
+        r.not_acting
     ));
     match r.dry_run {
         true => s.push_str(&format!(
@@ -484,6 +540,25 @@ mod tests {
         );
         let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));
         assert!(!none.contains("labels."), "{none}");
+    }
+
+    /// A rebuild that passed over touch records it could not read says how many, and that they were left as
+    /// they are (issue 46); one that passed over none says nothing of them.
+    #[test]
+    fn a_rebuild_says_how_many_touch_records_it_passed_over() {
+        let of =
+            |v: serde_json::Value| -> ExchangeRebuildResult { serde_json::from_value(v).unwrap() };
+        let line = rebuild_lines(&of(
+            serde_json::json!({"sessions": 1, "touches_passed_over": 2}),
+        ));
+        assert!(
+            line.ends_with(
+                "; 2 records under the touches' prefix could not be read as touches: left as they are"
+            ),
+            "{line}"
+        );
+        let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));
+        assert!(!none.contains("touches' prefix"), "{none}");
     }
 
     #[test]
@@ -653,6 +728,8 @@ mod tests {
             seed: 4711,
             lines_total: 80,
             nodes_total: 1,
+            lines_unread: 0,
+            nodes_unread: 0,
             lines: vec![GistLine {
                 turn_id: "trn_a".into(),
                 place: "local:harbour".into(),
@@ -697,6 +774,26 @@ mod tests {
         );
         assert!(text.contains("-- The node, as the view shows it:\n\"Tide gauges\""));
         assert_eq!(text.matches("Verdict: ____").count(), 2);
+        assert!(!text.contains("Not read"), "{text}");
+    }
+
+    /// A sheet that passed over records it could not read says how many of each, and that they were left as
+    /// they are (issue 46).
+    #[test]
+    fn gists_says_how_many_records_it_could_not_read() {
+        let r = ExchangeGistsResult {
+            lines_unread: 2,
+            nodes_unread: 1,
+            ..ExchangeGistsResult::default()
+        };
+        let text = gists_lines(&ExchangeGistsParams::default(), &r);
+        assert!(
+            text.contains(
+                "Not read: 2 summary line records and 1 fold node records could not be read: none is \
+                 drawn, and they are left as they are."
+            ),
+            "{text}"
+        );
     }
 
     /// The sheet says its material is rebuilt today and substituted as today's writer would, and an
@@ -771,17 +868,76 @@ mod tests {
         assert_eq!(text.matches("Verdict: ____").count(), 1, "{text}");
     }
 
+    /// The sheet opens for a reader who is not an engineer: what it is, how many items follow, what each
+    /// mark and label means (the `!!` mark included), and how to read it against his bar. The header comes
+    /// before the first item.
+    #[test]
+    fn the_sheet_opens_with_a_plain_header_and_its_legend() {
+        theseus_client::render::time::pin_for_tests();
+        let r = ExchangeGistsResult {
+            seed: 7,
+            lines_total: 2,
+            nodes_total: 1,
+            lines: vec![
+                GistLine {
+                    turn_id: "trn_a".into(),
+                    ..GistLine::default()
+                },
+                GistLine {
+                    turn_id: "trn_b".into(),
+                    ..GistLine::default()
+                },
+            ],
+            nodes: vec![GistNode {
+                id: "fld_a".into(),
+                ..GistNode::default()
+            }],
+            ..ExchangeGistsResult::default()
+        };
+        let text = gists_lines(&ExchangeGistsParams::default(), &r);
+        let first_item = text.find("== Summary 1 of 2").unwrap();
+        for said in [
+            "What this sheet is: the one-line notes Theseus wrote about its own past work, and the longer \
+             summaries it wrote of runs of exchanges, each shown beside the material it was written from, \
+             so you can check each one against its source.",
+            "Items that follow: 3 in all, 2 of them one-line notes (each headed \"Summary\") and 1 of \
+             them longer summaries (each headed \"Fold node\").",
+            "What each mark and label means: a line starting \"==\" heads an item",
+            "\"writer 1\" is older than today's",
+            "\"-- Its writer's material, rebuilt today\" is what the note or summary was written from",
+            "\"-- The summary, as the view shows it\" (or \"The node\") is the note or summary itself",
+            "The blank \"Verdict\" line ending each item is yours to fill in",
+            "A line starting \"!!\", right under an item's heading, is a warning: that item's material \
+             may not be what its writer was given (an older writer, or a source gone from the store). \
+             Skip it, or judge it knowing that.",
+            "Mark each one: wrong number/name/choice, other error, or ok.",
+            "Your bar: of 50 notes, at most 1 with a wrong number, name or choice and at most 5 with any \
+             other error; of 10 summaries, none with a wrong number, name or choice and at most 1 with \
+             any other error.",
+        ] {
+            let at = text.find(said);
+            assert!(
+                at.is_some_and(|a| a < first_item),
+                "{said:?} before the first item in {text}"
+            );
+        }
+    }
+
     /// The command prints counts and dollars, whole and in order: the cap in
-    /// use first, then what the ledger holds, what the dry run would ask and
-    /// its worst case, what a run asked and spent, and why it stopped.
+    /// use first, then what the ledger holds (of what is not his, someone
+    /// else's and what no record proves, and of that, what the judge would
+    /// not act on), what the dry run would ask and its worst case, what a run
+    /// asked and spent, and why it stopped.
     #[test]
     fn the_topics_lines_are_counts_and_dollars() {
         let dry = ExchangeTopicsResult {
             dry_run: true,
             cap_usd: 10.0,
-            exchanges: 9,
+            exchanges: 11,
             touched_before: 2,
-            not_owner: 1,
+            not_owner: 3,
+            unproven: 2,
+            unproven_not_acting: 1,
             asked_before: 1,
             no_message: 2,
             not_acting: 0,
@@ -791,10 +947,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&dry),
-            "a dry run for a cap of $10.00 a run: nothing is asked\n9 exchanges: 2 already touch \
-             a topic, 1 are not yours, 1 were asked before, 2 open with no message of yours, 0 are \
-             in places the ontology's judge does not act on now\nwould ask 3: $0.0012 at worst \
-             for all 3 of them (it may be more than the cap); a run stops at its cap of $10.00"
+            "a dry run for a cap of $10.00 a run: nothing is asked\n11 exchanges: 2 already touch \
+             a topic, 3 are not yours (1 someone else's, 2 whose author no stored record proves, 1 \
+             of these in places the ontology's judge does not act on now), 1 were asked before, 2 \
+             open with no message of yours, 0 of yours are in places the ontology's judge does not \
+             act on now\nwould ask 3: $0.0012 at worst for all 3 of them (it may be more than \
+             the cap); a run stops at its cap of $10.00"
         );
         let run = ExchangeTopicsResult {
             dry_run: false,
@@ -809,10 +967,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&run),
-            "a run with a cap of $10.00\n9 exchanges: 2 already touch a topic, 1 are not yours, 1 \
-             were asked before, 2 open with no message of yours, 0 are in places the ontology's \
-             judge does not act on now\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 \
-             touches; spent $0.0003 of a cap of $10.00\nstopped: stopped at the cap"
+            "a run with a cap of $10.00\n11 exchanges: 2 already touch a topic, 3 are not yours (1 \
+             someone else's, 2 whose author no stored record proves, 1 of these in places the \
+             ontology's judge does not act on now), 1 were asked before, 2 open with no message \
+             of yours, 0 of yours are in places the ontology's judge does not act on now\nasked \
+             1 of 3 (1 answered): 1 exchanges filed with 2 touches; spent $0.0003 of a cap of \
+             $10.00\nstopped: stopped at the cap"
         );
         // A cap under a cent is shown with its decimals, never as $0.00;
         // one of a cent or more, to the cent.
@@ -823,10 +983,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&small),
-            "a run with a cap of $0.000001\n9 exchanges: 2 already touch a topic, 1 are not yours, \
-             1 were asked before, 2 open with no message of yours, 0 are in places the \
-             ontology's judge does not act on now\nasked 1 of 3 (1 answered): 1 exchanges filed \
-             with 2 touches; spent $0.0003 of a cap of $0.000001"
+            "a run with a cap of $0.000001\n11 exchanges: 2 already touch a topic, 3 are not \
+             yours (1 someone else's, 2 whose author no stored record proves, 1 of these in places \
+             the ontology's judge does not act on now), 1 were asked before, 2 open with no \
+             message of yours, 0 of yours are in places the ontology's judge does not act on \
+             now\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 touches; spent $0.0003 of \
+             a cap of $0.000001"
         );
         let dry_small = ExchangeTopicsResult {
             cap_usd: 0.0025,
@@ -834,10 +996,12 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&dry_small),
-            "a dry run for a cap of $0.0025 a run: nothing is asked\n9 exchanges: 2 already touch \
-             a topic, 1 are not yours, 1 were asked before, 2 open with no message of yours, 0 are \
-             in places the ontology's judge does not act on now\nwould ask 3: $0.0012 at worst \
-             for all 3 of them (it may be more than the cap); a run stops at its cap of $0.0025"
+            "a dry run for a cap of $0.0025 a run: nothing is asked\n11 exchanges: 2 already touch \
+             a topic, 3 are not yours (1 someone else's, 2 whose author no stored record proves, 1 \
+             of these in places the ontology's judge does not act on now), 1 were asked before, 2 \
+             open with no message of yours, 0 of yours are in places the ontology's judge does not \
+             act on now\nwould ask 3: $0.0012 at worst for all 3 of them (it may be more than \
+             the cap); a run stops at its cap of $0.0025"
         );
         let cent = ExchangeTopicsResult {
             cap_usd: 0.01,

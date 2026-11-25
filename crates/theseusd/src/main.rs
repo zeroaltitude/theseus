@@ -757,10 +757,9 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
         sd.notify.ready("serving on stdio");
         let served = tokio::select! {
             r = conn => {
-                // Its client went away: the stop begins here, as at a signal,
-                // so a pass that takes the store afresh for each unit starts
-                // none that could outlive the runtime (issue 46).
-                theseus_core::startup::stop_began();
+                // Its client went away: the same stop as a signal's, its row
+                // written and the outbox's sending stopped (issues 46, 51).
+                core.stopping_as_the_client_left();
                 r
             }
             () = &mut stop => {
