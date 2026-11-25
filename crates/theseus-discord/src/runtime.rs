@@ -762,8 +762,6 @@ enum PlaceMsg {
     /// to check; then, checked, for the place to show.
     Fold(Box<fold::Ask>),
     FoldShow(Box<fold::Ask>),
-    /// A press on a folded note, for the place's lane.
-    Note(Box<crate::courier::NotePress>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2074,7 +2072,7 @@ impl Place {
                 self.task_msg(m).await
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind | PlaceMsg::Fold(_) | PlaceMsg::FoldShow(_) | PlaceMsg::Note(_) => {}
+            PlaceMsg::Unbind | PlaceMsg::Fold(_) | PlaceMsg::FoldShow(_) => {}
             PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;

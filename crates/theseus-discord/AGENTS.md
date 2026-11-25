@@ -745,13 +745,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `show_tools`/`show_thinking` remakes every fold it holds from both halves (`View::set`), open pages and choices too;
   a fold made folded keeps working as a fold for its message after the place says `open`. Never folded:
   the reply's text, a card, a question, a settle, a failed turn, every post. `open` writes what it wrote before,
-  op for op. A standalone FYI note (`courier/fold_note.rs`) folds too: a post the notices place's rule says only
-  informs (`notices::informs`), written to a folded place (`Shared::steps_in`, the place's `PlaceBits`) and not to the
-  notices place, with no button of its own and no met watch, is `-# ℹ️ FYI: <its kind's words>` with **Show note**
-  (`fold:no:<post>`, `fold:nc:<post>`); the place's lane reads the words back from the post (`kernel.outbox_action`)
-  only when the pressed message is the post's own (`external_op_id`), else tells the presser `fold::NOTE_GONE`, and
-  writes it. Tests: `tests_fold.rs`, `tests_fold_press.rs`, `tests_fold_default.rs`, `render/fold.rs`,
-  `runtime/fold.rs`, `runtime/show.rs`, `courier/fold_note.rs`, `courier/press.rs`.
+  op for op. A standalone note is never folded: it is written as every post is. Tests: `tests_fold.rs`,
+  `tests_fold_press.rs`, `tests_fold_default.rs`, `render/fold.rs`, `runtime/fold.rs`, `runtime/show.rs`,
+  `courier/press.rs`.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).

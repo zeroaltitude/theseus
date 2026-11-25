@@ -24,12 +24,11 @@
 pub(crate) mod ask;
 mod board;
 mod catchup;
-mod fold_note;
 mod held;
 mod notices;
 mod offer;
 mod press;
-pub(crate) use press::{NotePress, Press, Told};
+pub(crate) use press::{Press, Told};
 mod recall;
 mod subagent;
 pub(crate) mod v2;
@@ -109,8 +108,6 @@ pub(crate) enum LaneMsg {
     BoardMoved,
     /// A press on a turn's fold, checked here first (`press.rs`, issue 56).
     Press(Box<Press>),
-    /// A press on a folded note, checked and written here.
-    NotePress(Box<NotePress>),
 }
 
 /// Why a call to Discord did not go through.
@@ -526,8 +523,7 @@ impl Lane {
                 self.v2.only_if_pinned = true;
             }
             LaneMsg::BoardMoved => self.board_moved(),
-            LaneMsg::Press(p) => self.pressed(press::Pending::Fold(p)),
-            LaneMsg::NotePress(n) => self.pressed(press::Pending::Note(n)),
+            LaneMsg::Press(p) => self.pressed(press::Pending::of(p)),
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => {
@@ -743,7 +739,7 @@ impl Lane {
             }
         };
         // An FYI for the notices place: its DM; none back, it went aside.
-        let Some(mut notices) = self.take_notices_dm(a, &mut plan.writes) else {
+        let Some(mut notices) = self.take_notices_dm(a) else {
             return Ok(());
         };
         if plan.writes.is_empty() {
@@ -2042,7 +2038,6 @@ impl Lane {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
             }
             Buttons::Fold(f) => crate::runtime::fold::buttons(f),
-            Buttons::FoldNote(c, open) => crate::runtime::fold::note_buttons(c, *open),
             Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
         if !comps.is_empty() {
@@ -2124,7 +2119,6 @@ impl Lane {
                 offer.as_deref(),
             )),
             Buttons::Fold(f) => Some(crate::runtime::fold::buttons(f)),
-            Buttons::FoldNote(c, open) => Some(crate::runtime::fold::note_buttons(c, *open)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep | Buttons::V2 => None,
         };

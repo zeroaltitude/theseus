@@ -14,11 +14,6 @@
 //! updates are written in the place's order, running or finished. What
 //! refuses a press is said, in one line, to the presser alone.
 //!
-//! A folded FYI note (`courier/fold_note.rs`) is pressed the same way, by
-//! `fold:no:<post>` and `fold:nc:<post>`: its lane reads its words back from
-//! the post itself, only when the pressed message is the one the post was
-//! written to, so a button forged elsewhere shows nothing.
-//!
 //! A press only shows again what the place showed openly before, under what
 //! it shows now: it changes nothing else and asks the core nothing. So anyone
 //! the place answers may press it, as anyone who can see the conversation
@@ -36,8 +31,7 @@ use twilight_model::http::interaction::InteractionResponseType;
 
 use super::show::Unshown;
 use super::{LaneMsg, Place, PlaceMsg, Shared};
-use crate::bindings::Steps;
-use crate::courier::{NotePress, Press, Told};
+use crate::courier::{Press, Told};
 use crate::render::fold::{FoldButtons, SUFFIX};
 use crate::render::Op;
 
@@ -47,9 +41,6 @@ const PREFIX: &str = "fold:";
 /// What the presser is told when the turn cannot be read back.
 pub(crate) const TOO_OLD: &str =
     "These steps are too old to show again: only a conversation's newest turns are kept.";
-
-/// What the presser is told when a note's post cannot be read back.
-pub(crate) const NOTE_GONE: &str = "This note is too old to show again.";
 
 /// What the presser is told when the place did not answer in time.
 const BUSY: &str = "Theseus is busy here: press it again in a moment.";
@@ -84,7 +75,6 @@ fn said(t: Told) -> Option<&'static str> {
         Told::NotHere => Some(NOT_HERE),
         Told::TooOld => Some(TOO_OLD),
         Told::Hidden => Some(HIDDEN),
-        Told::NoteGone => Some(NOTE_GONE),
         Told::Busy => Some(BUSY),
     }
 }
@@ -111,34 +101,10 @@ pub(crate) fn parse(custom_id: &str) -> Option<(String, Option<usize>)> {
     (!turn.is_empty()).then(|| (turn.to_string(), page))
 }
 
-/// A folded note's press id as its post and whether it opens it.
-pub(crate) fn parse_note(custom_id: &str) -> Option<(String, bool)> {
-    let rest = custom_id.strip_prefix(PREFIX)?;
-    let (open, post) = match rest.split_once(':')? {
-        ("no", post) => (true, post),
-        ("nc", post) => (false, post),
-        _ => return None,
-    };
-    (!post.is_empty()).then(|| (post.to_string(), open))
-}
-
-/// A folded note's button: Show note, or, open, Hide note.
-pub(crate) fn note_buttons(post: &str, open: bool) -> Vec<Component> {
-    let b = if open {
-        button("Hide note", format!("{PREFIX}nc:{post}"))
-    } else {
-        button("Show note", format!("{PREFIX}no:{post}"))
-    };
-    vec![Component::ActionRow(ActionRow {
-        id: None,
-        components: vec![b],
-    })]
-}
-
-/// Whether `i` is a press on a fold or a folded note.
+/// Whether `i` is a press on a fold.
 pub(super) fn is_press(i: &Interaction) -> bool {
     matches!(&i.data, Some(InteractionData::MessageComponent(c))
-        if parse(&c.custom_id).is_some() || parse_note(&c.custom_id).is_some())
+        if parse(&c.custom_id).is_some())
 }
 
 fn button(label: &str, custom_id: String) -> Component {
@@ -197,22 +163,16 @@ pub(super) fn pressed(
         .zip(i.message.as_ref())
         .map(|(ch, m)| (ch.id.get(), m.id.get()));
     let (reply, answer) = oneshot::channel();
-    let msg = match (parse(&c.custom_id), parse_note(&c.custom_id), at) {
-        (Some((turn, page)), _, Some(at)) => PlaceMsg::Fold(Box::new(Ask {
+    let msg = match (parse(&c.custom_id), at) {
+        (Some((turn, page)), Some(at)) => PlaceMsg::Fold(Box::new(Ask {
             turn,
             page,
             at,
             reply,
         })),
-        (None, Some((post, open)), Some(at)) => PlaceMsg::Note(Box::new(NotePress {
-            post,
-            open,
-            at,
-            reply,
-        })),
-        (None, None, _) => return false,
+        (None, _) => return false,
         // A fold's press on no message: nothing to show it on.
-        _ => return true,
+        (Some(_), None) => return true,
     };
     let sent = place.send(msg).is_ok();
     let (shared, i) = (shared.clone(), i.clone());
@@ -237,23 +197,6 @@ pub(super) fn pressed(
         }
     });
     true
-}
-
-impl Shared {
-    /// How the place whose channel is `channel` shows its steps and notes: a
-    /// bound channel's word, or a DM's by its user. A channel bound nowhere
-    /// is folded, as a place that says nothing is.
-    pub(crate) fn steps_in(&self, channel: u64) -> Steps {
-        let user = {
-            let r = self.routes.lock().unwrap();
-            r.dm_channel
-                .iter()
-                .find(|(_, c)| **c == channel)
-                .map(|(u, _)| *u)
-        };
-        let key = user.map_or_else(|| format!("channel:{channel}"), |u| format!("dm:{u}"));
-        self.place_bits.get(&key).steps
-    }
 }
 
 impl Place {
@@ -298,11 +241,6 @@ impl Place {
         };
         let _ = ask.reply.send(told);
     }
-
-    /// A press on a folded note: its lane checks and writes it.
-    pub(super) fn note_asked(&self, n: Box<NotePress>) {
-        let _ = self.lane.send(LaneMsg::NotePress(n));
-    }
 }
 
 #[cfg(test)]
@@ -325,18 +263,6 @@ mod tests {
             assert_eq!(parse(bad), None, "{bad}");
         }
         assert!(id(&"t".repeat(80), Some(99)).len() <= 100, "Discord's 100");
-    }
-
-    /// A note's press id says its post and whether it opens; a turn's id is
-    /// no note's, and a note's no turn's.
-    #[test]
-    fn a_note_press_id_carries_its_post() {
-        assert_eq!(parse_note("fold:no:act_1"), Some(("act_1".into(), true)));
-        assert_eq!(parse_note("fold:nc:act_1"), Some(("act_1".into(), false)));
-        for bad in ["fold:no:", "fold:o:0:turn_a", "fold:c:turn_a", "src:no:x"] {
-            assert_eq!(parse_note(bad), None, "{bad}");
-        }
-        assert_eq!(parse("fold:no:act_1"), None);
     }
 
     /// Closed: Show steps alone. Open: the pages' buttons where there is a
