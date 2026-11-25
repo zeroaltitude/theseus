@@ -15,8 +15,19 @@ pub(crate) fn spans_of(text: &str, values: &[&str]) -> Vec<(usize, usize)> {
         .collect()
 }
 
+/// The names of [`encodings`], in its order.
+pub(crate) const ENCODINGS: [&str; 6] = [
+    "verbatim",
+    "base64",
+    "base64 with words around it, wrapped",
+    "percent-encoded",
+    "a JSON string",
+    "a YAML double-quoted string folded over a line break",
+];
+
 /// `value` in each way the scrubber reads it: as it is; base64; base64 of it with words around it, wrapped at 40
-/// columns; percent-encoded; a JSON string; and a YAML escape folded over a line break.
+/// columns; percent-encoded; a JSON string; and a YAML double-quoted string folded over a line break, each half
+/// escaped as YAML escapes it (a backslash and a quote mark).
 pub(crate) fn encodings(value: &str) -> Vec<String> {
     let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s);
     let wrapped = b64(&format!("q{value}{}", "r".repeat(60)))
@@ -31,7 +42,8 @@ pub(crate) fn encodings(value: &str) -> Vec<String> {
     while !value.is_char_boundary(mid) {
         mid -= 1;
     }
-    let folded = format!("\"{}\\\n    {}\"", &value[..mid], &value[mid..]);
+    let yaml = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    let folded = format!("\"{}\\\n    {}\"", yaml(&value[..mid]), yaml(&value[mid..]));
     vec![
         value.to_string(),
         b64(value),
