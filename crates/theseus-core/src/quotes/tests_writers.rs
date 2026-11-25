@@ -16,7 +16,9 @@
 //! - an assignment through a binding renamed by a pattern (`UserMessage { parts: p, .. }`, then `*p = made`);
 //! - a record decoded from bytes with its parts (serde), and parts carried in a type that is not a holder below;
 //! - a holder built by a macro or under another name (a type alias, a re-export under a new name);
-//! - code in a test module or a test file, and the cap's own module (`quotes/cap.rs`, whose callers are counted).
+//! - code in a test module or a test file;
+//! - the cap's own calls of the cap in its own module (`quotes/cap.rs`; every caller elsewhere is counted). A holder
+//!   literal or an assignment in that module is still counted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -55,7 +57,8 @@ const NOT_QUOTES: &[&str] = &[
 /// The stored records that hold parts.
 const HOLDERS: [&str; 3] = ["ToolResult", "UserMessage", "Piece"];
 
-/// The cap's own module: its wrappers call the cap, and every caller of them is counted where it calls.
+/// The cap's own module: its calls of the cap are not counted (its wrappers call the cap, and every caller of them
+/// is counted where it calls); a holder literal or an assignment in it still is.
 const CAP: &str = "theseus-core/src/quotes/cap.rs";
 
 fn ident(c: char) -> bool {
@@ -199,15 +202,15 @@ fn sets(s: &[char]) -> Vec<usize> {
     out
 }
 
-/// Where `s` (code) assigns a field named `parts` or a deref'd binding of that name: `x.parts = …`, `*parts = …`.
+/// Where `s` (code) assigns a field named `parts` or a deref'd binding of that name: `x.parts = …`, `*parts = …`,
+/// with any white space (a line break, a comment's place) before the `=`.
 fn assigns(s: &[char]) -> Vec<usize> {
     (0..s.len())
         .filter(|i| word_at(s, *i, "parts"))
         .filter(|i| matches!(before(s, *i), Some('.' | '*')))
         .filter(|i| {
-            let rest: String = s[i + "parts".len()..].iter().take(3).collect();
-            let rest = rest.trim_start();
-            rest.starts_with('=') && !rest.starts_with("==") && !rest.starts_with("=>")
+            let mut rest = (s[i + "parts".len()..].iter().copied()).skip_while(|c| c.is_whitespace());
+            rest.next() == Some('=') && !matches!(rest.next(), Some('=' | '>'))
         })
         .collect()
 }
@@ -532,7 +535,8 @@ fn a_writer_that_sets_parts_without_the_edge_check_is_named() {
 }
 
 /// A planted writer that assigns parts to a record it already holds, by a field (`p.parts = made`) and through a
-/// pattern's binding (`*parts = made`), is named; reading parts, comparing them, or matching them is not writing.
+/// pattern's binding (`*parts = made`), is named, also with its `=` on the next line or after a comment; reading
+/// parts, comparing them, or matching them is not writing.
 #[test]
 fn a_writer_that_assigns_parts_is_named() {
     const PLANTED: &str = "theseus-core/src/planted.rs";
@@ -540,6 +544,13 @@ fn a_writer_that_assigns_parts_is_named() {
         fn patch(p: &mut Piece, made: Vec<Part>) { p.parts = made; }
         fn mend(n: &mut Node, made: Vec<Part>) {
             if let Body::UserMessage { parts, .. } = &mut n.body { *parts = made; }
+        }
+        fn wrap(p: &mut Piece, made: Vec<Part>) {
+            p.parts
+                = made;
+        }
+        fn remark(n: &mut Node, made: Vec<Part>) {
+            if let Body::UserMessage { parts, .. } = &mut n.body { *parts /* the new ones */ = made; }
         }
         fn look(n: &Node, m: &Node) -> bool {
             let same = n.parts == m.parts;
@@ -552,6 +563,8 @@ fn a_writer_that_assigns_parts_is_named() {
         vec![
             format!("{PLANTED}::mend: found Some(1), listed None"),
             format!("{PLANTED}::patch: found Some(1), listed None"),
+            format!("{PLANTED}::remark: found Some(1), listed None"),
+            format!("{PLANTED}::wrap: found Some(1), listed None"),
         ]
     );
 }
