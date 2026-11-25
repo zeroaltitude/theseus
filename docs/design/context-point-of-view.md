@@ -100,12 +100,13 @@ is sent: never a partial view. No `context.view_fallback` row is written.
   ladder show what was said since, the source's later words included where they are in reach.
 
 **The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
-tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
-the owner's guidance for it, to the owner alone; the role line is not laid), and **named things and their cards** (slot D, and slot H's named things:
+tasks waiting on him, an id and a line each), **the people present** (slot B: for each, the held person's name,
+description and the owner's guidance for it; and for each but the owner, their newest exchanges elsewhere), and
+**named things and their cards** (slot D, and slot H's named things:
 the names table built once for the turn through its permit, the message's names and numbered items matched
 against it; `docs/design/names.md`, "The view's sources"). Slot H also holds recall, and a joined task's card
-when the judge's existing `addressed_task` answer names one task. Slots E, F and G (his past, his words
-elsewhere lately, and here: the window and the ladder) are read from the store. What is in play is the things
+when the judge's existing `addressed_task` answer names one task. Slots F and G (his words elsewhere lately,
+and here: the window and the ladder) are read from the store. What is in play is the things
 his words named in the newest exchanges here; the things Theseus's replies named and old exchanges' numbered
 items are not read for it.
 
@@ -149,9 +150,39 @@ and an imported summary that is rewritten under its own id are also left.
 step 10; and the `derived_from` edges of §3. The search before the first word is recall, and rung 2's own search
 is not built; the `leans_on` question is dropped with issue 43's line (both §6, "As built").
 
-**Numbers the plan calls settings are constants.** N (20), the ceiling (60,000), slot G's allowance (150,000),
+**Numbers the plan calls settings are constants.** The window's floor (30), N, the fold step (20), the ceiling (60,000), slot G's allowance (150,000),
 the clearing's marks (80,000 and 40,000), the history tool's looks a turn (5), the floor (three exchanges) and
 the rest are fixed in the code. The sprint added no setting beyond `[context] ledger` and `[context] assembly`.
+
+**The shape of a turn's context, 2026-11-24.** The owner ruled on its shape: who am I; who am I talking to; the
+topic; here (this place's last 30 exchanges, with a pager); and everywhere (every place's newest, each with its
+place, with its own pager). The slices of his words by age go. **Built**: slot E, his words by age, is removed
+(§5.3); no fold takes the newest 30 exchanges and a fold still takes 20, so a settled place's window holds 30 to
+49 (§5.2 says when it holds fewer or more); and who am I: a few lines laid by code at the head of the first user
+message, first in the front, naming the profile the turn runs on, its model, the persona in play by its name
+(nothing of its card), and where to read more, under 300 tokens whatever the names. They are the same
+bytes from one turn to the next until the profile, its model or the persona changes, and the system part is
+unchanged. And who am I talking to (slot B, `view/select/people.rs`): the people present are the speaker and the
+distinct persons who opened the exchanges the window lays, at most eight, each named once whatever handle they
+spoke by, and only people the owner's records hold. In the front, each one's name, description and the owner's
+guidance (in shared places too, by his word of the same day), in one wording for every person ("In this
+conversation: NAME") whoever speaks, in an order fixed by record, about 100 tokens a person in company and 1,500
+at most in all, cut by code where longer, never inside a known value. It is headed as the owner's filing with no
+time, so it is the same bytes from one turn to the next while the people and their records stay. Beside the
+message, one line names the speaker ("Who is speaking: NAME"); then for each person but the owner, their newest
+three exchanges in other places, by any of their handles (walked as one timeline, one allowance of 300 touches
+read and three lines a person), leaving out every exchange the window lays: one line each (the words and the
+`did` line, cut beyond 150 tokens with the handle), headed with the person's name and the place, 600 tokens at
+most in all as the request lays them (headings, wrappers and the escaped name counted); real exchanges, never
+stored notes about a person. Which of them may be laid is one decision (`people::may_lay`), and it lays a line
+from every place in any company: the owner ruled on 2026-11-24 that no conversation is private (each is his or a
+shared space), and a stricter rule would be a change to that one function. The owner gets
+none of his own, by identity (every effective owner handle, those the bindings make among them, and the records
+they resolve to; a filter of what is chosen, never authority): they are in the window and the look-backs. A turn
+no person opened (a wake, an agent's process) is told none of it, and a self-loop session's turn lays none of the
+lines beside the message. **Not built yet**: the topic block,
+and the look-back over every place that replaces slot F, with the one walk over every place they share. The
+folded ladder stays above the 30 (his answer).
 
 ---
 
@@ -169,10 +200,10 @@ the rest are fixed in the code. The sprint added no setting beyond `[context] le
    place where he was alone with Theseus and the words are proven his, for a long time: in his main conversation
    they are 2% of the bytes (measured). Theseus's replies thin to a line and a handle. Tool results thin
    fastest; they stay openable, and are read again when the present state matters.
-5. **Here, time is a ladder.** The last twenty to thirty-nine exchanges of a place are kept in full. Older ones
+5. **Here, time is a ladder.** The last thirty to forty-nine exchanges of a place are kept in full (all of them in a new place). Older ones
    are folded, twenty at a time, into one node that keeps his words and an account of what was done; twenty
-   such nodes fold again. Everything ever said in a place stays in view at some grain. Across places, his own words are
-   selected, fewer with age. Nothing is silently absent: every node and every band opens.
+   such nodes fold again. Everything ever said in a place stays in view at some grain. Across places, his own words of
+   the last two days are selected (no band by age since 2026-11-24). Nothing is silently absent: every node and every band opens.
 6. **A name calls its thing.** A recognised mention brings the thing's card, its current facts, its newest
    exchange and what he has said about it through time. Loose topics ("the retry storm") are things too: the
    judge already files every message under topics, and that filing is kept per exchange. **As built**: things
@@ -200,7 +231,7 @@ the rest are fixed in the code. The sprint added no setting beyond `[context] le
 
 | His words | Where it is in this design |
 |---|---|
-| "immediately prior (and indeed a reasonable tail) of immediate conversational context should always be in context" | The window (§5.2): the last twenty to thirty-nine exchanges here in full, counted in exchanges and not by the clock; the words of the newest three can be removed by no budget, judge or router |
+| "immediately prior (and indeed a reasonable tail) of immediate conversational context should always be in context" | The window (§5.2): the last thirty to forty-nine exchanges here in full (all of them in a place with fewer), counted in exchanges and not by the clock; the words of the newest three can be removed by no budget, judge or router |
 | "if an event or issue is noted as a reference as of now unknown, it should be searched by name where possible" | Rung 1 of the reach (§6): a scoped name finds its thing, and the thing's own timeline finds the exchange |
 | "where there was no name, it should search an incrementally longer tail of conversation, allowing itself to go way back" | Rungs 2 and 3 (§6): a search of the last two days before the first word; then the model itself extends its history a hundred exchanges at a time, with no horizon, by a tool it is always offered |
 | "a jev classification of 'dangling references' … that would automatically trigger a certain degree of introspection" | Half of it is already asked: the judge answers `fragment` and `mentions_other_conversation` on every message a person sends today, and nothing reads them (checked in the code). His fuller idea is the typed question `leans_on`, added beside them (§6) |
@@ -307,7 +338,7 @@ A point of view is computed once at the start of a turn, from one snapshot of th
   or a task's report takes the `present` of the turn that set it up. Unknown admits nothing.
 - **at hand**: the line of work or task last selected here, by address or by a sure typed answer. It changes
   only on such a selection; an unsure answer leaves it as it was. It ranks optional material. It never moves or hides a
-  message, and never removes anything from the window, the ladder or the person-wide slots (C, E, F).
+  message, and never removes anything from the window, the ladder or the person-wide slots (C, F).
 
 **The gate.** Every piece carries its source place, source audience, the owner's mark or its absence, origin,
 seal and derivation marks. Only content that has passed the permission check can be sent to a model, and the code
@@ -381,7 +412,7 @@ For a conversation where the owner is alone. Sizes are typical / cap, in tokens 
 | B | **Who and where** | accepted facts about the person; the place and who is present | facts by subject; the binding | 800 / 1,500 |
 | C | **Waiting** | what is certainly waiting between them, from any place: questions Theseus has parked for him, tasks waiting on him, a message of his still being answered elsewhere | records that exist today | 300 / 1,000 |
 | D | **In play** | the work at hand and the things named in the last three exchanges here: card, current facts, open tasks a line each | at hand; the touch index | 800 / 3,000 |
-| E | **Past** | his own words, in the three grades of §3, as dated lines, thinning with age (§5.3) | the person's timeline | 3,000 / 5,000 |
+| E | **Past**: removed (the owner's ruling, 2026-11-24; §5.3) | nothing | none | 0 |
 | F | **Lately, everywhere** | the last 48 hours in his other private places, merged by time: **his words verbatim**; per place the newest reply in full (over 1,500 tokens: its first 500 and last 1,000, since questions and conclusions sit at the ends), older replies as their `did` line with a handle. And always, whatever its age, his newest exchange in each other private place (five places at most) | the person's timeline, less this place | 2,500 / 12,000 |
 | G | **Here** | this place's window and ladder (§5.2) | the place's timeline | its own allowance (§5.2); in a long conversation 75,000 to 140,000 (est.: words 15,000 to 33,000; tool output 40,000 to 80,000; the ladder 20,000 to 30,000) |
 | H | **Called, this turn** | what this message calls in: named things not in view, a reached exchange, a joined task's card, recall | the name matcher, the reach, recall | 1,800 / 8,000 |
@@ -392,12 +423,12 @@ against about 360,000 in the main conversation today (measured); in a new or qui
 has its own allowance (§5.2).
 
 **In company** (a channel of any kind, whoever is in it today, or an agent's session at the terminal) the table
-is shorter: A, B, D, E, G, H and
-I, all from this place alone; slot E holds the words of the people present, said here; C and F are absent.
+is shorter: A, B, D, G, H and
+I, all from this place alone (but B's recent lines, from the people present's other places); C and F are absent.
 
 **As built**, the selectors of every slot exist and run in the admission order of rule 6, which is a table in the
-code. Slots B, C and D, and slot H's named things, lay nothing yet: their sources over the store answer nothing
-("What is built, and what is not", above). Slot H holds recall and a joined task's card. The ceiling and slot G's
+code. Slots C and D, and slot H's named things, lay nothing yet: their sources over the store answer nothing
+("What is built, and what is not", above). Slot B lays the people present (2026-11-24, above). Slot H holds recall and a joined task's card. The ceiling and slot G's
 allowance are constants, not settings.
 
 **How your memory works: a page for the model** (the owner's idea). The system part carries one fixed page of
@@ -434,16 +465,17 @@ joined task's card, say) is neither listed nor counted.
 **The order on the wire** (the owner's point: what is fixed goes first, what moves goes last):
 
 1. A, the system part.
-2. B, who and where; then E, his older words from everywhere (older than two days; laid again at most once a
-   day). Marked blocks.
+2. Who am I: code's few lines naming the profile the turn runs on, its model and the persona in play (2026-11-24);
+   then B, who am I talking to: the people present, by the owner's records. Marked blocks.
 3. G's ladder, oldest node first. Marked blocks.
 4. G's window, as real turns of the person and of Theseus, in the order they happened, with tool calls and
    results paired as the provider requires. Nothing else is sent as conversation.
 5. Beside the new message, in one marked block that is never stored: C (waiting), D (in play), F (elsewhere
-   in the last two days), H (called by this message). Then his message.
+   in the last two days), H (called by this message), and B's recent lines of the people present. Then his
+   message.
 
-Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2), at a day's turn, or
-when a fact about him changes. Part 5 is chosen afresh every turn. The order also reads as a conversation
+Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2), when a fact about
+him changes, or when the profile, its model or the persona in play changes. Part 5 is chosen afresh every turn. The order also reads as a conversation
 should: who and what, then time running forward, with what is nearest in time nearest the message.
 
 **As built**, the order is this one. Parts 2 and 3 head the first user message as harness text; the window is read
@@ -470,10 +502,9 @@ is kept out of the window and out of the turn's own nodes. No turn is handed to 
 5. There is one budget: the smaller of the ceiling (plus slot G's own allowance, §5.2) and
    the provider's window, less room reserved for the reply and the turn's own tool calls. Everything is charged to it: the frame, every slot, headings, residue lines,
    and pages of history read later in the turn. Sizes are counted with the answering model's own token count.
-6. Admission order: A (fixed, counted first); I; the window's words, the floor first; F's own words; C; E to 7
-   days; B; the ladder, newest nodes first; the window's tool results; H's reached; H's task card; H's named;
-   D; F's replies; E to 30 days; E beyond 30 days; recall. Within one of these, newest first, then by id. What
-   he said always outranks what a tool returned.
+6. Admission order: A (fixed, counted first); I; the window's words, the floor first; F's own words; C; B; the
+   ladder, newest nodes first; the window's tool results; H's reached; H's task card; H's named; D; F's replies;
+   recall. Within one of these, newest first, then by id. What he said always outranks what a tool returned.
 7. Over the ceiling, cut from the end of that order. A piece steps down a form (whole, then spoken, then line)
    before it is dropped, and what is dropped is counted in its band's residue line.
 8. G's floor and I are never cut. A cut anywhere else is marked where it happens and carries a handle; a cut
@@ -524,7 +555,7 @@ the view is built afresh, and earlier turns' reasoning is not carried, as at eve
 This section is the owner's design (2026-11-21). It replaces an earlier version that kept three exchanges for
 certain and everything since a three-hour pause.
 
-- **The window.** The last N to 2N exchanges that posted to this place, whoever opened them (he, a wake, a job's
+- **The window.** The last 30 to 29 + N exchanges (30 to 49) that posted to this place, whoever opened them (he, a wake, a job's
   late result), in full: his words, Theseus's replies, and their tool results under the rule below. The window is
   counted in exchanges, not by the clock. A subject picked up
   again the next morning still has its working state: about one in seven of his follow-ups in the main
@@ -536,7 +567,14 @@ certain and everything since a three-hour pause.
   chains whole; the ladder carries them. The whole chain so far fits in the last 10 exchanges 45% of the time,
   in 20 62%, in 30 69%. Twenty exchanges are about 15,400 tokens of both sides' words at the median (36,300 at
   the 90th percentile); thirty are 23,900 (53,600). (The daemon's own ledger, 302 exchanges, had suggested 10;
-  it was the wrong corpus.)
+  it was the wrong corpus.) Since 2026-11-24 no fold takes the newest 30 exchanges (the owner's word), and N,
+  the fold step, stays 20, so the ladder does not grow.
+- **What the 30 is, and is not** (2026-11-24). It is the fold's rule, not a count every request carries. A place
+  with fewer than 30 exchanges has them all. A place laddered under the old rule, its window 20 to 39, keeps the
+  window it had and grows into 30; no node is unfolded. A fold job that stalls (its model fails, or the day's
+  line is spent) folds nothing until it catches up, so the window can hold more than 49 meanwhile. And budgets
+  can still shorten what a request carries of the window (§5.1, the budgeter's rules 6 to 8): only the newest
+  three exchanges' words are protected.
 - **Tool output cannot saturate the window.** It is about 90% of the bytes of his conversations: twenty
   exchanges carry about 156,000 tokens of it at the median and 700,000 at the 90th percentile (measured). The
   rule is the one the build already has, kept as it is: tool output in view may grow to a **high mark**; past
@@ -551,8 +589,8 @@ certain and everything since a three-hour pause.
 - **The floor.** The words of the newest three exchanges in the window can never be cut, need no model, and are
   read from the store itself. The fault that began this (a reply four minutes later that lost the answer before
   it) is answered here; replaying it with the judge unplugged (§10) is the proof.
-- **The fold.** When the window reaches 2N exchanges, its oldest N are folded into **one node**, and the window
-  is N again. A fold node holds: his own words in those exchanges, word for word; an account of what Theseus
+- **The fold.** When the window reaches 30 + N exchanges, its oldest N are folded into **one node**, and the
+  window is 30 again. A fold node holds: his own words in those exchanges, word for word; an account of what Theseus
   did and decided there, written once, off the turn's path, by a small model; the marks of everything it was
   made from; and a handle that opens the exchanges themselves.
 - **The ladder.** Fold nodes are kept the same way: when a level holds 2N nodes, its oldest N are folded into
@@ -581,7 +619,7 @@ certain and everything since a three-hour pause.
   exchanges) or a clearing (once every 40,000 tokens of new tool output). Part Two prices what that is worth.
 - **`/new`** puts a mark on this place's timeline. The window, the ladder and what is in play read only what
   came after it: the first message after `/new` sees nothing of this place's earlier conversation. What was said
-  before is still his past: his words in slot E, the rest by search and paging. Nothing is erased (decision 7).
+  before is still his past, reached by search and paging. Nothing is erased (decision 7).
 
 **What a place is, by surface.** A chat conversation is its binding. The web page is one place. The terminal is
 one place per project directory (the session block already holds the directory; the ledger does not record it
@@ -615,30 +653,10 @@ per turn today, so step 1 adds it). A new session does not start a new place or 
 
 ### 5.3 His words from everywhere: how they thin with age
 
-This is slot E and slot F: his words across every place. A place's own past is its ladder (§5.2); where the two
-overlap, a piece is shown once, in the ladder.
-
-His words are small. In the main conversation: about 490 tokens for the last 24 hours, 1,540 for seven days,
-2,900 for thirty, 4,850 for all seven weeks (est. from measured bytes). Across all his private places it is
-perhaps twice that (est. from turn counts). So they are not summarised; they are **selected from**.
-
-| Age | His words | Theseus's side |
-|---|---|---|
-| in this place's window | all, whole | all, whole |
-| the last 48 hours, anywhere | all, verbatim | newest reply per place in full; the rest as `did` lines |
-| to 7 days | all, verbatim, dated, with place | `did` lines for what he asked; nothing for harness and wake turns |
-| to 30 days | all, while the slot's cap holds; over it, the oldest days go first | nothing; a handle |
-| older | only lines that are a correction (the judge's existing answer about the kind of message), that made a standing record, or that are still waiting | nothing; a handle |
-
-His messages are short (about 40 tokens on average, measured), and many are pointers: "no, 41". So a line of
-his that the judge marked as a fragment or a correction is never shown bare: at every age it is shown with its
-exchange's `did` line, or it is counted in what was left out.
-
-Every band ends with a count of what was left out (how many of his lines, how many exchanges) and a handle that
-opens it. Nothing the gate admits is silently absent; what it denies is not counted (rule 2). The rules are deterministic; no model decides what an old line was.
-
-There are no separate month or year paragraphs. For a place, the ladder is the folding; for his words across
-places, the rules above are.
+**Removed, 2026-11-24** (the owner's ruling: the slices of his words by age go). Slot E, which laid his words
+older than two days in bands to 7 days, to 30 days and older, is gone, with its selector and its bands. His
+words from other places in the last two days are slot F's; anything older is reached by the history tool and
+by recall. A view record kept before it still reads: its pieces of those bands are listed as `retired`.
 
 ### 5.4 How a mention calls a thing in, and how it stays
 
@@ -750,7 +768,7 @@ the view (rung 1).
   with the message and the reply before it as its query, and leaves out what is already in view; rung 2 would be
   a second search beside it.
 - **What rung 2 brought into slot H is one open away.** Each recalled note ends with a line
-  `open: <handle> (context_history)`, the handle of its exchange, and the memory page (version 5) says so. A note
+  `open: <handle> (context_history)`, the handle of its exchange, and the memory page (version 5 on) says so. A note
   names a handle only where the history tool's `open` gives that exchange to the asking session, by the same
   test (`Lens::opens`): an exchange on record, within a self-loop session's own place, not held by a fork's cut.
   A node of no turn, a turn from before the ledger and an imported message name none. The line is rendered when
@@ -1291,8 +1309,8 @@ conversation that has grown long.
    this so: what moves every turn sits beside the message and is never stored.
 2. **Frozen within a turn** (a correctness rule anyway): every call after the first reads the whole request
    from cache.
-3. **What breaks the front, and how often**: a fold (once every N exchanges); a clearing of tool results; a day's turn (his older words are
-   laid again); a change to a fact about him; a change of tools or system text; `/new`; a change of audience.
+3. **What breaks the front, and how often**: a fold (once every N exchanges); a clearing of tool results; a change
+   to a fact about him; a change of tools or system text; `/new`; a change of audience.
    The shadow rows count each.
 4. **Which cache lifetime to write at is a measurement.** For a context rebuilt whole every turn, the one-hour
    write cost 50% more and bought nothing (simulation). With a fixed front that may reverse: he often answers

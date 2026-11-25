@@ -8,11 +8,11 @@ use std::collections::BTreeSet;
 
 use super::fold::FoldNode;
 use super::select::sources::{
-    ExchangeFacts, Exchanges, Folds, Kind, Names, People, Places, Recall, Ref, TaskCards, Things,
+    ExchangeFacts, Exchanges, Folds, Held, Names, People, Places, Recall, Ref, TaskCards, Things,
     Waiting,
 };
 use super::text::tokens;
-use super::{AtHand, Audience, Author, Handle, Marks, PointOfView, Pos, Sizes};
+use super::{AtHand, Audience, Author, Handle, Marks, Piece, PointOfView, Pos, Sizes};
 use crate::exchange::{self, Opener, Root, OWNER};
 use crate::ladder::did;
 use crate::node::Body;
@@ -35,6 +35,9 @@ pub struct Sessions {
     /// (`super::sources_names`), a waiting record's line (`super::sources_waiting`), the facts about the
     /// person (`super::sources_people`). The renderer lays what the selectors read, once.
     pub texts: std::cell::RefCell<std::collections::BTreeMap<super::Space, String>>,
+    /// The name of each held person the turn's sources found, by the ledger's name for who opened an exchange
+    /// (`super::sources_people`): a person's recent line elsewhere is headed with it.
+    pub names: std::cell::RefCell<std::collections::BTreeMap<String, String>>,
     /// The sessions those texts were read from, as the gate admitted them: a seal of one before a later
     /// call of the turn revokes the view (`turn::view_step`).
     pub depends: std::cell::RefCell<std::collections::BTreeSet<String>>,
@@ -143,17 +146,7 @@ fn json_tokens(v: &serde_json::Value) -> u64 {
     tokens(&v.to_string())
 }
 
-// The facts emitted by this source, shared with its eligibility proof. When classifications
-// are wired to stored evidence this proof must become an indexed candidate reader.
-const EXCHANGE_KIND: Kind = Kind::Unknown;
-const EXCHANGE_STANDING: bool = false;
-const EXCHANGE_WAITING: bool = false;
-
 impl Exchanges for StoreSources<'_> {
-    fn has_old_candidates(&self) -> bool {
-        EXCHANGE_KIND == Kind::Correction || EXCHANGE_STANDING || EXCHANGE_WAITING
-    }
-
     fn facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>> {
         if self.own == Some(turn_id) {
             return Ok(None);
@@ -233,9 +226,6 @@ impl StoreSources<'_> {
             },
             place: ex.place,
             person: ex.person,
-            kind: EXCHANGE_KIND,
-            standing: EXCHANGE_STANDING,
-            waiting: EXCHANGE_WAITING,
             his,
             reply,
             tools,
@@ -324,7 +314,19 @@ impl Recall for StoreSources<'_> {
 }
 
 impl People for StoreSources<'_> {
-    fn about(&self, _: &str) -> anyhow::Result<Vec<Ref>> {
+    fn held(&self, _: &str) -> anyhow::Result<Option<Held>> {
+        Ok(None)
+    }
+    fn owner(&self, person: &str) -> bool {
+        person == OWNER
+    }
+    fn about(&self, _: &str, _: u64) -> anyhow::Result<Vec<Ref>> {
         Ok(Vec::new())
+    }
+    fn speaking(&self, _: &str) -> anyhow::Result<Vec<Ref>> {
+        Ok(Vec::new())
+    }
+    fn laid(&self, piece: &Piece, _: &PointOfView) -> anyhow::Result<u64> {
+        Ok(piece.sizes.line)
     }
 }

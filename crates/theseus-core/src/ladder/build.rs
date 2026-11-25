@@ -13,7 +13,7 @@ use super::fold::Flags;
 use super::read::{self, Step};
 use super::writer::{Ask, ModelWriter, Work, Writer};
 use super::DayPurse;
-use super::N;
+use super::{FOLD_STEP, WINDOW_FLOOR};
 use crate::exchange::{self, Root};
 use crate::judge::categorize::ExchangeEnd;
 use crate::judge::JudgeService;
@@ -223,7 +223,10 @@ impl Core {
         let purse = DayPurse::new(&self.store, money.cap_usd, money.over_day_line);
         b.day_left_usd = DayPurse::new(&self.store, None, false).left()?;
         let w = l.window.len();
-        let folds = if w >= 2 * N { (w - N) / N } else { 0 };
+        let folds = match crate::view::fold::fold_due(w) {
+            true => (w - WINDOW_FLOOR) / FOLD_STEP,
+            false => 0,
+        };
         if dry_run {
             b.lines = todo.len() as u64;
             b.folds = folds as u64;
@@ -286,12 +289,13 @@ fn estimate(writer: &dyn Writer, todo: &[did::Read], folds: usize) -> f64 {
             })
         })
         .sum();
-    let most = (super::fold::ASK_CHARS + super::fold::REPLY_CHARS + did::MAX_CHARS + 80) * N;
+    let most =
+        (super::fold::ASK_CHARS + super::fold::REPLY_CHARS + did::MAX_CHARS + 80) * FOLD_STEP;
     let fold = writer
         .estimate(&Ask {
             work: Work::Fold,
             text: "x".repeat(most),
-            sources: N as u32,
+            sources: FOLD_STEP as u32,
         })
         .unwrap_or(0.0);
     lines + fold * folds as f64

@@ -12,7 +12,7 @@ use super::did::{self, Outcome, Said, NOT_SUMMARISED};
 use super::fold::{self, NoFlags};
 use super::read::{self, Step};
 use super::writer::{Ask, Work, Writer, Written};
-use super::{DayPurse, Purse, N};
+use super::{DayPurse, Purse, FOLD_STEP, WINDOW_FLOOR};
 use crate::exchange::{self, Exchange, Opener, Root};
 use crate::node::{Body, Node};
 use crate::store::Store;
@@ -258,31 +258,29 @@ fn step<'a>(w: &'a Fake, purse: &'a DayPurse<'a>) -> Step<'a> {
 }
 
 #[tokio::test]
-async fn the_window_folds_its_oldest_n_at_2n_and_keeps_n() {
+async fn the_window_folds_its_oldest_step_at_floor_plus_step_and_keeps_its_floor() {
     let (_d, s) = store();
-    let turns: Vec<String> = (0..2 * N as u64 - 1)
+    let due = WINDOW_FLOOR + FOLD_STEP;
+    let turns: Vec<String> = (0..due as u64 - 1)
         .map(|i| exchange_at(&s, "ses_a", PLACE, 1_000 + i, i == 3))
         .collect();
     let w = Fake::default();
     let s1 = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
         .await
         .unwrap();
-    assert!(s1.made.is_empty(), "2N - 1 exchanges: no fold");
-    assert_eq!(
-        read::ladder(&s, PLACE, None).unwrap().window.len(),
-        2 * N - 1
-    );
-    let last = exchange_at(&s, "ses_a", PLACE, 1_000 + 2 * N as u64, false);
+    assert!(s1.made.is_empty(), "49 exchanges: no fold");
+    assert_eq!(read::ladder(&s, PLACE, None).unwrap().window.len(), due - 1);
+    let last = exchange_at(&s, "ses_a", PLACE, 1_000 + due as u64, false);
     let s2 = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
         .await
         .unwrap();
     assert_eq!(s2.made.len(), 1);
     let node = &s2.made[0];
-    assert_eq!((node.level, node.exchanges.len()), (1, N));
+    assert_eq!((node.level, node.exchanges.len()), (1, FOLD_STEP));
     assert_eq!(
         node.exchanges,
-        turns[..N].to_vec(),
-        "the oldest N, in order"
+        turns[..FOLD_STEP].to_vec(),
+        "the oldest 20, in order"
     );
     assert_eq!(
         (node.title.as_str(), node.marks.outside),
@@ -293,12 +291,16 @@ async fn the_window_folds_its_oldest_n_at_2n_and_keeps_n() {
     let first = exchange::exchange(&s, &turns[0]).unwrap().unwrap();
     assert_eq!(node.his[0].node, first.ask.unwrap());
     let l = read::ladder(&s, PLACE, None).unwrap();
-    assert_eq!(l.window.len(), N, "the window is N again");
+    assert_eq!(
+        l.window.len(),
+        WINDOW_FLOOR,
+        "the window is its floor again"
+    );
     assert_eq!(l.window.last().unwrap().turn_id, last);
     assert_eq!(l.rungs[0].nodes, vec![node.clone()]);
     // The handle opens its exchanges; a node never changes once written.
     let opened = fold::open(&s, &fold::node(&s, &node.id).unwrap().unwrap()).unwrap();
-    assert_eq!(opened.len(), N);
+    assert_eq!(opened.len(), FOLD_STEP);
     let asked = w.asks.lock().unwrap().clone();
     let fold_ask = asked.iter().find(|a| a.work == Work::Fold).unwrap();
     assert!(!fold_ask.text.contains("SECRET-TOOL-OUTPUT"));
@@ -318,14 +320,14 @@ const OLD_HIDDEN: &str = "Not summarised: a source of these exchanges is sealed 
 #[tokio::test]
 async fn an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands() {
     let (_d, s) = store();
-    let turns: Vec<String> = (0..2 * N as u64)
+    let turns: Vec<String> = (0..2 * FOLD_STEP as u64)
         .map(|i| exchange_at(&s, "ses_sealed", PLACE, 1_000 + i, false))
         .collect();
-    let last_ms = 1_000 + N as u64 - 1;
+    let last_ms = 1_000 + FOLD_STEP as u64 - 1;
     let old = json!({
-        "id": "fld_old", "place": PLACE, "level": 1, "exchanges": &turns[..N],
+        "id": "fld_old", "place": PLACE, "level": 1, "exchanges": &turns[..FOLD_STEP],
         "first_ms": 1_000, "last_ms": last_ms, "his": [], "counted": 0, "children": [],
-        "title": format!("{N} exchanges, not summarised"), "account": OLD_HIDDEN,
+        "title": format!("{FOLD_STEP} exchanges, not summarised"), "account": OLD_HIDDEN,
         "marks": {"place": PLACE, "audience": "private", "author": "theseus", "outside": false,
                   "sealed": true, "veiled": true},
         "model": null, "writer": 1, "at_ms": 5,
@@ -340,12 +342,12 @@ async fn an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands(
     );
     assert_eq!(
         l.window.len(),
-        N,
+        FOLD_STEP,
         "the exchanges it stands for are out of the window"
     );
     let w = Fake::default();
     let purse = DayPurse::new(&s, None, false);
-    let oldest: Vec<Exchange> = turns[..N]
+    let oldest: Vec<Exchange> = turns[..FOLD_STEP]
         .iter()
         .map(|t| exchange::exchange(&s, t).unwrap().unwrap())
         .collect();
@@ -362,7 +364,7 @@ async fn an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands(
 }
 
 #[tokio::test]
-async fn a_level_of_2n_nodes_folds_into_one_above_built_by_code() {
+async fn a_level_of_twice_the_step_folds_into_one_above_built_by_code() {
     let (_d, s) = store();
     let w = Fake::default();
     let flags = Flagged;
@@ -373,17 +375,16 @@ async fn a_level_of_2n_nodes_folds_into_one_above_built_by_code() {
         purse: &purse,
     };
     let mut made = Vec::new();
-    for i in 0..(2 * N * N + N) as u64 {
+    // Stepped at every exchange's end, as the job runs it: 40 first-level nodes, and a window of 30.
+    for i in 0..(2 * FOLD_STEP * FOLD_STEP + WINDOW_FLOOR) as u64 {
         exchange_at(
             &s,
-            &format!("ses_{}", i / N as u64),
+            &format!("ses_{}", i / FOLD_STEP as u64),
             PLACE,
             1_000 + i,
             false,
         );
-        if (i + 1) % N as u64 == 0 {
-            made.extend(read::fold_step(&s, PLACE, None, &st).await.unwrap().made);
-        }
+        made.extend(read::fold_step(&s, PLACE, None, &st).await.unwrap().made);
     }
     let above: Vec<_> = made.iter().filter(|n| n.level == 2).collect();
     assert_eq!(
@@ -395,7 +396,7 @@ async fn a_level_of_2n_nodes_folds_into_one_above_built_by_code() {
     let two = above[0];
     assert_eq!(
         (two.children.len(), two.exchanges.len(), two.model.clone()),
-        (N, N * N, None)
+        (FOLD_STEP, FOLD_STEP * FOLD_STEP, None)
     );
     let firsts = w
         .asks
@@ -411,16 +412,19 @@ async fn a_level_of_2n_nodes_folds_into_one_above_built_by_code() {
     );
     // His lines above the first level: the flagged kept, the rest counted.
     assert!(!two.his.is_empty() && two.his.iter().all(|h| h.standing));
-    assert_eq!(two.his.len() as u32 + two.counted, (N * N) as u32);
+    assert_eq!(
+        two.his.len() as u32 + two.counted,
+        (FOLD_STEP * FOLD_STEP) as u32
+    );
     let l = read::ladder(&s, PLACE, None).unwrap();
     assert_eq!(
         l.rungs
             .iter()
             .map(|r| (r.level, r.nodes.len()))
             .collect::<Vec<_>>(),
-        vec![(2, 1), (1, N)]
+        vec![(2, 1), (1, FOLD_STEP)]
     );
-    assert_eq!(l.window.len(), N);
+    assert_eq!(l.window.len(), WINDOW_FLOOR);
 }
 
 /// Every tenth of the person's lines made a standing record.
@@ -438,7 +442,7 @@ impl fold::Flags for Flagged {
 #[tokio::test]
 async fn only_what_came_after_the_latest_new_is_counted() {
     let (_d, s) = store();
-    for i in 0..2 * N as u64 {
+    for i in 0..(WINDOW_FLOOR + FOLD_STEP) as u64 {
         exchange_at(&s, "ses_old", PLACE, 1_000 + i, false);
     }
     for i in 0..3 {
@@ -476,7 +480,7 @@ fn a_fold_answer_is_a_title_and_an_account_cut_by_code() {
 async fn the_views_traits_read_the_ladder_and_write_its_nodes() {
     use crate::view::fold::{FoldWriter, Ladder};
     let (_d, s) = store();
-    for i in 0..2 * N as u64 {
+    for i in 0..(WINDOW_FLOOR + FOLD_STEP) as u64 {
         exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
     }
     let w = Fake::default();
@@ -486,21 +490,25 @@ async fn the_views_traits_read_the_ladder_and_write_its_nodes() {
         flags: &NoFlags,
     };
     let ladder = super::view::StoreLadder(&s);
-    let before = ladder.read(PLACE, N, None).unwrap();
+    let before = ladder.read(PLACE, FOLD_STEP, None).unwrap();
     assert!(before.nodes.is_empty());
-    assert_eq!(before.window.len(), 2 * N);
-    assert!(crate::view::fold::fold_due(before.window.len(), N));
-    let node = folds.fold(PLACE, &before.window[..N]).unwrap();
+    assert_eq!(before.window.len(), WINDOW_FLOOR + FOLD_STEP);
+    assert!(crate::view::fold::fold_due(before.window.len()));
+    assert!(!crate::view::fold::fold_due(before.window.len() - 1));
+    let node = folds.fold(PLACE, &before.window[..FOLD_STEP]).unwrap();
     assert_eq!(
         (node.level, node.exchanges, node.title.as_str()),
-        (1, N as u32, "Tide gauges")
+        (1, FOLD_STEP as u32, "Tide gauges")
     );
     assert_eq!(node.first.id, before.window[0].turn_id);
     assert_eq!(node.writer.by, "fake-small-1");
-    let after = ladder.read(PLACE, N, None).unwrap();
+    let after = ladder.read(PLACE, FOLD_STEP, None).unwrap();
     assert_eq!(after.nodes, vec![node.clone()]);
-    assert_eq!(after.window, before.window[N..].to_vec());
-    assert!(ladder.read(PLACE, N + 1, None).is_err(), "one grain");
+    assert_eq!(after.window, before.window[FOLD_STEP..].to_vec());
+    assert!(
+        ladder.read(PLACE, FOLD_STEP + 1, None).is_err(),
+        "one grain"
+    );
     let lifted = folds.lift(2, std::slice::from_ref(&node)).unwrap();
     assert_eq!((lifted.level, lifted.writer.by.as_str()), (2, "code"));
     assert!(
@@ -520,7 +528,7 @@ fn made_shared(s: &Store, turn: &str) {
 #[tokio::test]
 async fn a_fold_over_a_change_of_audience_carries_the_narrowest_and_so_does_a_lift() {
     let (_d, s) = store();
-    for i in 0..2 * N as u64 {
+    for i in 0..(WINDOW_FLOOR + FOLD_STEP) as u64 {
         let t = exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
         if i >= 10 {
             made_shared(&s, &t);
@@ -605,16 +613,16 @@ async fn a_history_past_eighty_folds_from_its_oldest_and_loses_nothing() {
         let st = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
             .await
             .unwrap();
-        let folds = (total as usize - N) / N;
+        let folds = (total as usize - WINDOW_FLOOR) / FOLD_STEP;
         assert_eq!(st.made.len(), folds, "{total}");
         assert_eq!(
             st.made[0].exchanges,
-            turns[..N].to_vec(),
+            turns[..FOLD_STEP].to_vec(),
             "the oldest first"
         );
         assert_eq!(
             read::ladder(&s, PLACE, None).unwrap().window.len(),
-            total as usize - folds * N
+            total as usize - folds * FOLD_STEP
         );
         nothing_lost(&s, &turns);
     }
@@ -628,16 +636,19 @@ async fn a_long_failure_of_the_folds_model_grows_the_window_and_recovery_folds_i
         ..Fake::default()
     };
     let mut turns = Vec::new();
-    for i in 0..120u64 {
+    for i in 0..110u64 {
         turns.push(exchange_at(&s, "ses_a", PLACE, 1_000 + i, false));
         let st = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
             .await
             .unwrap();
-        if i < 2 * N as u64 + 20 {
+        if i < (WINDOW_FLOOR + FOLD_STEP) as u64 + 20 {
             assert!(st.made.is_empty());
         }
     }
-    assert_eq!(read::ladder(&s, PLACE, None).unwrap().window.len(), N);
+    assert_eq!(
+        read::ladder(&s, PLACE, None).unwrap().window.len(),
+        WINDOW_FLOOR
+    );
     nothing_lost(&s, &turns);
 }
 
@@ -645,7 +656,7 @@ async fn a_long_failure_of_the_folds_model_grows_the_window_and_recovery_folds_i
 async fn the_fold_writer_returns_a_written_range_and_never_writes_it_again() {
     use crate::view::fold::{FoldWriter, Ladder};
     let (_d, s) = store();
-    for i in 0..2 * N as u64 {
+    for i in 0..2 * FOLD_STEP as u64 {
         exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
     }
     let w = Fake::default();
@@ -655,11 +666,11 @@ async fn the_fold_writer_returns_a_written_range_and_never_writes_it_again() {
         flags: &NoFlags,
     };
     let window = super::view::StoreLadder(&s)
-        .read(PLACE, N, None)
+        .read(PLACE, FOLD_STEP, None)
         .unwrap()
         .window;
-    let a = folds.fold(PLACE, &window[..N]).unwrap();
-    let b = folds.fold(PLACE, &window[..N]).unwrap();
+    let a = folds.fold(PLACE, &window[..FOLD_STEP]).unwrap();
+    let b = folds.fold(PLACE, &window[..FOLD_STEP]).unwrap();
     assert_eq!(a, b, "the same node, the same handle");
     assert_eq!(fold::newest(&s, PLACE, 1, 10).unwrap().len(), 1, "one rung");
     let asked = w

@@ -62,15 +62,15 @@ const LIMITS: [&str; 5] = [
 
 impl TurnRunner {
     /// The sessions of `place` the owner's look admits, newest first: a turn's own (no task, not imported)
-    /// found by the place's window (its newest `WINDOW_N`, as a turn's; so adopted history counts with no
-    /// change here), by the place's touches (folded history included), or as the place's by today's
+    /// found by the place's window (everything after its newest fold, as a turn's; so adopted history counts
+    /// with no change here), by the place's touches (folded history included), or as the place's by today's
     /// reading; whose own records the gate admits for the owner in person there today (its seal, which the
     /// look does not lift; its place's class); and that ran an exchange there the gate admits whole, or
     /// ran none there at all (`ran_admitted`: decided from its own exchanges, never the ladder's coverage).
     pub fn place_sessions(&self, place: &str) -> anyhow::Result<Vec<SessionRecord>> {
         use crate::view::fold::Ladder;
         let window =
-            (StoreLadder(&self.store).read(place, crate::view::fold::WINDOW_N, None)?).window;
+            (StoreLadder(&self.store).read(place, crate::view::fold::FOLD_STEP, None)?).window;
         let root = crate::exchange::Root::Place(place);
         let touched = crate::exchange::newest_before(&self.store, root, u64::MAX, PLACE_TOUCHES)?;
         let found: HashSet<String> = (window.into_iter().map(|e| e.session_id))

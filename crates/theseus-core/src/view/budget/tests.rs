@@ -112,10 +112,10 @@ fn forms(v: &View) -> Vec<(Band, u64, Form)> {
 
 #[test]
 fn an_exchange_asked_for_twice_is_shown_once_in_slot_g_with_both_reasons() {
-    let mut past = piece(Band::Past7, here(), 5, Form::Line, (100, 40, 10));
-    past.reasons = BTreeSet::from([Reason::Past]);
+    let mut elsewhere = piece(Band::ElsewhereWords, here(), 5, Form::Line, (100, 40, 10));
+    elsewhere.reasons = BTreeSet::from([Reason::Elsewhere]);
     let window = piece(Band::WindowWords, here(), 5, Form::Spoken, (100, 40, 10));
-    let v = run(vec![past, window], &budget(60_000, 150_000)).expect("fits");
+    let v = run(vec![elsewhere, window], &budget(60_000, 150_000)).expect("fits");
     assert_eq!(v.shown.len(), 1);
     let s = &v.shown[0];
     assert_eq!(
@@ -124,7 +124,7 @@ fn an_exchange_asked_for_twice_is_shown_once_in_slot_g_with_both_reasons() {
     );
     assert_eq!(
         s.piece.reasons,
-        BTreeSet::from([Reason::Past, Reason::Window])
+        BTreeSet::from([Reason::Elsewhere, Reason::Window])
     );
     assert_eq!(v.dropped.len(), 1);
     assert_eq!(v.dropped[0].why, DropWhy::Merged);

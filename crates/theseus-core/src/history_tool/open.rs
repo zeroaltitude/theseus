@@ -220,6 +220,7 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> (String, Vec<String
             last: at,
         },
         handle,
+        person: None,
     };
     let author = |p: &Said| {
         by_id

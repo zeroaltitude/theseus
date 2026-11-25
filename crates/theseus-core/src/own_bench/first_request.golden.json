@@ -8,6 +8,10 @@
     {
       "content": [
         {
+          "text": "Who you are, as Theseus's settings stand for this turn (laid by code):\n- profile: sonnet; model: claude-sonnet-5-5\n- persona: Theseus\n- to read more: config_show for the settings, look_theseus for what this turn was shown and why",
+          "type": "text"
+        },
+        {
           "text": "Which port does the kestrel relay listen on?",
           "type": "text"
         }

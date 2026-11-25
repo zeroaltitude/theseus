@@ -188,6 +188,7 @@ impl Rig {
             .as_array()
             .unwrap()
             .iter()
+            .filter(|b| !crate::task_graph::view::is_view(b))
             .filter_map(|b| b["text"].as_str())
             .collect::<Vec<_>>()
             .join("")

@@ -278,7 +278,7 @@ fn a_stored_piece_needs_the_gate_and_folds_are_by_count() {
         Admitted::code(clock).is_some(),
         "code's own text has nothing to permit"
     );
-    assert!(!fold_due(39, 20) && fold_due(40, 20) && !fold_due(0, 0));
+    assert!(!fold_due(49) && fold_due(50) && !fold_due(0));
     let page = FakeTimeline
         .newest(
             &TimelineRoot::Place("local".into()),

@@ -218,8 +218,8 @@ extra calls, and any outside every turn's span (`all_calls`, `all_tokens` and th
 `proof.json`). Each request is given one class in one pass over the turn's span, in whatever order its rounds
 arrive, so the parts add to the total; the run checks that in code and stops if they do not.
 
-`--cost-long` adds two longer conversations: 120 short turns in one place (folds land from the 40th
-exchange on), and 20 turns of three 6,000-character tool results each. Per turn they add the turn's own model
+`--cost-long` adds two longer conversations: 120 short turns in one place (folds land at the 50th
+exchange and every 20th after it, four in all), and 20 turns of three 6,000-character tool results each. Per turn they add the turn's own model
 calls, the calls made OFF the turn (a call that offers no tools: the ladder's `did` lines and folds, a
 compaction's summary) with their tokens, and the turn's compilations by strategy; their summary is the same two
 lines, `first requests` and `all requests`. A `/new` break and a day

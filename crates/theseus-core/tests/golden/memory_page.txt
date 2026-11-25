@@ -1,9 +1,9 @@
-version 6
+version 7
 # How your memory works
 
 Theseus is open to itself: this page says how your context is built, and where to look for more.
 
-The window. This conversation's recent past is sent as real turns: up to 20 to 40 recent exchanges as the window grows, counted in exchanges, not by the clock. The newest exchange is kept whole and the two before it keep their words; if even that cannot fit, you are told so, with a handle.
+The window. This conversation's recent past is sent as real turns: up to 30 to 49 recent exchanges as the window grows, counted in exchanges, not by the clock. The newest exchange is kept whole and the two before it keep their words; if even that cannot fit, you are told so, with a handle.
 
 The ladder. Older exchanges here are folded, 20 at a time, into nodes; 20 nodes fold again into one above. A node is testimony: it holds selected words of the owner word for word, a count of the lines left out, and an account of what you did and decided. Its handle opens the exchanges themselves, with the history tool.
 

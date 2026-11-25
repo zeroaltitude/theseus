@@ -1,5 +1,5 @@
 //! Fold nodes (`fold.<place>␁<level>␁<first ms>`) and their rungs (`rung.<place>␁<level>␁…`). A
-//! first-level node stands for [`N`](super::N) consecutive exchanges of a
+//! first-level node stands for [`FOLD_STEP`](super::FOLD_STEP) consecutive exchanges of a
 //! place: the person's words in them by node id, never copied; a title and
 //! an account written once by a small model from their asks, their `did`
 //! lines and their final replies, each cut by code; the union of their

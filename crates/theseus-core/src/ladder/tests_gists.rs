@@ -9,7 +9,7 @@ use super::fold::{self, NoFlags};
 use super::gists::sheet;
 use super::read::{self, Step};
 use super::tests::{exchange_at, store, Fake};
-use super::{DayPurse, N};
+use super::{DayPurse, FOLD_STEP, WINDOW_FLOOR};
 use crate::exchange;
 use crate::scrub::Scrubber;
 use crate::store::Store;
@@ -131,7 +131,8 @@ async fn gists_shows_a_level_one_node_with_its_exchanges() {
     let (_d, s) = store();
     let w = Fake::default();
     let purse = DayPurse::new(&s, None, false);
-    for i in 0..2 * N as u64 {
+    // One fold: it is due at the floor plus a step, and takes the oldest step.
+    for i in 0..(WINDOW_FLOOR + FOLD_STEP) as u64 {
         let t = exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
         did::write(&s, &w, &t, &purse).await.unwrap();
     }
@@ -150,11 +151,11 @@ async fn gists_shows_a_level_one_node_with_its_exchanges() {
     let g = &r.nodes[0];
     assert_eq!(
         (g.id.as_str(), g.exchanges, g.readable),
-        (made[0].id.as_str(), N as u32, N as u32)
+        (made[0].id.as_str(), FOLD_STEP as u32, FOLD_STEP as u32)
     );
     // Exactly what the fold's writer was given, every exchange in it.
     assert_eq!(g.read, fold_read);
-    for i in 0..N as u64 {
+    for i in 0..FOLD_STEP as u64 {
         assert!(
             g.read.contains(&format!("Recalibrate gauge {}", 1_000 + i)),
             "{}",

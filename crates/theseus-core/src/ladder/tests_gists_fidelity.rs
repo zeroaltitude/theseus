@@ -10,7 +10,7 @@ use super::gists::sheet;
 use super::read::{self, Step};
 use super::tests::{exchange_at, store, Fake};
 use super::writer::{request_of, Ask, WRITER_VERSION};
-use super::{DayPurse, N};
+use super::{DayPurse, FOLD_STEP, WINDOW_FLOOR};
 use crate::exchange::{self, Exchange, Opener};
 use crate::scrub::Scrubber;
 use crate::store::Store;
@@ -129,7 +129,8 @@ async fn gists_shows_the_material_the_writers_request_holds() {
     let w = Fake::default();
     let purse = DayPurse::new(&s, None, false);
     let mut turns = Vec::new();
-    for i in 0..2 * N as u64 {
+    // One fold: it is due at the floor plus a step.
+    for i in 0..(WINDOW_FLOOR + FOLD_STEP) as u64 {
         let t = exchange_at(&s, "ses_a", PLACE, 1_000 + i, i == 3);
         did::write(&s, &w, &t, &purse).await.unwrap();
         turns.push(t);
@@ -156,7 +157,7 @@ async fn gists_shows_the_material_the_writers_request_holds() {
     );
 
     let r = sheet(&s, &scrubber, &asked(50, 10)).unwrap();
-    assert_eq!(r.lines.len(), 2 * N);
+    assert_eq!(r.lines.len(), WINDOW_FLOOR + FOLD_STEP);
     for (item, (t, ask)) in r.lines.iter().zip(turns.iter().zip(&asks)) {
         assert_eq!(&item.turn_id, t);
         let read = item.read.as_deref().unwrap();

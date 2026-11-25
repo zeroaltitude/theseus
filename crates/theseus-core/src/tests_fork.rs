@@ -55,7 +55,11 @@ fn last_user_text(req: &ProviderRequest) -> String {
         .rev()
         .find(|m| m["role"] == "user")
         .and_then(|m| m["content"].as_array())
-        .and_then(|b| b.iter().find_map(|b| b["text"].as_str()))
+        .and_then(|b| {
+            (b.iter())
+                .filter(|b| !crate::task_graph::view::is_view(b))
+                .find_map(|b| b["text"].as_str())
+        })
         .unwrap_or_default()
         .to_string()
 }
@@ -1050,6 +1054,7 @@ fn said_in(req: &ProviderRequest) -> Vec<String> {
     (req.messages.iter())
         .map(|m| {
             (m["content"].as_array().into_iter().flatten())
+                .filter(|b| !crate::task_graph::view::is_view(b))
                 .filter_map(|b| b["text"].as_str())
                 .collect::<Vec<_>>()
                 .join("\n")

@@ -15,6 +15,7 @@
 //! - [`render`]: the seam from a view to the parts of a request, in the order on the wire.
 //! - [`history`]: the history tool's interface.
 //! - [`timeline`]: the read the ledger implements (the newest exchanges of a root, before a cursor).
+//! - [`who`]: who am I, code's own lines at the head of the first user message.
 //!
 //! Names here are imported by other work: add, never rename.
 
@@ -37,6 +38,7 @@ pub mod sources_store;
 pub mod sources_waiting;
 pub mod text;
 pub mod timeline;
+pub mod who;
 pub mod wire;
 pub mod wire_text;
 
@@ -99,20 +101,19 @@ pub trait Snapshot {
     fn at_hand(&self, anchor: &Anchor) -> Option<AtHand>;
 }
 
-/// The nine slots of the design, A to I.
+/// The slots of the design, A to I; E is retired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Slot {
     /// A: tools, header, standing orders, persona, layers, the session block, the memory page.
     Frame,
-    /// B: accepted facts about the person; the place and who is present.
+    /// B: who am I talking to: the people present, by the owner's records (in the front), and each one's
+    /// newest exchanges elsewhere but the owner's (beside the message).
     WhoAndWhere,
     /// C: what is certainly waiting between them.
     Waiting,
     /// D: the work at hand and the things named in the last three exchanges here.
     InPlay,
-    /// E: his own words, thinning with age.
-    Past,
     /// F: the last 48 hours in his other private places.
     Elsewhere,
     /// G: this place's window and ladder, with its own allowance.
@@ -121,6 +122,11 @@ pub enum Slot {
     Called,
     /// I: the clock, the branch line, the task ticker, then his message.
     Now,
+    /// A slot no longer laid, as an old view record or tally names it (E, `past`, removed 2026-11-24): that name,
+    /// and no other, reads as this one; a name this build does not know is refused, as it always was. Only ever
+    /// read from a stored record: no row of the admission table has it.
+    #[serde(alias = "past")]
+    Retired,
 }
 
 /// Why a piece is here: the selectors that asked for it (design §5.4, "The reasons").
@@ -141,6 +147,8 @@ pub enum Reason {
     Task,
     Recalled,
     Correction,
+    /// A person present's own recent exchange elsewhere (who am I talking to).
+    Present,
     /// Slots A and I: laid by code, not chosen.
     Fixed,
 }

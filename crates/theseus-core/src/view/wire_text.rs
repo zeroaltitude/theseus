@@ -14,6 +14,7 @@ use std::collections::BTreeSet;
 use super::budget::View;
 use super::fold::FoldNode;
 use super::render::{MarkedBlock, Renderer, RequestParts};
+use super::select::{Band, RECENT_LINE_TOKENS};
 use super::sources_recall;
 use super::sources_store::author_of;
 use super::text::forms::{self, Said, Voice};
@@ -46,11 +47,14 @@ enum Part {
     Elsewhere,
 }
 
-fn part(slot: Slot) -> Part {
-    match slot {
-        Slot::WhoAndWhere | Slot::Past => Part::Fixed,
+fn part(p: &Piece) -> Part {
+    match p.slot {
+        // Who am I talking to: the people in the front; their recent lines elsewhere move every turn.
+        Slot::WhoAndWhere if p.band == Band::PeopleRecent => Part::Beside,
+        Slot::WhoAndWhere => Part::Fixed,
         Slot::Waiting | Slot::InPlay | Slot::Elsewhere | Slot::Called => Part::Beside,
-        Slot::Frame | Slot::Here | Slot::Now => Part::Elsewhere,
+        // A retired slot is only read from an old record; no view lays it.
+        Slot::Frame | Slot::Here | Slot::Now | Slot::Retired => Part::Elsewhere,
     }
 }
 
@@ -90,9 +94,11 @@ impl TextRenderer<'_> {
         match &p.range.space {
             Space::Exchanges { .. } => {}
             Space::Task { task } => return self.task_card(p, task, pov),
-            Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
+            Space::Card { .. } | Space::Waiting { .. } => {
                 return Ok(self.read_text(p, form, pov, labels::block))
             }
+            // The owner's filing about a person: headed with no time, so the front holds.
+            Space::Facts { .. } => return Ok(self.read_text(p, form, pov, labels::filing_block)),
             // A recalled item is laid whole, as its `Recall` note renders it, or not at all.
             Space::Recalled { .. } => {
                 return Ok(self.read_text(p, Form::Whole, pov, sources_recall::block))
@@ -105,6 +111,7 @@ impl TextRenderer<'_> {
         if p.range.last.id != p.range.first.id {
             ids.push(p.range.last.id.as_str());
         }
+        let recent = p.band == Band::PeopleRecent;
         let mut out = Vec::new();
         for turn in ids {
             let nodes = self.exchange_nodes(turn)?;
@@ -112,7 +119,18 @@ impl TextRenderer<'_> {
             let said = match form {
                 Form::Whole => forms::whole(&nodes),
                 Form::Spoken => forms::spoken(&nodes),
+                // A person's recent line elsewhere: within its own bound, cut with its handle.
+                Form::Line if recent => forms::fit(
+                    line(&nodes, self.summary(turn)?, &handle),
+                    RECENT_LINE_TOKENS,
+                    &handle,
+                ),
                 Form::Line => line(&nodes, self.summary(turn)?, &handle),
+            };
+            // Its words are headed with the person's name, as the owner's records hold it.
+            let person = match recent {
+                true => self.person_name(turn)?,
+                false => None,
             };
             let seen = Seen {
                 origin: Origin {
@@ -125,11 +143,32 @@ impl TextRenderer<'_> {
                 reasons: &p.reasons,
                 range: p.range.clone(),
                 handle,
+                person: person.as_deref(),
             };
             let author = |s: &Said| author_of(self.store, &s.node);
             out.extend(parts::exchange_blocks(&said, &author, &seen, self.zone));
         }
         Ok(out)
+    }
+
+    /// A person's recent line elsewhere (`Band::PeopleRecent`) as it is laid beside the message: its blocks,
+    /// each heading and wrapper with the name in it, and the blank line after it, in tokens by today's estimate.
+    /// The measure the line's bound is kept by (`select::people`), read the way the request lays it.
+    pub fn recent_tokens(&self, p: &Piece, pov: &PointOfView) -> anyhow::Result<u64> {
+        let blocks = self.blocks(p, Form::Line, pov)?;
+        let text: String = blocks.iter().map(|b| laid(b) + "\n\n").collect();
+        Ok(super::text::tokens(&text))
+    }
+
+    /// The name of the person who opened exchange `turn`, as the turn's sources found it in the owner's
+    /// records (`super::sources_store::Sessions::names`); none when they found none.
+    fn person_name(&self, turn: &str) -> anyhow::Result<Option<String>> {
+        let Some(person) = exchange::exchange(self.store, turn)?.and_then(|ex| ex.person) else {
+            return Ok(None);
+        };
+        Ok(self
+            .sessions
+            .and_then(|s| s.names.borrow().get(&person).cloned()))
     }
 
     /// A joined task's card, one block of one provenance (`labels::try_block`).
@@ -235,17 +274,18 @@ pub const BESIDE_HEAD: &str = "[Harness-supplied context, not a new request. Eac
                                applies. Address the current request or reason for this turn; do not summarize \
                                this block merely because it is present.]";
 
+/// One block as it is laid beside the message: its heading, then its text.
+fn laid(b: &MarkedBlock) -> String {
+    match b.heading.is_empty() {
+        true => b.text.clone(),
+        false => format!("{}\n{}", b.heading, b.text),
+    }
+}
+
 /// The marked blocks beside the message as one: each keeps its own heading.
 fn beside(blocks: Vec<MarkedBlock>) -> Option<MarkedBlock> {
     let label = blocks.first()?.label;
-    let text = blocks
-        .iter()
-        .map(|b| match b.heading.is_empty() {
-            true => b.text.clone(),
-            false => format!("{}\n{}", b.heading, b.text),
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let text = blocks.iter().map(laid).collect::<Vec<_>>().join("\n\n");
     Some(MarkedBlock {
         label: match blocks.iter().all(|b| b.label == label) {
             true => label,
@@ -288,7 +328,7 @@ impl Renderer for TextRenderer<'_> {
         let (mut fixed, mut moving) = (Vec::new(), Vec::new());
         for s in &view.shown {
             let p = &s.piece;
-            let to = match part(p.slot) {
+            let to = match part(p) {
                 Part::Fixed => &mut fixed,
                 Part::Beside => &mut moving,
                 Part::Elsewhere => continue,
@@ -336,7 +376,6 @@ fn recall_preamble(moving: &mut Vec<MarkedBlock>) {
 /// said: the bare floor is there to send a smaller request than the refused one.
 fn floor_left_out(moving: &mut Vec<MarkedBlock>, view: &View) {
     use super::budget::{DropWhy, Residue};
-    use super::select::Band;
     let cut: Vec<&super::budget::Dropped> = (view.dropped.iter())
         .filter(|d| d.reasons.contains(&super::Reason::Floor))
         .filter(|d| matches!(d.why, DropWhy::OverBudget | DropWhy::UnitCut))
@@ -373,7 +412,6 @@ fn floor_left_out(moving: &mut Vec<MarkedBlock>, view: &View) {
 /// counted: it is there.
 fn recall_left_out(moving: &mut Vec<MarkedBlock>, view: &View) {
     use super::budget::DropWhy;
-    use super::select::Band;
     let Some(r) = view.residue.iter().find(|r| r.band == Band::Recall) else {
         return;
     };

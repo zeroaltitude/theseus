@@ -23,6 +23,9 @@ pub struct Seen<'a> {
     pub reasons: &'a Reasons,
     pub range: SourceRange,
     pub handle: Handle,
+    /// Who another person is, by the owner's records, to head their words with; `None` heads them as
+    /// another person's.
+    pub person: Option<&'a str>,
 }
 
 /// One part, labelled by its own provenance: its heading (`None` for the conversation here) and its text
@@ -74,12 +77,12 @@ pub fn mark_parts(
                 // Another person's words: wrapped on their own, as any outside text.
                 (Label::OutsideText, Voice::Person) => format!(
                     "person: {}",
-                    labels::wrap_outside(Some("another person"), &p.text)
+                    labels::wrap_outside(Some(seen.person.unwrap_or("another person")), &p.text)
                 ),
                 _ => forms::said_text(p),
             };
             let source = match p.voice {
-                Voice::Person => Some("another person"),
+                Voice::Person => Some(seen.person.unwrap_or("another person")),
                 _ => p.outside.as_deref(),
             };
             let origin = Origin {

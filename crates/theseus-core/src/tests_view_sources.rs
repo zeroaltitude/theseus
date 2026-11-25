@@ -370,8 +370,8 @@ async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
 }
 
 /// KEY: the owner alone is told who is speaking (his held person's name) and his own guidance for it; the
-/// role line written outside the people pack (here by the operator) is not laid, since no reader clears it;
-/// an agent's process at the terminal, which is no person and never the owner alone, is told none of it.
+/// role line, here written by the operator, is laid with them (the owner's word of 2026-11-24); an agent's
+/// process at the terminal, which is no person and never the owner alone, is told none of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_facts_about_the_person_reach_the_owner_alone() {
     use theseus_ontology::{Category, CategoryId, Guidance, Origin, Record};
@@ -399,11 +399,52 @@ async fn the_facts_about_the_person_reach_the_owner_alone() {
     let q = asked(&r, "desk: good morning").pop().unwrap();
     assert!(texts(&q).contains("Who is speaking: Ada"), "{}", texts(&q));
     assert!(texts(&q).contains(GUIDED), "{}", texts(&q));
-    assert!(!texts(&q).contains(ROLE), "{}", texts(&q));
+    assert!(texts(&q).contains(ROLE), "{}", texts(&q));
 
     let agent = session_in(c, None, &r.root);
     turn_as(c, &agent, "agent: good morning", false).await;
     let q = asked(&r, "agent: good morning").pop().unwrap();
     assert!(!texts(&q).contains("Who is speaking"), "{}", texts(&q));
     assert!(!texts(&q).contains(GUIDED), "{}", texts(&q));
+}
+
+/// KEY (the owner's word, 2026-11-24): the person's description is laid, with the name and the owner's
+/// guidance, in the front: a block of its own at the head of the first user message, not the block beside the
+/// message, in the one wording every person present has.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_persons_description_is_laid_with_the_name() {
+    use theseus_ontology::{Category, CategoryId, Guidance, Origin, Record};
+    const ROLE: &str = "keeps the harbour's books and owns the tide gauge";
+    const GUIDED: &str = "Answer Ada in short lines.";
+    let r = view_rig();
+    let c = &r.core;
+    let me = || CategoryId::parse(&format!("person:{}", crate::tests_places::OWNER)).unwrap();
+    let mut held = Category::new(me(), "Ada", "ada");
+    held.description = ROLE.into();
+    (c.runner.ontology)
+        .write(
+            &c.store,
+            vec![
+                Record::Category(held),
+                Record::Guidance(Guidance::new(me(), GUIDED, 1, "ada")),
+            ],
+            Origin::Operator,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+    let desk = session_in(c, None, &r.root);
+    turn_as(c, &desk, "desk: good morning", true).await;
+    let q = asked(&r, "desk: good morning").pop().unwrap();
+    let blocks: Vec<String> = (q.messages[0]["content"].as_array().unwrap().iter())
+        .filter_map(|b| b["text"].as_str().map(str::to_string))
+        .collect();
+    let entry = format!("In this conversation: Ada\n- Description: {ROLE}\n- Guidance: {GUIDED}");
+    let front: Vec<&String> = blocks.iter().filter(|b| b.contains(&entry)).collect();
+    assert_eq!(front.len(), 1, "{blocks:#?}");
+    assert!(
+        !front[0].contains(crate::view::wire_text::BESIDE_HEAD),
+        "{}",
+        front[0]
+    );
+    assert_eq!(texts(&q).matches(ROLE).count(), 1, "{}", texts(&q));
 }

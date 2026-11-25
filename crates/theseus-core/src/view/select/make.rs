@@ -24,9 +24,6 @@ pub enum Cut {
     /// Elsewhere lately: a line is his words and the `did` line; spoken is his words and the reply in full,
     /// or over 1,500 tokens its first 500 and last 1,000 (§5.1, slot F).
     Elsewhere,
-    /// His past: his words alone, with the `did` line where the band shows Theseus's side or where his line
-    /// is never bare.
-    Past { did: bool },
 }
 
 /// The longest reply slot F shows in full, and what it keeps of a longer one.
@@ -46,16 +43,6 @@ pub fn sizes(f: &ExchangeFacts, cut: Cut) -> Sizes {
             spoken: f.his.saturating_add(f.reply.min(REPLY_WHOLE)),
             line: f.his.saturating_add(did),
         },
-        Cut::Past { did: with } => {
-            let line = f
-                .his
-                .saturating_add(if with || f.kind.never_bare() { did } else { 0 });
-            Sizes {
-                whole: line,
-                spoken: line,
-                line,
-            }
-        }
     }
 }
 

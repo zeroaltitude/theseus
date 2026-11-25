@@ -387,7 +387,7 @@ async fn a_long_forks_oldest_inherited_words_reach_its_request() {
 /// the store's ladder does: of three at the mark's millisecond, only the one whose id sorts after the mark's.
 #[test]
 fn an_inherited_exchange_at_the_marks_millisecond_is_kept_only_after_the_mark() {
-    use crate::view::fold::{Ladder, WINDOW_N};
+    use crate::view::fold::{Ladder, FOLD_STEP};
     use theseus_memory::gate::{PointOfView as RulePov, Present as RulePresent};
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -403,7 +403,7 @@ fn an_inherited_exchange_at_the_marks_millisecond_is_kept_only_after_the_mark() 
     });
     let (f, _) = crate::fork::window::Fork::permit(&store, &fork, "turn_f", verified).unwrap();
     let ids = |since: Option<&crate::view::Pos>| -> Vec<String> {
-        let read = f.ladder(&store).read("local", WINDOW_N, since).unwrap();
+        let read = f.ladder(&store).read("local", FOLD_STEP, since).unwrap();
         read.window.into_iter().map(|e| e.turn_id).collect()
     };
     let mark = crate::view::Pos {

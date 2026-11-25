@@ -237,9 +237,9 @@ fn scope_of(runner: &TurnRunner, session: &str) -> Scope {
     }
 }
 
-/// How many of a session's newest earlier turns [`own_turns`] looks at: four times a window's
-/// `view::fold::WINDOW_N` (twice the 40 a task's window reads when it has no folds).
-const OWN_TURNS: usize = 4 * crate::ladder::N;
+/// How many of a session's newest earlier turns [`own_turns`] looks at: twice the 40 a task's window reads when
+/// it has no folds (`crate::ladder::TASK_WINDOW`), and more than the 49 a place's window holds at most.
+const OWN_TURNS: usize = 2 * crate::ladder::TASK_WINDOW;
 
 /// The exchanges `session` itself ran at `place` before `turn`, among its newest [`OWN_TURNS`] turns: what a
 /// self-loop turn of it is shown at that place ([`Verified::own_place_only`]). An exchange whose record cannot

@@ -24,9 +24,10 @@ pub const PIECES: usize = 60;
 
 /// The most units of proof one look spends on folds and task cards ([`GateSource::reads`]: a fold's node and
 /// each exchange it stands for, the task list once): a settled ladder's rungs 1 and 2 whole, each standing at
-/// fewer than 2N nodes (`ladder::read`), of N and N² exchanges, and the task list. 16,459 with N = 20.
+/// fewer than 2N nodes (`ladder::read`), of N and N² exchanges, N the fold step (`ladder::FOLD_STEP`), and the
+/// task list. 16,459 with N = 20.
 pub const PROOF: u64 = {
-    let n = crate::ladder::N as u64;
+    let n = crate::ladder::FOLD_STEP as u64;
     (2 * n - 1) * ((1 + n) + (1 + n * n)) + 1
 };
 

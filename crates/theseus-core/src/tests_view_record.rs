@@ -948,7 +948,7 @@ async fn a_rung_one_folds_proof_counts_its_units_and_the_records_read() {
     let r = rig();
     let c = &r.core;
     let desk = session(c, None);
-    let n = crate::ladder::N;
+    let n = crate::ladder::FOLD_STEP;
     let turns: Vec<String> = (0..n).map(|i| format!("t-{i:02}")).collect();
     exchanges_of(c, &turns, &desk, "local");
     let ids: Vec<&str> = turns.iter().map(String::as_str).collect();
@@ -980,7 +980,7 @@ async fn the_look_proves_a_settled_ladder_whole() {
     let (r, t) = a_task().await;
     let c = &r.core;
     let desk = crate::tests_task_graph::session(c);
-    let n = crate::ladder::N;
+    let n = crate::ladder::FOLD_STEP;
     let turns: Vec<String> = (0..n * n).map(|i| format!("t-{i:04}")).collect();
     exchanges_of(c, &turns, &desk, "local");
     let ids: Vec<&str> = turns.iter().map(String::as_str).collect();
@@ -1012,7 +1012,7 @@ async fn the_looks_proof_stops_at_its_budget_and_says_so() {
     let r = rig();
     let c = &r.core;
     let desk = session(c, None);
-    let n = crate::ladder::N;
+    let n = crate::ladder::FOLD_STEP;
     let turns: Vec<String> = (0..n * n * n).map(|i| format!("t-{i:05}")).collect();
     exchanges_of(c, &turns, &desk, "local");
     let ids: Vec<&str> = turns.iter().map(String::as_str).collect();

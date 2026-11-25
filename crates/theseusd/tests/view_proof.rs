@@ -308,9 +308,9 @@ fn wait<T>(what: &str, secs: u64, mut f: impl FnMut() -> Option<T>) -> T {
 /// After `/new` in the owner's DM (decision 7: "Nothing of that place's earlier conversation is shown as its
 /// conversation; his own earlier words there are still part of his past"): the next turn's request lays no
 /// real turn (slot G is empty: no exchange as conversation, no reply of Theseus's from before the mark); his
-/// earlier words sit only in blocks headed as his past, testimony; and the history tool still reads the
-/// conversation from before the mark, by opening its session (`memory.lookup`'s read, retargeted when that
-/// tool went, D6 step 6).
+/// earlier words, wherever a piece lays them, sit only in blocks headed as his past, testimony (since slot E
+/// went, 2026-11-24, nothing lays them by age); and the history tool still reads the conversation from before
+/// the mark, by opening its session (`memory.lookup`'s read, retargeted when that tool went, D6 step 6).
 #[test]
 fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memory_answers() {
     let earlier: Arc<Mutex<String>> = Arc::default();
@@ -374,11 +374,6 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
             r.strategies()
         );
         let homes = homes_of(q, BEFORE);
-        assert!(
-            !homes.is_empty(),
-            "his earlier words are still his past after /new ({})",
-            r.strategies()
-        );
         assert!(
             homes.iter().all(|h| *h == Home::HisPast),
             "his earlier words after /new sit only in his past, headed as testimony: {homes:?}; where: {}",

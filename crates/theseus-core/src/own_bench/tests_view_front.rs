@@ -1,6 +1,6 @@
 //! A view turn's front kept per block (issue 44, `compiler::view::kept`): turns on either side of a minute,
-//! with the owner's person and guidance (its "Who is speaking" piece is stamped with the minute) and a large
-//! ladder fold that does not change, and then a new small fold: the later turn stores only the few blocks
+//! with the owner's person and guidance (once stamped with the minute; its heading now carries no time) and a
+//! large ladder fold that does not change, and then a new small fold: the later turn stores only the few blocks
 //! that changed, never the large fold again, and every turn is rebuilt as it was sent.
 
 use crate::compiler::view::kept::Kept;

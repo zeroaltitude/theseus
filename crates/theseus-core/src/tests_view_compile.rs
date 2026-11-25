@@ -259,7 +259,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
         .place;
     let ladder = StoreLadder(&c.store);
     let tonight = ladder
-        .read(&place, crate::view::fold::WINDOW_N, None)
+        .read(&place, crate::view::fold::FOLD_STEP, None)
         .unwrap();
     assert_eq!(tonight.window.len(), 2, "{tonight:?}");
     // The window is counted in exchanges and reads no clock: the same read eleven hours on.

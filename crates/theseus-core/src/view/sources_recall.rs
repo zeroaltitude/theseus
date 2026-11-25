@@ -94,8 +94,8 @@ pub fn refs(recalled: &[Recalled], read: &Sessions) -> Vec<Ref> {
 }
 
 /// A recalled item's block (issue 44): labelled by its own marks (`labels::block`), except the owner's own
-/// word from this place, which is his past: testimony, headed as slot E heads his earlier words (dated, "the
-/// owner's own earlier words"), never the conversation here and never of unknown authorship.
+/// word from this place, which is his past: testimony, headed with the reason `past` (dated, "the owner's own
+/// earlier words"), never the conversation here and never of unknown authorship.
 pub fn block(
     piece: &Piece,
     pov: &PointOfView,

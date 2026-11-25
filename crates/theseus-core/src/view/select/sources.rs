@@ -8,25 +8,7 @@
 
 use super::super::fold::{FoldNode, Ladder};
 use super::super::gate::Gate;
-use super::super::{AtHand, Form, Handle, Marks, PointOfView, Pos, Sizes, SourceRange};
-
-/// The judge's existing answer about a message of his (design §5.3); `Unknown` where none was given.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Ask,
-    FollowUp,
-    /// A pointer-like line ("no, 41"): never shown bare.
-    Fragment,
-    Correction,
-    Unknown,
-}
-
-impl Kind {
-    /// A line of this kind is shown only with its exchange's `did` line (§5.3).
-    pub fn never_bare(self) -> bool {
-        matches!(self, Self::Fragment | Self::Correction)
-    }
-}
+use super::super::{AtHand, Form, Handle, Marks, Piece, PointOfView, Pos, Sizes, SourceRange};
 
 /// One exchange as the selectors see it. Tokens are today's estimate.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,11 +20,6 @@ pub struct ExchangeFacts {
     /// The person whose marked message opened it; `None` for a wake, a report, a continuation or an
     /// unmarked input.
     pub person: Option<String>,
-    pub kind: Kind,
-    /// It made a standing record.
-    pub standing: bool,
-    /// Something in it still waits on him.
-    pub waiting: bool,
     /// His words in it.
     pub his: u64,
     /// The reply's text.
@@ -58,12 +35,6 @@ pub struct ExchangeFacts {
 
 /// The ledger's exchanges.
 pub trait Exchanges {
-    /// Whether this source can classify any exchange as a correction, standing, or waiting.
-    /// False is a proof of an empty older band, not a page limit or a selection policy.
-    fn has_old_candidates(&self) -> bool {
-        true
-    }
-
     fn facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>>;
 }
 
@@ -127,9 +98,35 @@ pub trait Recall {
     fn recall(&self, pov: &PointOfView, message: &str) -> anyhow::Result<Vec<Ref>>;
 }
 
-/// Accepted facts about the person (slot B).
+/// A held person, as the selectors of slot B see them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held {
+    /// The id of the record that holds them: one id whatever handle they spoke by.
+    pub id: String,
+    /// The owner, by identity: the ledger's own spelling, an effective owner handle, or a record one of those
+    /// resolves to, whatever handle this exchange was marked by. A filter of what is selected only: it gives
+    /// no mark the owner's authority.
+    pub owner: bool,
+    /// Every handle but a name the ledger may name them by: the record's, and the one asked for.
+    pub handles: Vec<String>,
+}
+
+/// The owner's records of the people present (slot B, who am I talking to).
 pub trait People {
-    fn about(&self, person: &str) -> anyhow::Result<Vec<Ref>>;
+    /// The held person `person` is (as the ledger names whoever opened an exchange): none for a person no
+    /// record holds (nothing is a person until the owner accepts it).
+    fn held(&self, person: &str) -> anyhow::Result<Option<Held>>;
+    /// Whether `person`, held or not, is the owner by identity: the ledger's own spelling, or an effective
+    /// owner handle (the place rule's).
+    fn owner(&self, person: &str) -> bool;
+    /// What is laid in the front about held person `id`: its name, its description and the owner's guidance
+    /// for it, in under `most` tokens; the same for every person, whoever speaks.
+    fn about(&self, id: &str, most: u64) -> anyhow::Result<Vec<Ref>>;
+    /// The one line beside the message that names held person `id` as the turn's speaker.
+    fn speaking(&self, id: &str) -> anyhow::Result<Vec<Ref>>;
+    /// A recent line's tokens as it is laid beside the message: its headings, both wrappers and the name in
+    /// them, after escaping, and the blank line that parts it from the next (today's estimate).
+    fn laid(&self, piece: &Piece, pov: &PointOfView) -> anyhow::Result<u64>;
 }
 
 /// Every source a turn's selectors read, the gate, and the turn's own text.

@@ -120,6 +120,7 @@ fn last_user_text(q: &crate::provider::ProviderRequest) -> String {
     let blocks = last["content"].as_array().unwrap();
     blocks
         .iter()
+        .filter(|b| !crate::task_graph::view::is_view(b))
         .filter_map(|b| b["text"].as_str())
         .collect::<Vec<_>>()
         .join("")
