@@ -1344,7 +1344,8 @@ async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_requ
 #[tokio::test]
 async fn a_view_assembles_at_each_sizes_bounds() {
     use crate::config::context::{
-        EVERYWHERE_EXCHANGES_RANGE as E, HERE_EXCHANGES_RANGE as H, HISTORY_PAGE_EXCHANGES_RANGE as P,
+        EVERYWHERE_EXCHANGES_RANGE as E, HERE_EXCHANGES_RANGE as H,
+        HISTORY_PAGE_EXCHANGES_RANGE as P,
     };
     for (here, everywhere, page) in [
         (*H.start(), *E.start(), *P.start()),
@@ -1359,7 +1360,10 @@ async fn a_view_assembles_at_each_sizes_bounds() {
         turn(&r.core, &sid, "bounds: the first").await;
         turn(&r.core, &sid, "bounds: the second").await;
         let q = asked(&r, "bounds: the second").pop().expect("a request");
-        assert!(texts(&q).contains("bounds: the first"), "{here}: the window carries the first");
+        assert!(
+            texts(&q).contains("bounds: the first"),
+            "{here}: the window carries the first"
+        );
         let system = crate::tests_places::system_text(&q);
         let window = format!("up to {here} to {} recent exchanges", here + 19);
         assert_eq!(system.matches(&window).count(), 1, "{here}: {system}");

@@ -1,7 +1,9 @@
 //! `[context]`'s look-back sizes (issue 48): read with today's values as defaults, and a value out of
 //! range refused at load with its range, never clamped.
 
-use super::{Sizes, EVERYWHERE_EXCHANGES_RANGE, HERE_EXCHANGES_RANGE, HISTORY_PAGE_EXCHANGES_RANGE};
+use super::{
+    Sizes, EVERYWHERE_EXCHANGES_RANGE, HERE_EXCHANGES_RANGE, HISTORY_PAGE_EXCHANGES_RANGE,
+};
 use crate::config::Config;
 
 fn doc(rest: &str) -> String {
@@ -25,7 +27,8 @@ fn the_context_sizes_default_to_todays_values() {
     assert_eq!(sizes("[context]\npersona_max_tokens = 300").unwrap(), today);
     assert_eq!(Sizes::default(), today);
     // Each key is read as it is set.
-    let set = "[context]\nhere_exchanges = 40\neverywhere_exchanges = 20\nhistory_page_exchanges = 50";
+    let set =
+        "[context]\nhere_exchanges = 40\neverywhere_exchanges = 20\nhistory_page_exchanges = 50";
     assert_eq!(
         sizes(set).unwrap(),
         Sizes {

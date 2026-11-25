@@ -1048,7 +1048,11 @@ fn the_memory_page_names_the_configured_window() {
         let page = memory_page_at(floor);
         assert_eq!(page.matches(says).count(), 1, "floor {floor}");
         assert!(!page.contains(default), "floor {floor}");
-        assert_eq!(page.replacen(says, default, 1), MEMORY_PAGE, "floor {floor}");
+        assert_eq!(
+            page.replacen(says, default, 1),
+            MEMORY_PAGE,
+            "floor {floor}"
+        );
         assert!(super::tokens(&page) <= PAGE_TOKENS);
     }
 }

@@ -34,7 +34,7 @@ use crate::task_graph::joined::{judged_task, StoreCards};
 use crate::view::budget::{Budget, Overflow};
 use crate::view::fold::FoldNode;
 use crate::view::permit::Permit;
-use crate::view::render::{MarkedBlock, Renderer};
+use crate::view::render::MarkedBlock;
 use crate::view::select::sources::{Names, Sources, Things};
 use crate::view::select::{table, Part};
 use crate::view::sources_names::{Called, ViewAdmits};
@@ -269,7 +269,13 @@ impl TurnRunner {
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
         let sizes = self.cfg.context.sizes();
-        let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, (&message, sizes));
+        let src = sources_of(
+            &permit,
+            (&sources, &moving),
+            &ladder,
+            &cards,
+            (&message, sizes),
+        );
         let renderer = self.renderer(store, &read, &said);
         let who = self.who_am_i(spec);
         // The memory page, its window the setting's (`[context] here_exchanges`).

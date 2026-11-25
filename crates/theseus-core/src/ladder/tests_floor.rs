@@ -238,10 +238,17 @@ async fn the_here_setting_is_the_windows_floor_and_the_fold_step_stays_twenty() 
                 assert!(made.is_empty(), "floor {floor}: no fold at {at}");
                 assert_eq!(len, at);
             } else {
-                assert!((floor..floor + FOLD_STEP).contains(&len), "floor {floor}: {at} -> {len}");
+                assert!(
+                    (floor..floor + FOLD_STEP).contains(&len),
+                    "floor {floor}: {at} -> {len}"
+                );
             }
             for n in &made {
-                assert_eq!(n.exchanges.len(), FOLD_STEP, "floor {floor}: a fold takes twenty");
+                assert_eq!(
+                    n.exchanges.len(),
+                    FOLD_STEP,
+                    "floor {floor}: a fold takes twenty"
+                );
             }
         }
         each_once(&s, &turns);
@@ -260,7 +267,10 @@ async fn lowering_the_floor_folds_on_the_next_exchange_end_and_raising_it_unfold
     let mut turns = Vec::new();
     for i in 0..45u64 {
         turns.push(exchange_at(&s, "ses_a", PLACE, 1_000 + i, false));
-        assert!(step(&s, &w).await.made.is_empty(), "45 at the default floor: no fold");
+        assert!(
+            step(&s, &w).await.made.is_empty(),
+            "45 at the default floor: no fold"
+        );
     }
     assert_eq!(window(&s).len(), 45);
     // Lowered to 10: the next exchange end folds the oldest 20, leaving 26 (under 10 + 20).

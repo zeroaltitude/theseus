@@ -55,9 +55,7 @@ use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
 use crate::recall::when::When;
 use crate::turn::TurnRunner;
-use crate::view::history::{
-    HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN,
-};
+use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;

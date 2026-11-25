@@ -92,5 +92,8 @@ pub fn memory_page_at(floor: usize) -> Cow<'static, str> {
 
 /// The window's numbers as the page says them: the floor to the most it holds before a fold.
 fn window(floor: usize) -> String {
-    format!("up to {floor} to {} recent exchanges", floor + FOLD_STEP - 1)
+    format!(
+        "up to {floor} to {} recent exchanges",
+        floor + FOLD_STEP - 1
+    )
 }
