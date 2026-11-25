@@ -263,8 +263,6 @@ async fn tools_list() {
             "conversation_status",
             "task_list",
             "wake_list",
-            "memory_search",
-            "memory_get",
             "context_history"
         ]
     );
@@ -283,69 +281,24 @@ async fn tools_list() {
     assert!(tools.iter().all(|t| t.description.is_some()));
 }
 
-/// The two memory tools (theseus-02i1h) as `tools/list` gives them, byte for
-/// byte against the golden: their descriptions say when to use each and that
-/// citations are quoted back. `THESEUS_GOLDEN=write` rewrites it.
+/// `memory_search` and `memory_get` are gone (issue 46: `context_history` is the one way to look back): a
+/// client that still calls one is answered as any unknown tool is, a JSON-RPC error, and no call reaches the
+/// core.
 #[tokio::test]
-async fn the_memory_tools_are_a_golden() {
-    let core = Arc::new(FakeCore::default());
-    let server = start(&core, |_| {}).await;
-    let tools = client(&server).await.list_tools().await.unwrap();
-    let memory: Vec<_> = tools
-        .iter()
-        .filter(|t| t.name.starts_with("memory_"))
-        .collect();
-    assert_eq!(memory.len(), 2);
-    let mut got = serde_json::to_string_pretty(&memory).unwrap();
-    got.push('\n');
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/golden/memory_tools.json"
-    );
-    if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
-        std::fs::create_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
-        std::fs::write(path, &got).unwrap();
-    }
-    let want = std::fs::read_to_string(path).expect("the golden: THESEUS_GOLDEN=write makes it");
-    assert_eq!(got, want);
-    for t in memory {
-        let d = t.description.as_deref().unwrap();
-        assert!(d.contains("quote") && d.contains("citation"), "{d}");
-        assert_eq!(t.annotations.as_ref().unwrap().read_only_hint, Some(true));
-    }
-}
-
-/// A memory tool is the core's one `memory.lookup`: only the keys the tool
-/// names pass, with the op and the client's name; a core's refusal is an
-/// error result the client reads.
-#[tokio::test]
-async fn a_memory_tool_maps_to_the_cores_lookup() {
+async fn the_old_memory_tools_are_unknown_tools() {
     let core = Arc::new(FakeCore::default());
     let server = start(&core, |_| {}).await;
     let client = client(&server).await;
-    let got = tool(
-        &client,
-        "memory_search",
-        json!({"words": "ferry", "since": "March 2026", "limit": 3, "stray": 1}),
-    )
-    .await;
-    assert_eq!(
-        got["params"],
-        json!({"op": "search", "words": "ferry", "since": "March 2026", "limit": 3,
-               "client": "theseus"})
-    );
-    let got = tool(&client, "memory_get", json!({"id": "nod_a", "before": 1})).await;
-    assert_eq!(
-        got["params"],
-        json!({"op": "get", "id": "nod_a", "before": 1, "client": "theseus"})
-    );
-    let r = client.call_tool("memory_search", json!({})).await.unwrap();
-    assert!(r.is_error && r.text_for_model().contains("needs words"));
-    let rows = core.calls();
-    assert_eq!(
-        rows.iter().map(|r| r.tool.as_str()).collect::<Vec<_>>(),
-        ["memory_search", "memory_get", "memory_search"]
-    );
+    for name in ["memory_search", "memory_get"] {
+        match client.call_tool(name, json!({"words": "ferry", "id": "nod_a"})).await {
+            Err(Error::Rpc { code, message, .. }) => {
+                assert_eq!(code, -32602, "{name}");
+                assert_eq!(message, format!("Unknown tool: {name}"));
+            }
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+    assert!(core.calls().is_empty());
 }
 
 /// `context_history` (issue 46) maps to the core's `history.read`: only the keys the tool names pass, with the
