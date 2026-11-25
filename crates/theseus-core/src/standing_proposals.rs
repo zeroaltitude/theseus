@@ -26,8 +26,8 @@ pub fn all(store: &Store) -> Result<Vec<StandingProposal>> {
         .into_iter()
         .filter_map(|r| match r.decode::<StandingProposal>() {
             Ok(p) => Some(p),
-            Err(e) => {
-                tracing::warn!(error = %e, "a standing proposal does not read: it is skipped");
+            Err(_) => {
+                tracing::warn!(key = ?r.key, "a standing proposal does not read: it is skipped");
                 None
             }
         })

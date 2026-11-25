@@ -5,10 +5,12 @@
 //!   the daemon missed (no run since the last such hour) runs once, as soon
 //!   as it may. Never within [`AFTER_START`] of a start: the start's
 //!   aftermath stays quiet.
-//! - **Where.** On a thread of its own (`learning`), at nice 19 and in
-//!   `SCHED_IDLE` (theseus-tood: it answers no one, so the one-way switch
-//!   costs nothing), and at about 5% of a core: after each pack's stretch of
-//!   work it sleeps 19 times as long, as the store's history check does.
+//! - **Where.** On a thread of its own (`learning`), at nice 19, not in
+//!   `SCHED_IDLE` (issue 51: the run holds the core, and an idle-class thread
+//!   starved on a saturated machine held it past the stop's wait; it was
+//!   idle-class from theseus-tood), and at about 5% of a core: after each
+//!   pack's stretch of work it sleeps 19 times as long, as the store's
+//!   history check does.
 //!   Before each next pack it also waits while the machine is busy, up to
 //!   `theseus_store::pressure::BOUND`. The tender's task holds the core
 //!   weakly, and the thread holds it only for its run.
@@ -101,8 +103,8 @@ pub fn on_low_thread<T: Send + 'static>(
 }
 
 /// [`on_low_thread`], the thread also in `SCHED_IDLE`, which it never
-/// leaves (theseus-tood): for the nightly run, which answers no one and
-/// starts no thread others use.
+/// leaves (theseus-tood). The nightly run no longer takes it (issue 51): a
+/// run holds the core, and the stop must not wait on a starved thread.
 pub fn on_idle_thread<T: Send + 'static>(
     f: impl FnOnce() -> T + Send + 'static,
 ) -> std::io::Result<tokio::sync::oneshot::Receiver<(Low, T)>> {
@@ -146,6 +148,52 @@ fn lower_this_thread(idle: bool) -> Low {
     }
 }
 
+/// What the nightly run's thread gives back: the report, and how long its
+/// packs waited out a busy machine. None when it took no core.
+type Nightly = Option<(
+    anyhow::Result<(
+        theseus_protocol::learning::LearningReport,
+        super::system::RulesRead,
+    )>,
+    Duration,
+)>;
+
+/// The nightly run, on a thread of its own at nice 19. Not in `SCHED_IDLE`
+/// (issue 51): the run holds the core, and an idle-class thread starved for
+/// seconds on a saturated machine held it past the stop's wait. It takes no
+/// core once the stop has begun (`core_for_a_unit`).
+fn nightly(
+    core: std::sync::Weak<Core>,
+    rt: tokio::runtime::Handle,
+    trigger: &'static str,
+) -> std::io::Result<tokio::sync::oneshot::Receiver<(Low, Nightly)>> {
+    on_low_thread(move || {
+        use theseus_store::pressure::{quiet_blocking_unless, BOUND};
+        let c = crate::startup::core_for_a_unit(&core)?;
+        // Each next pack waits while the machine is busy, and never past a
+        // stop (theseus-tood).
+        let stopping = || c.outbox.stopping();
+        let mut yielded = Duration::ZERO;
+        let mut paced = |took: Duration| {
+            std::thread::sleep(took * 19);
+            yielded += quiet_blocking_unless(BOUND, stopping);
+        };
+        let r = c.run_learning_read(theseus_protocol::now_unix_ms(), trigger, &mut paced);
+        // The ladder's rules again, as the backstop (26a).
+        c.runner.judge.ladder().recheck();
+        // Then the learning loop (25f): each lineage's proposal, after the
+        // report, each next one paced as the packs are.
+        if r.is_ok() {
+            let props = c.learn_nightly(&rt, theseus_protocol::now_unix_ms(), &mut paced);
+            tracing::info!(
+                proposals = props.iter().filter(|p| p.decision != "none").count(),
+                "learning: the loop ran"
+            );
+        }
+        Some((r, yielded))
+    })
+}
+
 impl Core {
     /// The learning tender, after serving (design §2.9): nothing with the
     /// judge off.
@@ -180,38 +228,7 @@ impl Core {
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 async move {
-                    let rt = tokio::runtime::Handle::current();
-                    let rx = on_idle_thread(move || {
-                        use theseus_store::pressure::{quiet_blocking_unless, BOUND};
-                        let c = core.upgrade()?;
-                        // Each next pack waits while the machine is busy, and
-                        // never past a stop (theseus-tood).
-                        let stopping = || c.outbox.stopping();
-                        let mut yielded = Duration::ZERO;
-                        let mut paced = |took: Duration| {
-                            std::thread::sleep(took * 19);
-                            yielded += quiet_blocking_unless(BOUND, stopping);
-                        };
-                        let r = c.run_learning_read(
-                            theseus_protocol::now_unix_ms(),
-                            trigger,
-                            &mut paced,
-                        );
-                        // The ladder's rules again, as the backstop (26a).
-                        c.runner.judge.ladder().recheck();
-                        // Then the learning loop (25f): each lineage's
-                        // proposal, after the report, each next one
-                        // paced as the packs are.
-                        if r.is_ok() {
-                            let props =
-                                c.learn_nightly(&rt, theseus_protocol::now_unix_ms(), &mut paced);
-                            tracing::info!(
-                                proposals = props.iter().filter(|p| p.decision != "none").count(),
-                                "learning: the loop ran"
-                            );
-                        }
-                        Some((r, yielded))
-                    });
+                    let rx = nightly(core, tokio::runtime::Handle::current(), trigger);
                     match rx {
                         Ok(rx) => match rx.await {
                             Ok((_, Some((Err(e), _)))) => {
@@ -487,5 +504,33 @@ mod tests {
              thread {idle}",
             spawned.0
         );
+    }
+
+    /// The nightly run takes the core at normal priority (issue 51): in
+    /// `SCHED_IDLE` on a saturated machine it could hold it past the stop's
+    /// wait.
+    #[test]
+    fn the_nightly_run_holds_the_core_at_normal_priority() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (_d, core) = crate::startup::tests::core();
+        let h = rt.handle().clone();
+        let idle = crate::startup::tests::asked_in_idle(&core, move |w| {
+            let _ = nightly(w, h, "test").map(|rx| rx.blocking_recv());
+        });
+        assert!(!idle, "the nightly run asked for the core in SCHED_IDLE");
+    }
+
+    /// Once the stop has begun the nightly run takes no core (issue 51): a
+    /// run begun then could still hold it when the runtime drops.
+    #[test]
+    fn a_nightly_run_takes_no_core_once_the_stop_has_begun() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (_d, core) = crate::startup::tests::core();
+        let h = rt.handle().clone();
+        let got = crate::startup::tests::ends_at_the_stop(&core, move |w| {
+            let (_, ran) = nightly(w, h, "test").unwrap().blocking_recv().unwrap();
+            assert!(ran.is_none(), "the run ran during the stop");
+        });
+        assert_eq!(got, Ok(()));
     }
 }

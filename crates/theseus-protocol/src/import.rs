@@ -345,6 +345,11 @@ pub struct ImportTagInfo {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ImportListResult {
     pub tags: Vec<ImportTagInfo>,
+    /// The keys of records under the tags' prefix that could not be read as
+    /// a tag's counts: passed over, and left as they are. Absent when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(optional, type = "Array<string>"))]
+    pub unread: Vec<String>,
 }
 
 /// Health's count of what an import wrote (theseus-revl): the sessions an
@@ -549,6 +554,12 @@ pub struct ImportSessionsResult {
     /// The projection answered from: the import's counts it was built at,
     /// which an import batch or an erase changes.
     pub version: String,
+    /// Records under the tags' prefix that could not be read as a tag's
+    /// counts: their sessions are not in this answer, and the records are
+    /// left as they are. Absent when none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub tags_unread: Option<u64>,
     /// What building it took (ms), when this answer built it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

@@ -62,8 +62,8 @@ impl TurnRunner {
         let key = format!("{KEY}{session_id}");
         match self.store.get_meta::<Option<Sticky>>(&key) {
             Ok(held) => held.flatten(),
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), session_id, "a session's held profile was not read");
+            Err(_) => {
+                tracing::warn!(session_id, "a session's held profile was not read");
                 None
             }
         }
