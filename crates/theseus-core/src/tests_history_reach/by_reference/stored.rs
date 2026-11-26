@@ -1,14 +1,16 @@
 //! A look back's answer is stored as references only when every range it would store begins and ends outside every
 //! known value, read on the whole field the range points into (verbatim or encoded); otherwise that answer is
-//! stored as words, exactly as a build before references stored it (issue 49). Through the history tool and the
-//! runtime, each with a made-up value placed so a range would begin or end inside it. All values and words invented.
+//! stored as words, exactly as a build before references stored it (issue 49). A cap through a value written over
+//! lines keeps the value's lines one quote, so that answer is stored as references (issue 52). Through the history
+//! tool and the runtime, each with a made-up value placed so a range would begin or end inside it. All values and
+//! words invented.
 
 use std::sync::Arc;
 
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 
 use super::*;
-use crate::quotes::{cut_through, read_as_written, Part};
+use crate::quotes::{cut_through, no_part_of, read_as_written, render_with, Part, Read};
 use crate::recall::{Ask, AskFuture};
 use crate::tests_cut_sites::{knowing_core, whole_or_absent, V};
 
@@ -30,14 +32,41 @@ fn stored(core: &Core, copy: &str) -> (String, Vec<Part>) {
     }
 }
 
-/// That `copy` is stored as words, as before references: no parts, its words the text the reader was given, each
-/// line of `value` in them; and that the reader's next request lays those words.
-async fn as_words(r: &Rig, reader: &str, copy: &str, kept: &str, value: &str) {
+/// That `copy` is stored as references: no words of its own, no range that begins or ends inside `value`, `value`
+/// whole in one quote, and no part of it in what is stored; its rendering the text the reader was given, each line
+/// of `value` in it; and that the reader's next request lays it.
+async fn as_parts(r: &Rig, reader: &str, copy: &str, kept: &str, value: &str) {
     let (content, parts) = stored(&r.core, copy);
-    assert!(parts.is_empty(), "stored as references: {parts:#?}");
-    assert_eq!(content, kept);
+    assert!(
+        content.is_empty() && !parts.is_empty(),
+        "stored as words: {content}"
+    );
+    let read = |q: &crate::quotes::Quote| read_as_written(&r.core.store, q);
+    let through = cut_through(&parts, read, &[value]);
+    assert!(through.is_empty(), "a range cuts the value: {through:#?}");
+    let whole = |p: &Part| match p {
+        Part::Quote(q) => match read(q) {
+            Read::Field(f) => f.get(q.from as usize..q.to as usize) == Some(value),
+            _ => false,
+        },
+        Part::Code(_) => false,
+    };
+    assert!(
+        parts.iter().any(whole),
+        "the value is one quote: {parts:#?}"
+    );
+    let record = serde_json::to_string(&parts).unwrap();
     for line in value.lines() {
-        assert!(content.contains(line), "{line:?} is kept: {content}");
+        // `no_part_of` allows a whole occurrence by design; neither is stored here.
+        assert!(!record.contains(line), "{line:?} is stored: {record}");
+        assert!(
+            no_part_of(&record, line),
+            "part of {line:?} is stored: {record}"
+        );
+    }
+    assert_eq!(render_with(&parts, read), kept);
+    for line in value.lines() {
+        assert!(kept.contains(line), "{line:?} is shown: {kept}");
     }
     turn(&r.core, reader, "and then?").await;
     let (_, laid) = laid_result(r);
@@ -47,7 +76,7 @@ async fn as_words(r: &Rig, reader: &str, copy: &str, kept: &str, value: &str) {
 
 /// A message holding [`KEY`] over two lines, then an empty line, then one long line: an open of it keeps its
 /// whole lines before the cap's head cut, which falls in the long line, and the run of whole lines ends in the
-/// empty one, so the cap would keep each line as its own quote, two of them ending inside the key.
+/// empty one, which one quote of its bytes would drop; the cap keeps the key's two lines one quote.
 fn keyed() -> String {
     format!(
         "the keeper's note\n{KEY}\n\n{}",
@@ -55,28 +84,30 @@ fn keyed() -> String {
     )
 }
 
-/// An exchange open, capped by the runtime through a value written over lines: stored as words.
+/// An exchange open, capped by the runtime through a value written over lines: stored as references, the value
+/// whole in one quote.
 #[tokio::test]
-async fn an_exchange_open_capped_through_a_value_is_stored_as_words() {
+async fn an_exchange_open_capped_through_a_value_is_stored_as_parts() {
     let r = knowing(KEY);
     let sid = session(&r.core, None);
     let said = turn(&r.core, &sid, &keyed()).await.turn_id;
     let reader = session(&r.core, Some("channel:lab"));
     let (copy, kept) = read_in(&r.core, &reader, json!({ "open": said })).await;
     assert!(kept.contains(" not shown: "), "capped: {kept}");
-    as_words(&r, &reader, &copy, &kept, KEY).await;
+    as_parts(&r, &reader, &copy, &kept, KEY).await;
 }
 
-/// A session open, capped by the runtime through a value written over lines: stored as words.
+/// A session open, capped by the runtime through a value written over lines: stored as references, the value
+/// whole in one quote.
 #[tokio::test]
-async fn a_session_open_capped_through_a_value_is_stored_as_words() {
+async fn a_session_open_capped_through_a_value_is_stored_as_parts() {
     let r = knowing(KEY);
     let sid = session(&r.core, None);
     turn(&r.core, &sid, &keyed()).await;
     let reader = session(&r.core, Some("channel:lab"));
     let (copy, kept) = read_in(&r.core, &reader, json!({ "open": sid })).await;
     assert!(kept.contains(" not shown: "), "capped: {kept}");
-    as_words(&r, &reader, &copy, &kept, KEY).await;
+    as_parts(&r, &reader, &copy, &kept, KEY).await;
 }
 
 /// A stand-in words index that answers a search of `words` with one hit on `node`, its text `excerpt`.

@@ -46,6 +46,7 @@ export const UNRANKED_WHY: Readonly<Record<string, string>> = {
   f10: 'a checklist of the first ten minutes, run once: too small to rank',
   threadbench: 'Theseus compared with itself, a switch on and off: no other harness',
   'bughunt-rs': 'bugs fixed a trial, not a pass rate',
+  references: 'how many store records a turn reads to lay results kept by reference: no pass rate',
   [OMNIBUS]: 'the review of every run in one page: not a measurement of its own',
 }
 
