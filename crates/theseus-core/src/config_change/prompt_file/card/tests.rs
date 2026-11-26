@@ -35,7 +35,7 @@ fn a_card_that_fits_shows_the_changed_lines_and_says_what_it_needs() {
         "{q}"
     );
     assert!(
-        q.contains("a second proof is needed as well as your yes"),
+        q.contains("It goes into every later prompt: read it before you say yes."),
         "{q}"
     );
     assert!(

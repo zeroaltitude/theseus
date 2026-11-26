@@ -208,8 +208,8 @@ impl Tool for Propose {
          now and the `new` text for it (prefer replacements for a long file: never retype a long \
          file). Give a one-line reason in the owner's words. Theseus builds the difference \
          itself and shows the owner one card with the file's size and fingerprint before and \
-         after, the changed lines, and a way to read the whole text; only their yes, with a \
-         second proof, changes anything, and the daemon writes the file itself. It never makes a \
+         after, the changed lines, and a way to read the whole text; only their yes changes \
+         anything, and the daemon writes the file itself. It never makes a \
          file or names a new path. Offered only to the owner, in a private place."
     }
 

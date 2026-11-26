@@ -1,8 +1,9 @@
 //! Which settings are sensitive, and which take effect at once (issue 22).
 //!
 //! The one place that says it. A change to a sensitive setting is the kind
-//! that governs what Theseus may do, so it is never made on a card's yes
-//! alone (`config_change`): what needs approval, where each secret is read
+//! that governs what Theseus may do, so it is never made without a card
+//! (`config_change`), and some need the owner's code as well ([`proof_reason`],
+//! issue 57): what needs approval, where each secret is read
 //! from, the sandbox and the hosts it allows, the folders Theseus may touch,
 //! who the owner is and which places are private, every spending ceiling and
 //! budget, Theseus's own MCP server, self-improvement's mode and sealed sets,
@@ -113,6 +114,21 @@ pub const ORDINARY_KEYS: &[&str] = &[
 
 /// Why a key that holds an address is sensitive (`key_reason`).
 pub const ADDRESS_REASON: &str = "an address Theseus listens on or sends to";
+/// Why a key that names where a secret is read from is sensitive (`key_reason`).
+pub const SECRET_REASON: &str = "where a secret is read from";
+/// Why a key that names the owner is sensitive (`key_reason`).
+pub const OWNER_REASON: &str = "who the owner is";
+/// Why a spending ceiling or budget is sensitive (`key_reason`).
+pub const SPEND_REASON: &str = "a spending ceiling or budget";
+/// Why a key of the sandbox's kind is sensitive (`key_reason`).
+pub const SANDBOX_REASON: &str = "the sandbox, what may run, and the hosts it may reach";
+
+/// Whether a key (lower case) is a spending ceiling or budget.
+fn spend_key(k: &str) -> bool {
+    ["usd", "budget", "ceiling", "spend", "runaway"]
+        .iter()
+        .any(|s| k.contains(s))
+}
 
 /// What the settings' own words say about a key, whatever its table: the
 /// reason it is sensitive, or `None`.
@@ -133,10 +149,10 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || has("token_file")
         || has("password")
     {
-        return Some("where a secret is read from");
+        return Some(SECRET_REASON);
     }
     if has("owner") {
-        return Some("who the owner is");
+        return Some(OWNER_REASON);
     }
     if is("system")
         || has("prompt")
@@ -145,13 +161,13 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || has("persona")
         || has("instruction")
     {
-        return Some("text that is put into every prompt, or the persona that speaks");
+        return Some(PROMPT_REASON);
     }
     if has("agent") || is("provider") || ends("_provider") || has("not_") {
         return Some("which processes count as agents, which provider sees the owner's text, or what Theseus is told never to keep");
     }
-    if has("usd") || has("budget") || has("ceiling") || has("spend") || has("runaway") {
-        return Some("a spending ceiling or budget");
+    if spend_key(&k) {
+        return Some(SPEND_REASON);
     }
     if is("roots")
         || is("projects_dir")
@@ -169,7 +185,7 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || is("tree")
         || is("repo")
     {
-        return Some("a folder or file Theseus may touch");
+        return Some(FOLDER_REASON);
     }
     if is("sandbox")
         || is("cwd")
@@ -184,7 +200,7 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || has("posture_")
         || is("enforcement")
     {
-        return Some("the sandbox, what may run, and the hosts it may reach");
+        return Some(SANDBOX_REASON);
     }
     if is("url")
         || ends("_url")
@@ -259,6 +275,230 @@ pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> 
         || (at(&["self", "install"])
             && path.len() == 2
             && after.is_some_and(|v| v.as_str() == Some("auto")))
+}
+
+/// Why a key holds text put into every prompt (`key_reason`).
+pub const PROMPT_REASON: &str = "text that is put into every prompt, or the persona that speaks";
+/// Why a key names a folder or a file Theseus may touch (`key_reason`).
+pub const FOLDER_REASON: &str = "a folder or file Theseus may touch";
+/// Why a catalog price is kept for the code ([`proof_reason`]).
+pub const PRICE_REASON: &str = "a price that decides what a model call is charged or reserved";
+
+// The second reason table (issue 57): which sensitive settings' cards ALSO take the owner's
+// authenticator code. Every sensitive setting keeps its card; these lists say only where the
+// code is kept or dropped. Each group is one list, so a later decision flips one group. A
+// setting in no list keeps what main does for it ([`reason`]: sensitive keeps the code), so no
+// unlisted key is weaker than main.
+
+/// (K) The code is KEPT, as the owner's yes named: the approval rules, where secrets come from,
+/// the sandbox, places, the broker, where Theseus listens and keeps its state, its own MCP
+/// server, and the second proof itself.
+pub const KEPT_TABLES: [&str; 8] = [
+    "policy",
+    "secrets",
+    "sandbox",
+    "places",
+    "broker",
+    "server",
+    "mcp_server",
+    "owner_proof",
+];
+
+/// (K) The code is KEPT, in any table, for a key of these kinds: where a secret is read from,
+/// who the owner is, and the sandbox's kind (what may run and the hosts it may reach).
+pub const KEPT_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
+
+/// (K) The catalog's keys that price a call (with every `*_per_mtok`): the code is KEPT in
+/// either direction, since a lower price lets more calls through the same dollar limits.
+pub const PRICE_KEYS: [&str; 3] = ["long_prompt", "off_peak", "bytes_per_token"];
+
+/// A group the owner decided by his word (2026-11-25, "I'll take your recommendation"): each
+/// keeps the code while it is in [`KEEPS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    /// (G1) KEPT by the owner's word: every key whose value is an address that conversations,
+    /// messages or a credential are sent to ([`ADDRESS_REASON`]), and which provider a model
+    /// uses (`provider`, `*_provider`).
+    Addresses,
+    /// (G2) KEPT by the owner's word: the tables that decide or guard later gates
+    /// ([`GATE_TABLES`]).
+    Gates,
+}
+
+/// The groups whose code is KEPT, by the owner's word: G1 and G2. Each is one entry to flip.
+pub const KEEPS: [Group; 2] = [Group::Addresses, Group::Gates];
+
+/// (G2) The tables that decide or guard later gates: KEPT by the owner's word.
+pub const GATE_TABLES: [&str; 3] = ["judge", "privacy", "content_based_security"];
+
+/// (G3) The code is DROPPED (the card's yes is enough) by the owner's word for exactly these
+/// settings, a CLOSED list of exact shapes (`*` is one freely named entry): "turning the self
+/// loop on" (`self.mode`), "the AWS and Google account settings", "the vault's form location"
+/// and "tool folders". Nothing is matched by a word inside a key's name; every other setting
+/// of those tables keeps main's rule ([`reason`]).
+pub const DROPPED_SHAPES: [&str; 8] = [
+    "self.mode",
+    "aws.accounts.*.regions",
+    "google.account",
+    "vault.keep_by_discord",
+    "tools.roots",
+    "tools.projects_dir",
+    "lsp.servers.*.roots",
+    "index.weights_dir",
+];
+
+/// (D) The code is DROPPED for prompt text, as the owner's yes named it: exactly these
+/// settings (a long value included), a CLOSED list of exact shapes. Prompt files, removing an
+/// MCP server and attaching one with no secret, env, address or egress take their own cards
+/// with no code (`config_change::prompt_file`, `config_change::mcp_attach::needs`); so does
+/// tightening one of [`TIGHTENS`].
+pub const PROMPT_TEXT_SHAPES: [&str; 3] = ["model.system", "profiles.*.system", "personas.*.card"];
+
+/// Whether `path` is exactly `shape`: as many parts, each equal, `*` matching any one.
+pub fn shaped(path: &[String], shape: &str) -> bool {
+    let parts: Vec<&str> = shape.split('.').collect();
+    parts.len() == path.len() && parts.iter().zip(path).all(|(s, p)| *s == "*" || *s == p)
+}
+
+/// (G3) Whether `path` is one of [`DROPPED_SHAPES`].
+pub fn dropped_by_his_word(path: &[String]) -> bool {
+    DROPPED_SHAPES.iter().any(|s| shaped(path, s))
+}
+
+/// (D) Whether `path` is one of [`PROMPT_TEXT_SHAPES`].
+pub fn prompt_text(path: &[String]) -> bool {
+    PROMPT_TEXT_SHAPES.iter().any(|s| shaped(path, s))
+}
+
+/// The group a setting is in, when it is in one ([`Group`]).
+pub fn group(path: &[String]) -> Option<Group> {
+    let first = path.first()?.as_str();
+    let provider = |k: &String| {
+        let k = k.to_ascii_lowercase();
+        k == "provider" || k.ends_with("_provider")
+    };
+    if path
+        .iter()
+        .skip(1)
+        .any(|k| key_reason(k) == Some(ADDRESS_REASON) || provider(k))
+    {
+        return Some(Group::Addresses);
+    }
+    GATE_TABLES.contains(&first).then_some(Group::Gates)
+}
+
+/// Whether `path` prices a model call (`catalog.<model>.<a price>`), or names a catalog row
+/// whole.
+fn price(path: &[String]) -> bool {
+    path.first().is_some_and(|t| t == "catalog")
+        && (path.len() < 3
+            || path
+                .iter()
+                .skip(2)
+                .any(|k| k.ends_with("_per_mtok") || PRICE_KEYS.contains(&k.as_str())))
+}
+
+/// Why a change of `path` from `before` to `after` needs the owner's authenticator code on
+/// top of the card's yes (issue 57), or `None` when the card alone is enough. In order, the
+/// strictest first: the fresh proof ([`needs_fresh_proof`]); (K) [`KEPT_TABLES`], a price,
+/// [`KEPT_KEYS`], a spending limit not made tighter ([`tightened`]); a group, by [`KEEPS`];
+/// (G3) [`DROPPED_SHAPES`] and (D) [`PROMPT_TEXT_SHAPES`]; and else what main does
+/// ([`reason`]).
+pub fn proof_reason(
+    path: &[String],
+    before: Option<&serde_json::Value>,
+    after: Option<&serde_json::Value>,
+) -> Option<String> {
+    if needs_fresh_proof(path, after) {
+        return Some("who the owner is, or the second proof itself".into());
+    }
+    let first = path.first()?.as_str();
+    if KEPT_TABLES.contains(&first) {
+        return reason(path).or_else(|| Some(format!("[{first}]")));
+    }
+    if price(path) {
+        return Some(PRICE_REASON.into());
+    }
+    let keys = || path.iter().skip(1);
+    if let Some(why) = keys().find_map(|k| key_reason(k).filter(|w| KEPT_KEYS.contains(w))) {
+        return Some(why.into());
+    }
+    if keys().any(|k| spend_key(&k.to_ascii_lowercase())) {
+        return match tightened(path, before, after) {
+            true => None,
+            false => Some(format!("{SPEND_REASON}, not made tighter")),
+        };
+    }
+    // A group keeps the code while it is in KEEPS, and takes the card alone when it is not.
+    if let Some(g) = group(path) {
+        return match KEEPS.contains(&g) {
+            true => reason(path).or_else(|| Some(format!("{g:?}"))),
+            false => None,
+        };
+    }
+    match dropped_by_his_word(path) || prompt_text(path) {
+        true => None,
+        false => reason(path),
+    }
+}
+
+/// What zero means for a spending limit whose direction is known ([`TIGHTENS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unit {
+    /// Dollars, which the kernel holds as micro-dollars (`theseus_kernel::usd_to_micros`,
+    /// rounded to the nearest); zero micro-dollars is no limit at all.
+    Dollars,
+    /// A whole multiple of a session's limit; zero is no limit at all.
+    Multiple,
+}
+
+/// The spending limits whose direction is known, by what the kernel holds for each
+/// (`KernelSection::to_kernel_config`): for these, and only these, a change that makes the
+/// limit strictly tighter in the kernel's own units needs the card alone. Every other spending
+/// key needs the code in either direction until its meaning is written here.
+pub const TIGHTENS: [(&str, &str, Unit); 5] = [
+    ("kernel", "spend_limit_usd", Unit::Dollars),
+    ("kernel", "daily_spend_ceiling_usd", Unit::Dollars),
+    ("kernel", "daily_runaway_usd", Unit::Dollars),
+    ("kernel", "runaway_usd_per_10min", Unit::Dollars),
+    ("kernel", "spend_limit_hard_multiple", Unit::Multiple),
+];
+
+/// A limit's value as the kernel will use it, with no limit as `u64::MAX`; `None` when it is
+/// not a value of its unit.
+pub fn effective(unit: Unit, v: &serde_json::Value) -> Option<u64> {
+    let held = match unit {
+        Unit::Dollars => theseus_kernel::usd_to_micros(v.as_f64()?),
+        Unit::Multiple => v.as_u64()?,
+    };
+    Some(match held {
+        0 => u64::MAX,
+        n => n,
+    })
+}
+
+/// Whether a change makes a spending limit of [`TIGHTENS`] strictly tighter in the kernel's
+/// own units: both sides values of its unit, and the new limit strictly lower, where zero (or
+/// a value that converts to zero micro-dollars) is no limit at all. Any other key, a removal,
+/// a value set where there was none: no.
+fn tightened(
+    path: &[String],
+    before: Option<&serde_json::Value>,
+    after: Option<&serde_json::Value>,
+) -> bool {
+    let [table, key] = path else {
+        return false;
+    };
+    let known = TIGHTENS
+        .iter()
+        .find(|(t, k, _)| *t == table.as_str() && *k == key.as_str());
+    let (Some((_, _, unit)), Some(b), Some(a)) = (known, before, after) else {
+        return false;
+    };
+    match (effective(*unit, b), effective(*unit, a)) {
+        (Some(b), Some(a)) => a < b,
+        _ => false,
+    }
 }
 
 /// The settings that take effect without a restart: where the code already

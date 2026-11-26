@@ -171,3 +171,108 @@ fn every_sensitive_table_is_a_real_one_and_the_template_reaches_it() {
         let _ = &v;
     }
 }
+
+/// Every leaf of the config as the template sets it, with its value.
+fn valued(v: &Value, at: &mut Vec<String>, out: &mut Vec<(Vec<String>, Value)>) {
+    match v {
+        Value::Object(m) if !m.is_empty() => {
+            for (k, v) in m {
+                at.push(k.clone());
+                valued(v, at, out);
+                at.pop();
+            }
+        }
+        _ => out.push((at.clone(), v.clone())),
+    }
+}
+
+/// (G1) The addresses the configuration holds today, by the walk of the uncommented template:
+/// KEPT by the owner's word.
+const ADDRESSES: &[&str] = &[
+    "aws.accounts.111122223333.endpoint",
+    "catalog.some-new-model.provider",
+    "cockpit.public_url",
+    "discord.gateway_proxy",
+    "discord.rest_proxy",
+    "google.endpoint",
+    "judge.api_base",
+    "mcp.servers.docs.url",
+    "model.api_base",
+    "model.provider",
+    "profiles.dsflash.provider",
+    "profiles.dspro.provider",
+    "profiles.fable.provider",
+    "profiles.fable51.provider",
+    "profiles.fable52.provider",
+    "profiles.glm.provider",
+    "profiles.glm53.provider",
+    "profiles.haiku.provider",
+    "profiles.kimi.provider",
+    "profiles.kimimax.provider",
+    "profiles.mythos.provider",
+    "profiles.opus.provider",
+    "profiles.sonnet.provider",
+    "providers.deepseek.api_base",
+    "providers.deepseek.origin",
+    "providers.moonshot.api_base",
+    "providers.moonshot.origin",
+    "providers.openai.api_base",
+    "providers.openai.origin",
+    "providers.zai.api_base",
+    "providers.zai.origin",
+    "telemetry.otlp_endpoint",
+    "voice.api_base",
+    "web.bind",
+    "web.dev_origin",
+    "web.port",
+];
+/// Issue 57, the second reason table by groups: the walk of the settings the template holds
+/// (the uncommented template, parsed) names each address of G1, which keeps the code; and no
+/// setting needs less than main asked of it (main: every sensitive setting needs the code)
+/// except one of the two CLOSED lists of exact shapes (G3, by the owner's word; D, prompt
+/// text). Those lists are pinned literally in `config_change::proof_seam`'s tests; the real
+/// proposals of `config_change::tests_code` hold the settings just outside them, with the
+/// optional fields this walk misses. A spending limit is set where there was none here, which
+/// keeps the code.
+#[test]
+fn the_addresses_keep_the_code_and_only_the_closed_lists_are_weaker_than_main() {
+    use super::sensitivity::{
+        dropped_by_his_word, group, prompt_text, proof_reason, reason, Group,
+    };
+    let text = super::tests::uncommented(Config::EXAMPLE_TOML);
+    let cfg = Config::from_toml(&text).expect("the uncommented template parses");
+    let mut all = Vec::new();
+    valued(
+        &serde_json::to_value(&cfg).unwrap(),
+        &mut Vec::new(),
+        &mut all,
+    );
+    let kept = |p: &[String]| {
+        super::sensitivity::KEPT_TABLES.contains(&p[0].as_str())
+            || super::sensitivity::needs_fresh_proof(p, None)
+    };
+    let mut addresses: Vec<String> = all
+        .iter()
+        .filter(|(p, _)| group(p) == Some(Group::Addresses) && !kept(p))
+        .map(|(p, _)| p.join("."))
+        .collect();
+    addresses.sort();
+    addresses.dedup();
+    assert_eq!(addresses, ADDRESSES, "the addresses the template holds now");
+    for (p, v) in &all {
+        if group(p) == Some(Group::Addresses) {
+            assert!(proof_reason(p, None, Some(v)).is_some(), "{p:?}");
+        }
+    }
+    let weaker: Vec<String> = all
+        .iter()
+        .filter(|(p, v)| {
+            reason(p).is_some()
+                && !prompt_text(p)
+                && !dropped_by_his_word(p)
+                && proof_reason(p, None, Some(v)).is_none()
+        })
+        .map(|(p, _)| p.join("."))
+        .collect();
+    assert!(weaker.is_empty(), "weaker than main: {weaker:#?}");
+}

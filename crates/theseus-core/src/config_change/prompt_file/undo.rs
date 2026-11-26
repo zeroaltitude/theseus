@@ -1,6 +1,6 @@
 //! The undo of a prompt file's change (issue 23): `config.undo` on a change
 //! that was a prompt file puts back the text the file had before it, whole and
-//! exactly, by the same card and the same second proof as the change. If the
+//! exactly, by the same card as the change. If the
 //! file changed again since, the card says so, and shows those later edits as
 //! the lines this removes.
 
