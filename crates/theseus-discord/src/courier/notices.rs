@@ -270,7 +270,6 @@ mod tests {
             "home_size",
             "needs_you",
             "jev_notice",
-            "told_dm",
             "",
         ] {
             assert!(!informs(k, &fyi), "{k}");

@@ -275,10 +275,6 @@ impl Core {
                 .self_item_dropped(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item is dropped"),
-            // Durable evidence: a `config.undone` row naming this exact change.
-            Undo::VaultUseUndo(n) => self
-                .vault_use_put_back_done(*n)
-                .then_some("the secret's entry is already removed"),
             #[cfg(test)]
             Undo::Probe(_) => None,
         })
@@ -312,22 +308,6 @@ impl Core {
                     })
                 }
                 Err(e) => Err(failure(e)),
-            },
-            // A use's entry removed, only while the settings are exactly as the use left them.
-            Undo::VaultUseUndo(n) => match self.vault_use_put_back(*n, who) {
-                Ok(true) => Ok(Effect::Done),
-                Ok(false) => Ok(Effect::Moved {
-                    line: format!(
-                        "↩️ This Undo no longer applies: the settings changed after change #{n}. \
-                         To undo it, ask Theseus in a conversation: it asks you on a card."
-                    ),
-                    message: format!(
-                        "The settings changed after change #{n}, so this Undo would not put back \
-                         only that entry, and nothing was changed. Ask Theseus in a conversation to \
-                         undo change #{n}: it asks you on a card that shows what it overwrites."
-                    ),
-                }),
-                Err(e) => Err(RpcFailure::invalid(anyhow::anyhow!(e))),
             },
             #[cfg(test)]
             Undo::Probe(_) => {

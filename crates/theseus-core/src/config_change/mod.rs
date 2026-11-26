@@ -521,7 +521,7 @@ pub(crate) fn sensitive_of(
 ) -> Vec<(String, String)> {
     let all = sensitive(changes, settings);
     match used.map(|(base, name)| vault_use::classify::case_of(base, settings, name)) {
-        Some(vault_use::classify::Case::Inert | vault_use::classify::Case::Pure) => Vec::new(),
+        Some(vault_use::classify::Case::Pure) => Vec::new(),
         _ => all,
     }
 }

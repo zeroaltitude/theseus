@@ -195,17 +195,21 @@ async fn a_field_in_a_section_is_written_with_its_section() {
     r.turn_with("vault_use", &sid, input).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    let asks = use_notes(&r);
-    assert_eq!(asks.len(), 1, "told, not asked: {asks:?}");
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
     assert!(
-        asks[0].contains("field \"backup code\", in the section \"Recovery\""),
-        "{}",
         asks[0]
+            .reason
+            .contains("field \"backup code\", in the section \"Recovery\""),
+        "{}",
+        asks[0].reason
     );
-    assert!(asks[0].contains("op://Harbor/Lantern key/Recovery/backup code"));
+    assert!(asks[0]
+        .reason
+        .contains("op://Harbor/Lantern key/Recovery/backup code"));
     assert!(logged(&dir)
         .contains(&"read --no-newline op://Harbor/Lantern key/Recovery/backup code".to_string()));
-    assert!(asks[0].contains("Nothing reads it"));
+    assert!(asks[0].reason.contains("Nothing is given it yet"));
 }
 
 /// Two items of one title are not guessed between: their ids are given, and
@@ -240,14 +244,16 @@ async fn a_name_with_a_slash_is_written_by_its_id() {
     r.turn_with("vault_use", &sid, input).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    let asks = use_notes(&r);
-    assert_eq!(asks.len(), 1, "told, not asked: {asks:?}");
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
     assert!(
-        asks[0].contains("read from op://Harbor/itemid00000000000000000001/apikey"),
-        "{}",
         asks[0]
+            .reason
+            .contains("read from op://Harbor/itemid00000000000000000001/apikey"),
+        "{}",
+        asks[0].reason
     );
-    assert!(asks[0].contains("written by the vault's own ids"));
+    assert!(asks[0].reason.contains("written by the vault's own ids"));
     assert!(logged(&dir)
         .contains(&"read --no-newline op://Harbor/itemid00000000000000000001/apikey".to_string()));
     assert!(!everything(&r, &sid).contains(VALUE));
@@ -574,14 +580,16 @@ async fn a_shared_title_is_written_by_the_id_that_was_asked_for() {
     r.turn_with("vault_use", &sid, input).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
-    let asks = use_notes(&r);
-    assert_eq!(asks.len(), 1, "told, not asked: {asks:?}");
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
     assert!(
-        asks[0].contains("read from op://Harbor/itemid00000000000000000009/credential"),
-        "{}",
         asks[0]
+            .reason
+            .contains("read from op://Harbor/itemid00000000000000000009/credential"),
+        "{}",
+        asks[0].reason
     );
-    assert!(asks[0].contains("written by the vault's own ids"));
+    assert!(asks[0].reason.contains("written by the vault's own ids"));
     assert!(logged(&dir).contains(
         &"read --no-newline op://Harbor/itemid00000000000000000009/credential".to_string()
     ));
@@ -629,7 +637,9 @@ async fn a_shared_field_label_is_written_by_its_id() {
         assert!(logged(&dir).contains(&want), "{asked}: {:?}", logged(&dir));
         let by_id = id != "keyword";
         assert_eq!(
-            use_notes(&r)[0].contains("written by the vault's own ids"),
+            r.asked()[0]
+                .reason
+                .contains("written by the vault's own ids"),
             by_id,
             "{asked}"
         );
@@ -713,38 +723,6 @@ async fn a_published_address_beside_a_vault_secret_is_on_the_one_card_with_its_s
     );
 }
 
-/// The owner's notes that a secret was put to use, or pointed elsewhere.
-fn use_notes(r: &Rig) -> Vec<String> {
-    r.core
-        .outbox
-        .open_for(crate::outbox::OPERATOR_TARGET)
-        .iter()
-        .filter_map(|a| {
-            crate::outbox::body_of(a)["text"]
-                .as_str()
-                .map(str::to_string)
-        })
-        .filter(|t| t.starts_with("ℹ️ FYI · Theseus kept a vault secret"))
-        .collect()
-}
-
-/// The told use's note: its post id, its kind and the undo it carries.
-fn told_note(r: &Rig) -> (String, Value, Value) {
-    let a = r
-        .core
-        .outbox
-        .open_for(crate::outbox::OPERATOR_TARGET)
-        .into_iter()
-        .find(|a| crate::owner_note::told::is_told(&crate::outbox::body_of(a)["kind"]))
-        .expect("the use's note, with its Undo");
-    let body = crate::outbox::body_of(&a);
-    (
-        a.correlation_id.clone(),
-        body["kind"].clone(),
-        body["undo"].clone(),
-    )
-}
-
 /// The settings file of [`crate::config_change::tests::FILE`] with an existing provider and an
 /// existing MCP server that has a URL, for the readers on the list.
 const WITH_READERS: &str = r#"# Theseus, on this machine.
@@ -771,66 +749,25 @@ fn rig_readers() -> (Rig, std::path::PathBuf, tempfile::TempDir) {
     (r, dir, d)
 }
 
-/// Case 1: a NEW name and nothing else is written with no question put, by the settings' one
-/// writer, and told once in the shared told note that stays in the owner's DM (`told_dm`), with an
-/// Undo: the item, the field, the name, that nothing reads it. The value is in no result, note,
-/// record or file.
-#[tokio::test]
-async fn a_new_name_alone_is_written_and_told_in_the_dm() {
-    let (r, dir, _d) = rig_vault("ok");
-    let sid = r.session();
-    r.turn_with("vault_use", &sid, call(json!([]))).await;
-    let (status, text) = r.result(&sid);
-    assert_eq!(status, ResultStatus::Ok, "{text}");
-    assert!(r.asked().is_empty(), "no question: {:?}", r.asked());
-    assert!(
-        r.file_text()
-            .contains("lantern_key = \"op://Harbor/Lantern key/credential\""),
-        "{}",
-        r.file_text()
-    );
-    let told = use_notes(&r);
-    assert_eq!(told.len(), 1, "{told:?}");
-    for part in [
-        "ℹ️ FYI · Theseus kept a vault secret's name in its settings",
-        "The item \"Lantern key\", field \"credential\", in the vault \"Harbor\", is kept under the new name `lantern_key`, read from op://Harbor/Lantern key/credential.",
-        "Nothing reads it: no setting is given it, so no restart sends it anywhere.",
-        "Its Undo removes exactly this entry;",
-        "Undo: `theseus told undo ",
-    ] {
-        assert!(told[0].contains(part), "{part} in {}", told[0]);
-    }
-    let (_, kind, _) = told_note(&r);
-    assert_eq!(kind, "told_dm", "never an informing kind");
-    let rows = r.rows("config.changed");
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(
-        (rows[0]["told"].as_bool(), rows[0]["restart"].as_bool()),
-        (Some(true), Some(false))
-    );
-    let all = format!("{text}{told:?}{}{}", everything(&r, &sid), r.file_text());
-    assert!(!all.contains(VALUE), "the value reached a record");
-    assert!(
-        logged(&dir).contains(&"read --no-newline op://Harbor/Lantern key/credential".to_string()),
-        "{:?}",
-        logged(&dir)
-    );
-}
-
 /// Case 2: the secret and each reader on the list (the main model's key, an existing provider's
 /// key, an existing URL server's `auth_secret`) is ONE settings card with no second proof, which
 /// says what is given the secret; nothing is written before the yes, and a plain yes writes it.
 #[tokio::test]
 async fn each_listed_reader_is_one_card_with_no_proof_and_a_yes_writes_it() {
+    // Each reader with where it sends the key today: the daemon's own address for it, as a
+    // scheme and host.
     for (path, given) in [
-        ("model.api_key_secret", "the main model (its key)"),
+        (
+            "model.api_key_secret",
+            "the main model (its key, which sends it to https://",
+        ),
         (
             "providers.lantern.api_key_secret",
-            "the provider `lantern` (its key)",
+            "the provider `lantern` (its key, which sends it to https://lantern.example.test)",
         ),
         (
             "mcp.servers.wharf.auth_secret",
-            "the attached server `wharf` (its key)",
+            "the attached server `wharf` (its key, which sends it to https://wharf.example.test)",
         ),
     ] {
         let (r, _dir, _d) = rig_readers();
@@ -857,7 +794,6 @@ async fn each_listed_reader_is_one_card_with_no_proof_and_a_yes_writes_it() {
             WITH_READERS,
             "{path}: nothing before the yes"
         );
-        assert!(use_notes(&r).is_empty(), "{path}");
         r.core
             .confirm_action(&q.correlation_id, true, None, "cli")
             .unwrap();
@@ -884,13 +820,68 @@ async fn a_repoint_is_one_card_that_says_what_it_read_and_who_reads_it() {
     assert!(!asks[0].needs_proof, "{:?}", asks[0]);
     for part in [
         "This RE-POINTS the name `anthropic_api_key`: until now it was read from op://v/i/f.",
-        "Every setting that already reads `anthropic_api_key` will read the new item from the next start:",
-        "the provider `lantern` (its key)",
+        "These settings already read `anthropic_api_key` and will read the new item from the next start:",
+        "the provider `lantern` (its key, which sends it to https://lantern.example.test)",
+        "a setting that reads this name by default may use it too.",
     ] {
         assert!(asks[0].reason.contains(part), "{part}: {}", asks[0].reason);
     }
     assert_eq!(r.file_text(), WITH_READERS, "nothing before the yes");
-    assert!(use_notes(&r).is_empty());
+}
+
+/// A new name with nothing else is ONE settings card with no second proof (there is no use
+/// without a card): it says plainly what it is, and does not claim that nothing reads the name.
+/// Nothing is written before the yes; a plain yes writes it.
+#[tokio::test]
+async fn a_new_name_alone_is_one_card_with_no_proof() {
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(json!([]))).await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    let q = &asks[0];
+    assert!(!q.needs_proof && !q.needs_fresh_proof, "{q:?}");
+    for part in [
+        "This gives a secret from the vault a name in the settings.",
+        "No setting is set to read it; a setting that reads this name by default may use it.",
+    ] {
+        assert!(q.reason.contains(part), "{part}: {}", q.reason);
+    }
+    assert!(!q.reason.contains("second proof"), "{}", q.reason);
+    assert_eq!(r.file_text(), crate::config_change::tests::FILE, "nothing before the yes");
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    assert!(
+        r.file_text()
+            .contains("lantern_key = \"op://Harbor/Lantern key/credential\""),
+        "{}",
+        r.file_text()
+    );
+}
+
+/// The reviewer's case: no voice section in the file, and a new name equal to the voice's default
+/// key. Not inert (an audition reads it, even with voice off): ONE card, no second proof, nothing
+/// written before the yes, and the card names the voice as a reader.
+#[tokio::test]
+async fn the_voices_default_name_is_one_card_that_names_the_voice() {
+    let (r, _dir, _d) = rig_vault("ok");
+    assert!(!r.file_text().contains("[voice]"));
+    let sid = r.session();
+    let mut c = call(json!([]));
+    c["name"] = json!("deepgram_api_key");
+    r.turn_with("vault_use", &sid, c).await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(!asks[0].needs_proof, "{:?}", asks[0]);
+    assert!(
+        asks[0]
+            .reason
+            .contains("Given to: the voice (its key, which an audition uses even with voice off)."),
+        "{}",
+        asks[0].reason
+    );
+    assert_eq!(r.file_text(), crate::config_change::tests::FILE, "nothing before the yes");
 }
 
 /// Case 3: anything off the list takes main's path for the WHOLE change, with main's proof: the
@@ -923,7 +914,6 @@ async fn everything_off_the_list_takes_mains_path_with_its_proof() {
         r.turn_with("vault_use", &sid, call(also.clone())).await;
         let (status, text) = r.result(&sid);
         assert_eq!(r.file_text(), WITH_READERS, "{also}: {text}");
-        assert!(use_notes(&r).is_empty(), "{also}: told");
         let asks = r.asked();
         match status {
             ResultStatus::Ok => {
@@ -959,7 +949,6 @@ async fn a_provider_kind_equal_to_the_name_is_not_a_reader() {
     c["name"] = json!("anthropic");
     r.turn_with("vault_use", &sid, c).await;
     assert_eq!(r.file_text(), WITH_READERS);
-    assert!(use_notes(&r).is_empty());
     assert!(r.asked().iter().all(|q| q.needs_proof), "{:?}", r.asked());
 }
 
@@ -978,9 +967,9 @@ fn the_list_is_decided_by_the_paths_shape_and_the_value() {
         "secrets.lantern_key",
         json!("op://Harbor/Lantern key/credential"),
     );
-    use classify::Case::{Inert, Other, Pure};
+    use classify::Case::{Other, Pure};
     for (settings, want) in [
-        (vec![own.clone()], Inert),
+        (vec![own.clone()], Pure),
         (
             vec![
                 own.clone(),
@@ -1050,21 +1039,14 @@ fn the_list_is_decided_by_the_paths_shape_and_the_value() {
             "{settings:?}"
         );
     }
-    // A new name that a setting already reads is not inert: that reader starts reading it.
-    let read = set(
-        "secrets.anthropic_key2",
-        json!("op://Harbor/Lantern key/credential"),
-    );
-    let (mut b2, _) = crate::Config::parse(WITH_READERS).unwrap();
-    b2.model.api_key_secret = "anthropic_key2".into();
-    assert_eq!(classify::case_of(&b2, &[read], "anthropic_key2"), Pure);
 }
 
-/// The wall, with the producers that open sessions: a job's, the self loop's and an MCP client's
-/// executions, a task's session, and a shared place are each refused; nothing is read, written or
-/// told.
+/// The wall, for each kind of session: executions opened with the job's, the self loop's and an
+/// MCP client's principals (constructed here as those producers open them, not by running the
+/// producers), a task's session (a real kernel task), and a shared place are each refused, the
+/// call answered with an error; nothing is read or written.
 #[tokio::test]
-async fn a_told_use_keeps_the_wall_for_each_producer() {
+async fn a_use_keeps_the_wall_for_each_kind_of_session() {
     use theseus_kernel::Authority;
     // The loop's turn is refused its budget while self-improvement is off: it is on, so that the
     // refusal is the wall's.
@@ -1111,41 +1093,44 @@ async fn a_told_use_keeps_the_wall_for_each_producer() {
     sessions.push(("shared".into(), r.session_at("channel:2")));
     for (who, sid) in sessions {
         r.turn_with("vault_use", &sid, call(json!([]))).await;
-        // The call's result, when the turn got as far as the call: refused, in the wall's words.
-        // A turn its producer may not run at all leaves none, and that refuses it too.
-        let result = r
+        // Every result the turn wrote: the call is refused, in the wall's words when the tool was
+        // offered, and as a tool that is not offered (an error result under its wire name) when
+        // the producer's place offers none. Either way the call is answered with an error.
+        let results: Vec<(String, ResultStatus, String)> = r
             .core
             .store
             .session_nodes(&sid)
             .unwrap()
             .into_iter()
-            .find_map(|(_, n)| match n.body {
+            .filter_map(|(_, n)| match n.body {
                 Body::ToolResult {
                     tool,
                     status,
                     content,
                     ..
-                } if tool == USE => Some((status, content)),
+                } => Some((tool, status, content)),
                 _ => None,
-            });
-        if let Some((status, text)) = result {
-            assert_ne!(status, ResultStatus::Ok, "{who}: {text}");
-            // In a shared place the tool may not be offered at all; elsewhere the wall says why.
-            if who != "shared" {
+            })
+            .collect();
+        assert!(!results.is_empty(), "{who}: the call was answered");
+        for (tool, status, text) in &results {
+            assert_ne!(*status, ResultStatus::Ok, "{who}: {tool}: {text}");
+            if tool == USE {
                 assert!(
                     text.contains("vault.use is "),
                     "{who}: the wall's words: {text}"
                 );
             }
         }
+        eprintln!("{who}: {results:?}");
     }
     assert_eq!(r.file_text(), crate::config_change::tests::FILE);
-    assert!(use_notes(&r).is_empty());
     assert!(logged(&dir).is_empty(), "the vault was not read");
 }
 
-/// At `[content_based_security] outside = "notify"` a flagged turn's new name is not held first:
-/// it is told, as the looks are. At `ask` the hold's card comes first, with two answers only.
+/// At `[content_based_security] outside = "notify"` a flagged turn's use is not held first: its
+/// own settings card comes, with no second proof. At `ask` the hold's card comes first, with two
+/// answers only.
 #[tokio::test]
 async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
     use crate::content::{Flag, OutsideMode};
@@ -1157,8 +1142,9 @@ async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
         let asks = r.asked();
         match outside {
             OutsideMode::Notify => {
-                assert!(asks.is_empty(), "{asks:?}");
-                assert_eq!(use_notes(&r).len(), 1);
+                assert_eq!(asks.len(), 1, "{asks:?}");
+                assert_ne!(asks[0].tool, USE, "not the hold's card: {asks:?}");
+                assert!(!asks[0].needs_proof, "{asks:?}");
             }
             OutsideMode::Ask => {
                 assert_eq!(asks.len(), 1, "{asks:?}");
@@ -1170,162 +1156,3 @@ async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
     }
 }
 
-/// Two sessions writing at once: the settings' one writer lets each in turn, so no use is lost to
-/// another's write. Each that says it was written is in the file, with its own row; one that lost
-/// the race says nothing was written.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn two_sessions_writing_at_once_lose_nothing() {
-    let (r, _dir, _d) = rig_vault("ok");
-    let (a, b) = (r.session(), r.session());
-    let mut ca = call(json!([]));
-    ca["name"] = json!("first_key");
-    let mut cb = call(json!([]));
-    cb["name"] = json!("second_key");
-    tokio::join!(
-        r.turn_with("vault_use", &a, ca),
-        r.turn_with("vault_use", &b, cb)
-    );
-    let file = r.file_text();
-    let results = [r.result(&a), r.result(&b)];
-    let ok = results
-        .iter()
-        .filter(|(s, _)| *s == ResultStatus::Ok)
-        .count();
-    assert!(ok >= 1, "{results:?}");
-    for (status, text) in &results {
-        if *status != ResultStatus::Ok {
-            assert!(text.contains("nothing was written"), "{text}");
-        }
-    }
-    let written = ["first_key = ", "second_key = "]
-        .iter()
-        .filter(|k| file.contains(*k))
-        .count();
-    assert_eq!(written, ok, "every use said written is in the file: {file}");
-    assert_eq!(r.rows("config.changed").len(), ok);
-}
-
-/// A use while a restart is under way writes nothing and tells nothing: the settings' one writer
-/// refuses, as it refuses a card's yes then.
-#[tokio::test]
-async fn a_use_during_a_restart_writes_nothing() {
-    use crate::config_change::restart::{self, Pending, Stage};
-    let (r, _dir, _d) = rig_vault("ok");
-    let marker = restart::marker_path(&r.state);
-    std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
-    restart::save(
-        &marker,
-        &Pending {
-            id: "act_restarting".into(),
-            file: r.file.clone(),
-            previous: r.file.clone(),
-            previous_sha256: String::new(),
-            digest_before: String::new(),
-            digest_after: String::new(),
-            paths: vec![],
-            session_id: String::new(),
-            place: None,
-            approved_by: "cli".into(),
-            via: "cli".into(),
-            requested_ms: 1,
-            stage: Stage::Restarting,
-            restart_only: true,
-            took_ms: None,
-            why: None,
-        },
-    )
-    .unwrap();
-    let sid = r.session();
-    r.turn_with("vault_use", &sid, call(json!([]))).await;
-    let (status, text) = r.result(&sid);
-    assert_ne!(status, ResultStatus::Ok, "{text}");
-    assert!(
-        text.contains("another change is still being applied"),
-        "{text}"
-    );
-    assert_eq!(r.file_text(), crate::config_change::tests::FILE);
-    assert!(use_notes(&r).is_empty());
-}
-
-/// Someone on Discord, in a guild's channel no binding makes private.
-fn in_a_shared_place(user: u64) -> crate::approval::Answerer {
-    crate::approval::Answerer {
-        label: format!("discord:{user}"),
-        surface: crate::approval::Surface::Discord,
-        discord: Some(theseus_protocol::DiscordOrigin {
-            user_id: user.to_string(),
-            channel_id: "777".into(),
-            guild_id: Some("7".into()),
-        }),
-        agent: None,
-    }
-}
-
-/// The note's Undo removes exactly the entry the use added, byte for byte; it counts only for the
-/// owner in a private place, once, and the history says the change was undone.
-#[tokio::test]
-async fn the_notes_undo_removes_exactly_the_entry_for_the_owner_alone() {
-    use crate::config_change::tests::OWNER;
-    use crate::config_change::tests_answer::owner_in_dm;
-    let (r, _dir, _d) = rig_vault("ok");
-    let sid = r.session();
-    r.turn_with("vault_use", &sid, call(json!([]))).await;
-    assert_ne!(r.file_text(), crate::config_change::tests::FILE);
-    let n = r.rows("config.changed")[0]["previous_copy"]
-        .as_u64()
-        .unwrap();
-    let (post, _, undo) = told_note(&r);
-    assert_eq!(undo, json!({"method": "vault.use.undo", "id": n}));
-    for who in [in_a_shared_place(999), in_a_shared_place(OWNER)] {
-        let e = r.core.told_undo(&post, &who).await.unwrap_err();
-        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
-        assert_ne!(r.file_text(), crate::config_change::tests::FILE);
-    }
-    let done = r.core.told_undo(&post, &owner_in_dm()).await.unwrap();
-    assert!(
-        done.text
-            .ends_with(&format!("↩️ Undone by discord:{OWNER}.")),
-        "{}",
-        done.text
-    );
-    assert_eq!(
-        r.file_text(),
-        crate::config_change::tests::FILE,
-        "byte for byte"
-    );
-    assert_eq!(r.rows("config.undone").len(), 1);
-    let again = r.core.told_undo(&post, &owner_in_dm()).await.unwrap_err();
-    assert!(again.data["undone_by"].is_string(), "{again:?}");
-    assert_eq!(r.file_text(), crate::config_change::tests::FILE);
-}
-
-/// The note's Undo no longer applies when the settings changed since the use: nothing is written,
-/// and the note says so and how to undo it on a card.
-#[tokio::test]
-async fn the_notes_undo_no_longer_applies_when_the_settings_changed_since() {
-    use crate::config_change::tests_answer::owner_in_dm;
-    let (r, _dir, _d) = rig_vault("ok");
-    let sid = r.session();
-    r.turn_with("vault_use", &sid, call(json!([]))).await;
-    let (first, _, _) = told_note(&r);
-    let mut c = call(json!([]));
-    c["name"] = json!("second_key");
-    r.turn_with("vault_use", &sid, c).await;
-    assert_eq!(r.rows("config.changed").len(), 2);
-    let later = r.file_text();
-    let moved = r
-        .core
-        .told_undo(&first, &owner_in_dm())
-        .await
-        .expect_err("the use moved on");
-    assert_eq!(moved.data["moved_on"], true, "{moved:?}");
-    assert!(
-        moved.data["text"]
-            .as_str()
-            .unwrap_or("")
-            .contains("This Undo no longer applies: the settings changed after change #"),
-        "{moved:?}"
-    );
-    assert_eq!(r.file_text(), later);
-    assert!(r.rows("config.undone").is_empty());
-}

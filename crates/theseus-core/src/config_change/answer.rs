@@ -99,8 +99,8 @@ fn undone_row(
 }
 
 /// The settings' one writer: held across a write's re-read, keep and write, so two writes never
-/// both pass the digest check before either writes (a card's yes, a told `vault.use`, an undo
-/// pressed on its note); and none while a change is still being applied.
+/// both pass the digest check before either writes; and none while a change is still being
+/// applied.
 pub(crate) fn one_write(w: &super::Where) -> Result<std::sync::MutexGuard<'_, ()>, String> {
     let one = w
         .writes

@@ -182,7 +182,7 @@ pub(crate) fn source_words(marker: &str) -> String {
 
 /// `scheme://host` of a URL, when `word` is one: lower-case letters before `://`, and a host of
 /// letters, digits, `.` and `-`.
-fn url_host(word: &str) -> Option<String> {
+pub(crate) fn url_host(word: &str) -> Option<String> {
     let (scheme, rest) = word.split_once("://")?;
     if scheme.is_empty() || !scheme.chars().all(|c| c.is_ascii_lowercase() || c == '+') {
         return None;

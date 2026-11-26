@@ -35,10 +35,8 @@ use crate::toolrun::{ToolRuntime, TurnCtx};
 
 pub(crate) mod check;
 pub(crate) mod classify;
-mod put_back;
 #[cfg(test)]
 mod tests;
-pub mod told;
 
 pub use check::Checked;
 
@@ -94,22 +92,24 @@ impl Chosen {
         };
         let repoint = match was.secrets.get(&self.name) {
             Some(before) if *before != c.reference => {
-                let readers = given_to(was, &self.name);
+                let readers = readers(was, &self.name);
                 format!(
                     "This RE-POINTS the name `{}`: until now it was read from {before}.{}\n",
                     self.name,
                     match readers.is_empty() {
                         true => String::new(),
                         false => format!(
-                            " Every setting that already reads `{}` will read the new item from \
-                             the next start: {}.",
+                            " These settings already read `{}` and will read the new item from \
+                             the next start: {}; a setting that reads this name by default may \
+                             use it too.",
                             self.name,
                             readers.join("; ")
                         ),
                     }
                 )
             }
-            _ => String::new(),
+            Some(_) => String::new(),
+            None => "This gives a secret from the vault a name in the settings.\n".into(),
         };
         let others = unrelated(settings, &self.name, cfg);
         let also = match others.is_empty() {
@@ -120,25 +120,25 @@ impl Chosen {
             ),
         };
         format!(
-            "The secret: the item \"{}\", field \"{}\"{section}, in the vault \"{}\". Theseus read it \
-             just now to check: the item and the field are there, its account can read them, and \
-             the field holds something. Its value is not shown here, and never goes to the model, \
-             a record or this card.\nIt is kept under the name `{}`, read from {}.{by_id}\n{}\n\
-             {repoint}{also}",
+            "{repoint}The secret: the item \"{}\", field \"{}\"{section}, in the vault \"{}\". Theseus \
+             read it just now to check: the item and the field are there, its account can read \
+             them, and the field holds something. Its value is not shown here, and never goes to \
+             the model, a record or this card.\nIt is kept under the name `{}`, read from \
+             {}.{by_id}\n{}\n{also}",
             c.item,
             c.field,
             c.vault,
             self.name,
             c.reference,
-            given(&given_to(cfg, &self.name))
+            given(&readers(cfg, &self.name))
         )
     }
 
     /// The change in one line, for the question's settled words.
     pub fn settled(&self, cfg: &crate::Config) -> String {
-        let to = given_to(cfg, &self.name);
+        let to = readers(cfg, &self.name);
         let given = match to.is_empty() {
-            true => "not given to anything yet".to_string(),
+            true => "no setting set to read it yet".to_string(),
             false => format!("given to {}", to.join("; ")),
         };
         format!(
@@ -161,14 +161,70 @@ impl Chosen {
 
 fn given(to: &[String]) -> String {
     match to.is_empty() {
-        true => "Nothing is given it yet: this only keeps where it is read from.".into(),
+        true => "No setting is set to read it; a setting that reads this name by default may use \
+                 it."
+            .into(),
         false => format!("Given to: {}.", to.join("; ")),
     }
 }
 
+/// What reads the secret `name` in `cfg`, in words, each with where it sends it when the daemon
+/// knows: every setting set to the name in the serialized settings ([`given_to`]), and each reader
+/// whose field holds a name by default, read from the typed settings, since a section left at its
+/// default is not serialized (the voice's key, which an audition reads even with voice off).
+pub(crate) fn readers(cfg: &crate::Config, name: &str) -> Vec<String> {
+    let mut out = given_to(cfg, name);
+    for (field, words) in default_readers(cfg) {
+        if field == name && !out.contains(&words) {
+            out.push(words);
+        }
+    }
+    out
+}
+
+/// The settings that name one secret each, by default when left out of the file, with their
+/// words: what [`readers`] adds to the serialized scan.
+fn default_readers(cfg: &crate::Config) -> Vec<(String, String)> {
+    let mut out = vec![
+        (
+            cfg.model.api_key_secret.clone(),
+            describe(cfg, &["model".into(), "api_key_secret".into()]),
+        ),
+        (cfg.github.token_secret.clone(), GITHUB.into()),
+        (cfg.discord.token_secret.clone(), DISCORD.into()),
+        (cfg.tools.web.search_key_secret.clone(), WEB_SEARCH.into()),
+        (cfg.judge.key_secret.clone(), JUDGE.into()),
+        (cfg.voice.key_secret.clone(), VOICE.into()),
+        (cfg.mcp_server.key_secret.clone(), MCP_SERVER.into()),
+        (cfg.google.credentials.client.clone(), "Google (its client)".into()),
+        (
+            cfg.google.credentials.refresh_token.clone(),
+            "Google (its refresh token)".into(),
+        ),
+    ];
+    for (id, a) in &cfg.aws.accounts {
+        out.push((
+            a.credentials.access_key_id.clone(),
+            format!("the AWS account `{id}` (its key id)"),
+        ));
+        out.push((
+            a.credentials.secret_access_key.clone(),
+            format!("the AWS account `{id}` (its secret key)"),
+        ));
+    }
+    out
+}
+
+const GITHUB: &str = "GitHub (its token)";
+const DISCORD: &str = "the Discord binding (its bot token)";
+const WEB_SEARCH: &str = "the web search (its key)";
+const JUDGE: &str = "the judge (its key)";
+const VOICE: &str = "the voice (its key, which an audition uses even with voice off)";
+const MCP_SERVER: &str = "Theseus's own MCP server (its key)";
+
 /// What reads the secret `name` in `cfg`, in words: every setting whose value is
 /// the name, in the loaded settings (defaults included), outside the `[secrets]`
-/// table itself.
+/// table itself. A section left at its default may be missing: [`readers`] adds those.
 pub(crate) fn given_to(cfg: &crate::Config, name: &str) -> Vec<String> {
     let Ok(v) = serde_json::to_value(cfg) else {
         return Vec::new();
@@ -183,7 +239,7 @@ pub(crate) fn given_to(cfg: &crate::Config, name: &str) -> Vec<String> {
             _ => false,
         };
         if reads && path.first().map(String::as_str) != Some("secrets") {
-            out.push(describe(path));
+            out.push(describe(cfg, path));
         }
     }
     out
@@ -219,16 +275,39 @@ fn unrelated(settings: &[diff::Setting], name: &str, cfg: &crate::Config) -> Vec
         .collect()
 }
 
-/// A reading setting, by what it is.
-fn describe(path: &[String]) -> String {
+/// Where a reader sends a key today, when the daemon knows: an existing provider's address, the
+/// main model's, an MCP server's URL; as a scheme and host only.
+fn sends_to(address: Option<&str>) -> String {
+    address
+        .and_then(crate::config_change::hold::url_host)
+        .map_or(String::new(), |h| format!(", which sends it to {h}"))
+}
+
+/// A reading setting, by what it is, and where it sends the key when the daemon knows.
+fn describe(cfg: &crate::Config, path: &[String]) -> String {
     let p: Vec<&str> = path.iter().map(String::as_str).collect();
     match p.as_slice() {
-        ["providers", name, "api_key_secret"] => format!("the provider `{name}` (its key)"),
-        ["model", "api_key_secret"] => "the main model (its key)".into(),
+        ["providers", name, "api_key_secret"] => format!(
+            "the provider `{name}` (its key{})",
+            sends_to(cfg.providers.get(*name).map(|x| x.api_base.as_str()))
+        ),
+        ["model", "api_key_secret"] => format!(
+            "the main model (its key{})",
+            sends_to(Some(cfg.model.api_base.as_str()))
+        ),
+        ["github", "token_secret"] => GITHUB.into(),
+        ["discord", "token_secret"] => DISCORD.into(),
+        ["tools", "web", "search_key_secret"] => WEB_SEARCH.into(),
+        ["judge", "key_secret"] => JUDGE.into(),
+        ["voice", "key_secret"] => VOICE.into(),
+        ["mcp_server", "key_secret"] => MCP_SERVER.into(),
         ["broker", "programs", prog, "env", var] => {
             format!("the program `{prog}` (its variable `{var}`)")
         }
-        ["mcp", "servers", s, "auth_secret"] => format!("the attached server `{s}` (its key)"),
+        ["mcp", "servers", s, "auth_secret"] => format!(
+            "the attached server `{s}` (its key{})",
+            sends_to(cfg.mcp.servers.get(*s).and_then(|c| c.url.as_deref()))
+        ),
         ["mcp", "servers", s, "env", var] => {
             format!("the attached server `{s}` (its variable `{var}`)")
         }
@@ -349,15 +428,8 @@ pub async fn run(
         Value::String(used.checked.reference.clone()),
     )];
     changes.extend(also);
-    // A new name that nothing reads is written and told; anything else is a card, with no second
-    // proof only for a pure use (`classify.rs`; issue 54).
-    let candidate = edit::apply(&base, &changes)?;
-    let (base_cfg, _) = crate::Config::parse(&base)
-        .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?;
-    let settings = diff::between(&base, &candidate)?;
-    if classify::case_of(&base_cfg, &settings, &used.name) == classify::Case::Inert {
-        return told::put_told(rt, tc, correlation_id, &base, &changes, &used);
-    }
+    // Every use is one settings card: with no second proof for a pure use, main's proof for
+    // anything else (`classify.rs`; issue 54).
     super::put_using(
         rt,
         tc,
@@ -411,8 +483,8 @@ impl Tool for VaultUse {
          `fields_of` lists them), a `name` of your choosing for it in the settings, and in `also` the other \
          settings that should read that name (a provider's `api_key_secret`, a program's \
          `broker.programs.<p>.env.<VAR>`, a server's `auth_secret`), written as for `config.propose`. The daemon \
-         finds the item and field, checks that its account can read them, builds the reference itself, and writes \
-         it, telling the owner, when only that name and settings reading it change; else ONE card asks. A secret is \
+         finds the item and field, checks that its account can read them, builds the reference itself, and shows \
+         the owner ONE card; nothing changes before their yes, and using a secret needs no code. A secret is \
          used by its name: its value is never asked for, never shown, and never passes through you. Never write an \
          `op://` reference in `config.propose`, and the vault's program in a shell has no session by design. If the \
          account cannot see a vault, the result says what the owner can do. A fact the provider publishes (its \

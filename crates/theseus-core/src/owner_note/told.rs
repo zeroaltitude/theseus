@@ -32,14 +32,6 @@ use crate::store::Store;
 
 /// The note's post kind.
 pub const KIND: &str = "told";
-/// The post kind of a told note that stays in the owner's DM, whatever notices place is bound:
-/// one whose words are for him alone (a vault's names, issue 54). Not an informing kind.
-pub const KIND_DM: &str = "told_dm";
-
-/// Whether a post of `kind` is a told note.
-pub fn is_told(kind: &Value) -> bool {
-    kind == KIND || kind == KIND_DM
-}
 
 /// The existing call that undoes what a note tells: the method, and the id it
 /// takes. Nothing else is carried, so a note can only ask for what the method
@@ -53,11 +45,6 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
-    /// A use of a vault secret the owner was told of, by its settings change's
-    /// number: the wiring before it put back exactly (issue 54). It has no
-    /// method of its own; `told.undo` runs it in the core.
-    #[serde(rename = "vault.use.undo")]
-    VaultUseUndo(u32),
     /// An undo with no method of its own, for the tests: its arm in
     /// `rpc::told` counts the times it ran.
     #[cfg(test)]
@@ -72,7 +59,6 @@ impl Undo {
         match self {
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
-            Undo::VaultUseUndo(_) => method::TOLD_UNDO,
             #[cfg(test)]
             Undo::Probe(_) => method::TOLD_UNDO,
         }
@@ -86,7 +72,6 @@ impl Undo {
                 json!({"id": id, "author": author, "discord": discord})
             }
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
-            Undo::VaultUseUndo(n) => json!({"id": n, "author": author}),
             #[cfg(test)]
             Undo::Probe(id) => json!({"id": id, "author": author}),
         }
@@ -98,8 +83,6 @@ impl Undo {
         match self {
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-            // No method of its own: the door, from a terminal.
-            Undo::VaultUseUndo(_) => by_door(),
             #[cfg(test)]
             Undo::Probe(_) => by_door(),
         }
@@ -152,34 +135,13 @@ pub fn stage(
     outbox.stage_to_operator(session, json!({"kind": "told", "text": text, "undo": undo}))
 }
 
-/// [`stage`], for a note that stays in the owner's DM ([`KIND_DM`]).
-pub fn stage_dm(
-    outbox: &Outbox,
-    session: Option<&str>,
-    title: &str,
-    by: &str,
-    body: &str,
-    undo: &Undo,
-) -> Result<(Action, Vec<NewRecord>)> {
-    let undo_line = format!("Undo: `{}`", undo.command());
-    let body = match body.trim_end() {
-        "" => undo_line,
-        b => format!("{b}\n{undo_line}"),
-    };
-    let text = note(Kind::Fyi, title, by, &body);
-    outbox.stage_to_operator(
-        session,
-        json!({"kind": "told_dm", "text": text, "undo": undo}),
-    )
-}
-
 /// A note's text and its undo, by its post's id: none for any other post.
 pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
     let Some(a) = kernel.outbox_action(post)? else {
         return Ok(None);
     };
     let body = body_of(&a);
-    if !is_told(&body["kind"]) {
+    if body["kind"] != KIND {
         return Ok(None);
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
@@ -304,20 +266,6 @@ mod tests {
             assert_eq!(p["author"], json!("ana"));
             assert_eq!(u.command(), cmd);
         }
-    }
-
-    /// A use of a vault secret is undone through the one door: no method of its own, and the words
-    /// that ask for it where a shell command would be.
-    #[test]
-    fn a_vault_use_undo_names_the_one_door_and_the_words_that_ask() {
-        let u = Undo::VaultUseUndo(4);
-        assert_eq!(u.method(), method::TOLD_UNDO);
-        assert_eq!(
-            serde_json::to_value(&u).unwrap(),
-            json!({"method": "vault.use.undo", "id": 4})
-        );
-        assert_eq!(u.params("ana", None), json!({"id": 4, "author": "ana"}));
-        assert_eq!(u.command(), by_door());
     }
 
     /// A restart: the core gone and its store opened again under a new one.
