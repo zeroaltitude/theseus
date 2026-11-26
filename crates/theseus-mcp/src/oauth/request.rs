@@ -473,7 +473,10 @@ mod tests {
         let p = Pkce::new();
         let e = expect(&p, false);
         let (hold, _) = holder();
-        let ok = format!("http://127.0.0.1:4000/callback?code={CODE}&state={}", p.state);
+        let ok = format!(
+            "http://127.0.0.1:4000/callback?code={CODE}&state={}",
+            p.state
+        );
         let other = format!(
             "http://127.0.0.1:4000/callback?code={CODE}&state={}&iss=https%3A%2F%2Fevil.invalid",
             p.state

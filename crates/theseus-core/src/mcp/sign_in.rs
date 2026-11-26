@@ -330,7 +330,7 @@ impl McpBoard {
         // The code is one use: whatever follows, this sign-in is over, and
         // its listener closes when the pending sign-in goes.
         let pending = slot.take().expect("a pending sign-in");
-        Ok(Got::Code(code, pending))
+        Ok(Got::Code(code, Box::new(pending)))
     }
 
     /// Forget `name`'s sign-in: the file removed, revoked at its server when
@@ -392,7 +392,7 @@ impl McpBoard {
 
 /// What the redirect gave: the code and its sign-in, or "still waiting".
 enum Got {
-    Code(Code, Pending),
+    Code(Code, Box<Pending>),
     Waiting(McpLoginFinishResult),
 }
 

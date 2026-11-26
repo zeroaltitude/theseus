@@ -126,6 +126,9 @@ fn a_rotated_refresh_token_replaces_the_kept_one() {
     assert!(k.due(u64::MAX), "no sum overflows");
 }
 
+/// One change to a kept sign-in.
+type Change = Box<dyn Fn(&mut Kept)>;
+
 /// A kept file is used only when it means what it should, read by the
 /// daemon's own rule; otherwise it is `needs sign-in`, and none of it shown.
 #[test]
@@ -133,7 +136,7 @@ fn a_kept_file_is_checked_for_meaning_before_it_is_used() {
     let url = "https://docs.example.invalid/mcp";
     let r = reach();
     assert_eq!(kept().check(url, &r, 0), Ok(()));
-    let cases: Vec<(&str, Box<dyn Fn(&mut Kept)>)> = vec![
+    let cases: Vec<(&str, Change)> = vec![
         (
             "another address",
             Box::new(|k| k.url = "https://moved.example.invalid/mcp".into()),
