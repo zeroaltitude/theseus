@@ -190,6 +190,12 @@ pub struct HttpTarget {
     /// A server that signs in: its token, in place of `bearer`. Such a
     /// connection follows no redirect, so its token goes to this `url` alone.
     pub token: Option<Arc<dyn TokenSource>>,
+    /// The daemon's network rule, which a connection with a `token` must
+    /// have: its address is checked at connect, every new connection
+    /// resolves through the rule's checking resolver and connects to the very
+    /// answer it checked, and no proxy resolves past it. A server with a
+    /// fixed `bearer` or none keeps the client it always had.
+    pub rule: Option<crate::oauth::Rule>,
     /// A connect that takes longer fails (on some hosts a connect to a
     /// loopback port nothing listens on hangs instead of being refused).
     pub connect_timeout: Duration,
@@ -204,6 +210,7 @@ impl HttpTarget {
             url: url.into(),
             bearer: None,
             token: None,
+            rule: None,
             connect_timeout: Duration::from_secs(10),
             server_stream: true,
         }
@@ -216,6 +223,7 @@ impl std::fmt::Debug for HttpTarget {
             .field("url", &self.url)
             .field("bearer", &self.bearer.as_ref().map(|_| "(set)"))
             .field("token", &self.token.as_ref().map(|_| "(a sign-in)"))
+            .field("rule", &self.rule.as_ref().map(|_| "(the daemon's)"))
             .field("connect_timeout", &self.connect_timeout)
             .field("server_stream", &self.server_stream)
             .finish()
@@ -1326,6 +1334,8 @@ struct Http {
     url: reqwest::Url,
     bearer: Option<String>,
     token: Option<Arc<dyn TokenSource>>,
+    /// A signed-in connection's network rule.
+    rule: Option<crate::oauth::Rule>,
     server_stream: bool,
     session: Mutex<Option<String>>,
     /// The server gave a session once, so a request without one has lost it.
@@ -1340,29 +1350,23 @@ impl Http {
     fn new(t: HttpTarget) -> Result<Self, Error> {
         let url = reqwest::Url::parse(&t.url)
             .map_err(|e| Error::Unreachable(format!("not a URL ({e})")))?;
-        let mut builder = reqwest::Client::builder().connect_timeout(t.connect_timeout);
-        let loopback = url.host_str().is_some_and(|h| {
-            let h = h.trim_start_matches('[').trim_end_matches(']');
-            h.eq_ignore_ascii_case("localhost")
-                || h.parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        });
-        if loopback {
-            // A proxy from the environment never sees a loopback server.
-            builder = builder.no_proxy();
-        }
-        if t.token.is_some() {
-            // A signed-in token goes to this server alone.
-            builder = builder.redirect(reqwest::redirect::Policy::none());
-        }
-        let client = builder
-            .build()
-            .map_err(|e| Error::Unreachable(format!("the HTTP client: {}", chain(&e))))?;
+        let client = match (&t.token, &t.rule) {
+            (Some(_), Some(rule)) => signed_client(&url, rule, t.connect_timeout)?,
+            (Some(_), None) => {
+                return Err(Error::Unreachable(
+                    "a server that signs in is reached by the daemon's network rule, and none \
+                     was given: nothing was sent"
+                        .into(),
+                ))
+            }
+            (None, _) => plain_client(&url, t.connect_timeout)?,
+        };
         Ok(Self {
             client,
             url,
             bearer: t.bearer,
             token: t.token,
+            rule: t.rule,
             server_stream: t.server_stream,
             session: Mutex::new(None),
             had_session: AtomicBool::new(false),
@@ -1370,6 +1374,21 @@ impl Http {
             reinit: tokio::sync::Mutex::new(()),
             stream_task: Mutex::new(None),
         })
+    }
+
+    /// A send's failure: for a signed-in connection, in fixed words (the
+    /// rule's refusal of an address said as such), and never its address.
+    fn send_error(&self, e: reqwest::Error) -> Error {
+        match &self.rule {
+            Some(rule) if (rule.refused)(&e) => Error::Unreachable(
+                "its address is not public, so it was not reached: nothing was sent".into(),
+            ),
+            Some(_) if e.is_connect() || e.is_builder() => {
+                Error::Unreachable("it could not be reached: nothing was sent".into())
+            }
+            Some(_) => Error::Closed("the connection ended".into()),
+            None => send_error(e),
+        }
     }
 
     fn session(&self) -> Option<String> {
@@ -1557,7 +1576,7 @@ async fn post(
         .body(msg.to_string())
         .send()
         .await
-        .map_err(send_error)?;
+        .map_err(|e| http.send_error(e))?;
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND && !initialize {
         if let Some(s) = session {
@@ -1713,7 +1732,7 @@ async fn get(shared: &Shared, last_event_id: Option<&str>) -> Result<reqwest::Re
         if let Some(id) = last_event_id {
             req = req.header("last-event-id", id);
         }
-        let resp = req.send().await.map_err(send_error)?;
+        let resp = req.send().await.map_err(|e| http.send_error(e))?;
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED && !renewed {
             renewed = true;
             if renewed_after(http, sent.as_ref()).await {
@@ -1848,6 +1867,49 @@ async fn read_body(resp: reqwest::Response, max: usize) -> Result<Vec<u8>, Error
 }
 
 /// A failed send: nothing went out if it never connected.
+/// The client of a server with a fixed key or none: as it always was.
+fn plain_client(url: &reqwest::Url, connect_timeout: Duration) -> Result<reqwest::Client, Error> {
+    let mut builder = reqwest::Client::builder().connect_timeout(connect_timeout);
+    let loopback = url.host_str().is_some_and(|h| {
+        let h = h.trim_start_matches('[').trim_end_matches(']');
+        h.eq_ignore_ascii_case("localhost")
+            || h.parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    if loopback {
+        // A proxy from the environment never sees a loopback server.
+        builder = builder.no_proxy();
+    }
+    builder
+        .build()
+        .map_err(|e| Error::Unreachable(format!("the HTTP client: {}", chain(&e))))
+}
+
+/// The client of a server that signs in (issue 55), by the daemon's `rule`:
+/// its address checked as written (https, a public host); every new
+/// connection resolved by the rule's checking resolver and made to the very
+/// answer it checked; no proxy; no redirect, so its token goes to this
+/// address alone. One that cannot be built is a refusal, never a client
+/// with fewer limits.
+fn signed_client(
+    url: &reqwest::Url,
+    rule: &crate::oauth::Rule,
+    connect_timeout: Duration,
+) -> Result<reqwest::Client, Error> {
+    if let Some(why) = rule.refuses(url) {
+        return Err(Error::Unreachable(format!(
+            "its address {why}, so it was not reached: nothing was sent"
+        )));
+    }
+    reqwest::Client::builder()
+        .connect_timeout(connect_timeout)
+        .no_proxy()
+        .dns_resolver(rule.resolver())
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| Error::Unreachable("its HTTP client could not start: nothing was sent".into()))
+}
+
 fn send_error(e: reqwest::Error) -> Error {
     let connect = e.is_connect() || e.is_builder();
     let why = chain(&e.without_url());

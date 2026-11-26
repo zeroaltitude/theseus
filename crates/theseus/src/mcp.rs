@@ -178,12 +178,15 @@ fn ask_agree() -> Result<bool> {
 }
 
 /// Every host the sign-in involves, each on a line of its own, before
-/// anything else: where the owner signs in, and every other host what the
-/// sign-in returns is sent to.
+/// anything else: where the owner signs in, and every place of its endpoints
+/// that is not its issuer's own, which the owner agrees to (the daemon
+/// requires the agreement exactly when there is one: the same set).
 pub fn host_lines(b: &McpLoginBeginResult) -> Vec<String> {
     let mut v = vec![format!("You will sign in at {}.", b.host)];
     for h in &b.elsewhere {
-        v.push(format!("What the sign-in returns is sent to {h}."));
+        v.push(format!(
+            "Part of the sign-in goes through {h}, which is not its issuer's own address."
+        ));
     }
     v
 }
@@ -288,9 +291,14 @@ mod tests {
             host_lines(&b),
             [
                 "You will sign in at auth.example.invalid.",
-                "What the sign-in returns is sent to tokens.example.invalid."
+                "Part of the sign-in goes through tokens.example.invalid, which is not its \
+                 issuer's own address."
             ]
         );
+        // Every endpoint at one place that is not the issuer's, the sign-in's
+        // own included: still named, and still asked about.
+        b.elsewhere = vec!["auth.example.invalid".into()];
+        assert_eq!(host_lines(&b).len(), 2);
         let lines: Vec<String> = host_lines(&b)
             .into_iter()
             .chain(address_lines(&b))

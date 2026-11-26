@@ -56,11 +56,6 @@ pub fn standard_code(code: &str) -> Option<&'static str> {
     CODES.iter().find(|c| **c == code).copied()
 }
 
-/// The shortest token, code or secret taken: a shorter one could not be kept
-/// from view (the daemon's scrubber does not mask a value this short), so it
-/// is a bad answer and never used.
-pub const MIN_SECRET: usize = 8;
-
 /// The longest address a server may name.
 pub const MAX_URL: usize = 2048;
 
@@ -112,6 +107,39 @@ pub struct Rule {
     /// Whether `http` is taken for this address: never in the daemon; a test's
     /// loopback server, by the rule its tests build.
     pub plaintext: fn(&Url) -> bool,
+    /// Whether a token, code or secret can be kept from view: the daemon's
+    /// scrubber's own test (`scrub::protectable`). One it would not mask is a
+    /// bad answer, never used.
+    pub protectable: fn(&str) -> bool,
+}
+
+impl Rule {
+    /// Why `u` is not an address this rule reaches as written (it is not
+    /// `https`, or not `http` the rule takes; it carries a name, a key or a
+    /// fragment; its host is not public), or None.
+    pub fn refuses(&self, u: &Url) -> Option<&'static str> {
+        let scheme_ok = match u.scheme() {
+            "https" => true,
+            "http" => (self.plaintext)(u),
+            _ => false,
+        };
+        if !scheme_ok {
+            return Some("is not https");
+        }
+        if !u.username().is_empty() || u.password().is_some() || u.fragment().is_some() {
+            return Some("carries a name, a key or a fragment");
+        }
+        if (self.private_host)(u).is_some() {
+            return Some("is at an address that is not public");
+        }
+        None
+    }
+
+    /// The rule's resolver, as reqwest takes one: every new connection asks
+    /// it, and connects to the very answer it checked.
+    pub fn resolver(&self) -> Arc<impl reqwest::dns::Resolve> {
+        Arc::new(Via(self.resolver.clone()))
+    }
 }
 
 /// `Rule::resolver` behind the `Sized` resolver reqwest takes.
@@ -154,7 +182,7 @@ impl Reach {
         let client = reqwest::Client::builder()
             .redirect(policy)
             .no_proxy()
-            .dns_resolver(Arc::new(Via(rule.resolver.clone())))
+            .dns_resolver(rule.resolver())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()
@@ -177,6 +205,15 @@ impl Reach {
         self.hold.clone()
     }
 
+    /// Whether `value` can be kept from view ([`Rule::protectable`]).
+    pub fn protects(&self, value: &str) -> bool {
+        (self.rule.protectable)(value)
+    }
+
+    pub fn rule(&self) -> &Rule {
+        &self.rule
+    }
+
     /// `text` as an address a sign-in may reach: at most [`MAX_URL`] long,
     /// `https` (or `http` where the rule takes it), with no name or key before
     /// an `@` and no fragment, and not at a host that is not public.
@@ -188,27 +225,12 @@ impl Reach {
         }
         let u = Url::parse(text)
             .map_err(|_| OauthError::Refused(format!("the sign-in's {what} is not an address")))?;
-        let scheme_ok = match u.scheme() {
-            "https" => true,
-            "http" => (self.rule.plaintext)(&u),
-            _ => false,
-        };
-        if !scheme_ok {
-            return Err(OauthError::Refused(format!(
-                "the sign-in's {what} is not https: refused"
-            )));
+        match self.rule.refuses(&u) {
+            Some(why) => Err(OauthError::Refused(format!(
+                "the sign-in's {what} {why}: refused"
+            ))),
+            None => Ok(u),
         }
-        if !u.username().is_empty() || u.password().is_some() || u.fragment().is_some() {
-            return Err(OauthError::Refused(format!(
-                "the sign-in's {what} carries a name, a key or a fragment: refused"
-            )));
-        }
-        if (self.rule.private_host)(&u).is_some() {
-            return Err(OauthError::Refused(format!(
-                "the sign-in's {what} is at an address that is not public: refused"
-            )));
-        }
-        Ok(u)
     }
 
     /// A send's failure, without its address (an address can carry a query)
@@ -375,12 +397,19 @@ pub(crate) mod rules {
         }
     }
 
+    /// The scrubber's test, as the daemon gives it: a trimmed length of
+    /// eight or more.
+    pub fn eight(v: &str) -> bool {
+        v.trim().len() >= 8
+    }
+
     pub fn loopback() -> Rule {
         Rule {
             resolver: Arc::new(System),
             private_host: |_| None,
             refused: |_| false,
             plaintext: is_loopback,
+            protectable: eight,
         }
     }
 
@@ -390,6 +419,7 @@ pub(crate) mod rules {
             private_host: |u| is_loopback(u).then(|| "this machine".to_string()),
             refused: |_| false,
             plaintext: |_| false,
+            protectable: eight,
         }
     }
 

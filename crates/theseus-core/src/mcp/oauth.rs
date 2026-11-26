@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use theseus_mcp::oauth::exchange::{self, Renewal, Tokens};
 use theseus_mcp::oauth::register::ClientId;
-use theseus_mcp::oauth::{discover, same_origin, Reach, Rule, MAX_EXPIRES_SECS, MIN_SECRET};
+use theseus_mcp::oauth::{discover, same_origin, Reach, Rule, MAX_EXPIRES_SECS};
 use tokio::sync::watch;
 use zeroize::Zeroize;
 
@@ -80,6 +80,7 @@ pub fn daemon_rule() -> Rule {
         private_host: crate::web::net::private_host,
         refused: |e| crate::web::net::refused_in(e).is_some(),
         plaintext: |_| false,
+        protectable: crate::scrub::protectable,
     }
 }
 
@@ -92,6 +93,7 @@ pub(crate) fn rule_for_tests() -> Rule {
         private_host: |_| None,
         refused: |_| false,
         plaintext: theseus_mcp::oauth::is_loopback,
+        protectable: crate::scrub::protectable,
     }
 }
 
@@ -121,7 +123,7 @@ pub(crate) struct Held {
 static NEXT_HELD: AtomicU64 = AtomicU64::new(0);
 
 impl Held {
-    fn new(server: &str, secrets: Arc<SecretBoard>) -> Arc<Self> {
+    pub(crate) fn new(server: &str, secrets: Arc<SecretBoard>) -> Arc<Self> {
         Arc::new(Self {
             server: server.to_string(),
             secrets,
@@ -222,7 +224,7 @@ impl Kept {
     /// Whether it may be used for the server at `url`, read by `reach`'s
     /// rule: for this address; its resource this server; its issuer and
     /// endpoints addresses the rule reaches, the endpoints on the issuer's
-    /// origin or one the owner agreed to; its values long enough to keep from
+    /// origin or one the owner agreed to; its values ones the scrubber keeps from
     /// view; its expiry within a year of now.
     fn check(&self, url: &str, reach: &Reach, now_ms: u64) -> Result<(), &'static str> {
         if self.url != url {
@@ -249,10 +251,10 @@ impl Kept {
         {
             return Err(NOT_VALID);
         }
-        let short = |v: &Option<String>| v.as_ref().is_some_and(|s| s.len() < MIN_SECRET);
+        let short = |v: &Option<String>| v.as_ref().is_some_and(|s| !crate::scrub::protectable(s));
         if self.client_id.is_empty()
             || self.client_id.len() > 512
-            || self.access_token.len() < MIN_SECRET
+            || !crate::scrub::protectable(&self.access_token)
             || short(&self.refresh_token)
             || short(&self.client_secret)
         {
@@ -337,7 +339,43 @@ fn private_dir(dir: &Path) -> std::io::Result<()> {
 
 /// Make what was renamed or removed in `dir` last a crash.
 fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_DIR_SYNC.with(std::cell::Cell::get) {
+        return Err(std::io::Error::other(
+            "a directory sync that failed (a test's)",
+        ));
+    }
     std::fs::File::open(dir)?.sync_all()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the next directory sync fails, after a rename.
+    pub(crate) static FAIL_DIR_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A write whose new file was already renamed into place when it failed (its
+/// directory was not synced): the file may hold the new sign-in, and a start
+/// may read it.
+#[derive(Debug)]
+pub struct MayBeWritten(pub std::io::Error);
+
+impl std::fmt::Display for MayBeWritten {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the file was written, but not made sure to last ({}): it may already hold the new \
+             sign-in",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for MayBeWritten {}
+
+/// Whether `e` is a write that failed after its rename ([`MayBeWritten`]).
+pub fn may_be_written(e: &std::io::Error) -> bool {
+    e.get_ref().is_some_and(|inner| inner.is::<MayBeWritten>())
 }
 
 /// Write `kept` whole: a file made new beside `path` (never one that was
@@ -365,7 +403,7 @@ pub fn write(path: &Path, kept: &Kept) -> std::io::Result<()> {
         f.sync_all()?;
         drop(f);
         std::fs::rename(&new, path)?;
-        sync_dir(dir)
+        sync_dir(dir).map_err(|e| std::io::Error::other(MayBeWritten(e)))
     })();
     bytes.zeroize();
     if wrote.is_err() {
@@ -405,6 +443,8 @@ pub struct Signed {
     held: Arc<Held>,
     /// None when its client could not start: the sign-in is lost.
     reach: Option<Reach>,
+    /// The network rule its calls, and its server's connection, keep.
+    rule: Rule,
     slot: tokio::sync::Mutex<Slot>,
     /// The loss, for the board to wake on.
     lost: watch::Sender<Option<String>>,
@@ -423,7 +463,7 @@ impl Signed {
     ) -> Arc<Self> {
         let held = Held::new(server, secrets);
         let h = held.clone();
-        let reach = Reach::new(rule, Arc::new(move |what, v| h.hold(what, v))).ok();
+        let reach = Reach::new(rule.clone(), Arc::new(move |what, v| h.hold(what, v))).ok();
         let mut slot = Slot::default();
         match (path.as_deref().map(read), &reach) {
             (Some(Ok(Some(k))), Some(reach)) => {
@@ -452,6 +492,7 @@ impl Signed {
             path,
             held,
             reach,
+            rule,
             slot: tokio::sync::Mutex::new(slot),
             lost,
         })
@@ -460,6 +501,11 @@ impl Signed {
     /// Its calls; None when its client could not start.
     pub fn reach(&self) -> Option<&Reach> {
         self.reach.as_ref()
+    }
+
+    /// The network rule its server's own connection keeps.
+    pub fn rule(&self) -> Rule {
+        self.rule.clone()
     }
 
     /// Put `value` on the secret board as `what` of this server's: the

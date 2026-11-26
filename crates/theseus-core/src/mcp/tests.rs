@@ -1191,6 +1191,7 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
 
 mod ceilings;
 mod oauth;
+mod oauth_exits;
 mod oauth_hostile;
 
 #[tokio::test]

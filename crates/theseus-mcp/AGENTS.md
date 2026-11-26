@@ -33,7 +33,10 @@ Key modules: `client.rs`, `fake.rs`, `names.rs`, `oauth/`, `types.rs`, `server.r
   secret or a response's body: a refusal is its status and a standard OAuth code (`oauth::CODES`). A signed-in
   connection's errors leave the client reduced (`Error::reduced`): no server words, no `WWW-Authenticate`. No type
   that holds what a server chose prints it in `Debug`. Every value is given to the daemon's `Holder` where it is
-  first read. Every call goes by the `Rule` the daemon gives (`Reach`); this crate builds no rule but tests'.
+  first read. Every call goes by the `Rule` the daemon gives (`Reach`); this crate builds no rule but tests'. An
+  `HttpTarget` with a `token` must carry that `rule` (its client: the address checked, the checking resolver, no proxy,
+  no redirect); one with a fixed `bearer` or none keeps the client it always had. `CallToolResult`'s `Debug` prints no
+  content.
 - **A call's outcome is unknown** after a timeout or a lost connection (`Error::outcome_unknown`), never "not sent".
 
 ## Tests

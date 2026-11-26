@@ -17,7 +17,7 @@ use tokio::net::{TcpListener, TcpStream};
 use zeroize::Zeroizing;
 
 use super::discover::AuthServer;
-use super::{standard_code, Holder, MIN_SECRET};
+use super::{standard_code, Holder, Reach};
 
 /// How long a sign-in's listener waits for the redirect.
 pub const LISTEN_FOR: Duration = Duration::from_secs(600);
@@ -137,6 +137,8 @@ pub struct Expect {
     pub state: String,
     pub issuer: String,
     pub iss_required: bool,
+    /// Whether a code can be kept from view ([`super::Rule::protectable`]).
+    pub protectable: fn(&str) -> bool,
 }
 
 /// The parts of a redirect that are read, each of which may come once.
@@ -169,6 +171,19 @@ fn parse_target(target: &str, expect: &Expect, hold: &Holder) -> Result<Code, Re
         return Err(RedirectError::NotThisAddress);
     }
     parse_query(query, expect)
+}
+
+/// Every `code` a text that may be a redirect carries, read leniently: the
+/// whole address, or anything after its first `?`, split on `&`. For holding
+/// what an owner pasted before anything else is checked; never for a sign-in.
+pub fn codes_in(text: &str) -> Vec<String> {
+    let query = text.split_once('?').map_or("", |(_, q)| q);
+    let query = query.split('#').next().unwrap_or("");
+    url_pairs(query)
+        .into_iter()
+        .filter(|(k, v)| k == "code" && !v.is_empty())
+        .map(|(_, v)| v)
+        .collect()
 }
 
 fn hold_codes(query: &str, hold: &Holder) {
@@ -206,7 +221,7 @@ fn parse_query(query: &str, expect: &Expect) -> Result<Code, RedirectError> {
         ));
     }
     match get("code") {
-        Some(c) if c.len() >= MIN_SECRET => Ok(Code(Zeroizing::new(c.to_string()))),
+        Some(c) if (expect.protectable)(c) => Ok(Code(Zeroizing::new(c.to_string()))),
         Some(c) if !c.is_empty() => Err(RedirectError::ShortCode),
         _ => Err(RedirectError::NoCode),
     }
@@ -241,13 +256,14 @@ impl Loopback {
     }
 
     /// What a redirect to this listener must be, for `pkce`'s sign-in at
-    /// `server`.
-    pub fn expect(&self, pkce: &Pkce, server: &AuthServer) -> Expect {
+    /// `server`, by `reach`'s rule.
+    pub fn expect(&self, pkce: &Pkce, server: &AuthServer, reach: &Reach) -> Expect {
         Expect {
             redirect: Url::parse(&self.redirect()).expect("a loopback address"),
             state: pkce.state.clone(),
             issuer: server.issuer.clone(),
             iss_required: !server.elsewhere.is_empty(),
+            protectable: reach.rule().protectable,
         }
     }
 
@@ -360,6 +376,7 @@ mod tests {
             state: p.state.clone(),
             issuer: "https://as.example.invalid".into(),
             iss_required,
+            protectable: crate::oauth::rules::eight,
         }
     }
 
@@ -449,6 +466,13 @@ mod tests {
                 ),
                 RedirectError::ShortCode,
             ),
+            (
+                format!(
+                    "http://127.0.0.1:4000/callback?code=s%20%20%20%20%20%20%20&state={}",
+                    p.state
+                ),
+                RedirectError::ShortCode,
+            ),
             ("hello".to_string(), RedirectError::NotThisAddress),
         ] {
             assert_eq!(parse_pasted(&bad, &e, &hold).unwrap_err(), why, "{bad}");
@@ -514,6 +538,19 @@ mod tests {
             parse_pasted(&own, &e, &hold).unwrap_err().to_string(),
             "the sign-in was not granted (a code of its own)"
         );
+    }
+
+    /// The codes a pasted text carries, read leniently, a broken address's
+    /// included; nothing else.
+    #[test]
+    fn the_codes_a_paste_carries_are_found_whatever_it_is() {
+        assert_eq!(
+            codes_in("http://127.0.0.1:1/callback?code=abc&state=s&code=def"),
+            ["abc", "def"]
+        );
+        assert_eq!(codes_in("not a url ?code=xyz&state"), ["xyz"]);
+        assert!(codes_in("no query").is_empty());
+        assert!(codes_in("?state=s#code=frag").is_empty());
     }
 
     #[test]

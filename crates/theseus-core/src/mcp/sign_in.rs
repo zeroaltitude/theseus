@@ -80,28 +80,19 @@ fn probe_body() -> serde_json::Value {
     })
 }
 
-/// Every other place a value of the sign-in is sent to, when its endpoints
-/// are not all the issuer's: each is shown on a line of its own.
-fn places_elsewhere(server: &discover::AuthServer) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    if server.elsewhere.is_empty() {
-        return out;
-    }
-    let signs_at = place(&server.authorization_endpoint);
-    for u in [Some(&server.token_endpoint)]
-        .into_iter()
-        .chain([
-            server.registration_endpoint.as_ref(),
-            server.revocation_endpoint.as_ref(),
-        ])
-        .flatten()
-    {
-        let p = place(u);
-        if p != signs_at && !out.contains(&p) {
-            out.push(p);
-        }
-    }
-    out
+/// Every origin of the sign-in's endpoints that is not its issuer's, as the
+/// owner reads it: the one set the CLI shows and asks about, and the daemon
+/// requires the owner's agreement to, exactly when it is not empty.
+fn consent_places(server: &discover::AuthServer) -> Vec<String> {
+    server
+        .elsewhere
+        .iter()
+        .map(|o| {
+            reqwest::Url::parse(o)
+                .map(|u| place(&u))
+                .unwrap_or_else(|_| o.clone())
+        })
+        .collect()
 }
 
 /// Where an address is, for the owner to read: its host, and its port when
@@ -197,10 +188,11 @@ impl McpBoard {
             .host_str()
             .unwrap_or("?")
             .to_string();
-        let elsewhere = places_elsewhere(&found.server);
+        let elsewhere = consent_places(&found.server);
+        self.shows_no_secret(&[&at, &host, &client.id], &elsewhere)?;
         let (tx, rx) = oneshot::channel();
-        let waits = loopback.expect(&pkce, &found.server);
-        let paste = loopback.expect(&pkce, &found.server);
+        let waits = loopback.expect(&pkce, &found.server, &reach);
+        let paste = loopback.expect(&pkce, &found.server, &reach);
         let hold = reach.holder();
         let listener = tokio::spawn(async move {
             let _ = tx.send(loopback.wait(waits, hold, OPEN_FOR).await);
@@ -211,7 +203,8 @@ impl McpBoard {
         *self.login.lock().await = Some(Pending {
             id: id.clone(),
             server: name.to_string(),
-            agree: !found.server.elsewhere.is_empty(),
+            // The one set: the CLI asks exactly when the daemon requires it.
+            agree: !elsewhere.is_empty(),
             pkce,
             redirect: redirect.clone(),
             paste,
@@ -235,12 +228,41 @@ impl McpBoard {
         })
     }
 
+    /// Nothing a begin shows holds a value the daemon keeps (a client id that
+    /// is a secret, an old token aliased into what a server chose): refused,
+    /// in constant words, and nothing is shown.
+    fn shows_no_secret(&self, shown: &[&str], more: &[String]) -> Result<(), String> {
+        let text = shown
+            .iter()
+            .copied()
+            .chain(more.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (_, known) = crate::scrub::Scrubber::from_board(self.secrets.clone()).scrub(&text);
+        match known {
+            0 => Ok(()),
+            _ => Err(
+                "the sign-in would show a value Theseus keeps secret, so it is refused: nothing \
+                 is shown"
+                    .into(),
+            ),
+        }
+    }
+
     /// Wait for the redirect, or take the owner's paste, and finish: the code
     /// redeemed, the tokens kept, and the server started again with them.
     pub async fn login_finish(
         self: &Arc<Self>,
         p: &McpLoginFinishParams,
     ) -> Result<McpLoginFinishResult, String> {
+        // Every code a paste carries is held before anything else is
+        // checked, so the scrubber knows it whatever follows.
+        if let Some(text) = p.pasted.as_deref() {
+            let held = super::oauth::Held::new("paste", self.secrets.clone());
+            for c in request::codes_in(text) {
+                held.hold("code", &c);
+            }
+        }
         let (code, pending) = match self.redirect_of(p).await? {
             Got::Code(code, pending) => (code, pending),
             Got::Waiting(w) => return Ok(w),
@@ -262,11 +284,20 @@ impl McpBoard {
         .await
         .map_err(|e| format!("the sign-in was not completed: {e}"))?;
         if let Err(e) = signed.put(kept_of(&url, &pending, &tokens)).await {
-            return Err(format!(
-                "the sign-in could not be kept ({e}), so it is not used: nothing changed. Run \
-                 `theseus mcp login {}` again",
-                s.name
-            ));
+            return Err(match super::oauth::may_be_written(&e) {
+                // Past the rename: the file may already hold it.
+                true => format!(
+                    "the sign-in was not made sure to last ({e}): it is not used now, but its \
+                     file may already hold it, and the daemon's next start may use it. Run \
+                     `theseus mcp login {0}` again, or `theseus mcp logout {0}` to forget it",
+                    s.name
+                ),
+                false => format!(
+                    "the sign-in could not be kept ({e}), so it is not used: nothing changed. \
+                     Run `theseus mcp login {}` again",
+                    s.name
+                ),
+            });
         }
         tracing::info!(server = %s.name, "an MCP server was signed in");
         let changes = s.changed.subscribe();
@@ -307,7 +338,15 @@ impl McpBoard {
             Some(pasted) => {
                 let hold: theseus_mcp::oauth::Holder =
                     Arc::new(move |what, v| signed.hold_value(what, v));
-                request::parse_pasted(pasted, &pending.paste, &hold).map_err(|e| e.to_string())?
+                match request::parse_pasted(pasted, &pending.paste, &hold) {
+                    Ok(code) => code,
+                    // A paste that is not this sign-in's redirect ends it,
+                    // and its listener closes now.
+                    Err(e) => {
+                        *slot = None;
+                        return Err(e.to_string());
+                    }
+                }
             }
             None => {
                 let Some(rx) = pending.rx.as_mut() else {
@@ -330,6 +369,8 @@ impl McpBoard {
         // The code is one use: whatever follows, this sign-in is over, and
         // its listener closes when the pending sign-in goes.
         let pending = slot.take().expect("a pending sign-in");
+        // The code is taken: its listener closes now, not when the finish ends.
+        pending.listener.abort();
         Ok(Got::Code(code, Box::new(pending)))
     }
 

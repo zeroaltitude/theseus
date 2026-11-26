@@ -217,7 +217,9 @@ async fn a_mixed_up_sign_in_sends_no_code_to_the_other_server() {
     )
     .await;
     r.core.mcp.start();
-    let hostile_place = hostile.base().trim_start_matches("http://").to_string();
+    // The one consent set: the origins not the issuer's (here, the honest
+    // server's authorization endpoint).
+    let honest_place = honest.base().trim_start_matches("http://").to_string();
     let begun = call(
         &r.core,
         Surface::Cli,
@@ -225,7 +227,7 @@ async fn a_mixed_up_sign_in_sends_no_code_to_the_other_server() {
         json!({"name": "docs"}),
     )
     .await;
-    assert_eq!(begun["elsewhere"], json!([hostile_place]), "{begun}");
+    assert_eq!(begun["elsewhere"], json!([honest_place]), "{begun}");
     let refused = call(
         &r.core,
         Surface::Cli,

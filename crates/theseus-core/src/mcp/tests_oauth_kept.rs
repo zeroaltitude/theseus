@@ -76,6 +76,12 @@ fn the_file_is_private_and_written_whole() {
     std::fs::write(&p, vec![b' '; MAX_FILE as usize + 1]).unwrap();
     assert!(read(&p).unwrap_err().contains("too large"));
     remove(&p).unwrap();
+    // A link to a whole, valid kept sign-in elsewhere is never read through.
+    let valid = d.path().join("valid.json");
+    write(&valid, &kept()).unwrap();
+    std::os::unix::fs::symlink(&valid, &p).unwrap();
+    assert!(read(&p).is_err(), "a link was read through");
+    remove(&p).unwrap();
     std::os::unix::fs::symlink(&elsewhere, &p).unwrap();
     assert!(read(&p).unwrap_err().contains("not a file of its own"));
     remove(&p).unwrap();
@@ -156,6 +162,14 @@ fn a_kept_file_is_checked_for_meaning_before_it_is_used() {
         (
             "a short client secret",
             Box::new(|k| k.client_secret = Some("s".into())),
+        ),
+        (
+            "a padded short access token",
+            Box::new(|k| k.access_token = "a       ".into()),
+        ),
+        (
+            "a padded short refresh token",
+            Box::new(|k| k.refresh_token = Some("       r".into())),
         ),
         ("no client id", Box::new(|k| k.client_id.clear())),
         (
@@ -390,5 +404,50 @@ async fn a_name_that_resolves_to_a_private_address_is_never_reached() {
             "the metadata is at an address that is not public: refused",
             "{host}"
         );
+    }
+}
+
+/// A write that fails after its rename (its directory not synced) is said
+/// as such: the new file is in place, and the sign-in in memory is the old.
+#[tokio::test]
+async fn a_write_that_fails_past_its_rename_is_said_as_such() {
+    let d = tempfile::tempdir().unwrap();
+    let p = file(&dir(d.path()), "docs");
+    let s = Signed::load(
+        "docs",
+        "https://docs.example.invalid/mcp",
+        Some(p.clone()),
+        SecretBoard::empty(),
+        daemon_rule(),
+    );
+    s.put(kept()).await.unwrap();
+    let mut next = kept();
+    next.access_token = "access-value-0042".into();
+    FAIL_DIR_SYNC.with(|f| f.set(true));
+    let e = s.put(next).await.unwrap_err();
+    FAIL_DIR_SYNC.with(|f| f.set(false));
+    assert!(may_be_written(&e), "{e}");
+    assert!(e.to_string().contains("may already hold"), "{e}");
+    assert_eq!(read(&p).unwrap().unwrap().access_token, "access-value-0042");
+    let slot = s.slot.lock().await;
+    assert_eq!(
+        slot.kept.as_ref().map(|k| k.access_token.as_str()),
+        Some("access-value-0001")
+    );
+}
+
+/// One test of "too short to hide": the scrubber's own, padded values
+/// included.
+#[test]
+fn one_test_of_too_short_to_hide() {
+    for (v, ok) in [
+        ("access-1", true),
+        ("a       ", false),
+        ("       a", false),
+        ("  abcdefgh  ", true),
+        ("", false),
+    ] {
+        assert_eq!(crate::scrub::protectable(v), ok, "{v:?}");
+        assert_eq!((daemon_rule().protectable)(v), ok, "{v:?}");
     }
 }

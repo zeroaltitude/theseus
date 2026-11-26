@@ -279,7 +279,7 @@ async fn the_owner_signs_in_once_and_a_turn_calls_the_servers_tool() {
 }
 
 /// The paste in place of the redirect: one with another sign-in's state is
-/// refused and the sign-in stays open; the right one finishes it.
+/// refused and ends that sign-in; the right one finishes a new one.
 #[tokio::test]
 async fn the_paste_takes_the_redirects_place_and_a_wrong_state_is_refused() {
     let r = rig().await;
@@ -324,6 +324,24 @@ async fn the_paste_takes_the_redirects_place_and_a_wrong_state_is_refused() {
             .contains("state is not this sign-in's"),
         "{e}"
     );
+    // A paste that is not its redirect ends the sign-in (round 3): the right
+    // one is too late, and a new sign-in takes it.
+    let late = call(
+        &r.core,
+        Surface::Cli,
+        "mcp.login.finish",
+        json!({"login_id": begun["login_id"], "pasted": sent_to}),
+    )
+    .await;
+    assert!(late["error"].is_object(), "{late}");
+    let begun = call(
+        &r.core,
+        Surface::Cli,
+        "mcp.login.begin",
+        json!({"name": "docs", "manual": true}),
+    )
+    .await;
+    let sent_to = r.auth.browse(begun["url"].as_str().unwrap(), false).await;
     let done = call(
         &r.core,
         Surface::Cli,

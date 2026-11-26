@@ -175,7 +175,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   removes the conversation's `injection` label and nothing else.
 - **`mcp`**: the MCP servers the config attaches: state, tools, postures. `theseus mcp`; `mcp restart NAME`;
   `mcp login NAME [--manual]` signs in to a server that signs in in a browser (its table has `oauth`; its address is
-  `https`): it prints the host you sign in at, and every other host what the sign-in returns is sent to (then you type
+  `https`): it prints the host you sign in at, and every place of its endpoints not its issuer's own (then you type
   `yes` at the terminal), then the address to open, waits for the redirect on 127.0.0.1 (or takes the whole address
   the browser was sent to, pasted), and ends with the tools found. The daemon keeps the sign-in in a private file
   inside its store and renews it; `mcp logout NAME` forgets it, revoked at the server when it offers that, and says

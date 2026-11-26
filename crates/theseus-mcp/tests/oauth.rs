@@ -46,6 +46,7 @@ fn rule() -> Rule {
         private_host: |_| None,
         refused: |_| false,
         plaintext: oauth::is_loopback,
+        protectable: |v| v.trim().len() >= 8,
     }
 }
 
@@ -122,7 +123,7 @@ async fn sign_in(
     };
     let pkce = Pkce::new();
     let at = request::authorize_url(&d.server, &client.id, &redirect, &pkce, &d.resource, None);
-    let expect = lo.expect(&pkce, &d.server);
+    let expect = lo.expect(&pkce, &d.server, &http);
     let hold = http.holder();
     let waiting = tokio::spawn(async move { lo.wait(expect, hold, Duration::from_secs(10)).await });
     auth.browse(&at, true).await;
@@ -208,6 +209,7 @@ fn kept(d: Discovered, client: ClientId, t: &Tokens) -> Arc<Kept> {
 async fn connect_with(url: &str, source: Arc<Kept>) -> Result<Client, Error> {
     let mut t = HttpTarget::new(url);
     t.token = Some(source);
+    t.rule = Some(rule());
     Client::connect(Transport::Http(t), opts())
         .await
         .map(|(c, _)| c)
@@ -331,8 +333,12 @@ async fn a_wrong_verifier_is_refused_by_the_server() {
     let pkce = Pkce::new();
     let at = request::authorize_url(&d.server, &client.id, &redirect, &pkce, &d.resource, None);
     let sent_to = auth.browse(&at, false).await;
-    let code =
-        request::parse_pasted(&sent_to, &lo.expect(&pkce, &d.server), &http.holder()).unwrap();
+    let code = request::parse_pasted(
+        &sent_to,
+        &lo.expect(&pkce, &d.server, &http),
+        &http.holder(),
+    )
+    .unwrap();
     let other = Pkce::new();
     let e = exchange::redeem(
         &http,
@@ -351,9 +357,12 @@ async fn a_wrong_verifier_is_refused_by_the_server() {
     );
     assert_eq!(auth.seen().wrong_verifiers, 1);
     // And a redirect with another sign-in's state gives no code.
-    assert!(
-        request::parse_pasted(&sent_to, &lo.expect(&other, &d.server), &http.holder()).is_err()
-    );
+    assert!(request::parse_pasted(
+        &sent_to,
+        &lo.expect(&other, &d.server, &http),
+        &http.holder()
+    )
+    .is_err());
 }
 
 /// What comes from outside, refused: an endpoint that is not https, an issuer
@@ -523,6 +532,7 @@ async fn the_token_never_goes_to_another_origin() {
     }
     let mut t = HttpTarget::new(format!("http://{mover_addr}/mcp"));
     t.token = Some(Arc::new(Fixed));
+    t.rule = Some(rule());
     let e = Client::connect(Transport::Http(t), opts())
         .await
         .err()
@@ -745,8 +755,12 @@ async fn a_mixed_up_authorization_server_gets_no_code() {
         let pkce = Pkce::new();
         let at = request::authorize_url(&d.server, &client.id, &redirect, &pkce, &d.resource, None);
         let sent_to = honest.browse(&at, false).await;
-        let e = request::parse_pasted(&sent_to, &lo.expect(&pkce, &d.server), &http.holder())
-            .unwrap_err();
+        let e = request::parse_pasted(
+            &sent_to,
+            &lo.expect(&pkce, &d.server, &http),
+            &http.holder(),
+        )
+        .unwrap_err();
         let want = match iss {
             false => request::RedirectError::NoIssuer,
             true => request::RedirectError::IssuerMismatch,
@@ -791,8 +805,12 @@ async fn every_value_is_held_where_it_is_first_read() {
     let pkce = Pkce::new();
     let at = request::authorize_url(&d.server, &client.id, &redirect, &pkce, &d.resource, None);
     let sent_to = auth.browse(&at, false).await;
-    let code =
-        request::parse_pasted(&sent_to, &lo.expect(&pkce, &d.server), &http.holder()).unwrap();
+    let code = request::parse_pasted(
+        &sent_to,
+        &lo.expect(&pkce, &d.server, &http),
+        &http.holder(),
+    )
+    .unwrap();
     let e = exchange::redeem(
         &http,
         &d.server.token_endpoint,
@@ -827,8 +845,12 @@ async fn every_value_is_held_where_it_is_first_read() {
     let pkce = Pkce::new();
     let at = request::authorize_url(&d.server, &client.id, &redirect, &pkce, &d.resource, None);
     let sent_to = auth.browse(&at, false).await;
-    let code =
-        request::parse_pasted(&sent_to, &lo.expect(&pkce, &d.server), &http.holder()).unwrap();
+    let code = request::parse_pasted(
+        &sent_to,
+        &lo.expect(&pkce, &d.server, &http),
+        &http.holder(),
+    )
+    .unwrap();
     let e = exchange::redeem(
         &http,
         &d.server.token_endpoint,

@@ -2,13 +2,14 @@
 //! registration: a public client (no secret asked for), for the authorization
 //! code and the refresh, with this sign-in's loopback redirect. A server that
 //! gives a secret anyway is answered with it as it asks. A secret is held
-//! where it is first read; one too short to keep from view is a bad answer.
+//! where it is first read; one the scrubber could not keep from view is a bad
+//! answer.
 
 use reqwest::Url;
 use serde_json::json;
 use zeroize::Zeroizing;
 
-use super::{OauthError, Reach, MIN_SECRET};
+use super::{OauthError, Reach};
 
 /// The client a sign-in uses.
 #[derive(Clone)]
@@ -75,7 +76,7 @@ pub async fn register(
     let secret = match &v["client_secret"] {
         serde_json::Value::Null => None,
         serde_json::Value::String(s) if s.is_empty() => None,
-        serde_json::Value::String(s) if s.len() >= MIN_SECRET => Some(Zeroizing::new(s.clone())),
+        serde_json::Value::String(s) if reach.protects(s) => Some(Zeroizing::new(s.clone())),
         _ => return Err(bad),
     };
     let basic =

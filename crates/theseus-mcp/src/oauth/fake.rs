@@ -84,6 +84,20 @@ pub struct AuthConfig {
     /// The resource's metadata names this many authorization servers before
     /// the fake itself, none of which publishes metadata.
     pub decoys: usize,
+    /// A hostile server: `tools/call` answers a successful envelope with
+    /// `isError = true`, the token it was sent in its content and its
+    /// structured content.
+    pub error_echo: bool,
+    /// A hostile server: its tool list names a tool after the token it was
+    /// last sent, and each call is followed by `tools/list_changed`.
+    pub tool_named_token: bool,
+    /// Registration gives its client secret as the client id too.
+    pub client_id_is_secret: bool,
+    /// Registration gives this as the client id (an old value, aliased).
+    pub client_id_alias: Option<String>,
+    /// Its authorization, token, registration and revocation endpoints are
+    /// all at this other base (which serves them as the fake does).
+    pub endpoints_at: Option<String>,
 }
 
 impl Default for AuthConfig {
@@ -109,6 +123,11 @@ impl Default for AuthConfig {
             token_type: "Bearer".into(),
             short_access: false,
             decoys: 0,
+            error_echo: false,
+            tool_named_token: false,
+            client_id_is_secret: false,
+            client_id_alias: None,
+            endpoints_at: None,
         }
     }
 }
@@ -253,6 +272,11 @@ impl FakeAuth {
         echoes.then(|| lock(&self.last_bearer).clone()).flatten()
     }
 
+    /// The token the fake MCP server was last sent.
+    pub fn last_bearer(&self) -> Option<String> {
+        lock(&self.last_bearer).clone()
+    }
+
     /// The fake MCP server's 401 header, for a server at `mcp` (its own
     /// `http://host:port`); with `echo`, the token it was sent is in it.
     pub fn challenge(&self, mcp: &str) -> String {
@@ -303,9 +327,10 @@ impl FakeAuth {
 
     fn metadata(&self) -> Value {
         let cfg = self.config();
-        let base = self.base();
+        let issuer = cfg.issuer.clone().unwrap_or(self.base());
+        let base = cfg.endpoints_at.clone().unwrap_or(self.base());
         let mut m = json!({
-            "issuer": cfg.issuer.clone().unwrap_or(base.clone()),
+            "issuer": issuer,
             "authorization_endpoint": cfg.authorization_endpoint.clone().unwrap_or(format!("{base}/authorize")),
             "token_endpoint": cfg.token_endpoint.clone().unwrap_or(format!("{base}/token")),
             "revocation_endpoint": format!("{base}/revoke"),
@@ -456,13 +481,19 @@ impl FakeAuth {
         if v["redirect_uris"].as_array().is_none_or(Vec::is_empty) {
             return (400, vec![], Some(json!({"error": "invalid_redirect_uri"})));
         }
-        let id = format!("fake-client-{}", self.next.fetch_add(1, Ordering::SeqCst));
+        let cfg = self.config();
+        let secret = (cfg.client_secret || cfg.client_id_is_secret).then(|| self.mint("cs"));
+        let id = match (&secret, cfg.client_id_is_secret, &cfg.client_id_alias) {
+            (Some(s), true, _) => s.clone(),
+            (_, _, Some(alias)) => alias.clone(),
+            _ => format!("fake-client-{}", self.next.fetch_add(1, Ordering::SeqCst)),
+        };
         lock(&self.tokens).clients.insert(id.clone());
         lock(&self.seen).registrations += 1;
-        let answer = match self.config().client_secret {
-            true => json!({"client_id": id, "client_secret": self.mint("cs"),
+        let answer = match secret {
+            Some(s) => json!({"client_id": id, "client_secret": s,
                 "token_endpoint_auth_method": "client_secret_post"}),
-            false => json!({"client_id": id, "token_endpoint_auth_method": "none"}),
+            None => json!({"client_id": id, "token_endpoint_auth_method": "none"}),
         };
         (201, vec![], Some(answer))
     }
@@ -564,7 +595,8 @@ impl FakeAuth {
 
     fn issue(&self, refresh: Option<&str>) -> Value {
         let access = match self.config().short_access {
-            true => "tiny".to_string(),
+            // Eight bytes, one of them a character: the scrubber reads it as one.
+            true => "t       ".to_string(),
             false => self.mint("at"),
         };
         lock(&self.tokens).access.insert(access.clone());

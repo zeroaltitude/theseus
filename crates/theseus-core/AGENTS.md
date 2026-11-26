@@ -1186,8 +1186,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   401, under one lock with the file; a loss gives no token until a new sign-in); `mcp/sign_in.rs` is `theseus mcp
   login`/`logout` (`rpc/mcp_login.rs`, admitted from the CLI's surface alone, as `google.auth.*` are: the surface,
   the CLI's refusal inside a job, and L1's hidden socket stop a job; an L0 process that reaches the socket is not
-  stopped). Every address a server names is reached by the web fetch's rule (`web::net`: public addresses, `https`
-  alone; `oauth::rule`, whose loopback form only tests build). Never signed in, or its refresh refused for good, a
+  stopped). Every address a server names, and a signed-in server's own connection (`Key::rule` into
+  `HttpTarget::rule`), is reached by the web fetch's rule (`web::net`: public addresses, `https` alone; `oauth::rule`,
+  whose loopback form only tests build); a fixed-key or keyless server keeps its client. A credential is taken only if
+  the scrubber keeps it from view (`scrub::protectable`, the one test). A signed-in server's tool results are masked by
+  the scrubber where the core takes them (`mcp/tool.rs`); changed tool names are scrubbed at their log, fact, notice. Never signed in, or its refresh refused for good, a
   server is `needs sign-in`: not a crash, not retried, told once (`attached.rs`) when it was lost. Tests:
   `mcp/tests/oauth.rs`, `mcp/tests/oauth_hostile.rs`, `mcp/tests_oauth_kept.rs`.
   **Prompts** (36c, `mcp/prompts.rs`): each server's `prompts/list` is kept with a digest per definition and stored

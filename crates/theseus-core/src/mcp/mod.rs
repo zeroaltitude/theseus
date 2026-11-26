@@ -186,6 +186,8 @@ pub trait Connect: Send + Sync + 'static {
 pub struct Key {
     pub bearer: Option<String>,
     pub token: Option<Arc<dyn theseus_mcp::TokenSource>>,
+    /// A sign-in's network rule: its connection is reached by it alone.
+    pub rule: Option<theseus_mcp::oauth::Rule>,
 }
 
 impl Key {
@@ -193,6 +195,7 @@ impl Key {
         Self {
             bearer,
             token: None,
+            rule: None,
         }
     }
 }
@@ -235,6 +238,7 @@ impl Connect for Spawn {
                 let mut t = theseus_mcp::client::HttpTarget::new(url.clone());
                 t.bearer = key.bearer;
                 t.token = key.token;
+                t.rule = key.rule;
                 Ok(theseus_mcp::Transport::Http(t))
             }
             None => self.spawn(server, cfg, env),
@@ -774,7 +778,14 @@ impl McpBoard {
         let tools: Vec<Arc<McpTool>> = pairs
             .iter()
             .zip(wires)
-            .map(|((s, t), wire)| Arc::new(McpTool::new(s.clone(), t.clone(), wire)))
+            .map(|((s, t), wire)| {
+                Arc::new(McpTool::new(
+                    s.clone(),
+                    t.clone(),
+                    wire,
+                    self.secrets.clone(),
+                ))
+            })
             .collect();
         for t in &tools {
             for secret in t.server.cfg.secrets() {
@@ -876,11 +887,11 @@ impl McpBoard {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
+        let signed = self.signed(s);
         let key = Key {
             bearer,
-            token: self
-                .signed(s)
-                .map(|g| g as Arc<dyn theseus_mcp::TokenSource>),
+            rule: signed.as_ref().map(|g| g.rule()),
+            token: signed.map(|g| g as Arc<dyn theseus_mcp::TokenSource>),
         };
         let c = connect
             .connect(&s.name, &s.cfg, env, key, s.serve.clone())
@@ -1074,7 +1085,15 @@ impl McpBoard {
         };
         if new != old {
             if !old.is_empty() || !before.is_empty() {
+                // A server chooses its tools' names: each is scrubbed before
+                // it is logged, ledgered or noticed (issue 55); the list
+                // itself, which calls use, is kept as it came.
                 let (added, removed, changed) = diff(&before, &tools);
+                let scrubber = crate::scrub::Scrubber::from_board(self.secrets.clone());
+                let scrub = |names: Vec<String>| -> Vec<String> {
+                    names.into_iter().map(|n| scrubber.scrub(&n).0).collect()
+                };
+                let (added, removed, changed) = (scrub(added), scrub(removed), scrub(changed));
                 tracing::warn!(server = %s.name, ?added, ?removed, ?changed,
                     "an MCP server's tools changed; they apply from the next turn");
                 let fact = McpToolsChanged {

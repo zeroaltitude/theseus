@@ -5,8 +5,8 @@
 //! apart from one that may pass: only the first means "sign in again".
 //!
 //! Each token in an answer, refused or not, is held where it is first read,
-//! before anything checks it; a token shorter than [`MIN_SECRET`] is a bad
-//! answer, and an `expires_in` is a whole number of seconds, read as at most
+//! before anything checks it; a token the daemon's scrubber could not keep
+//! from view ([`super::Rule::protectable`]) is a bad answer, and an `expires_in` is a whole number of seconds, read as at most
 //! [`MAX_EXPIRES_SECS`].
 
 use reqwest::Url;
@@ -15,7 +15,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::register::{authorize, ClientId};
 use super::request::Code;
-use super::{OauthError, Reach, MAX_EXPIRES_SECS, MIN_SECRET};
+use super::{OauthError, Reach, MAX_EXPIRES_SECS};
 
 /// What the token endpoint gave.
 pub struct Tokens {
@@ -58,16 +58,16 @@ fn hold_tokens(reach: &Reach, v: &Value) {
 /// taken (a server that names no type is taken as giving one); a token too
 /// short to keep from view, or an `expires_in` that is not a whole number of
 /// seconds, is a bad answer.
-fn tokens_of(v: &Value) -> Result<Tokens, OauthError> {
+fn tokens_of(v: &Value, protectable: fn(&str) -> bool) -> Result<Tokens, OauthError> {
     let bad = || OauthError::Undecodable { what: WHAT };
     let access = v["access_token"]
         .as_str()
-        .filter(|s| s.len() >= MIN_SECRET)
+        .filter(|s| protectable(s))
         .ok_or_else(bad)?;
     let refresh = match &v["refresh_token"] {
         Value::Null => None,
         Value::String(s) if s.is_empty() => None,
-        Value::String(s) if s.len() >= MIN_SECRET => Some(Zeroizing::new(s.clone())),
+        Value::String(s) if protectable(s) => Some(Zeroizing::new(s.clone())),
         _ => return Err(bad()),
     };
     if let Some(kind) = v["token_type"].as_str() {
@@ -107,7 +107,7 @@ async fn token_request(
     .form(&form);
     forget(&mut form);
     let (_, v) = reach.post(req, WHAT, |v| hold_tokens(reach, v)).await?;
-    tokens_of(&v)
+    tokens_of(&v, reach.rule().protectable)
 }
 
 /// The code, with the verifier, for tokens.
@@ -205,6 +205,10 @@ mod tests {
 
     use super::*;
 
+    fn tokens_of_(v: &Value) -> Result<Tokens, OauthError> {
+        tokens_of(v, crate::oauth::rules::eight)
+    }
+
     /// The readings of a refused refresh: for good, or one that may pass.
     #[test]
     fn a_refused_refresh_is_for_good_only_when_it_says_so() {
@@ -223,7 +227,7 @@ mod tests {
     /// whole number of seconds, at most a year; anything else is a bad answer.
     #[test]
     fn only_a_bearer_token_is_taken() {
-        let t = tokens_of(&json!({"access_token": "access-1", "token_type": "bearer",
+        let t = tokens_of_(&json!({"access_token": "access-1", "token_type": "bearer",
             "expires_in": "60", "refresh_token": "refresh-1", "scope": "secret-scope"}))
         .unwrap();
         assert_eq!((t.access.as_str(), t.expires_in), ("access-1", Some(60)));
@@ -231,24 +235,30 @@ mod tests {
         for v in ["access-1", "refresh-1", "secret-scope"] {
             assert!(!format!("{t:?}").contains(v), "{v}");
         }
-        let e = tokens_of(&json!({"access_token": "access-1", "token_type": "DPoP"})).unwrap_err();
+        let e = tokens_of_(&json!({"access_token": "access-1", "token_type": "DPoP"})).unwrap_err();
         assert!(e.to_string().contains("not a Bearer"), "{e}");
-        assert!(tokens_of(&json!({"token_type": "Bearer"})).is_err());
-        assert!(tokens_of(&json!({"access_token": "access-1"})).is_ok());
+        assert!(tokens_of_(&json!({"token_type": "Bearer"})).is_err());
+        assert!(tokens_of_(&json!({"access_token": "access-1"})).is_ok());
         // Too short to keep from view.
-        assert!(tokens_of(&json!({"access_token": "a"})).is_err());
-        assert!(tokens_of(&json!({"access_token": "access-1", "refresh_token": "r"})).is_err());
-        assert!(tokens_of(&json!({"access_token": "access-1", "refresh_token": 7})).is_err());
+        assert!(tokens_of_(&json!({"access_token": "a"})).is_err());
+        assert!(tokens_of_(&json!({"access_token": "access-1", "refresh_token": "r"})).is_err());
+        assert!(tokens_of_(&json!({"access_token": "access-1", "refresh_token": 7})).is_err());
+        // Eight bytes the scrubber reads as one: padded short is short.
+        assert!(tokens_of_(&json!({"access_token": "a       "})).is_err());
+        assert!(
+            tokens_of_(&json!({"access_token": "access-1", "refresh_token": "       r"})).is_err()
+        );
         // The expiry: bounded, and a bad one is a bad answer, not "none said".
-        let huge = tokens_of(&json!({"access_token": "access-1", "expires_in": u64::MAX})).unwrap();
+        let huge =
+            tokens_of_(&json!({"access_token": "access-1", "expires_in": u64::MAX})).unwrap();
         assert_eq!(huge.expires_in, Some(MAX_EXPIRES_SECS));
         for bad in [json!(-5), json!(1.5), json!("soon"), json!([1])] {
             assert!(
-                tokens_of(&json!({"access_token": "access-1", "expires_in": bad})).is_err(),
+                tokens_of_(&json!({"access_token": "access-1", "expires_in": bad})).is_err(),
                 "{bad}"
             );
         }
-        let none = tokens_of(&json!({"access_token": "access-1", "expires_in": null})).unwrap();
+        let none = tokens_of_(&json!({"access_token": "access-1", "expires_in": null})).unwrap();
         assert_eq!(none.expires_in, None);
     }
 }

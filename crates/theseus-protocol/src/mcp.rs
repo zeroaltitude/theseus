@@ -204,9 +204,10 @@ pub struct McpLoginBeginResult {
     /// the paste.
     pub expires_secs: u64,
     pub paste_after_secs: u64,
-    /// Every other host what the sign-in returns is sent to (its endpoints
-    /// are not on the issuer's own address): the CLI names each and asks the
-    /// owner to agree before it shows the address.
+    /// Every place of the sign-in's endpoints that is not its issuer's own:
+    /// the CLI names each and asks the owner to agree before it shows the
+    /// address, and the daemon requires that agreement exactly when this is
+    /// not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
     pub elsewhere: Vec<String>,
