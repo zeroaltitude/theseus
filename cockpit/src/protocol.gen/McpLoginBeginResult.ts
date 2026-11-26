@@ -24,8 +24,9 @@ redirect: string,
  */
 expires_secs: number, paste_after_secs: number, 
 /**
- * Every other host what the sign-in returns is sent to (its endpoints
- * are not on the issuer's own address): the CLI names each and asks the
- * owner to agree before it shows the address.
+ * Every place of the sign-in's endpoints that is not its issuer's own:
+ * the CLI names each and asks the owner to agree before it shows the
+ * address, and the daemon requires that agreement exactly when this is
+ * not empty.
  */
 elsewhere?: Array<string>, };
