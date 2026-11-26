@@ -332,9 +332,10 @@ pub const PRICE_KEYS: [&str; 3] = ["long_prompt", "off_peak", "bytes_per_token"]
 fn price(path: &[String]) -> bool {
     path.first().is_some_and(|t| t == "catalog")
         && (path.len() < 3
-            || path.iter().skip(2).any(|k| {
-                k.ends_with("_per_mtok") || PRICE_KEYS.contains(&k.as_str())
-            }))
+            || path
+                .iter()
+                .skip(2)
+                .any(|k| k.ends_with("_per_mtok") || PRICE_KEYS.contains(&k.as_str())))
 }
 
 /// Why a change of `path` from `before` to `after` needs the owner's authenticator code on

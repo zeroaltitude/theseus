@@ -119,7 +119,8 @@ async fn in_a_change_of_several_the_stricter_rule_wins() {
     let q = card_of(&r, both).await;
     assert!(q.needs_proof, "{}", q.reason);
     assert!(
-        q.reason.contains("kernel.daily_runaway_usd") && q.input["paths"].as_array().unwrap().len() == 2,
+        q.reason.contains("kernel.daily_runaway_usd")
+            && q.input["paths"].as_array().unwrap().len() == 2,
         "{}",
         q.reason
     );
