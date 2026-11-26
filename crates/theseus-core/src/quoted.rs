@@ -84,7 +84,15 @@ fn rendering_then(
 
 /// Whether `id`'s newest record is a tombstone (an exchange's `did` line is never erased).
 fn erased(store: &Store, id: &str) -> bool {
+    #[cfg(test)]
+    ERASED_READS.with(|c| c.set(c.get() + 1));
     matches!(store.get_node(id), Ok(Some((_, n))) if matches!(n.body, Body::Erased { .. }))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many newest records [`erased`] has read on this thread: a test's count of what laying reads.
+    pub(crate) static ERASED_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Whether a node a rendering read words of is erased now.
@@ -217,4 +225,6 @@ pub fn own_laid(n: Stub, f: &Frozen) -> Stub {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+#[cfg(test)]
+mod tests_cost;

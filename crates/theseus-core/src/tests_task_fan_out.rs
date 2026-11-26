@@ -84,11 +84,13 @@ fn result_of(core: &Core, sid: &str, id: &str) -> (String, Value) {
 }
 
 fn briefs(core: &Core, e: &Execution) -> String {
+    let none = std::collections::BTreeSet::new();
+    let since = crate::copies::since::Since::new(&core.store, &none);
     core.store
         .session_nodes(&e.session_id)
         .unwrap()
         .iter()
-        .map(|(_, n)| crate::arrangement::laid(&core.store, n))
+        .map(|(_, n)| crate::arrangement::laid(&core.store, n, &since))
         .filter_map(|n| match &n.body {
             Body::UserMessage { text, .. } => Some(text.clone()),
             Body::Arrangement { pieces, .. } => Some(
