@@ -428,10 +428,14 @@ pub fn attach(f: &Facts<'_>) -> Result<String, String> {
              again by asking.\n"
         }
     });
-    out.push_str(
-        "Attaching a server can give it secrets and a network, so this needs a second proof as \
-         well as your yes.\n",
-    );
+    // A server given a secret or a host needs the code too (issue 57, `needs`).
+    let s = f.server;
+    if s.secrets().next().is_some() || s.url.is_some() || !s.egress.is_empty() {
+        out.push_str(
+            "Attaching a server can give it secrets and a network, so this needs a second proof as \
+             well as your yes.\n",
+        );
+    }
     tail(f, &mut out);
     Ok(out)
 }
@@ -493,10 +497,6 @@ pub fn detach(d: &Detach<'_>) -> String {
             d.wait_secs
         )),
     }
-    out.push_str(
-        "Removing a server changes how Theseus is set up, so this needs a second proof as well as \
-         your yes.\n",
-    );
     let f = Facts {
         name: d.name,
         server: d.server,

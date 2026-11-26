@@ -16,10 +16,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use serde_json::Value;
-use theseus_kernel::Action;
 
 use super::{put, read_text, resolve, KIND};
-use crate::config_change::proof_seam::{self, Needs};
 use crate::config_change::write::{self, Kept};
 use crate::config_copy::sha256;
 use crate::rpc::Core;
@@ -36,13 +34,11 @@ impl Core {
     /// the digest of the file before and the digest after.
     pub(crate) fn write_prompt_file(
         &self,
-        a: &Action,
         args: &Value,
         by: &str,
         via: &str,
     ) -> Result<(u32, String, String), String> {
         let state = &self.tools.config_change.state;
-        proof_seam::at_yes(&self.store, &a.correlation_id, Needs::Proof)?;
         let path = PathBuf::from(args["file"]["path"].as_str().unwrap_or_default());
         let shown = path.display().to_string();
         let named = resolve(self, &shown).map_err(|why| {

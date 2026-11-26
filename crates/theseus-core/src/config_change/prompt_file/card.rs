@@ -100,9 +100,7 @@ fn tail(f: &Facts<'_>) -> String {
             crate::narrative::thousands(crate::context_files::MAX_BYTES as u64)
         ));
     }
-    out.push_str(
-        "It goes into every later prompt: a second proof is needed as well as your yes.\n",
-    );
+    out.push_str("It goes into every later prompt: read it before you say yes.\n");
     out.push_str(&crate::config_change::card::care_lines(
         f.outside_text,
         f.steered,

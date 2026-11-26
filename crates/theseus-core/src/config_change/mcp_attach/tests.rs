@@ -381,7 +381,7 @@ impl Rig {
     }
 
     /// Attach `call` and say yes to its card; the card's text and the session.
-    async fn attached(&self, call: Value) -> (String, String) {
+    pub(super) async fn attached(&self, call: Value) -> (String, String) {
         let sid = self.session();
         self.turn(&sid, "mcp_attach", call).await;
         let q = self.asked().remove(0);
@@ -394,13 +394,16 @@ impl Rig {
     }
 }
 
-/// An attach and a detach are asked with the second proof: the card is marked,
-/// and with no app paired it cannot be approved, so nothing is written.
+/// An attach of a server that is given a secret is asked with the second proof:
+/// the card is marked, and with no app paired it cannot be approved, so nothing
+/// is written. A detach's card is not marked (issue 57).
 #[tokio::test]
 async fn attaching_and_detaching_are_asked_with_the_second_proof() {
     let r = rig();
     let sid = r.session();
-    r.turn(&sid, "mcp_attach", wc()).await;
+    let mut call = wc();
+    call["env"] = json!({"WC_KEY": "wc_key"});
+    r.turn(&sid, "mcp_attach", call).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let attach = r.asked().remove(0);
@@ -419,17 +422,15 @@ async fn attaching_and_detaching_are_asked_with_the_second_proof() {
         .find(|c| c.correlation_id != attach.correlation_id)
         .expect("the detach's card");
     super::super::tests::assert_worded(&r.core, &detach, "remove the MCP server `base`");
-    assert!(detach.needs_proof, "{detach:?}");
-    for q in [&attach, &detach] {
-        let e = r
-            .core
-            .confirm_action(&q.correlation_id, true, None, "cli")
-            .unwrap_err();
-        assert!(
-            e.to_string().contains("theseus owner proof enroll"),
-            "{e:#}"
-        );
-    }
+    assert!(!detach.needs_proof, "{detach:?}");
+    let e = r
+        .core
+        .confirm_action(&attach.correlation_id, true, None, "cli")
+        .unwrap_err();
+    assert!(
+        e.to_string().contains("theseus owner proof enroll"),
+        "{e:#}"
+    );
     assert_eq!(r.file_text(), FILE);
     assert!(!r.core.mcp.has_server("wc"));
     assert_eq!(r.asked().len(), 2, "both still wait");
