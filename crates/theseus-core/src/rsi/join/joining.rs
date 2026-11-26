@@ -195,13 +195,33 @@ impl Run<'_> {
         let (p, r, h) = (self.place.clone(), remote.to_string(), self.b.head.clone());
         let title = self.b.why.lines().next().unwrap_or("").trim().to_string();
         let names = (self.b.branch.clone(), self.b.item.clone(), title);
-        let l = blocking(move || {
+        let scrubber = core.tools.scrubber.clone();
+        let read = blocking(move || {
             git::fetch(&p, &r)?;
             let main = git::main_of(&p, &r)?;
+            // Main's scrub of what would leave (`tree::cleared`), on the head itself: the branch is
+            // no longer pushed, so this is where it runs before anything is offered.
+            let t = git::detached(&p, "publish", &names.0, &h)?;
+            let cleared = tree::cleared(&p, &t, &names.0, &|s| scrubber.scrub(s).1);
+            let _ = tree::close(&p, &t);
+            if let Err(e) = cleared {
+                return Ok(Err(e.to_string()));
+            }
             let names = (names.0.as_str(), names.1.as_str(), names.2.as_str());
-            publish::Leaving::read(&p, publish::Kind::Join, names, &r, &main, &h)
+            publish::Leaving::read(&p, publish::Kind::Join, names, &r, &main, &h).map(Ok)
         })
         .await?;
+        let l = match read {
+            Ok(l) => l,
+            Err(why) => {
+                self.card(format!(
+                    "Self branch {} ({}) may not leave this machine: {why}. Nothing was sent, and its head is held.",
+                    self.b.branch, self.b.item
+                ));
+                self.hold(publish::PHASE, &why, json!({"scrub": true}));
+                return Ok(false);
+            }
+        };
         let question = core.ask_publish(&l)?;
         let why = "it waits for the owner's yes to publish it";
         self.stop(publish::PHASE, why, publish::parked(&question, &l));

@@ -769,11 +769,23 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, PUSH, &why);
     }
-    // The branch is never pushed from here (issue 53): it stays in `[self] repo`, where the join reads it.
-    let after =
-        "The branch stays on this machine: nothing of it is pushed until the owner reads it and \
-                 says yes at the join. "
-            .to_string();
+    // The branch is never pushed from here (issue 53): it stays in `[self] repo`, where the join reads it. Main's
+    // scrub of what would leave runs where the push was, so the builder hears of a hit now; the join runs it again
+    // before it asks the owner.
+    let mut after = String::from(
+        "The branch stays on this machine: nothing of it is pushed until the owner reads it and says yes at the \
+         join. ",
+    );
+    if core.cfg.self_improve.remote.is_some() {
+        let (p, t, b) = (place.clone(), a.tree.clone(), a.tree.branch.clone());
+        let scrubber = core.tools.scrubber.clone();
+        let cleared =
+            blocking(move || Ok(tree::cleared(&p, &t, &b, &|s| scrubber.scrub(s).1))).await?;
+        if let Err(e) = cleared {
+            a.stopped_at = Some(PUSH);
+            after = format!("It may not leave this machine: {e}. ");
+        }
+    }
     // The item's other sessions are ended before the tree goes; this one is making the call.
     if let Err(e) = core
         .end_item_sessions(a.i.item.trim(), Some(tc.session_id))
