@@ -29,9 +29,6 @@ use super::{Lane, SendErr, Write, BACKOFF_MAX};
 /// other kind keeps the DM whatever its words say.
 pub(super) const INFORMING: &[&str] = &[
     "onto_card",
-    // Capture's card: its FYI form, a record kept (issue 57); its asks are Decisions, so they
-    // keep the DM.
-    "standing_card",
     "jev_paused",
     "notice",
     "restarted",
@@ -246,6 +243,7 @@ mod tests {
         }
         // Never these, whatever their words say: each can ask the owner.
         for k in [
+            "standing_card",
             "card_question",
             "retraction",
             "persona_soul",
@@ -269,16 +267,5 @@ mod tests {
             assert!(!informs("notice", &note(k, "T", "why", "")), "{k:?}");
         }
         assert!(!informs("notice", "plain words with no head"));
-    }
-
-    /// Capture's card informs when it says a record was kept (an FYI) and never when it asks
-    /// (a Decision): the list is by kind and by head (issue 57).
-    #[test]
-    fn capture_s_kept_card_informs_and_its_ask_never_does() {
-        let kept =
-            theseus_core::capture::kept_card("📌 Kept as a standing preference everywhere: x");
-        assert!(informs("standing_card", &kept));
-        let ask = theseus_core::capture::ask_card("📌 Keep as a standing order everywhere?");
-        assert!(!informs("standing_card", &ask));
     }
 }

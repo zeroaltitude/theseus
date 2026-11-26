@@ -1,8 +1,8 @@
 //! Capture's note of a record kept (issue 57), through the stand-in's gateway: every record kept
-//! is told, whether its words were said in the owner's DM or typed at the CLI, and the note goes
-//! to the notices place when one is bound and to the DM when none is, with its Undo. A question
-//! of capture's (a Decision) stays in the DM. The owner's Undo from a private place counts; from a
-//! shared notices place it is refused, privately, as a guest's is.
+//! is told, whether its words were said in the owner's DM or typed at the CLI, in his DM with its
+//! Undo. The card carries his own words, so it never goes to a notices place, bound shared or
+//! private. His Undo in the DM counts; a copy of the button pressed in a shared place is refused,
+//! privately, for him as for a guest.
 
 use std::sync::Arc;
 
@@ -12,6 +12,7 @@ use theseus_core::provider::{FakeProvider, Provider};
 use theseus_core::session::SessionRecord;
 use theseus_judge::band::Band;
 use theseus_protocol::SessionKind;
+use serde_json::json;
 use theseus_sim::fake_discord::{FakeDiscord, Guild, Msg, DEFAULT_GUILD};
 
 use super::{Rig, ANA, ANA_DM, BEN, LAB};
@@ -123,69 +124,85 @@ async fn told_to(r: &Rig, pressed: &str, start: &str) {
     assert!(first.ephemeral, "{start}: the presser alone hears it");
 }
 
-/// With a notices place bound, a record kept from ana's DM and one kept from the CLI are each told
-/// there and not in the DM; with none bound, in the DM. Her Undo where it landed (a private place)
-/// ends the record once. A question stays in the DM either way.
+/// An FYI that does go to a bound notices place: staged after the captures, its landing there
+/// says the notices lane has passed them.
+fn marker(r: &Rig) {
+    use theseus_core::owner_note::{note, Kind};
+    let body = json!({"kind": "notice",
+        "text": note(Kind::Fyi, "The tide sweep has stopped for today", "its day budget",
+                     "fyi-notices-marker")});
+    let (a, frame) = r.core.outbox.stage_to_operator(None, body).unwrap();
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+}
+
+/// With a notices place bound, shared or private, a record kept from ana's DM and one kept from
+/// the CLI each come to her DM with their Undo, and their words never reach the notices place.
+/// Her Undo in the DM ends the record once, and she alone hears so.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_kept_records_note_goes_to_the_notices_place_when_one_is_bound_and_else_to_the_dm() {
+async fn a_kept_records_card_comes_to_the_dm_and_never_to_a_notices_place() {
     let sure = verdict(Heard::Preference, Band::Act, 0.9);
     let unsure = verdict(Heard::Fact, Band::Confirm, 0.6);
-    for notify in [true, false] {
-        let r = rig(notify, true).await;
-        let (to, not) = match notify {
-            true => (NOTICES, ANA_DM),
-            false => (ANA_DM, NOTICES),
-        };
+    for private in [true, false] {
+        let r = rig(true, private).await;
         let said = "answers in metric units please";
         let typed = "I work nights on tuesdays";
         let ids = [
             (kept(in_dm(&r, said, &sure)), said),
             (kept(at_the_cli(&r, typed, &unsure)), typed),
         ];
+        marker(&r);
+        r.until_on(&[NOTICES], "the marker", || {
+            r.posted(NOTICES)
+                .iter()
+                .any(|m| m.content.contains("fyi-notices-marker"))
+        })
+        .await;
         for (id, text) in &ids {
             let has = |m: &Msg| m.content.contains(text);
-            r.until_on(&[to], text, || r.posted(to).iter().any(has))
-                .await;
+            r.until(text, || r.posted(ANA_DM).iter().any(has)).await;
             assert!(
-                !r.posted(not).iter().any(has),
-                "notify={notify}: {text} not in {not}"
+                !r.posted(NOTICES).iter().any(has),
+                "private={private}: {text} is never in the notices place"
             );
-            let m = r.posted(to).into_iter().find(has).unwrap();
+            let m = r.posted(ANA_DM).into_iter().find(has).unwrap();
             assert!(m.content.starts_with("ℹ️ FYI · "), "{}", m.content);
             let p = r.press(&m.id, "Undo", (ANA, "ana"));
             told_to(&r, &p, "↩️ Undone").await;
-            assert_eq!(ends(&r, id), 1, "notify={notify}: {text}");
+            assert_eq!(ends(&r, id), 1, "private={private}: {text}");
         }
-        // A question of capture's is a Decision: the DM, notices place or none.
-        let twice = verdict(Heard::Correction, Band::Escalate, 0.4);
-        assert_eq!(
-            in_dm(&r, "stop using tables for lists", &twice),
-            Done::Noted
-        );
-        let asked = in_dm(&r, "again, no tables for lists please", &twice);
-        assert!(matches!(asked, Done::Asked(_)), "{asked:?}");
-        let ask = |m: &Msg| m.content.contains("said this twice");
-        r.until("the ask in ana's DM", || r.posted(ANA_DM).iter().any(ask))
-            .await;
-        assert!(!r.posted(NOTICES).iter().any(ask), "notify={notify}");
         r.stop();
     }
 }
 
-/// In a shared notices place, a kept record's Undo counts for no one: a guest's press and the
+/// A copy of a kept card's Undo in a shared place counts for no one: a guest's press and the
 /// owner's are each refused, privately, and the record holds.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_kept_records_undo_in_a_shared_notices_place_is_refused_privately() {
+async fn a_kept_cards_undo_copied_into_a_shared_place_is_refused_privately() {
     let r = rig(true, false).await;
     let said = "answers in metric units please";
     let id = kept(in_dm(&r, said, &verdict(Heard::Preference, Band::Act, 0.9)));
     let has = |m: &Msg| m.content.contains(said);
-    r.until_on(&[NOTICES], "the note", || r.posted(NOTICES).iter().any(has))
+    r.until("the card in the DM", || r.posted(ANA_DM).iter().any(has))
         .await;
-    let m = r.posted(NOTICES).into_iter().find(has).unwrap();
-    let p = r.press(&m.id, "Undo", (BEN, "ben"));
+    let card = r.posted(ANA_DM).into_iter().find(has).unwrap();
+    let custom = card.buttons[0].custom_id.clone();
+    let forged = json!({"content": "a copy of a card", "components": [{"type": 1,
+        "components": [{"type": 2, "style": 2, "label": "Undo", "custom_id": custom}]}]});
+    let url = format!("http://{}/api/v10/channels/{NOTICES}/messages", r.fake.addr);
+    let posted: serde_json::Value = reqwest::Client::new()
+        .post(url)
+        .json(&forged)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let copy = posted["id"].as_str().unwrap().to_string();
+    let p = r.press(&copy, "Undo", (BEN, "ben"));
     told_to(&r, &p, "🔐 Your answer did not count").await;
-    let p = r.press(&m.id, "Undo", (ANA, "ana"));
+    let p = r.press(&copy, "Undo", (ANA, "ana"));
     told_to(&r, &p, "🔐 Your answer did not count").await;
     assert_eq!(ends(&r, &id), 0, "nothing was undone");
     r.stop();

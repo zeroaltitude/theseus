@@ -255,7 +255,9 @@ impl Core {
         captured_row.key = Some(super::captured_key(&v.judgment));
         let rows = vec![fact::row(&added, Some(&m.session), None)?, captured_row];
         // The owner is told of every record kept, wherever its words were said (issue 57): the
-        // CLI's and the web UI's too, which hear the narrative line as well.
+        // CLI's and the web UI's too, which hear the narrative line as well. The card carries
+        // his own words, so it is his DM's alone: `standing_card` is no informing kind, and
+        // never goes to a notices place, which may be shared.
         let body = json!({"kind": "standing_card", "text": super::kept_card(&notice),
             "card": {"mode": "kept", "id": rec.id}});
         let post = Some(self.outbox.stage_to_operator(Some(&m.session), body)?);
