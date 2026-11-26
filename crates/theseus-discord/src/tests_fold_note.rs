@@ -411,38 +411,29 @@ async fn a_note_the_notices_place_refuses_is_folded_in_the_dm_by_the_dms_own_wor
     assert!(tried(&r) >= 1);
 }
 
+/// Every message in the DM that `ours` names was written open: no folded
+/// note's button, no folded line, in any version.
+fn never_folded(r: &Rig, ours: impl Fn(&Msg) -> bool) {
+    let mut seen = 0;
+    for m in r.posted(ANA_DM) {
+        if !ours(&m) {
+            continue;
+        }
+        assert!(!note_fold(&m), "never folded: {m:#?}");
+        assert!(m.versions.iter().all(|v| !v.starts_with("-# ℹ️")), "{m:#?}");
+        seen += 1;
+    }
+    assert!(seen > 0, "nothing checked");
+}
+
 /// N4: in a DM that folds, none of these is folded, each written as ever:
 /// a question with its buttons, an alert, a reminder, a decision and an
 /// action note, a met watch, the mint and a told note with their Undo, a
-/// self note with its Halt; and, from a turn, an approval card, its refusal
-/// once declined, and the error that ends the turn. A plain FYI beside them
-/// is folded, so the rule is live in this rig.
+/// self note with its Halt. A plain FYI beside them is folded, so the rule
+/// is live in this rig.
 #[tokio::test]
 async fn what_needs_the_owner_and_what_has_a_button_is_never_folded() {
-    let r = Rig::start_tweaked(
-        |dir, _| {
-            let out = dir.join("outside").join("proof.txt");
-            Arc::new(FakeProvider::scripted(vec![
-                Scripted::tools(
-                    "Writing it.",
-                    &[(
-                        "w1",
-                        "fs_write",
-                        json!({"path": out.to_string_lossy(), "content": "x"}),
-                    )],
-                ),
-                Scripted::Fail(ProviderError::InvalidRequest {
-                    status: 400,
-                    message: "the request was refused".into(),
-                }),
-            ]))
-        },
-        guild(),
-        &file("", None),
-        &[],
-        |c| c.places.owner = Some(vec![format!("discord:{ANA}")]),
-    )
-    .await;
+    let r = rig("", None, vec![]).await;
     let n = |k: Kind, w: &str| note(k, "Something", "a reason", w);
     let staged = [
         json!({"kind": "card_question", "card": {"id": "cdp_00000001", "ask": "add"},
@@ -496,7 +487,38 @@ async fn what_needs_the_owner_and_what_has_a_button_is_never_folded() {
         let m = first_with(&r, ANA_DM, w).unwrap();
         assert!(!m.buttons.is_empty(), "{w} keeps its buttons: {m:#?}");
     }
+    never_folded(&r, |m| open_words.iter().any(|w| m.versions[0].contains(w)));
+}
 
+/// N4: in a DM that folds, a turn's approval card, its refusal once
+/// declined, and the error that ends the turn are written as ever, never as
+/// a folded note.
+#[tokio::test]
+async fn a_card_its_refusal_and_a_turns_error_are_never_folded_notes() {
+    let r = Rig::start_tweaked(
+        |dir, _| {
+            let out = dir.join("outside").join("proof.txt");
+            Arc::new(FakeProvider::scripted(vec![
+                Scripted::tools(
+                    "Writing it.",
+                    &[(
+                        "w1",
+                        "fs_write",
+                        json!({"path": out.to_string_lossy(), "content": "x"}),
+                    )],
+                ),
+                Scripted::Fail(ProviderError::InvalidRequest {
+                    status: 400,
+                    message: "the request was refused".into(),
+                }),
+            ]))
+        },
+        guild(),
+        &file("", None),
+        &[],
+        |c| c.places.owner = Some(vec![format!("discord:{ANA}")]),
+    )
+    .await;
     r.say((ANA, "ana"), None, "Write the proof.");
     r.until("the card", || {
         first_with(&r, ANA_DM, "**Approve?**").is_some()
@@ -512,16 +534,7 @@ async fn what_needs_the_owner_and_what_has_a_button_is_never_folded() {
                 .any(|m| m.content.contains("Turn failed"))
     })
     .await;
-
-    for m in r.posted(ANA_DM) {
-        let ours = m.id == card.id
-            || m.content.contains("Turn failed")
-            || open_words.iter().any(|w| m.versions[0].contains(w));
-        if ours {
-            assert!(!note_fold(&m), "never folded: {m:#?}");
-            assert!(m.versions.iter().all(|v| !v.starts_with("-# ℹ️")), "{m:#?}");
-        }
-    }
+    never_folded(&r, |m| m.id == card.id || m.content.contains("Turn failed"));
 }
 
 /// N1: a note's press goes through its place's lane: while that lane waits
