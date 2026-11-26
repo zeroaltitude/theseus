@@ -56,6 +56,7 @@ pub mod inventory;
 pub mod logs;
 pub mod month_warn;
 pub mod narrow;
+pub mod offer;
 pub mod policy_keys;
 pub mod presigned;
 pub mod repair;
@@ -79,6 +80,8 @@ mod tests_c2;
 mod tests_c3;
 #[cfg(test)]
 mod tests_credential_classes;
+#[cfg(test)]
+mod tests_discord;
 #[cfg(test)]
 mod tests_durable;
 #[cfg(test)]
@@ -220,6 +223,8 @@ impl Aws {
         all.extend(tag::all(self));
         all.push(Arc::new(cost::Cost::new(self.clone())));
         all.push(Arc::new(hands::tool::HandsRun(self.clone())));
+        // The owner's Confirm alerts button, offered (issue 59).
+        all.push(offer::tool());
         all
     }
 

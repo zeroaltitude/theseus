@@ -85,7 +85,13 @@ your direct messages, with **Connect Google** and **Revoke Google**. Your own pr
 private place, shows you alone the consent address and **Paste the address**; the form hands the whole address your
 browser ended on to the daemon's own finish (`theseus google auth`'s), which keeps the grant exactly where that
 keeps it. It is in no message, log line, row or reply, and the answer is fixed words. **Revoke Google** ends the
-grant. Anyone else's press, or a press in a shared channel, is refused. Both cards are one pattern, written once.
+grant. Anyone else's press, or a press in a shared channel, is refused.
+
+**Confirming the AWS alerts, the same way** (issue 59). Ask in words to confirm the alerts subscription: the turn can
+only offer a card, to your direct messages, with **Confirm alerts**. Your own press opens a form with one field: the
+Token=… value from the link in SNS's email (copy the link; do not open it), or the whole address. It goes to the
+daemon's own confirm (`theseus aws confirm-alerts`'s), authenticated on unsubscribe, and into no message, log line,
+row or reply; the answer is fixed words. All three cards are one pattern, written once.
 
 `/project trust <path>` lets a repository's own `AGENTS.md` and `CLAUDE.md` join the system block;
 `/project untrust <path>` takes that back, naming the files without reading them; `/project trusted`

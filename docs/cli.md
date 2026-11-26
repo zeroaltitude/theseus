@@ -186,7 +186,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   reaches the socket is not stopped.
 - **`extend`**: extensions: proposals with their state and frozen digest, and the loaded ones. `theseus extend list`;
   `extend revoke NAME`.
-- **`aws`**: Theseus's AWS account: `bootstrap` plans its first stacks read-only and applies them on your yes.
+- **`aws`**: Theseus's AWS account: `bootstrap` plans its first stacks read-only and applies them on your yes. `confirm-alerts` confirms the alerts subscription with the token from SNS's email, never printed or kept; it is also admitted from your own press of Confirm alerts in a private place on Discord (issue 59; `docs/discord.md`), and `bootstrap` from the CLI alone.
 - **`google`**: Google Workspace: `auth` is the one-time consent (run it from your own shell), `status` shows the account, the scopes granted and the tools on, `revoke` ends the grant. `auth` and `revoke` are also admitted from your own press of Connect Google or Revoke Google in a private place on Discord (issue 59; `docs/discord.md`); `status` is the CLI's alone.
   `theseus aws bootstrap`.
 

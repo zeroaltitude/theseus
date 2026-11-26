@@ -148,6 +148,14 @@ pub struct AwsConfirmAlertsParams {
     pub account: Option<String>,
     /// The token, or the whole confirmation link (copied, never opened).
     pub token: String,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 impl std::fmt::Debug for AwsConfirmAlertsParams {
@@ -155,6 +163,8 @@ impl std::fmt::Debug for AwsConfirmAlertsParams {
         f.debug_struct("AwsConfirmAlertsParams")
             .field("account", &self.account)
             .field("token", &"<withheld>")
+            .field("author", &self.author)
+            .field("discord", &self.discord)
             .finish()
     }
 }

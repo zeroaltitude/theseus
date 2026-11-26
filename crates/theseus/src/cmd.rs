@@ -778,7 +778,11 @@ async fn confirm_alerts(
     let v = conn
         .request(
             method::AWS_CONFIRM_ALERTS,
-            theseus_protocol::AwsConfirmAlertsParams { account, token },
+            theseus_protocol::AwsConfirmAlertsParams {
+                account,
+                token,
+                ..Default::default()
+            },
         )
         .await?;
     let authenticated =

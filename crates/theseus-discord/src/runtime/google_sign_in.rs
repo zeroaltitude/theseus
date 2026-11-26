@@ -73,16 +73,6 @@ pub(crate) fn parse(custom_id: &str) -> Option<Press> {
     }
 }
 
-/// The Connect Google card a turn offered, as the courier posts it: its text, its key, its
-/// buttons.
-pub(crate) fn card(body: &Value, correlation: &str) -> (String, String, crate::render::Buttons) {
-    (
-        body["text"].as_str().unwrap_or("").to_string(),
-        format!("gsi:{correlation}"),
-        crate::render::Buttons::GoogleSignIn,
-    )
-}
-
 /// The card's two buttons.
 pub(crate) fn buttons() -> Vec<Component> {
     row(vec![

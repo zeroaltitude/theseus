@@ -20,6 +20,7 @@ use twilight_model::channel::message::AllowedMentions;
 
 use super::persona_soul::field_of;
 use super::{origin_of, Shared};
+use crate::render::Buttons;
 
 /// The form's one field.
 pub(crate) const FIELD: &str = "address";
@@ -66,18 +67,51 @@ pub(crate) fn paste_button(prefix: &str, id: &str, agreed: bool) -> Vec<Componen
 
 /// The form **Paste the address** opens, `<prefix>:m:<id>:<agreed>`: one field.
 pub(crate) fn modal(prefix: &str, id: &str, agreed: bool, title: &str) -> Value {
+    form(
+        &format!("{prefix}:m:{id}"),
+        agreed,
+        title,
+        "The address your browser ended on",
+        "The whole address, from the bar. It goes to Theseus and nowhere else.",
+    )
+}
+
+/// A form of one field, `<head>:<agreed>`, whose value is read by `pasted` alone.
+pub(crate) fn form(head: &str, agreed: bool, title: &str, label: &str, about: &str) -> Value {
     let flag = if agreed { "1" } else { "0" };
     json!({"type": 9, "data": {
-        "custom_id": format!("{prefix}:m:{id}:{flag}"),
+        "custom_id": format!("{head}:{flag}"),
         "title": title,
         "components": [{
             "type": 18,
-            "label": "The address your browser ended on",
-            "description": "The whole address, from the bar. It goes to Theseus and nowhere else.",
+            "label": label,
+            "description": about,
             "component": {"type": 4, "custom_id": FIELD, "style": 2,
                           "required": true, "max_length": MAX},
         }],
     }})
+}
+
+/// A card a turn offered on this pattern, as the courier posts it: its text, its key, its
+/// buttons (`Buttons::Consent`, by its kind).
+pub(crate) fn card(kind: &str, body: &Value, correlation: &str) -> (String, String, Buttons) {
+    let key = match kind {
+        "aws_alerts" => "awsc",
+        _ => "gsi",
+    };
+    (
+        body["text"].as_str().unwrap_or("").to_string(),
+        format!("{key}:{correlation}"),
+        Buttons::Consent(kind.to_string()),
+    )
+}
+
+/// The buttons of a card `card` made.
+pub(crate) fn card_buttons(kind: &str) -> Vec<Component> {
+    match kind {
+        "aws_alerts" => super::aws_alerts::buttons(),
+        _ => super::google_sign_in::buttons(),
+    }
 }
 
 /// The sign-in a form's custom id names, and whether its places were agreed to.

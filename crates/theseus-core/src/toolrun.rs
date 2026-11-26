@@ -1843,6 +1843,8 @@ impl ToolRuntime {
                 Some(g) => crate::google::offer::run(g.account(), tc),
                 None => Err("no Google account is bound".into()),
             },
+            // A Confirm alerts button offered to the owner; it confirms nothing (issue 59).
+            crate::aws::offer::OFFER => crate::aws::offer::run(tc),
             crate::config_change::undo::UNDO => {
                 crate::config_change::undo::run(self, tc, &call.input, correlation_id)
             }

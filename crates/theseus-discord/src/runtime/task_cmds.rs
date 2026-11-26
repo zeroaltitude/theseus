@@ -292,6 +292,13 @@ impl Shared {
                 self.google_sign_in_modal(i, m, &who).await;
                 true
             }
+            // The token the alerts' form took (issue 59): to the daemon, and nowhere else.
+            Some(InteractionData::ModalSubmit(m))
+                if m.custom_id.starts_with(super::aws_alerts::MODAL) =>
+            {
+                self.aws_alerts_modal(i, m, &who).await;
+                true
+            }
             Some(InteractionData::ModalSubmit(m))
                 if m.custom_id.starts_with(super::card_question::MODAL) =>
             {

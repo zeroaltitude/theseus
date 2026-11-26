@@ -56,6 +56,7 @@ pub(crate) use asked::{asked_button, asked_controls};
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
+pub(crate) mod aws_alerts;
 mod capture_card;
 pub(crate) mod card_question;
 pub(crate) mod consent;
