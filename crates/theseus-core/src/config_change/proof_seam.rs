@@ -271,13 +271,7 @@ mod tests {
     }
 
     /// (G3) Dropped by the owner's word ("I'll take your recommendation"), for EXACTLY the closed
-    /// list of shapes: each takes the card alone. Every setting just outside the list keeps
-    /// main's code: `self.install` (as `true` too), the rest of `self` (`remote`,
-    /// `reviewer_profile`, `revert_window_hours`, `sealed`), `self_issues`, `self_fix`, an AWS
-    /// account's hands network, Google's send limit and trusted senders, an MCP server's `read`,
-    /// the imported history's source and agents, and the context files. The global exceptions
-    /// win inside the list's tables (a spending key, a key that reads a secret), and a mixed
-    /// change takes the strictest.
+    /// list of shapes: each takes the card alone.
     #[test]
     fn group_g3_is_a_closed_list_of_exact_settings() {
         use crate::config::sensitivity::DROPPED_SHAPES;
@@ -301,17 +295,21 @@ mod tests {
         );
         for (c, n) in of_each(&[
             "[self]\nmode = \"act\"\n",
-            "[google]\naccount = \"me@example.test\"\n",
             "[google]\nservices = [\"gmail\"]\n",
             "[google]\ncalendars = [\"primary\"]\n",
             "[vault]\nkeep_by_discord = true\n",
             "[tools]\nroots = [\"/x\"]\n",
             "[tools]\nprojects_dir = \"/x\"\n",
-            "[lsp.servers.rust]\nroots = [\"Cargo.toml\"]\n",
+            "[lsp.servers.rust-analyzer]\nroots = [\"Cargo.toml\"]\n",
             "[index]\nweights_dir = \"/x\"\n",
         ]) {
             assert_eq!(n, Needs::Card, "{c}");
         }
+        assert_eq!(
+            with_secrets("[google]\naccount = \"me@example.test\"\n"),
+            Needs::Card,
+            "google.account"
+        );
         let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
         assert_eq!(with_secrets(account), Needs::Card, "an AWS account's region");
         for extra in [
@@ -328,7 +326,16 @@ mod tests {
                 "{extra}"
             );
         }
-        // Just outside the list: main's code.
+    }
+
+    /// (G3) Every setting just outside the closed list keeps main's code: `self.install` (as
+    /// `true` too), the rest of `self`, `self_issues`, `self_fix`, an AWS account's hands
+    /// network, Google's send limit and trusted senders, an MCP server's `read`, the imported
+    /// history's agents, and the persona and context files. The global exceptions win inside the
+    /// list's tables, and a mixed change takes the strictest.
+    #[test]
+    fn the_settings_just_outside_g3_keep_mains_code() {
+        let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
         for (c, n) in of_each(&[
             "[self]\ninstall = true\n",
             "[self]\nremote = \"elsewhere\"\n",
@@ -399,7 +406,7 @@ mod tests {
         for (c, n) in of_each(&[
             "[model]\nsystem = \"be brief\"\n",
             &long,
-            "[profiles.opus]\nsystem = \"be brief\"\n",
+            "[profiles.opus]\nmodel = \"claude-sonnet-5-5\"\nsystem = \"be brief\"\n",
             "[personas.theseus]\ncard = \"a calm voice\"\n",
         ]) {
             assert_eq!(n, Needs::Card, "{c}");

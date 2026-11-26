@@ -308,6 +308,12 @@ async fn the_settings_just_outside_the_closed_lists_keep_mains_code() {
             wrong.push(why);
         }
     }
+    assert!(wrong.is_empty(), "less than main's code:\n{}", wrong.join("\n"));
+}
+
+/// An AWS account's hands network keeps main's code, at the card and at the yes.
+#[tokio::test]
+async fn an_aws_accounts_hands_network_keeps_mains_code() {
     let secrets = FILE.replace(
         "anthropic_api_key = \"op://v/i/f\"\n",
         "anthropic_api_key = \"op://v/i/f\"\naws_access_key_id = \"op://v/i/a\"\n\
@@ -328,10 +334,12 @@ async fn the_settings_just_outside_the_closed_lists_keep_mains_code() {
         json!("sg-0a1b2c3d4e5f60718"),
     );
     let q = card_of(&r, call.clone()).await;
-    if !q.needs_proof {
-        wrong.push(format!("{call}: the card alone"));
-    }
-    assert!(wrong.is_empty(), "less than main's code:\n{}", wrong.join("\n"));
+    assert!(q.needs_proof, "{call}: {}", q.reason);
+    let e = r
+        .core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap_err();
+    assert!(e.to_string().contains("theseus owner proof enroll"), "{e:#}");
 }
 
 /// `self.install = true` put back by an undo keeps main's code too.
@@ -361,12 +369,15 @@ async fn an_undo_that_puts_back_self_install_true_keeps_the_code() {
 async fn each_setting_of_the_closed_list_takes_the_card_alone() {
     for call in [
         change("self.mode", json!("act")),
-        change("google.account", json!("me@example.test")),
+        change("google.services", json!(["gmail"])),
         change("vault.keep_by_discord", json!(true)),
         change("tools.projects_dir", json!("/tmp/projects")),
         change("index.weights_dir", json!("/tmp/weights")),
-        change("lsp.servers.rust.roots", json!(["Cargo.toml"])),
-        change("profiles.opus.system", json!("be brief")),
+        change("lsp.servers.rust-analyzer.roots", json!(["Cargo.toml"])),
+        change(
+            "profiles.opus",
+            json!({"model": "claude-sonnet-5-5", "system": "be brief"}),
+        ),
         change("personas.theseus.card", json!("a calm voice")),
     ] {
         let r = rig();
