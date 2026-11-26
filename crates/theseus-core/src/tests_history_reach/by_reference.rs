@@ -13,6 +13,7 @@ use crate::session::{SessionRecord, TaskOf};
 mod cut;
 mod kinds;
 mod parts;
+mod piece;
 mod stored;
 
 /// Why the line said is retracted.

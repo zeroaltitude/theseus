@@ -325,6 +325,17 @@ pub fn resolve(
     holder: Option<&str>,
     cuts: &Cuts,
 ) -> Result<Vec<Piece>, Refused> {
+    resolve_in(None, input, nodes, holder, cuts)
+}
+
+/// [`resolve`], a look back kept by reference quoted from `store` when there is one (`quoted`).
+fn resolve_in(
+    store: Option<&crate::store::Store>,
+    input: &Input,
+    nodes: &[(u64, crate::stub::Stub)],
+    holder: Option<&str>,
+    cuts: &Cuts,
+) -> Result<Vec<Piece>, Refused> {
     let sources: Vec<(&Node, String)> = nodes
         .iter()
         .map(|(_, n)| &**n)
@@ -374,7 +385,7 @@ pub fn resolve(
             t
         });
         let parts = match (superseded_by, positions.get(node.id.as_str())) {
-            (None, Some(at)) => quoted(node, *at, &text, rest, cuts),
+            (None, Some(at)) => quoted(store, node, *at, &text, rest, cuts),
             _ => Vec::new(),
         };
         out.push(Piece {
@@ -395,7 +406,8 @@ pub fn resolve(
 }
 
 /// [`resolve`] against `nodes` as a reader outside a conversation shows them (`quoted::shown_all`): a look back's
-/// result kept by reference reads as its rendering, so a quote of the words it showed finds it (issue 49).
+/// result kept by reference reads as its rendering, so a quote of the words it showed finds it (issue 49), and
+/// its piece is kept by reference too (issue 52).
 pub fn resolve_shown(
     store: &crate::store::Store,
     input: &Input,
@@ -403,18 +415,25 @@ pub fn resolve_shown(
     holder: Option<&str>,
     cuts: &Cuts,
 ) -> Result<Vec<Piece>, Refused> {
-    resolve(input, &crate::quoted::shown_all(store, nodes), holder, cuts)
+    let shown = crate::quoted::shown_all(store, nodes);
+    resolve_in(Some(store), input, &shown, holder, cuts)
 }
 
-/// A piece's words as quotes of `node`'s record at `position`, cut where `toolrun::cap` cuts `text`: none for a
-/// node whose words no field of a quote reads (a tool result), which keeps its words.
+/// A piece's words as quotes of `node`'s record at `position`, cut where `toolrun::cap` cuts `text`. A look back
+/// kept by reference, with `store` to read it from, gives its own parts (quotes of what it showed), cut where the
+/// cap cuts their rendering (`text`, [`look_back`]). None for any other tool result, whose words no field of a
+/// quote reads, and for a look back stored with its words: each keeps its words.
 fn quoted(
+    store: Option<&crate::store::Store>,
     node: &Node,
     position: u64,
     text: &str,
     rest: impl FnOnce(&str) -> String,
     cuts: &Cuts,
 ) -> Vec<Part> {
+    if let (Body::ToolResult { parts, .. }, Some(store)) = (&node.body, store) {
+        return look_back(store, parts, rest, cuts);
+    }
     let field = match &node.body {
         Body::UserMessage { parts, .. } if parts.is_empty() => Field::Text,
         Body::AssistantMessage { .. } => Field::ReplyText,
@@ -440,6 +459,21 @@ fn quoted(
     }
 }
 
+/// A piece's words as a look back kept by reference showed them: its own `parts`, capped at the piece's cap as its
+/// rendering is cut. None when a range, capped, would begin or end inside a known value: the piece keeps its words.
+fn look_back(
+    store: &crate::store::Store,
+    parts: &[Part],
+    rest: impl FnOnce(&str) -> String,
+    cuts: &Cuts,
+) -> Vec<Part> {
+    let parts = crate::quotes::cap::cap_parts(store, parts.to_vec(), PIECE_CHARS, rest, cuts).0;
+    match crate::quotes::edges_hold(store, &parts, cuts) {
+        true => parts,
+        false => Vec::new(),
+    }
+}
+
 /// The pieces as the arrangement node stores them: one kept by reference without its words.
 pub fn stored(mut pieces: Vec<Piece>) -> Vec<Piece> {
     for p in pieces.iter_mut().filter(|p| !p.parts.is_empty()) {
@@ -449,15 +483,18 @@ pub fn stored(mut pieces: Vec<Piece>) -> Vec<Piece> {
 }
 
 /// `n` as the child's compile lays it: an arrangement's pieces kept by reference with their words read
-/// (`quotes::render`); any other node as it is.
-pub fn laid(store: &crate::store::Store, n: &Node) -> Node {
+/// (`quotes::render`), each quoted node marked wrong in `since` with its line after them, as the window lays a
+/// look back; any other node as it is.
+pub fn laid(
+    store: &crate::store::Store,
+    n: &Node,
+    since: &crate::copies::since::Since<'_>,
+) -> Node {
     let mut node = n.clone();
     if let Body::Arrangement { pieces, .. } = &mut node.body {
-        let none = BTreeSet::new();
-        let since = crate::copies::since::Since::new(store, &none);
         for p in pieces.iter_mut().filter(|p| !p.parts.is_empty()) {
             p.text = Some(
-                crate::quotes::render(store, &p.parts, &since)
+                crate::quotes::render(store, &p.parts, since)
                     .unwrap_or_else(|_| UNREADABLE_QUOTE.to_string()),
             );
         }

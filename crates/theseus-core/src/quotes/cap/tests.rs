@@ -10,6 +10,8 @@ use crate::quotes::render_with;
 use crate::quotes::tests_oracle::{each_found, inside, knowing, Draw, VALUES};
 use crate::scrub::oracle::{encodings, spans_of};
 
+mod lines;
+
 /// Fields by node id, read whole, as a store reads a quote's field at its position.
 struct Fields(HashMap<String, String>);
 
@@ -204,7 +206,7 @@ fn a_cut_inside_an_opens_line_keeps_its_margin_as_code_and_its_words_as_line1() 
         shown,
         "\u{2502} first line\n\u{2502}  second\n\u{2502} third"
     );
-    let head = tidy(within(&whole, bytes, 0..23));
+    let head = tidy(within(&whole, bytes, 0..23, &Cuts::none()));
     assert_eq!(
         head,
         vec![
@@ -213,7 +215,7 @@ fn a_cut_inside_an_opens_line_keeps_its_margin_as_code_and_its_words_as_line1() 
             q(11, 15, Form::Line1),
         ]
     );
-    let tail = tidy(within(&whole, bytes, 23..shown.len()));
+    let tail = tidy(within(&whole, bytes, 23..shown.len(), &Cuts::none()));
     assert_eq!(
         tail,
         vec![
@@ -232,7 +234,7 @@ fn a_cut_inside_an_opens_line_keeps_its_margin_as_code_and_its_words_as_line1() 
         ..whole
     };
     let shown = Form::Margin1.apply(bytes);
-    let head = tidy(within(&whole, bytes, 0..18));
+    let head = tidy(within(&whole, bytes, 0..18, &Cuts::none()));
     assert_eq!(
         head,
         vec![
@@ -404,11 +406,14 @@ fn a_capped_quote_that_ends_inside_a_value_is_never_stored_by_reference() {
         }
     }
     assert!(checked > 2_000, "{checked}");
-    // The cap alone does not keep this rule: a quote it keeps may end at a line break inside a value its run holds
-    // whole. The check refuses those, and the runtime stores their words.
-    assert!(
-        refused > 0,
-        "no capped quote ended inside a value: the check refused nothing"
+    // Over these cases (each encoding of `VALUES`, the two written over lines among them, in fields of every form),
+    // the cap keeps this rule by itself: the lines a value runs over stay one quote, and a cut beside them falls at
+    // its edge (issue 52). That is what was tried, not every field: where the cap does split a value, the check
+    // refuses the quote and the runtime stores the words
+    // (`tests_oracle::a_range_is_stored_only_when_neither_edge_is_inside_an_encoded_value`).
+    assert_eq!(
+        refused, 0,
+        "a capped quote ended inside a value: the cap split one"
     );
     eprintln!("capped {checked}, refused {refused}");
 }

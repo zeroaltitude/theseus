@@ -3,9 +3,10 @@
 //! place's is its opening: the nodes `task.create` wrote before its first turn (the brief, then the
 //! arrangement's pieces), which no turn's id carries, so no exchange holds them. They head the window on
 //! every turn, as they head the task's session; on its first turn the brief is the message the turn
-//! answers; pieces kept by reference are laid with their words read (`arrangement::laid`). The task's card
-//! is laid beside the message (`task_graph::joined::StoreCards`).
+//! answers; pieces kept by reference are laid with their words read and what the window says has been said
+//! since (`arrangement::laid`). The task's card is laid beside the message (`task_graph::joined::StoreCards`).
 
+use crate::copies::since::Since;
 use crate::node::Body;
 use crate::store::{Store, Transcript};
 use crate::stub::{Kind, Stub};
@@ -54,11 +55,13 @@ pub(super) fn brief_of(
 /// The opening a view anchored at a task's place lays at the head of its window: the task's session's
 /// opening; none for a view anchored anywhere else, or a task with no session. The asking session `sid`
 /// is read first: a task's own turn lays its own opening whether or not the task graph holds a record of
-/// it (a routine's run, a project's weekly review: their runs are tasks with no task record).
+/// it (a routine's run, a project's weekly review: their runs are tasks with no task record). Its pieces kept by
+/// reference are laid through the window's `since`.
 pub(super) fn window_head(
     store: &Store,
     sid: &str,
     pov: &PointOfView,
+    since: &Since<'_>,
 ) -> anyhow::Result<Transcript> {
     let Anchor::Place(place) = &pov.anchor else {
         return Ok(Vec::new());
@@ -67,20 +70,20 @@ pub(super) fn window_head(
         return Ok(Vec::new());
     };
     if crate::task_graph::place::of_task_session(store, sid).as_deref() == Some(place.as_str()) {
-        return Ok(laid(store, opening(&store.transcript(sid)?)));
+        return Ok(laid(store, opening(&store.transcript(sid)?), since));
     }
     let session = crate::task_graph::get(store, id)?.and_then(|r| r.session);
     match session {
-        Some(s) => Ok(laid(store, opening(&store.transcript(&s)?))),
+        Some(s) => Ok(laid(store, opening(&store.transcript(&s)?), since)),
         None => Ok(Vec::new()),
     }
 }
 
 /// An opening as a compile lays it: its arrangement's pieces kept by reference with their words read.
-fn laid(store: &Store, nodes: Transcript) -> Transcript {
+fn laid(store: &Store, nodes: Transcript, since: &Since<'_>) -> Transcript {
     (nodes.into_iter())
         .map(|(p, n)| match n.kind == Kind::Arrangement {
-            true => (p, Stub::from(crate::arrangement::laid(store, &n))),
+            true => (p, Stub::from(crate::arrangement::laid(store, &n, since))),
             false => (p, n),
         })
         .collect()
