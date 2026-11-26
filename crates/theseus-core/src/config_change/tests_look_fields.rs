@@ -6,7 +6,7 @@
 
 use serde_json::json;
 
-use super::tests_look::{everything, rig_with_a_vault};
+use super::tests_look::{everything, rig_with_a_vault, rig_with_a_vault_at};
 use crate::node::ResultStatus;
 use crate::secrets::look::tests::logged;
 
@@ -160,12 +160,13 @@ async fn a_failed_get_says_its_class_and_nothing_of_its_own() {
 }
 
 /// The fields of an item are asked first when the turn has read outside text,
-/// like every look at the vault: nothing is run until the owner says yes.
+/// like every look at the vault: nothing is run until the owner says yes, at
+/// `[content_based_security] outside = "ask"`.
 #[tokio::test]
 async fn field_names_are_asked_first_after_outside_text() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
     use theseus_judge::band::Band;
-    let (r, dir, _d) = rig_with_a_vault("ok");
+    let (r, dir, _d) = rig_with_a_vault_at("ok", crate::content::OutsideMode::Ask);
     let sid = r.session();
     let mut rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     let mut flags = ContentFlags::default();
@@ -184,6 +185,13 @@ async fn field_names_are_asked_first_after_outside_text() {
     r.turn_with("look_vault", &sid, json!({"fields_of": "Lantern key"}))
         .await;
     assert_eq!(r.asked().len(), 1, "{:?}", r.asked());
+    assert!(
+        r.asked()[0]
+            .reason
+            .contains(crate::config_change::FLAG_HOLD),
+        "the flag: {}",
+        r.asked()[0].reason
+    );
     assert!(
         logged(&dir).is_empty(),
         "nothing was asked of the vault yet"

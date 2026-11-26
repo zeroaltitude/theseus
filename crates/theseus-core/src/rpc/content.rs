@@ -65,6 +65,10 @@ fn what_raised(l: &Label) -> String {
     format!("{what} from `{}`", l.source)
 }
 
+/// The post kind of the injection flag's notice under `notify`: an FYI the
+/// owner's notices place takes (issue 54).
+pub const FLAG_FYI: &str = "content_flag";
+
 /// The one message in the session's place when a label is raised (design
 /// §6.3). `injection` says the session is holding, and what stops until the
 /// operator clears it (under `notify`, **the default since 1.0.6**, it says
@@ -132,12 +136,30 @@ impl Core {
             })),
             None,
         );
-        let body = json!({
+        let mode = self.cfg.content_based_security.injection;
+        let mut body = json!({
             "kind": "content_label",
             "session_id": session_id,
             "flag": l.flag.as_str(),
-            "text": label_notice(l, self.cfg.content_based_security.injection),
+            "text": label_notice(l, mode),
         });
+        // Under `notify` the injection flag refuses nothing, so its notice only informs: an FYI
+        // of its own kind, which goes to the owner's notices place when one is bound, with its
+        // Remove button. Under `refuse` it needs him and keeps the session's place.
+        if (l.flag, mode) == (Flag::Injection, InjectionMode::Notify) {
+            let title = rec
+                .label
+                .clone()
+                .filter(|t| !t.is_empty())
+                .or(rec.title.clone());
+            body["kind"] = json!(FLAG_FYI);
+            body["text"] = json!(crate::owner_note::note(
+                crate::owner_note::Kind::Fyi,
+                "Theseus flagged what it read as trying to steer it",
+                &crate::judge::onto::words::in_conversation(title.as_deref()),
+                &label_notice(l, mode),
+            ));
+        }
         let post =
             self.outbox
                 .post_for(session_id, rec.execution_id.as_deref().unwrap_or(""), body)?;
@@ -184,14 +206,63 @@ impl Core {
                 what: &what,
             },
         )?;
+        let Some(r) = self.remove_flag(session_id, flag, &who, None)? else {
+            bail!(
+                "session {session_id} carries no {} label, so there is nothing to remove",
+                flag.as_str()
+            );
+        };
+        Ok(r)
+    }
+
+    /// [`Core::unlabel_session`], only while the session's `flag` is still `expected` (its node,
+    /// source and time): compared inside the session's own mutation, so a flag raised since is
+    /// never removed by an answer given for another (issue 54). None, and nothing written, when
+    /// the flag there is not that one or there is none.
+    pub(crate) fn unlabel_session_if(
+        &self,
+        session_id: &str,
+        flag: Flag,
+        who: &Answerer,
+        expected: &Label,
+    ) -> Result<Option<UnlabelResult>> {
+        let what = format!("Removing {} from session {session_id}", flag.as_str());
+        self.judge_act(
+            who,
+            Act::Unlabel {
+                session: session_id,
+                what: &what,
+            },
+        )?;
+        self.remove_flag(session_id, flag, who, Some(expected))
+    }
+
+    /// The removal itself, in the session's own mutation, and its announcement; with `expected`,
+    /// only while the flag there is that one.
+    fn remove_flag(
+        &self,
+        session_id: &str,
+        flag: Flag,
+        who: &Answerer,
+        expected: Option<&Label>,
+    ) -> Result<Option<UnlabelResult>> {
         let out = self
             .store
             .with_session(session_id, |rec| {
+                if let Some(e) = expected {
+                    let now = rec.data.as_ref().and_then(|d| d.label(flag));
+                    let same = now.is_some_and(|l| {
+                        l.at_ms == e.at_ms && l.node == e.node && l.source == e.source
+                    });
+                    if !same {
+                        return Ok(None);
+                    }
+                }
                 let Some((r, frame)) = removed(
                     rec,
                     session_id,
                     flag,
-                    &who,
+                    who,
                     theseus_protocol::method::CONTENT_UNLABEL,
                     None,
                     (
@@ -206,14 +277,10 @@ impl Core {
                 Ok(Some(r))
             })?
             .flatten();
-        let Some(r) = out else {
-            bail!(
-                "session {session_id} carries no {} label, so there is nothing to remove",
-                flag.as_str()
-            );
-        };
-        self.announce_removal(session_id, &r);
-        Ok(r)
+        if let Some(r) = &out {
+            self.announce_removal(session_id, r);
+        }
+        Ok(out)
     }
 
     /// A removal written: narrated, and published to the session's watchers.

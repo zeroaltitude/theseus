@@ -13,14 +13,24 @@ use serde_json::{json, Value};
 use super::*;
 use crate::config_change::tests::{rig, Rig};
 use crate::config_change::tests_look::everything;
-use crate::node::ResultStatus;
+use crate::node::{Body, ResultStatus};
 use crate::secrets::look::tests::{logged, stub};
 use crate::secrets::OpReader;
 
 const VALUE: &str = "INVENTED-FIELD-VALUE-9";
 
 fn rig_vault(mode: &str) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
-    let r = rig();
+    rig_vault_at(mode, crate::content::OutsideMode::default())
+}
+
+/// [`rig_vault`] at `[content_based_security] outside = outside`.
+fn rig_vault_at(
+    mode: &str,
+    outside: crate::content::OutsideMode,
+) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
+    let r = crate::config_change::tests::rig_with(move |c, _| {
+        c.content_based_security.outside = outside;
+    });
     let dir = tempfile::tempdir().unwrap();
     r.core
         .tools
@@ -72,7 +82,7 @@ async fn a_provider_from_a_vault_item_is_one_card_and_no_value() {
         "its account can read them",
         "never goes to the model, a record or this card",
         "kept under the name `lantern_key`, read from op://Harbor/Lantern key/credential",
-        "Given to: the provider `lantern` (its key).",
+        "Given to: the provider `lantern` (its key, which sends it to https://lantern.example.test).",
         "- secrets.lantern_key: not set (its default) → \"op://Harbor/Lantern key/credential\"",
         "- providers.lantern.api_key_secret: not set (its default) → \"lantern_key\"",
         "second proof",
@@ -89,7 +99,7 @@ async fn a_provider_from_a_vault_item_is_one_card_and_no_value() {
     assert!(
         plain
             .what
-            .starts_with("use the vault's item \"Lantern key\" (field \"credential\") as `lantern_key`, given to the provider `lantern` (its key): change 3 settings"),
+            .starts_with("use the vault's item \"Lantern key\" (field \"credential\") as `lantern_key`, given to the provider `lantern` (its key, which sends it to https://lantern.example.test): change 3 settings"),
         "{}",
         plain.what
     );
@@ -199,7 +209,9 @@ async fn a_field_in_a_section_is_written_with_its_section() {
         .contains("op://Harbor/Lantern key/Recovery/backup code"));
     assert!(logged(&dir)
         .contains(&"read --no-newline op://Harbor/Lantern key/Recovery/backup code".to_string()));
-    assert!(asks[0].reason.contains("Nothing is given it yet"));
+    assert!(asks[0].reason.contains(
+        "No setting is set to read it; a setting that reads this name by default may use it."
+    ));
 }
 
 /// Two items of one title are not guessed between: their ids are given, and
@@ -412,12 +424,13 @@ async fn an_undo_may_put_back_a_reference() {
 }
 
 /// A turn that read text from outside since the owner's last message is asked
-/// at the gate before anything is read from the vault.
+/// at the gate before anything is read from the vault, at `[content_based_security]
+/// outside = "ask"`.
 #[tokio::test]
 async fn a_steered_turn_is_asked_before_the_vault_is_read() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
     use theseus_judge::band::Band;
-    let (r, dir, _d) = rig_vault("ok");
+    let (r, dir, _d) = rig_vault_at("ok", crate::content::OutsideMode::Ask);
     let sid = r.session();
     let mut rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     let mut flags = ContentFlags::default();
@@ -438,11 +451,28 @@ async fn a_steered_turn_is_asked_before_the_vault_is_read() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(asks[0].tool, USE);
     assert!(
-        asks[0].reason.contains("read text from outside"),
-        "{}",
+        asks[0].reason.contains(crate::config_change::FLAG_HOLD)
+            && !asks[0].reason.contains("read text from outside"),
+        "the flag, not outside text: {}",
         asks[0].reason
     );
     assert!(logged(&dir).is_empty(), "the vault was not read yet");
+}
+
+/// Both vault calls are held for each cause in its own words, and no other tool is touched.
+#[test]
+fn each_vault_call_says_why_it_is_held() {
+    use crate::config_change::tests_hold::{each_cause_is_said, ways};
+    let plan = || Plan {
+        summary: "vault".into(),
+        ..Default::default()
+    };
+    for tool in [USE, crate::config_change::vault_keep::KEEP] {
+        each_cause_is_said(tool, |o, s, way| held(tool, o, s, way, plan()).authority);
+    }
+    assert!(held("look.vault", true, true, &ways()[1], plan())
+        .authority
+        .is_none());
 }
 
 /// A task's session is refused in the tool's words, and the vault is not read.
@@ -498,21 +528,23 @@ fn names_are_checked_and_readers_are_worded() {
     assert!(valid_name("lantern_key") && valid_name("K2"));
     assert!(!valid_name("2k") && !valid_name("a-b") && !valid_name(""));
     let p = |s: &str| s.split('.').map(str::to_string).collect::<Vec<_>>();
+    // Settings with no such provider or server: the words alone, with no address to give.
+    let (cfg, _) = crate::Config::parse(crate::config_change::tests::FILE).unwrap();
     assert_eq!(
-        describe(&p("providers.lantern.api_key_secret")),
+        describe(&cfg, &p("providers.lantern.api_key_secret")),
         "the provider `lantern` (its key)"
     );
     assert_eq!(
-        describe(&p("broker.programs.deployer.env.DEPLOY_KEY")),
+        describe(&cfg, &p("broker.programs.deployer.env.DEPLOY_KEY")),
         "the program `deployer` (its variable `DEPLOY_KEY`)"
     );
     assert_eq!(
-        describe(&p("mcp.servers.docs.auth_secret")),
+        describe(&cfg, &p("mcp.servers.docs.auth_secret")),
         "the attached server `docs` (its key)"
     );
     assert_eq!(
-        describe(&p("tools.web.search_key_secret")),
-        "the setting `tools.web.search_key_secret`"
+        describe(&cfg, &p("tools.web.search_key_secret")),
+        "the web search (its key)"
     );
 }
 
@@ -693,4 +725,452 @@ async fn a_published_address_beside_a_vault_secret_is_on_the_one_card_with_its_s
         2,
         "under each setting of the table (the address and the key's name): {card}"
     );
+}
+
+/// The settings file of [`crate::config_change::tests::FILE`] with an existing provider and an
+/// existing MCP server that has a URL, for the readers on the list.
+const WITH_READERS: &str = r#"# Theseus, on this machine.
+narrative = false
+
+[secrets]
+anthropic_api_key = "op://v/i/f"
+
+[providers.lantern]
+api_base = "https://lantern.example.test"
+api_key_secret = "anthropic_api_key"
+
+[mcp.servers.wharf]
+url = "https://wharf.example.test/mcp"
+
+# The notes import.
+[import.notes]
+enabled = true   # turn it off to stop the import
+"#;
+
+fn rig_readers() -> (Rig, std::path::PathBuf, tempfile::TempDir) {
+    let (r, dir, d) = rig_vault("ok");
+    std::fs::write(&r.file, WITH_READERS).unwrap();
+    (r, dir, d)
+}
+
+/// Case 2: the secret and each reader on the list (the main model's key, an existing provider's
+/// key, an existing URL server's `auth_secret`) is ONE settings card with no second proof, which
+/// says what is given the secret; nothing is written before the yes, and a plain yes writes it.
+#[tokio::test]
+async fn each_listed_reader_is_one_card_with_no_proof_and_a_yes_writes_it() {
+    // Each reader with where it sends the key today: the daemon's own address for it, as a
+    // scheme and host.
+    for (path, given) in [
+        (
+            "model.api_key_secret",
+            "the main model (its key, which sends it to https://",
+        ),
+        (
+            "providers.lantern.api_key_secret",
+            "the provider `lantern` (its key, which sends it to https://lantern.example.test)",
+        ),
+        (
+            "mcp.servers.wharf.auth_secret",
+            "the attached server `wharf` (its key, which sends it to https://wharf.example.test)",
+        ),
+    ] {
+        let (r, _dir, _d) = rig_readers();
+        let sid = r.session();
+        r.turn_with(
+            "vault_use",
+            &sid,
+            call(json!([{"path": path, "value": "lantern_key"}])),
+        )
+        .await;
+        let asks = r.asked();
+        assert_eq!(asks.len(), 1, "{path}: {asks:?}");
+        let q = &asks[0];
+        assert!(!q.needs_proof && !q.needs_fresh_proof, "{path}: {q:?}");
+        assert!(
+            q.reason.starts_with("Use a secret from the vault?"),
+            "{path}: {}",
+            q.reason
+        );
+        assert!(q.reason.contains(given), "{path}: {}", q.reason);
+        assert!(!q.reason.contains("second proof"), "{path}: {}", q.reason);
+        assert_eq!(
+            r.file_text(),
+            WITH_READERS,
+            "{path}: nothing before the yes"
+        );
+        r.core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap();
+        let after = r.file_text();
+        assert!(
+            after.contains("lantern_key = \"op://Harbor/Lantern key/credential\""),
+            "{path}: {after}"
+        );
+        assert_eq!(r.rows("config.changed").len(), 1, "{path}");
+    }
+}
+
+/// Case 2, a re-point: the card, with no second proof, says the name is re-pointed, what it was
+/// read from until now, and that every setting already reading it will read the new item.
+#[tokio::test]
+async fn a_repoint_is_one_card_that_says_what_it_read_and_who_reads_it() {
+    let (r, _dir, _d) = rig_readers();
+    let sid = r.session();
+    let mut c = call(json!([]));
+    c["name"] = json!("anthropic_api_key");
+    r.turn_with("vault_use", &sid, c).await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(!asks[0].needs_proof, "{:?}", asks[0]);
+    for part in [
+        "This RE-POINTS the name `anthropic_api_key`: until now it was read from op://v/i/f.",
+        "These settings already read `anthropic_api_key` and will read the new item from the next start:",
+        "the provider `lantern` (its key, which sends it to https://lantern.example.test)",
+        "a setting that reads this name by default may use it too.",
+    ] {
+        assert!(asks[0].reason.contains(part), "{part}: {}", asks[0].reason);
+    }
+    assert_eq!(r.file_text(), WITH_READERS, "nothing before the yes");
+}
+
+/// A new name with nothing else is ONE settings card with no second proof (there is no use
+/// without a card): it says plainly what it is, and does not claim that nothing reads the name.
+/// Nothing is written before the yes; a plain yes writes it.
+#[tokio::test]
+async fn a_new_name_alone_is_one_card_with_no_proof() {
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(json!([]))).await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    let q = &asks[0];
+    assert!(!q.needs_proof && !q.needs_fresh_proof, "{q:?}");
+    for part in [
+        "This gives a secret from the vault a name in the settings.",
+        "No setting is set to read it; a setting that reads this name by default may use it.",
+    ] {
+        assert!(q.reason.contains(part), "{part}: {}", q.reason);
+    }
+    assert!(!q.reason.contains("second proof"), "{}", q.reason);
+    assert_eq!(
+        r.file_text(),
+        crate::config_change::tests::FILE,
+        "nothing before the yes"
+    );
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    assert!(
+        r.file_text()
+            .contains("lantern_key = \"op://Harbor/Lantern key/credential\""),
+        "{}",
+        r.file_text()
+    );
+}
+
+/// The reviewer's case: no voice section in the file, and a new name equal to the voice's default
+/// key. Not inert (an audition reads it, even with voice off): ONE card, no second proof, nothing
+/// written before the yes, and the card names the voice as a reader.
+#[tokio::test]
+async fn the_voices_default_name_is_one_card_that_names_the_voice() {
+    let (r, _dir, _d) = rig_vault("ok");
+    assert!(!r.file_text().contains("[voice]"));
+    let sid = r.session();
+    let mut c = call(json!([]));
+    c["name"] = json!("deepgram_api_key");
+    r.turn_with("vault_use", &sid, c).await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(!asks[0].needs_proof, "{:?}", asks[0]);
+    assert!(
+        asks[0]
+            .reason
+            .contains("Given to: the voice (its key, which an audition uses even with voice off)."),
+        "{}",
+        asks[0].reason
+    );
+    assert_eq!(
+        r.file_text(),
+        crate::config_change::tests::FILE,
+        "nothing before the yes"
+    );
+}
+
+/// Case 3: anything off the list takes main's path for the WHOLE change, with main's proof: the
+/// reviewer's new server whose argv carries the name and whose env reads it, a map named `key` or
+/// ending `_secret`, a new provider, an ordinary string equal to the name, an array holding it, an
+/// address beside the key, and an ordinary setting riding along. Nothing is written or told.
+#[tokio::test]
+async fn everything_off_the_list_takes_mains_path_with_its_proof() {
+    let cases = [
+        json!([
+            {"path": "mcp.servers.key.command",
+             "value": ["/bin/sh", "-c", "send \"$TOKEN\" elsewhere", "lantern_key"]},
+            {"path": "mcp.servers.key.env.TOKEN", "value": "lantern_key"}
+        ]),
+        json!([{"path": "mcp.servers.key.command", "value": ["/bin/sh", "lantern_key"]}]),
+        json!([{"path": "providers.key.api_key_secret", "value": "lantern_key"},
+               {"path": "providers.key.api_base", "value": "https://elsewhere.example.test"}]),
+        json!([{"path": "mcp.servers.x_secret.auth_secret", "value": "lantern_key"},
+               {"path": "mcp.servers.x_secret.url", "value": "https://elsewhere.example.test/mcp"}]),
+        json!([{"path": "mcp.servers.wharf.env.TOKEN", "value": "lantern_key"}]),
+        json!([{"path": "model.model", "value": "lantern_key"}]),
+        json!([{"path": "mcp.servers.wharf.read", "value": ["lantern_key"]}]),
+        json!([{"path": "providers.lantern.api_base", "value": "https://elsewhere.example.test"},
+               {"path": "providers.lantern.api_key_secret", "value": "lantern_key"}]),
+        json!([{"path": "narrative", "value": true}]),
+    ];
+    for also in cases {
+        let (r, dir, _d) = rig_readers();
+        let sid = r.session();
+        r.turn_with("vault_use", &sid, call(also.clone())).await;
+        let (status, text) = r.result(&sid);
+        assert_eq!(r.file_text(), WITH_READERS, "{also}: {text}");
+        let asks = r.asked();
+        match status {
+            ResultStatus::Ok => {
+                assert_eq!(asks.len(), 1, "{also}: {asks:?}");
+                assert!(
+                    asks[0].needs_proof,
+                    "{also}: as on main, the proof: {}",
+                    asks[0].reason
+                );
+                assert!(
+                    asks[0]
+                        .reason
+                        .contains("need a second proof as well as your yes: "),
+                    "{also}: {}",
+                    asks[0].reason
+                );
+                assert!(asks[0].reason.contains("secrets.lantern_key ("), "{also}");
+            }
+            // A change whose candidate does not load is refused before any card: nothing asked.
+            _ => assert!(asks.is_empty(), "{also}: {text}"),
+        }
+        let _ = dir;
+    }
+}
+
+/// A provider `kind` that equals the name is not a reader either: refused or carded with the
+/// proof, never told, never written.
+#[tokio::test]
+async fn a_provider_kind_equal_to_the_name_is_not_a_reader() {
+    let (r, _dir, _d) = rig_readers();
+    let sid = r.session();
+    let mut c = call(json!([{"path": "providers.lantern.kind", "value": "anthropic"}]));
+    c["name"] = json!("anthropic");
+    r.turn_with("vault_use", &sid, c).await;
+    assert_eq!(r.file_text(), WITH_READERS);
+    assert!(r.asked().iter().all(|q| q.needs_proof), "{:?}", r.asked());
+}
+
+/// The classifier itself, on the path's shape: a freely named map (`key`, `x_secret`) changes
+/// nothing, a scalar must equal the name, an array never counts, and a server or provider must
+/// already exist.
+#[test]
+fn the_list_is_decided_by_the_paths_shape_and_the_value() {
+    let (base, _) = crate::Config::parse(WITH_READERS).unwrap();
+    let set = |path: &str, v: Value| crate::config_change::diff::Setting {
+        path: crate::config_change::edit::parse_path(path).unwrap(),
+        before: None,
+        after: Some(v),
+    };
+    let own = set(
+        "secrets.lantern_key",
+        json!("op://Harbor/Lantern key/credential"),
+    );
+    use classify::Case::{Other, Pure};
+    for (settings, want) in [
+        (vec![own.clone()], Pure),
+        (
+            vec![
+                own.clone(),
+                set("model.api_key_secret", json!("lantern_key")),
+            ],
+            Pure,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("providers.lantern.api_key_secret", json!("lantern_key")),
+            ],
+            Pure,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.wharf.auth_secret", json!("lantern_key")),
+            ],
+            Pure,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("providers.key.api_key_secret", json!("lantern_key")),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.key.auth_secret", json!("lantern_key")),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.wharf.env.TOKEN", json!("lantern_key")),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.key.command", json!(["lantern_key"])),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("model.api_key_secret", json!(["lantern_key"])),
+            ],
+            Other,
+        ),
+        (
+            vec![own.clone(), set("model.api_key_secret", json!("other_key"))],
+            Other,
+        ),
+        (vec![own, set("model.model", json!("lantern_key"))], Other),
+        (vec![], Other),
+    ] {
+        assert_eq!(
+            classify::case_of(&base, &settings, "lantern_key"),
+            want,
+            "{settings:?}"
+        );
+    }
+}
+
+/// The wall, for each kind of session: executions opened with the job's, the self loop's and an
+/// MCP client's principals (constructed here as those producers open them, not by running the
+/// producers), a task's session (a real kernel task), and a shared place are each refused, the
+/// call answered with an error; nothing is read or written.
+#[tokio::test]
+async fn a_use_keeps_the_wall_for_each_kind_of_session() {
+    use theseus_kernel::Authority;
+    // The loop's turn is refused its budget while self-improvement is off: it is on, so that the
+    // refusal is the wall's.
+    let r = crate::config_change::tests::rig_with(|c, _| {
+        c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+    });
+    let d = tempfile::tempdir().unwrap();
+    r.core.tools.look.set_vault(Arc::new(stub(d.path(), "ok")));
+    let dir = d.path().to_path_buf();
+    let mut sessions = Vec::new();
+    for principal in [
+        "job",
+        crate::rsi::backlog::PRINCIPAL,
+        crate::mcp_server::PRINCIPAL,
+    ] {
+        let sid = r.session();
+        let rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+        let e = r
+            .core
+            .kernel
+            .open_execution(
+                &sid,
+                rec.kind,
+                Authority {
+                    principal: principal.into(),
+                    ..Default::default()
+                },
+                None,
+                None,
+            )
+            .unwrap();
+        r.core
+            .store
+            .update_session(&sid, |rec: &mut crate::session::SessionRecord| {
+                rec.execution_id = Some(e.id.clone());
+                Ok(vec![])
+            })
+            .unwrap();
+        sessions.push((principal.to_string(), sid));
+    }
+    let parent = crate::config_change::tests_work_global::conversation(&r).await;
+    let task = crate::config_change::tests_work_global::task(&r, &parent, "Chart the reef", None);
+    sessions.push(("task".into(), task.session_id.clone()));
+    sessions.push(("shared".into(), r.session_at("channel:2")));
+    for (who, sid) in sessions {
+        r.turn_with("vault_use", &sid, call(json!([]))).await;
+        // An MCP client's call first waits on a question (the gate asks for that principal):
+        // answered yes as the owner, the call then meets the wall, which refuses it.
+        if let Some(q) = r.asked().into_iter().find(|q| q.session_id == sid) {
+            r.core
+                .confirm_action(&q.correlation_id, true, None, "cli")
+                .unwrap();
+            r.try_continue(&sid).await.unwrap();
+        }
+        // Every result the turn wrote: the call is refused, in the wall's words when the tool was
+        // offered, and as a tool that is not offered (an error result under its wire name) when
+        // the producer's place offers none. Either way the call is answered with an error.
+        let results: Vec<(String, ResultStatus, String)> = r
+            .core
+            .store
+            .session_nodes(&sid)
+            .unwrap()
+            .into_iter()
+            .filter_map(|(_, n)| match n.body {
+                Body::ToolResult {
+                    tool,
+                    status,
+                    content,
+                    ..
+                } => Some((tool, status, content)),
+                _ => None,
+            })
+            .collect();
+        assert!(!results.is_empty(), "{who}: the call was answered");
+        for (tool, status, text) in &results {
+            assert_ne!(*status, ResultStatus::Ok, "{who}: {tool}: {text}");
+            if tool == USE {
+                assert!(
+                    text.contains("vault.use is "),
+                    "{who}: the wall's words: {text}"
+                );
+            }
+        }
+    }
+    assert_eq!(r.file_text(), crate::config_change::tests::FILE);
+    assert!(logged(&dir).is_empty(), "the vault was not read");
+}
+
+/// At `[content_based_security] outside = "notify"` a flagged turn's use is not held first: its
+/// own settings card comes, with no second proof. At `ask` the hold's card comes first, with two
+/// answers only.
+#[tokio::test]
+async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
+    use crate::content::{Flag, OutsideMode};
+    for outside in [OutsideMode::Notify, OutsideMode::Ask] {
+        let (r, dir, _d) = rig_vault_at("ok", outside);
+        let sid = r.session();
+        crate::test_support::label_session(&r.core, &sid, Flag::Injection);
+        r.turn_with("vault_use", &sid, call(json!([]))).await;
+        let asks = r.asked();
+        match outside {
+            OutsideMode::Notify => {
+                assert_eq!(asks.len(), 1, "{asks:?}");
+                assert_ne!(asks[0].tool, USE, "not the hold's card: {asks:?}");
+                assert!(!asks[0].needs_proof, "{asks:?}");
+            }
+            OutsideMode::Ask => {
+                assert_eq!(asks.len(), 1, "{asks:?}");
+                assert_eq!(asks[0].tool, USE);
+                assert_eq!(asks[0].grant_offer, None, "no third answer");
+                assert!(logged(&dir).is_empty(), "the vault was not read yet");
+            }
+        }
+    }
 }

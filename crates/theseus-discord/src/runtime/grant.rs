@@ -85,4 +85,18 @@ mod tests {
             ]
         );
     }
+
+    /// A held look's clear (issue 54) is the same button in the same place, in its own words.
+    #[test]
+    fn a_holds_clear_is_the_third_button() {
+        let c = grant_buttons("act_9", &GrantOffer::clear(false));
+        let Component::ActionRow(row) = &c[0] else {
+            panic!()
+        };
+        let Component::Button(b) = &row.components[1] else {
+            panic!()
+        };
+        assert_eq!(b.custom_id.as_deref(), Some("confirm:grant:act_9"));
+        assert_eq!(b.label.as_deref(), Some("Approve and clear"));
+    }
 }

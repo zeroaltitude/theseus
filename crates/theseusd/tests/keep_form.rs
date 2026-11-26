@@ -294,9 +294,11 @@ fn the_form_in_the_dm_keeps_the_value_and_the_value_is_found_nowhere_else() {
     );
     let id = form["custom_id"].as_str().unwrap().to_string();
     assert!(id.starts_with("kf:act_"), "{id}");
-    // The code and the value are two fields.
+    // The value is the one field: the form takes no code.
     assert!(
-        rendered.contains("\"custom_id\":\"code\"") && rendered.contains("\"custom_id\":\"value\"")
+        !rendered.contains("\"custom_id\":\"code\"")
+            && rendered.contains("\"custom_id\":\"value\""),
+        "{rendered}"
     );
     r.fake
         .modal(&Modal {

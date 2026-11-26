@@ -35,6 +35,7 @@ pub mod card;
 pub mod diff;
 pub mod edit;
 pub mod history;
+pub mod hold;
 pub mod long_value;
 pub mod mcp_attach;
 pub mod prompt_file;
@@ -300,6 +301,64 @@ pub(crate) fn outside_text(tc: &TurnCtx<'_>) -> (bool, bool) {
     (outside, steered)
 }
 
+/// The hold's words when outside text alone holds the call.
+pub const OUTSIDE_HOLD: &str = "this conversation has read text from outside since your last \
+     message; this ends with your next message";
+
+/// The hold's words when the session's flag holds the call, before the way to clear it.
+pub const FLAG_HOLD: &str = "Theseus's check flagged text in this conversation as steering \
+     it; it asks each time until you clear the flag";
+
+/// Why a call that reads Theseus's own state is held, in the words of its cause (`what` is
+/// what the call asks to do): the session's flag, which asks every time until the owner clears
+/// it (`way`, from [`flag_way`]); else outside text, which ends with the owner's next message.
+/// None when neither holds. Each sentence fits whole in what a card prints of it
+/// (`needs_you::rule_clause`, cut at 200 characters by the Discord card).
+pub fn hold_words(what: &str, outside: bool, steered: bool, way: &str) -> Option<String> {
+    match (outside, steered) {
+        (_, true) => Some(format!("{what}: {FLAG_HOLD}: {way}")),
+        (true, false) => Some(format!("{what}: {OUTSIDE_HOLD}")),
+        (false, false) => None,
+    }
+}
+
+/// How the owner clears the session's flag, where this conversation is.
+pub(crate) fn flag_way(tc: &TurnCtx<'_>) -> String {
+    let place = tc.outbox.try_target(tc.session_id).ok().flatten();
+    flag_way_in(place.as_deref(), tc.session_id)
+}
+
+/// [`flag_way`], on the facts it reads: in the owner's Discord DM, `/trust` there or Remove on
+/// the flag's notice, which only that place has; anywhere else, the command that works from
+/// every terminal, naming the session by its last four characters.
+pub fn flag_way_in(place: Option<&str>, session_id: &str) -> String {
+    match place {
+        Some(p) if p.starts_with("discord:dm:") => {
+            "/trust in the DM or Remove on its ⚑ notice".into()
+        }
+        _ => {
+            let n = session_id.chars().count();
+            // plain cut: a session id's last four characters
+            let tail: String = session_id.chars().skip(n.saturating_sub(4)).collect();
+            format!("`theseus content remove {tail} injection`")
+        }
+    }
+}
+
+/// A hold's words without the way to clear the flag, for a card whose own answer clears it
+/// ("Approve and clear", issue 54); any other clause as it is.
+pub fn without_way(clause: &str) -> &str {
+    match clause.find(FLAG_HOLD) {
+        Some(i) => &clause[..i + FLAG_HOLD.len()],
+        None => clause,
+    }
+}
+
+/// Whether a rule's clause is a hold's words ([`hold_words`]).
+pub(crate) fn is_hold_words(clause: &str) -> bool {
+    clause.contains(OUTSIDE_HOLD) || clause.contains(FLAG_HOLD)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RestartInput {
@@ -421,12 +480,11 @@ pub fn restart(
 }
 
 /// Whether any result after the owner's last message is marked as outside
-/// text.
+/// text. A result whose call the owner approved with "Approve and clear" counts
+/// as his message ([`hold::span`]), its own mark included.
 pub(crate) fn outside_since_owner(nodes: &[(u64, crate::node::Node)]) -> bool {
-    let last_said = nodes
-        .iter()
-        .rposition(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }));
-    nodes[last_said.map_or(0, |i| i + 1)..]
+    let (from, _) = hold::span(nodes);
+    nodes[from..]
         .iter()
         .any(|(_, n)| crate::external::is_outside(n))
 }
@@ -449,6 +507,49 @@ pub(crate) fn sensitive(
         }
     }
     out
+}
+
+/// [`sensitive`], for a change that uses the vault's secret `used` (its name, and the settings as
+/// they were) when it names one: a pure use, the WHOLE change being the secret's entry and readers
+/// on `vault_use::classify`'s list, asks no second proof (issue 54, "using a secret must not ask
+/// for 2fa"); any other change is classified whole, as `config.propose`'s is. Read where the card
+/// is asked and again at its yes.
+pub(crate) fn sensitive_of(
+    changes: &[edit::Change],
+    settings: &[diff::Setting],
+    used: Option<(&crate::Config, &str)>,
+) -> Vec<(String, String)> {
+    let all = sensitive(changes, settings);
+    match used.map(|(base, name)| vault_use::classify::case_of(base, settings, name)) {
+        Some(vault_use::classify::Case::Pure) => Vec::new(),
+        _ => all,
+    }
+}
+
+/// The sensitive settings of a change: each path and why.
+type Sensitive = Vec<(String, String)>;
+
+/// The settings as they are, for a change that uses a vault secret (what its path is classified
+/// against, `vault_use::classify`; None for any other change), and the change's sensitive
+/// settings as [`sensitive_of`] reads them.
+fn sensitive_for(
+    changes: &[edit::Change],
+    settings: &[diff::Setting],
+    secret: Option<&vault_use::Chosen>,
+    base: &str,
+) -> Result<(Option<crate::Config>, Sensitive), String> {
+    let base_cfg = secret
+        .map(|_| {
+            crate::Config::parse(base)
+                .map(|(c, _)| c)
+                .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))
+        })
+        .transpose()?;
+    let used = secret
+        .zip(base_cfg.as_ref())
+        .map(|(s, b)| (b, s.name.as_str()));
+    let sens = sensitive_of(changes, settings, used);
+    Ok((base_cfg, sens))
 }
 
 /// Run `config.propose` for the call `correlation_id` of the turn `tc`: build
@@ -555,7 +656,8 @@ pub(crate) fn put_using(
         vault_use::refuse_other_references(&settings, secret)?;
     }
     let long = too_big(&settings)?;
-    let needs = proof_seam::Needs::of(!sensitive(changes, &settings).is_empty(), &settings);
+    let (base_cfg, sens) = sensitive_for(changes, &settings, secret, base)?;
+    let needs = proof_seam::Needs::of(!sens.is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
         settings: &settings,
@@ -564,13 +666,19 @@ pub(crate) fn put_using(
         reason,
         wait_secs: RESTART_WAIT_SECS,
         sources,
+        used: secret
+            .filter(|_| base_cfg.is_some() && sens.is_empty())
+            .map(|s| s.name.as_str()),
     };
     let question = match (undoes, secret) {
         (Some(u), _) => {
             let now = theseus_protocol::now_unix_ms();
             card::question_undoing(u.number, &undo::preface(u, now), &facts)
         }
-        (None, Some(s)) => card::question_using(&s.preface(&loaded, &settings), &facts),
+        (None, Some(s)) => {
+            let was = base_cfg.as_ref().unwrap_or(&loaded);
+            card::question_using(&s.preface(was, &loaded, &settings), &facts)
+        }
         (None, None) => card::question(&facts),
     };
     let digest = write::keep_candidate(&w.state, &candidate)
@@ -788,6 +896,8 @@ pub(crate) mod tests;
 #[cfg(test)]
 pub(crate) mod tests_answer;
 #[cfg(test)]
+pub(crate) mod tests_hold;
+#[cfg(test)]
 mod tests_look;
 #[cfg(test)]
 mod tests_look_card;
@@ -815,6 +925,8 @@ mod tests_profile_run;
 mod tests_profile_run_more;
 #[cfg(test)]
 mod tests_proof;
+#[cfg(test)]
+mod tests_quiet;
 #[cfg(test)]
 mod tests_source;
 #[cfg(test)]

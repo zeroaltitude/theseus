@@ -43,7 +43,7 @@ use crate::rpc::Core;
 mod plain;
 mod words;
 
-pub use plain::{plain, rule_clause, Gloss};
+pub use plain::{card_clause, plain, rule_clause, what_of, Gloss};
 
 /// The outbox post's kind.
 pub const KIND: &str = "needs_you";
