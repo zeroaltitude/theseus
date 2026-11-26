@@ -121,7 +121,8 @@ impl Leaving {
             "Publish a self change to the remote's main?\n\n\
              Title: {title}\nItem: {item}\nBranch: {branch}\n{subjects}\n\
              HEAD: {head}\nREMOTE MAIN: {main}\nDESTINATION: {dest}\nCOMMITS: {n}\nFILES: {files} ({size})\n\
-             REVIEW FILE: {path}\nREVIEW FILE SIZE: {bytes} bytes\nREVIEW FILE SHA-256: {sha}\nPRINT IT: {cmd}\n\n\
+             REVIEW FILE: {path}\nREVIEW FILE SIZE: {bytes} bytes\nREVIEW FILE SHA-256: {sha}\nPRINT IT: {cmd}\nFROM YOUR PHONE: ask Theseus in your private place to read the file at REVIEW FILE; it reads it \
+             with its file tool, fs.read.\n\n\
              The review file holds every commit the join of HEAD onto REMOTE MAIN would send: each commit's raw object \
              and its change against each of its parents, made from git's objects with text conversion, external diff \
              and renames off. The join adds its merge commit and main's count to them.\n\n\

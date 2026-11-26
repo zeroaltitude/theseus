@@ -696,3 +696,52 @@ async fn a_staged_ended_build_cannot_overwrite_the_owners_drop() {
         dropped
     );
 }
+
+/// While a join waits for the owner's card (issue 53), the pipeline still starts a build: a second item's tree is
+/// opened and its builder's session begun by the backlog's own start, in the same fixture as the parked join, and
+/// nothing is published.
+#[tokio::test]
+async fn a_build_starts_while_a_join_waits_for_the_owners_card() {
+    use crate::rsi::join::tests::{rig_with as join_rig, PROVED, SONNET};
+    let j = join_rig(SelfMode::Act, |c| {
+        c.server.disk_warn_mb = 0;
+        c.self_improve.backlog_starts = Some(0);
+        c.self_improve.pipeline_builds = 2;
+        c.self_improve.budget.day_usd = 30.0;
+    });
+    let main = git_main(&j.f.upstream);
+    let (branch, head) = j.seed("trim-the-sails", PROVED, SONNET);
+    let parked = j.core.self_join_pass(&j.seams()).await.unwrap();
+    assert_eq!(parked.parked, [(branch, head)], "{parked:?}");
+    let t0 = theseus_protocol::now_unix_ms();
+    for (kind, data) in causes() {
+        let mut row = LedgerRow::named(kind, None, None, data);
+        row.at_unix_ms = t0 - HOUR;
+        j.core.store.append_ledger(&row).unwrap();
+    }
+    let night = j
+        .core
+        .backlog_night(theseus_protocol::now_unix_ms())
+        .unwrap();
+    assert!(!night.filed.is_empty(), "{night:?}");
+    let fake = Arc::new(Fake::default());
+    let seams = Seams {
+        builder: fake.clone(),
+        probe: Arc::new(Stand::default()),
+        join: j.seams(),
+        grace: Duration::from_secs(3600),
+        ..Seams::default()
+    };
+    let t = j.core.pipeline_tick(&seams).await.unwrap();
+    assert!(!t.started.is_empty(), "a build started: {t:?}");
+    assert_eq!(fake.starts.lock().unwrap().len(), t.started.len());
+    let waiting = (j.core.confirm_list().unwrap().into_iter())
+        .filter(|c| c.tool == crate::rsi::join::publish::ACK)
+        .count();
+    assert_eq!(waiting, 1, "the card still waits");
+    assert_eq!(git_main(&j.f.upstream), main, "nothing published");
+}
+
+fn git_main(upstream: &std::path::Path) -> String {
+    crate::rsi::tests_tree::git(upstream, &["rev-parse", "refs/heads/main"])
+}
