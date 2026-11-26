@@ -6,8 +6,9 @@
 //! removes exactly that entry: the undo `config.undo` plans for the change (`undo::plan`), written
 //! by the settings' one writer (`answer::one_write`), with a `config.changed` row and the
 //! `config.undone` row a card's yes to an undo writes, so the history says it was undone. It runs
-//! only while the settings file is exactly what the use wrote: if the settings changed since, it
-//! refuses and writes nothing, and the owner asks in a conversation, where a card shows the change.
+//! only while the settings file is exactly what the use wrote: if the settings changed since, the
+//! use has moved on, nothing is written, and the note says the owner asks in a conversation, where
+//! a card shows what an undo would overwrite.
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
@@ -20,8 +21,9 @@ use crate::ledger::LedgerRow;
 use crate::rpc::Core;
 
 impl Core {
-    /// Remove the entry the told use that was settings change `number` added, for `who`'s press.
-    pub(crate) fn vault_use_put_back(&self, number: u32, who: &Answerer) -> Result<(), String> {
+    /// Remove the entry the told use that was settings change `number` added, for `who`'s press:
+    /// true when it was removed, false when the settings changed since (nothing is written).
+    pub(crate) fn vault_use_put_back(&self, number: u32, who: &Answerer) -> Result<bool, String> {
         let w = &self.tools.config_change;
         let file = w
             .file
@@ -40,10 +42,7 @@ impl Core {
         let session = made.session_id.clone().unwrap_or_default();
         let base = read_base(&self.tools)?;
         if made.data["digest_after"].as_str() != Some(sha256(&base).as_str()) {
-            return Err(format!(
-                "the settings changed after change #{number}, so its Undo would not put back only \
-                 that: ask Theseus in a conversation to undo change #{number}, and it asks you"
-            ));
+            return Ok(false);
         }
         let list = history::entries(&rows, &w.state, w.file.as_deref(), history::SHOWN);
         let planned = undo::plan(&list, Some(number), &base)?;
@@ -91,7 +90,7 @@ impl Core {
         self.store
             .append(&records)
             .map_err(|e| format!("the settings were put back, and their record was not kept: {e}"))?;
-        Ok(())
+        Ok(true)
     }
 
     /// Whether the told use that was settings change `number` was undone: a `config.undone` row

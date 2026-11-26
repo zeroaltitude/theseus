@@ -233,11 +233,10 @@ impl Core {
         Ok(true)
     }
 
-    /// Whether the item `item` names has left the backlog (dropped, or
-    /// closed some other way), so a drop would change nothing. False when it
-    /// names no item. Issue 57's Undo door reads it to find a drop already
-    /// done; it only reads.
-    pub(crate) fn self_item_closed(&self, item: &str) -> Result<bool> {
+    /// Whether the item `item` names was dropped. False when it names no
+    /// item. Issue 57's Undo door reads it to find a drop already done; it
+    /// only reads.
+    pub(crate) fn self_item_dropped(&self, item: &str) -> Result<bool> {
         let _one = self
             .rsi
             .backlog
@@ -247,7 +246,36 @@ impl Core {
         let Ok(id) = Self::backlog_item(&w, item) else {
             return Ok(false);
         };
-        Ok(w.tasks[&id].state.is_closed())
+        Ok(w.st.dropped.iter().any(|d| d.item == id))
+    }
+
+    /// The Undo of a filing's note (issue 57): drop the item only while it is
+    /// still as it was filed, read and dropped under one hold of the
+    /// backlog's lock, which every start takes too. Judged as `self.drop` is.
+    /// False, with nothing changed, when it has moved on.
+    pub(crate) fn self_drop_as_filed(&self, item: &str, who: &Answerer) -> Result<bool> {
+        self.judge_act(
+            who,
+            Act::SelfBacklog {
+                method: theseus_protocol::method::SELF_DROP,
+                what: item,
+                from_job: None,
+            },
+        )?;
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut w = self.backlog_work()?;
+        let id = Self::backlog_item(&w, item)?;
+        if !as_filed(&w.tasks[&id]) {
+            return Ok(false);
+        }
+        w.drop_item(&id, &who.who(), "dropped by the owner's word", true);
+        self.backlog_write(&mut w)?;
+        self.rsi.pipeline.kick();
+        Ok(true)
     }
 
     /// A chat session's filing (theseus-cux0o): the same write with no
@@ -566,4 +594,17 @@ fn task_graph_resolve(
     name: &str,
 ) -> Result<String, String> {
     crate::task_graph::resolve(all, name).map(|t| t.id.clone())
+}
+
+/// Whether an item is still as a filing left it (issue 57): open and never
+/// started (`proposed`, or `waiting_human` for a keel-class finding), held by
+/// no claim and no session, and carrying only the filing's own evidence
+/// (`filed:<by>`). A start writes a session and `session:`, a try or a gate
+/// its evidence, a retry `retried:owner`, a set-aside its mark, a drop
+/// `dropped:`: any of them and it has moved on.
+fn as_filed(t: &TaskRecord) -> bool {
+    matches!(t.state, TaskState::Proposed | TaskState::WaitingHuman)
+        && t.claim.is_none()
+        && t.session.is_none()
+        && t.evidence.iter().all(|e| e.identity.starts_with("filed:"))
 }

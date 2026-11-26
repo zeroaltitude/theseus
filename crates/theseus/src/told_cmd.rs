@@ -1,8 +1,9 @@
 //! `theseus told undo POST` (issue 57): the Undo of a note that told the owner
 //! of an act done unasked, from a terminal. It calls `told.undo`, the same
 //! door a Discord press calls, which judges it (the owner, from a private
-//! place) and runs the note's undo once; the CLI refuses it inside a job, as
-//! every operator verb (`client::OPERATORS`).
+//! place, and never an agent's or a job's process) and runs the note's undo
+//! once; the CLI refuses it inside a job, as every operator verb
+//! (`client::OPERATORS`). What it prints the daemon has already masked.
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -15,8 +16,8 @@ use crate::cmd::output;
 
 #[derive(Subcommand, Debug)]
 pub enum ToldCmd {
-    /// Undo the act a note told you of: its post id, or the end of it, as the
-    /// note's "Undo:" line names it.
+    /// Undo the act a note told you of: the note's full post id, as its own
+    /// "Undo:" line names it.
     Undo { post: String },
 }
 
