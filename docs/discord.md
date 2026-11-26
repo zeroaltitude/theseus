@@ -76,7 +76,16 @@ goes through (with **I agree** first when there is one), then the address to ope
 form takes the whole address your browser ended on and hands it to the daemon's own finish (`theseus mcp login
 --manual`'s); it is in no message, log line, row or reply. The answer is fixed words: signed in and the tools found,
 or why not (it ran out, not this sign-in's address, refused, the server said no). **Sign out** forgets the sign-in.
-Anyone else's press, or a press in a shared channel, is refused and shows no address.
+Anyone else's press, or a press in a shared channel, is refused and shows no address. When a server you signed in to
+has its sign-in refused for good (`needs sign-in`), or an attach's trial was refused for want of one, the daemon
+itself posts the same card to your direct messages, once for that change: not per retry, not again after a restart.
+
+**Connecting Google, the same way** (issue 59). Ask in words to connect Google: the turn can only offer a card, to
+your direct messages, with **Connect Google** and **Revoke Google**. Your own press of **Connect Google**, in a
+private place, shows you alone the consent address and **Paste the address**; the form hands the whole address your
+browser ended on to the daemon's own finish (`theseus google auth`'s), which keeps the grant exactly where that
+keeps it. It is in no message, log line, row or reply, and the answer is fixed words. **Revoke Google** ends the
+grant. Anyone else's press, or a press in a shared channel, is refused. Both cards are one pattern, written once.
 
 `/project trust <path>` lets a repository's own `AGENTS.md` and `CLAUDE.md` join the system block;
 `/project untrust <path>` takes that back, naming the files without reading them; `/project trusted`
