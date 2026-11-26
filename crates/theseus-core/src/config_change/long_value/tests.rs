@@ -45,7 +45,8 @@ async fn a_long_value_goes_on_a_card_instead_of_being_refused() {
         q.reason
     );
     assert!(q.reason.contains("theseus config show"), "{}", q.reason);
-    assert!(q.input["whole"] == true && q.needs_proof, "{q:?}");
+    // Prompt text keeps its card and needs no code (issue 57).
+    assert!(q.input["whole"] == true && !q.needs_proof, "{q:?}");
     assert!(
         q.reason.chars().count() <= super::super::prompt_file::card::CARD_CHARS + 200,
         "{}",

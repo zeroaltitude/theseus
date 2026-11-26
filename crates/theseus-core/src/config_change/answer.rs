@@ -182,7 +182,7 @@ impl Core {
         let _one = one_write(w)?;
         // A prompt file is changed in its own way: no restart, its own copies.
         if super::prompt_file::write::is_card(args) {
-            let (previous, before, after) = self.write_prompt_file(a, args, by, via)?;
+            let (previous, before, after) = self.write_prompt_file(args, by, via)?;
             return Ok(Applied {
                 previous,
                 before,
@@ -219,13 +219,20 @@ impl Core {
             .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?;
         let used = args["secret"]["name"].as_str().map(|n| (&was, n));
         let sens = super::sensitive_of(&[], &settings, used);
-        // An attached or removed MCP server is always sensitive, whatever the
-        // table says (`mcp_attach`), and only its own table may change.
+        // An attached or removed MCP server is judged by its own rule
+        // (`mcp_attach::needs`), and only its own table may change.
         let server = super::mcp_attach::at_yes(args, &settings)?;
         // The second wall: the answer's code was judged where it became a
         // decision; a change that needs the proof is written only if its
-        // question was asked with the mark its settings call for.
-        let needs = proof_seam::Needs::of(!sens.is_empty() || server, &settings);
+        // question was asked with the mark its settings call for (the same
+        // rule the card was asked by: `Needs::of`, or the server's own).
+        // A use of a vault secret keeps main's requirement exactly
+        // (`sensitive_of`); every other change is read by the code table.
+        let needs = match (server, used.is_some()) {
+            (true, _) => super::mcp_attach::needs(args, &settings),
+            (false, true) => proof_seam::Needs::of_main(!sens.is_empty(), &settings),
+            (false, false) => proof_seam::Needs::of(&settings),
+        };
         proof_seam::at_yes(&self.store, &a.correlation_id, needs)?;
         let (previous, copy) = write::keep_previous(&w.state, &now).map_err(|e| {
             format!("the previous settings could not be kept, so nothing was written: {e}")

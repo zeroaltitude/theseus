@@ -5,8 +5,9 @@
 //! address. `mcp.attach` then, in this order:
 //!
 //! 1. refuses unless the caller is the owner (`wall.rs`). Attaching can give a
-//!    server secrets and a network, so its card is always marked as needing
-//!    the second proof (`proof_seam.rs`): a code, or an open window of the
+//!    server secrets and a network, so a card for one whose table names a
+//!    secret, an env, an address or egress is marked as needing the second
+//!    proof (`proof_seam.rs`, [`needs`]): a code, or an open window of the
 //!    same place. Nothing has started by then;
 //! 2. **tries the server once**, in the sandbox (L1, whatever the owner asked
 //!    for it to run in), with no secret and no network beyond the hosts asked
@@ -301,8 +302,8 @@ impl Tool for Attach {
          argument as a list, never a shell line) or an address (`url`). Theseus tries it once in \
          the sandbox with no secret, lists its tools, and shows the owner one card with what will \
          run, each tool, which tools are read-only (only those you name in `read`), which secrets \
-         it is given by name, and which hosts it may reach. Only the owner's yes attaches it, \
-         with a second proof, and its tools are offered from the next message with no restart. \
+         it is given by name, and which hosts it may reach. Only the owner's yes attaches it \
+         (with a second proof when it is given a secret, an env, an address or egress), and its tools are offered from the next message with no restart. \
          A secret a server needs is named by its `[secrets]` entry (`env`: variable to secret \
          name; `auth_secret` for HTTP): never a value. A command or address its maker publishes may be \
          looked up with the web tools rather than asked for: give it with a `source`, never a guess. \
@@ -363,7 +364,7 @@ impl Tool for Detach {
 
     fn description(&self) -> &str {
         "Take away an MCP server that is attached, on the owner's word. Shows the owner one card \
-         with what stops and when; only their yes, with a second proof, removes it, and a server \
+         with what stops and when; only their yes removes it, and a server \
          that was attached by asking stops at once. To change a server, detach it and attach it \
          again. Offered only to the owner, in a private place."
     }
@@ -547,19 +548,17 @@ fn put(
         resource: Some("config".into()),
         policy_context: json!({}),
     };
+    let needs = needs(&proposal.args, settings);
     let said = format!(
-        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place, \
-         with the second proof; the daemon then writes the settings itself. If they decline, or \
-         do not answer in time, nothing is written."
+        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place{}; \
+         the daemon then writes the settings itself. If they decline, or do not answer in time, \
+         nothing is written.",
+        match needs {
+            proof_seam::Needs::Card => "",
+            _ => ", with the second proof",
+        }
     );
-    super::ask(
-        rt,
-        tc,
-        proposal,
-        correlation_id,
-        &said,
-        proof_seam::Needs::Proof,
-    )?;
+    super::ask(rt, tc, proposal, correlation_id, &said, needs)?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),
@@ -734,10 +733,30 @@ pub fn detach(
     )
 }
 
+/// What a server's card asks besides the yes (issue 57): attaching one whose table names a
+/// secret (`env`, `auth_secret`), an address (`url`) or egress needs the owner's code;
+/// attaching one with none of these, and removing one, need the card alone (removing a server
+/// gives nothing to anyone). Read from the settings that really change, at the card and again
+/// at the yes.
+pub(crate) fn needs(args: &Value, settings: &[diff::Setting]) -> proof_seam::Needs {
+    let attach = args["mcp"]["op"] == "attach";
+    let reaches = settings.iter().any(|s| {
+        s.after.is_some()
+            && matches!(
+                s.path.get(3).map(String::as_str),
+                Some("env" | "auth_secret" | "url" | "egress")
+            )
+    });
+    match attach && reaches {
+        true => proof_seam::Needs::Proof,
+        false => proof_seam::Needs::Card,
+    }
+}
+
 /// The yes's check, for a question that carries an `mcp` marker: the settings
 /// that really change must be the server's own table and nothing else, only
 /// added for an attach and only removed for a detach. `Ok(true)` when the
-/// question is one of these, whose change is always sensitive.
+/// question is one of these, whose proof is [`needs`]'s.
 pub(crate) fn at_yes(args: &Value, settings: &[diff::Setting]) -> Result<bool, String> {
     let Some(m) = args.get("mcp") else {
         return Ok(false);
@@ -763,6 +782,8 @@ pub(crate) fn at_yes(args: &Value, settings: &[diff::Setting]) -> Result<bool, S
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_code;
 #[cfg(test)]
 mod tests_proof;
 #[cfg(test)]

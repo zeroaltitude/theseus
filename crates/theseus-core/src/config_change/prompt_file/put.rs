@@ -139,13 +139,13 @@ pub fn put_file(
         policy_context: json!({}),
     };
     let said = format!(
-        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place, \
-         with the second proof; the daemon then writes the file itself. If they decline, or do \
-         not answer in time, nothing is written.\n{}\n{}",
+        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place; \
+         the daemon then writes the file itself. If they decline, or do not answer in time, \
+         nothing is written.\n{}\n{}",
         crate::config_change::waiting::FILE_CHECKED,
         crate::config_change::waiting::waiting(tc)
     );
-    crate::config_change::ask(rt, tc, proposal, correlation_id, &said, Needs::Proof)?;
+    crate::config_change::ask(rt, tc, proposal, correlation_id, &said, Needs::Card)?;
     Ok((
         said,
         json!({"file": path, "candidate": new_sha, "shown_whole": whole}),
