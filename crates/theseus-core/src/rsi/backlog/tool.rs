@@ -283,12 +283,8 @@ pub(crate) fn tell(
 ) -> anyhow::Result<()> {
     #[cfg(test)]
     fail::injected()?;
-    let text = crate::owner_note::note(
-        crate::owner_note::Kind::Fyi,
-        title,
-        &by(session, did),
-        body,
-    );
+    let text =
+        crate::owner_note::note(crate::owner_note::Kind::Fyi, title, &by(session, did), body);
     core.outbox.to_operator(
         Some(session),
         json!({"kind": "notice", "text": text, crate::outbox::ANNOUNCE_KEY: true}),
