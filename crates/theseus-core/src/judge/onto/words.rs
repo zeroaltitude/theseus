@@ -82,6 +82,33 @@ pub(crate) fn minted_text(
     )
 }
 
+/// The notice that the conversation was linked to an entry Theseus already
+/// knows, though it was not sure enough to link it unasked before (issue 57:
+/// told, with its undo, not asked). `path` is the entry's whole name.
+pub(crate) fn linked_text(
+    title: Option<&str>,
+    kind: &str,
+    path: &[String],
+    confidence: f64,
+    write: &str,
+) -> String {
+    let name = path.join(" › ");
+    let word = kind_word(kind, path.last().map_or("", String::as_str));
+    note(
+        Kind::Fyi,
+        "Theseus linked this conversation to something it knows",
+        &format!(
+            "{}, this {word} came up and Theseus already knows it:",
+            in_conversation(title)
+        ),
+        &format!(
+            "{name}\nIt linked this conversation to it. Conversations where it comes up share \
+             memory more readily.\n{}\nUndo: `theseus ontology undo {write}`",
+            sure(confidence)
+        ),
+    )
+}
+
 /// What a question is about.
 pub(crate) struct Asked<'a> {
     pub title: Option<&'a str>,

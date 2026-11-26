@@ -1338,10 +1338,10 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # ---------------------------------------------------------------- standing
 # What the owner's words become (theseus-slvl.5). `directive.v2` reads the
 # owner's own messages in a private place (the CLI, the web UI, a DM), in the
-# request the other inbound packs ride: what it is sure of (a preference, a
-# fact, a correction) is kept as a standing record with a notice and an undo;
-# what it is unsure of, and every order, is asked; and a message that says a
-# live record again is counted (`theseus standing` shows the week's count).
+# request the other inbound packs ride: what it hears from its confirm band up
+# (a preference, a fact, a correction) is kept as a standing record with a
+# notice and an undo; every order, and a correction said twice below that, is
+# asked; and a message that says a live record again is counted (`theseus standing` shows the week's count).
 # `theseus packs rollback directive.v2` puts the pack back in shadow.
 # [standing]
 # capture = true                          # false: nothing is captured, asked or counted
@@ -1410,12 +1410,13 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # and expertise it is about, and whether a new one is called for. From `act` Theseus
 # writes the membership (origin `jev`) and mints a new category, and tells you in the
 # reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
-# your DM with an undo button. From `confirm` it asks you in a card and writes nothing.
-# Below that the answer is only a record. `theseus ontology undo` takes a write back.
+# your DM with an undo button. From `confirm` it writes the same and tells you in a card
+# with an undo button; only a project is asked about there (nothing written). Below that
+# the answer is only a record. `theseus ontology undo` takes a write back.
 # [ontology]
 # judge = true                            # the rollback: off, onto.v2 is not asked and nothing is written
 # act = 0.80                              # at and above this, Jev's answer is written
-# confirm = 0.55                          # from this, you are asked
+# confirm = 0.55                          # from this, written and told with an undo (a project: asked)
 # name_profile = "haiku"                  # a pin: names a new category when no mined name fits (once a session, kind and day); unset: Jev chooses (US options only)
 # request = "batch"                       # "own": onto.v2 in a request of its own, never waited on (if the batch slows)
 # recall_boost = 0.25                    # a note from a session sharing a category with this one gains up to this in recall's rank (0 off)

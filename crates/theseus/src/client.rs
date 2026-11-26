@@ -309,7 +309,7 @@ pub fn job_session() -> Option<String> {
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start), and an MCP
 /// server's sign-in and sign-out (issue 55: it keeps a credential the daemon renews unattended).
-pub const OPERATORS: [(&str, &str); 110] = [
+pub const OPERATORS: [(&str, &str); 111] = [
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::MCP_LOGIN_BEGIN, "theseus mcp login"),
     (method::MCP_LOGIN_FINISH, "theseus mcp login"),
@@ -403,6 +403,7 @@ pub const OPERATORS: [(&str, &str); 110] = [
     ),
     (method::CARD_DONE, "theseus card done"),
     (method::STANDING_REVOKE, "theseus standing revoke"),
+    (method::TOLD_UNDO, "theseus told undo"),
     (method::STANDING_ANSWER, "theseus standing answer"),
     (method::SELF_DROP, "theseus self drop"),
     (method::SELF_MOVE, "theseus self move"),

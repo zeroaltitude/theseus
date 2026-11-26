@@ -65,11 +65,13 @@ mod onto_card;
 pub(crate) mod persona_soul;
 mod remind;
 pub(crate) mod sched;
+mod told;
 pub(crate) use capture_card::{buttons as capture_buttons, card_of as capture_card};
 pub(crate) use horizon::{answers_of as horizon_answers, buttons as horizon_buttons};
 pub(crate) use onto_card::{buttons as onto_buttons, write_of as onto_write};
 pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
 pub(crate) use source::source_buttons;
+pub(crate) use told::buttons as told_buttons;
 mod bound_before;
 pub(crate) mod default_forum;
 mod extensions;
@@ -1595,12 +1597,22 @@ impl Shared {
         content: Option<String>,
         ephemeral: bool,
     ) {
-        let data = content.map(|c| InteractionResponseData {
-            content: Some(command_reply::leaving(&self.core.exits, &c)),
-            flags: ephemeral.then_some(MessageFlags::EPHEMERAL),
-            allowed_mentions: Some(AllowedMentions::default()),
-            ..Default::default()
-        });
+        let data = match content {
+            Some(c) => Some(InteractionResponseData {
+                content: Some(command_reply::leaving(&self.core.exits, &c)),
+                flags: ephemeral.then_some(MessageFlags::EPHEMERAL),
+                allowed_mentions: Some(AllowedMentions::default()),
+                ..Default::default()
+            }),
+            // A private answer deferred says so now, as what completes it is private only if
+            // its first answer was: a press in a shared place is answered to the presser alone
+            // (issue 57: a note's Undo in a shared notices place).
+            None if ephemeral => Some(InteractionResponseData {
+                flags: Some(MessageFlags::EPHEMERAL),
+                ..Default::default()
+            }),
+            None => None,
+        };
         let resp = InteractionResponse { kind, data };
         if let Err(e) = self
             .interact

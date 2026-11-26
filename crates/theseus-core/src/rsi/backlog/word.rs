@@ -233,13 +233,53 @@ impl Core {
         Ok(true)
     }
 
-    /// A chat session's filing (theseus-cux0o): the same write with no
-    /// `judge_act`, because the caller has judged it. `super::tool` is the
-    /// only caller, and its own wall is stricter than the place rule here --
-    /// a private place the owner is alone in, never a task's -- while the
-    /// gate has already asked for a person's yes at every posture
-    /// (`Plan::authority`). The shape is `self_drop_vetoed`'s: the caller
-    /// judges, this only writes.
+    /// Whether the item `item` names was dropped. False when it names no
+    /// item. Issue 57's Undo door reads it to find a drop already done; it
+    /// only reads.
+    pub(crate) fn self_item_dropped(&self, item: &str) -> Result<bool> {
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let w = self.backlog_work()?;
+        let Ok(id) = Self::backlog_item(&w, item) else {
+            return Ok(false);
+        };
+        Ok(w.st.dropped.iter().any(|d| d.item == id))
+    }
+
+    /// The Undo of a filing's note (issue 57): drop the item only while it is
+    /// still as it was filed, read and dropped under one hold of the
+    /// backlog's lock, which every start takes too. Judged as `self.drop` is.
+    /// False, with nothing changed, when it has moved on.
+    pub(crate) fn self_drop_as_filed(&self, item: &str, who: &Answerer) -> Result<bool> {
+        self.judge_act(
+            who,
+            Act::SelfBacklog {
+                method: theseus_protocol::method::SELF_DROP,
+                what: item,
+                from_job: None,
+            },
+        )?;
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut w = self.backlog_work()?;
+        let id = Self::backlog_item(&w, item)?;
+        if !as_filed(&w.tasks[&id]) {
+            return Ok(false);
+        }
+        w.drop_item(&id, &who.who(), "dropped by the owner's word", true);
+        self.backlog_write(&mut w)?;
+        self.rsi.pipeline.kick();
+        Ok(true)
+    }
+
+    /// `self_file_in_chat_told` with no note: a test's filing as chat files it.
+    #[cfg(test)]
     pub(crate) fn self_file_in_chat(
         &self,
         finding: &str,
@@ -248,7 +288,26 @@ impl Core {
     ) -> Result<SelfFileResult> {
         let finding = filed::finding_of(finding).map_err(BadItem)?.to_string();
         let title = filed::title_of(&finding, title);
-        self.file_on_backlog(&finding, &title, by)
+        self.file_on_backlog(&finding, &title, by, None)
+    }
+
+    /// A chat session's filing (theseus-cux0o), with the owner's note (issue 57): the same write
+    /// with no `judge_act`, because the caller has judged it. `super::tool` is the only caller,
+    /// and its own wall is stricter than the place rule here -- a private place the owner is
+    /// alone in, never a task's; the call follows the tool's own posture. The shape is
+    /// `self_drop_vetoed`'s: the caller judges, this only writes. `note` stages the note from the
+    /// filing, and the filing and its note are one frame, so neither is written without the
+    /// other. The pipeline is woken once the frame is written.
+    pub(crate) fn self_file_in_chat_told(
+        &self,
+        finding: &str,
+        title: Option<&str>,
+        by: &str,
+        note: &Note<'_>,
+    ) -> Result<SelfFileResult> {
+        let finding = filed::finding_of(finding).map_err(BadItem)?.to_string();
+        let title = filed::title_of(&finding, title);
+        self.file_on_backlog(&finding, &title, by, Some(note))
     }
 
     /// Move an open item to a rank: the owner's word. It keeps the rank.
@@ -495,7 +554,7 @@ impl Core {
                 from_job,
             },
         )?;
-        self.file_on_backlog(&finding, &title, &who.who())
+        self.file_on_backlog(&finding, &title, &who.who(), None)
     }
 
     /// The write both filing routes share: one frame with the item, the
@@ -505,6 +564,7 @@ impl Core {
         finding: &str,
         title: &str,
         filed_by: &str,
+        note: Option<&Note<'_>>,
     ) -> Result<SelfFileResult> {
         let _one = self
             .rsi
@@ -531,17 +591,47 @@ impl Core {
             .position(|o| *o == id)
             .map_or(0, |i| i as u32 + 1);
         let cause = filed::cause_of(&id);
-        self.backlog_write(&mut w)?;
-        self.rsi.pipeline.kick();
-        Ok(SelfFileResult {
+        let res = SelfFileResult {
             item: id,
             title: title.to_string(),
             cause,
             rank,
             filed_by: filed_by.to_string(),
-        })
+        };
+        // A chat filing is held before its frame is staged, and its minute starts once the
+        // frame is written (`pipeline::chat_hold`).
+        let holds = &self.rsi.pipeline.chat_holds;
+        if note.is_some() {
+            holds.writing(&res.item);
+        }
+        // A note that cannot be staged files nothing: nothing has been written yet.
+        let written = (|| -> Result<_> {
+            let staged = note.map(|n| n(&res)).transpose()?;
+            let more = staged.as_ref().map_or_else(Vec::new, |(_, r)| r.clone());
+            self.backlog_write_with(&mut w, more)?;
+            Ok(staged)
+        })();
+        let staged = match written {
+            Ok(s) => s,
+            Err(e) => {
+                holds.failed(&res.item);
+                return Err(e);
+            }
+        };
+        if note.is_some() {
+            holds.written(&res.item);
+        }
+        if let Some((post, _)) = &staged {
+            self.outbox.posted(post);
+        }
+        self.rsi.pipeline.kick();
+        Ok(res)
     }
 }
+
+/// A chat filing's note, staged from the filing for its frame (issue 57).
+pub(crate) type Note<'a> =
+    dyn Fn(&SelfFileResult) -> Result<(theseus_kernel::Action, Vec<theseus_store::NewRecord>)> + 'a;
 
 /// The task a name means among the backlog's: its id or the end of it.
 fn task_graph_resolve(
@@ -549,4 +639,17 @@ fn task_graph_resolve(
     name: &str,
 ) -> Result<String, String> {
     crate::task_graph::resolve(all, name).map(|t| t.id.clone())
+}
+
+/// Whether an item is still as a filing left it (issue 57): open and never
+/// started (`proposed`, or `waiting_human` for a keel-class finding), held by
+/// no claim and no session, and carrying only the filing's own evidence
+/// (`filed:<by>`). A start writes a session and `session:`, a try or a gate
+/// its evidence, a retry `retried:owner`, a set-aside its mark, a drop
+/// `dropped:`: any of them and it has moved on.
+fn as_filed(t: &TaskRecord) -> bool {
+    matches!(t.state, TaskState::Proposed | TaskState::WaitingHuman)
+        && t.claim.is_none()
+        && t.session.is_none()
+        && t.evidence.iter().all(|e| e.identity.starts_with("filed:"))
 }

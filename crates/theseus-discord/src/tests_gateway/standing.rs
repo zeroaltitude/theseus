@@ -1,5 +1,6 @@
 //! Capture's cards in the owner's DM (theseus-slvl.5): a record kept from the
-//! owner's words arrives with Undo, and an ask with Keep and Not this; the
+//! owner's words arrives with Undo (an unsure one too, issue 57), and an ask
+//! (a correction said twice) with Keep and Not this; the
 //! owner's press counts as hers (Undo ends the record, Keep writes it), and a
 //! copy of a card's buttons in a shared channel is refused.
 
@@ -16,6 +17,40 @@ use super::{bindings, guild, Rig, ANA, ANA_DM};
 /// ana's DM session, bound as the binding binds it, and a verdict on a
 /// message she sent in it.
 fn heard(r: &Rig, text: &str, band: Band, confidence: f64) -> theseus_core::capture::act::Done {
+    let v = theseus_core::capture::Verdict {
+        heard: theseus_core::capture::Heard::Preference,
+        band,
+        confidence,
+        p_correction: 0.0,
+        said: theseus_core::capture::Said::Everywhere,
+        sure_of_scope: true,
+        judgment: "jdg_gateway".into(),
+        pack: "directive.v2".into(),
+    };
+    heard_as(r, text, &v)
+}
+
+/// A correction she made, below the band: noted, and asked about when said
+/// twice (the one question capture still puts, issue 57).
+fn corrected(r: &Rig, text: &str) -> theseus_core::capture::act::Done {
+    let v = theseus_core::capture::Verdict {
+        heard: theseus_core::capture::Heard::Correction,
+        band: Band::Escalate,
+        confidence: 0.4,
+        p_correction: 0.4,
+        said: theseus_core::capture::Said::Everywhere,
+        sure_of_scope: true,
+        judgment: "jdg_gateway".into(),
+        pack: "directive.v2".into(),
+    };
+    heard_as(r, text, &v)
+}
+
+fn heard_as(
+    r: &Rig,
+    text: &str,
+    v: &theseus_core::capture::Verdict,
+) -> theseus_core::capture::act::Done {
     let place = format!("dm:{ANA}");
     let sid = match r.core.outbox.place_session(&place).unwrap() {
         Some(s) => s,
@@ -32,17 +67,7 @@ fn heard(r: &Rig, text: &str, band: Band, confidence: f64) -> theseus_core::capt
         text: text.into(),
         place_kind: "discord_dm (private)".into(),
     };
-    let v = theseus_core::capture::Verdict {
-        heard: theseus_core::capture::Heard::Preference,
-        band,
-        confidence,
-        p_correction: 0.0,
-        said: theseus_core::capture::Said::Everywhere,
-        sure_of_scope: true,
-        judgment: "jdg_gateway".into(),
-        pack: "directive.v2".into(),
-    };
-    r.core.capture_now(&m, &v).unwrap()
+    r.core.capture_now(&m, v).unwrap()
 }
 
 #[tokio::test]
@@ -86,13 +111,21 @@ async fn a_kept_card_has_undo_and_an_ask_has_keep_and_the_owners_press_counts() 
         })
     })
     .await;
-    // An unsure one is asked: Keep, Keep everywhere is not offered (it is
-    // everywhere already), Not this.
-    let asked = heard(&r, "reply briefly", Band::Confirm, 0.6);
+    // An unsure one is kept as a sure one is, with its Undo (issue 57).
+    let unsure = heard(&r, "reply briefly", Band::Confirm, 0.6);
+    assert!(
+        matches!(unsure, theseus_core::capture::act::Done::Kept(_)),
+        "{unsure:?}"
+    );
+    // A correction said twice is asked: Keep, Keep everywhere is not offered
+    // (it is everywhere already), Not this.
+    let noted = corrected(&r, "stop using tables for lists");
+    assert_eq!(noted, theseus_core::capture::act::Done::Noted);
+    let asked = corrected(&r, "again, no tables for lists please");
     let theseus_core::capture::act::Done::Asked(ask) = asked else {
         panic!("{asked:?}")
     };
-    let is_ask = |m: &theseus_sim::fake_discord::Msg| m.content.contains("Keep as a standing");
+    let is_ask = |m: &theseus_sim::fake_discord::Msg| m.content.contains("said this twice");
     r.until("the ask in ana's DM", || {
         r.posted(ANA_DM).iter().any(is_ask)
     })
@@ -112,7 +145,7 @@ async fn a_kept_card_has_undo_and_an_ask_has_keep_and_the_owners_press_counts() 
     })
     .await;
     let live = r.core.runner.standing.all(&r.core.store).unwrap();
-    assert!(live
-        .iter()
-        .any(|x| x.text == "reply briefly" && x.kind == StandingKind::Preference));
+    assert!(live.iter().any(
+        |x| x.text == "again, no tables for lists please" && x.kind == StandingKind::Preference
+    ));
 }
