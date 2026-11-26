@@ -188,7 +188,7 @@ fn valued(v: &Value, at: &mut Vec<String>, out: &mut Vec<(Vec<String>, Value)>) 
 
 /// (G1) The addresses the configuration holds today, by the walk of the uncommented template.
 const ADDRESSES: &[&str] = &[
-    "aws.accounts.<account>.endpoint",
+    "aws.accounts.111122223333.endpoint",
     "catalog.some-new-model.provider",
     "cockpit.public_url",
     "discord.gateway_proxy",
