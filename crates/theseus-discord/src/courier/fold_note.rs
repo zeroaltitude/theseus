@@ -14,18 +14,25 @@
 //!
 //! The channel is the write's EFFECTIVE destination: the message this
 //! post's key already has (`msgs`), when it has one, else the planned
-//! channel. So a post sent again after its settle failed edits the message
-//! it already wrote, and keeps it folded, or open, as it was written.
+//! channel, in both forms. A new delivery decides folded or open from the
+//! place's word now; once a write of the key has landed, the lane keeps
+//! beside its cached message how it was written (folded or open, and
+//! whether this delivery added the mark of a possible copy,
+//! `render::RESENT`), and a later write of the key (a retry after a failed
+//! settle) replays that, whatever the word says by then. The mark is a
+//! fact of the delivery (`copy_mark`), never read from the words.
 //!
 //! A folded write's `(channel, message)` is kept with its post as an
 //! additive key of the post's detail, `note_fold`, with `resent` when the
-//! write bore the mark of a possible copy (`render::RESENT`): both forms
-//! are rebuilt with that mark from the record, never from the words. A press names the post
+//! write bore the mark: both forms are rebuilt with it from that record,
+//! never from the words. A press names the post
 //! (`runtime/fold.rs`) and is honoured only when that stored pair is the
 //! pressed channel and message: a note written open or with a button has no
 //! such pair, so no press can fold it or take its buttons away. The words
 //! are read back from the post itself, by the same functions the lane wrote
 //! them with, and masked at the exit as every write is.
+
+use std::collections::HashMap;
 
 use serde_json::{json, Value};
 use theseus_core::outbox::{body_of, kind_of as post_kind};
@@ -87,10 +94,32 @@ fn folded_at(a: &Action, at: (u64, u64)) -> bool {
 
 /// Where post `post` was written folded, and whether that write bore the
 /// mark of a possible copy, until its settle records it.
-pub(super) struct Folded {
+struct Folded {
     post: String,
     at: (u64, u64),
     resent: bool,
+}
+
+/// How a note key's cached message was written: replayed on a later write
+/// of the key while the lane's cache still holds that message.
+struct Shown {
+    post: String,
+    at: (u64, u64),
+    folded: bool,
+    resent: bool,
+}
+
+/// What a lane keeps of its notes' writes.
+#[derive(Default)]
+pub(super) struct Notes {
+    /// Whether the delivery appended the copy's mark to the write being
+    /// written now (`copy_mark`).
+    appended: bool,
+    /// Where the post being delivered was written folded.
+    pending: Option<Folded>,
+    /// By key, how each note's cached message was written, until its post
+    /// settles.
+    shown: HashMap<String, Shown>,
 }
 
 /// `s`, with the mark of a possible copy when `resent`.
@@ -102,20 +131,48 @@ fn marked(s: String, resent: bool) -> String {
     }
 }
 
-/// The posts whose next settle a test makes fail once, as a full disk would.
+/// The settle faults a test set: a post's next settle fails once, or, held,
+/// every settle until it is released.
 #[cfg(test)]
-static FAIL_SETTLE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static FAIL_SETTLE: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
+
+/// The posts whose settles a test's fault failed, one entry each time.
+#[cfg(test)]
+static SETTLE_FAILED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 /// Make post `post`'s next settle by a lane fail once (a test's fault).
 #[cfg(test)]
 pub(crate) fn fail_settle_once(post: &str) {
-    FAIL_SETTLE.lock().unwrap().push(post.to_string());
+    FAIL_SETTLE.lock().unwrap().push((post.to_string(), false));
+}
+
+/// Make every settle of post `post` fail until [`release_settle`].
+#[cfg(test)]
+pub(crate) fn hold_settle(post: &str) {
+    FAIL_SETTLE.lock().unwrap().push((post.to_string(), true));
+}
+
+/// Let post `post`'s settles through again.
+#[cfg(test)]
+pub(crate) fn release_settle(post: &str) {
+    FAIL_SETTLE.lock().unwrap().retain(|(p, _)| p != post);
 }
 
 /// Whether post `post`'s settle fault is still to fire.
 #[cfg(test)]
 pub(crate) fn settle_fault_pending(post: &str) -> bool {
-    FAIL_SETTLE.lock().unwrap().iter().any(|p| p == post)
+    FAIL_SETTLE.lock().unwrap().iter().any(|(p, _)| p == post)
+}
+
+/// How many of post `post`'s settles a test's fault failed.
+#[cfg(test)]
+pub(crate) fn settle_failures(post: &str) -> usize {
+    SETTLE_FAILED
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|p| *p == post)
+        .count()
 }
 
 /// What a press on a folded note asks for: its post, open or closed, where.
@@ -134,49 +191,98 @@ impl Lane {
         self.msgs.get(&w.key).map_or(w.channel, |(c, _)| *c)
     }
 
-    /// Whether write `w` of post `a`, reaching `channel`, is folded there:
-    /// an FYI of an informing kind with no button and no message of its own
-    /// to edit, not a met watch, in a place that folds its steps and is not
-    /// the notices place.
-    fn folds(&self, a: &Action, w: &Write, channel: u64) -> bool {
+    /// Whether write `w` of post `a`, reaching `channel`, may be folded
+    /// there: an FYI of an informing kind with no button and no message of
+    /// its own to edit, not a met watch, and not in the notices place.
+    /// Whether it is, is the place's word for a new delivery, else how its
+    /// message was written ([`replay`](Self::replay)).
+    fn may_fold(&self, a: &Action, w: &Write, channel: u64) -> bool {
         let notices = self.notices_place((0, String::new())).0;
         w.message.is_none()
             && w.buttons == Buttons::Keep
             && body_of(a)["purpose"].as_str() != Some("watch.met")
             && notices::informs(post_kind(a), &w.content)
             && (notices == 0 || channel != notices)
-            && self.shared.steps_in(channel) == Steps::Folded
     }
 
-    /// Write `w` of post `a`, folded when it [`folds`](Self::folds) where it
-    /// actually lands ([`effective`](Self::effective)); where a folded write
-    /// landed, and whether it bore a copy's mark (`RESENT`, kept on the
-    /// line), is kept for the post's detail.
+    /// How key `key`'s message was written, folded and resent, while the
+    /// lane's cache still holds that very message.
+    fn replay(&self, key: &str) -> Option<(bool, bool)> {
+        let s = self.notes.shown.get(key)?;
+        (self.msgs.get(key) == Some(&s.at)).then_some((s.folded, s.resent))
+    }
+
+    /// Write `w` with the mark of a possible copy when the delivery is a
+    /// `resend` and `w` is a new message's create; the lane keeps whether it
+    /// did, for the note write that follows (`note_write`).
+    pub(super) fn copy_mark(&mut self, w: &mut Write, resend: bool) {
+        let append = resend
+            && w.buttons != Buttons::V2
+            && w.message.is_none()
+            && !self.msgs.contains_key(&w.key);
+        if append {
+            w.content = format!("{}\n{}", w.content, crate::render::RESENT);
+        }
+        self.notes.appended = append;
+    }
+
+    /// Write `w` of post `a`. A note that [`may_fold`](Self::may_fold) is
+    /// written at its effective destination ([`effective`](Self::effective)),
+    /// folded or open as its message was written before
+    /// ([`replay`](Self::replay)), else as the place says now, with the copy's
+    /// mark as the delivery added it; how it was written is kept beside its
+    /// cached message, and, folded, for the post's detail. Every other write
+    /// is the lane's as ever.
     pub(super) async fn note_write(
         &mut self,
         a: &Action,
         w: &Write,
     ) -> Result<Option<(u64, u64)>, SendErr> {
         let channel = self.effective(w);
-        if !self.folds(a, w, channel) {
+        if !self.may_fold(a, w, channel) {
             return self.write(w).await;
         }
-        let resent = w.content.ends_with(crate::render::RESENT);
+        let appended = self.notes.appended;
+        let tail = format!("\n{}", crate::render::RESENT);
+        let words = match appended {
+            true => w.content.strip_suffix(&tail).unwrap_or(&w.content),
+            false => &w.content,
+        };
+        let (folded, resent) = match self.replay(&w.key) {
+            Some((folded, resent)) => (folded, resent),
+            None => (self.shared.steps_in(channel) == Steps::Folded, appended),
+        };
         let mut f = w.clone();
         f.channel = channel;
-        f.content = marked(line(post_kind(a)), resent);
-        f.buttons = Buttons::FoldNote(a.correlation_id.clone(), false);
+        if folded {
+            f.content = marked(line(post_kind(a)), resent);
+            f.buttons = Buttons::FoldNote(a.correlation_id.clone(), false);
+        } else {
+            f.content = marked(words.to_string(), resent);
+        }
         let wrote = self.write(&f).await;
         if let Ok(Some(at)) = wrote {
             let post = a.correlation_id.clone();
-            self.note_folded = Some(Folded { post, at, resent });
+            if folded {
+                let post = post.clone();
+                self.notes.pending = Some(Folded { post, at, resent });
+            }
+            let msgs = &self.msgs;
+            self.notes.shown.retain(|k, s| msgs.get(k) == Some(&s.at));
+            let shown = Shown {
+                post,
+                at,
+                folded,
+                resent,
+            };
+            self.notes.shown.insert(w.key.clone(), shown);
         }
         wrote
     }
 
     /// Post `a`'s detail, with where it was written folded, if it was.
     pub(super) fn mark_folded(&mut self, a: &Action, mut detail: Value) -> Value {
-        match self.note_folded.take() {
+        match self.notes.pending.take() {
             Some(f) if f.post == a.correlation_id => {
                 let (c, m) = f.at;
                 detail[MARK] = json!({"channel": c.to_string(), "id": m.to_string()});
@@ -189,10 +295,11 @@ impl Lane {
         detail
     }
 
-    /// The outbox's settle of post `a`, as the lane records every post; a
-    /// test may make it fail once ([`fail_settle_once`]).
+    /// The outbox's settle of post `a`, as the lane records every post; once
+    /// it is recorded, how its notes were written is no longer kept. A test
+    /// may make it fail ([`fail_settle_once`], [`hold_settle`]).
     pub(super) fn outbox_settle(
-        &self,
+        &mut self,
         correlation_id: &str,
         outcome: Outcome,
         receipt: Receipt,
@@ -203,13 +310,23 @@ impl Lane {
         #[cfg(test)]
         {
             let mut f = FAIL_SETTLE.lock().unwrap();
-            if let Some(i) = f.iter().position(|p| p == correlation_id) {
-                f.remove(i);
+            if let Some(i) = f.iter().position(|(p, _)| p == correlation_id) {
+                if !f[i].1 {
+                    f.remove(i);
+                }
+                SETTLE_FAILED
+                    .lock()
+                    .unwrap()
+                    .push(correlation_id.to_string());
                 anyhow::bail!("a test's settle failed, as on a full disk");
             }
         }
         let outbox = &self.shared.core.outbox;
-        outbox.settle(correlation_id, outcome, receipt, first, detail, producer)
+        let r = outbox.settle(correlation_id, outcome, receipt, first, detail, producer);
+        if r.is_ok() {
+            self.notes.shown.retain(|_, s| s.post != correlation_id);
+        }
+        r
     }
 
     /// A folded note pressed: its words, or its line again, on the message

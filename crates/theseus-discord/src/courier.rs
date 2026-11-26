@@ -384,8 +384,8 @@ pub(crate) struct Lane {
     /// The posts stopped at a card held for its call (`waits_for_its_call`):
     /// live progress may go on, but the posts have not all gone.
     card_held: bool,
-    /// Where the post being delivered was written folded (`fold_note.rs`).
-    note_folded: Option<fold_note::Folded>,
+    /// What the lane keeps of its notes' writes (`fold_note.rs`).
+    notes: fold_note::Notes,
 }
 
 impl Lane {
@@ -433,7 +433,7 @@ impl Lane {
             presses: Vec::new(),
             came_back: false,
             card_held: false,
-            note_folded: None,
+            notes: fold_note::Notes::default(),
         }
     }
 
@@ -808,13 +808,7 @@ impl Lane {
             maybe_landed && theseus_protocol::now_unix_ms().saturating_sub(first) > NONCE_WINDOW_MS;
         let mut messages = Vec::new();
         for mut w in plan.writes {
-            if resend
-                && w.buttons != Buttons::V2
-                && w.message.is_none()
-                && !self.msgs.contains_key(&w.key)
-            {
-                w.content = format!("{}\n{}", w.content, render::RESENT);
-            }
+            self.copy_mark(&mut w, resend);
             let wrote = self.note_write(a, &w).await;
             let fyi = (&mut notices, maybe_landed, &mut plan.extra);
             let Some(wrote) = self.through_notices(a, &w, wrote, fyi).await else {
