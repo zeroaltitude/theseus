@@ -558,6 +558,74 @@ async fn a_clear_removes_only_the_flag_it_was_offered_for() {
     assert!(flag_of(&r, &sid), "the newer flag stays");
 }
 
+/// The removal compares the flag inside the session's own mutation: when, between the answer's
+/// check and the removal, the offered flag is removed by another path and a new one raised, the
+/// new flag stays, the call is still approved, and the owner is told the flag was left.
+#[tokio::test]
+async fn a_flag_raised_between_the_check_and_the_removal_stays() {
+    let r = at(OutsideMode::Ask);
+    let sid = flagged(&r);
+    r.steps(&sid, vec![("look_theseus", json!({}))]).await;
+    let q = r.asked().remove(0);
+    let core = r.core.clone();
+    let between = sid.clone();
+    r.core.between_clear_check(
+        &sid,
+        Box::new(move || {
+            // Another path removes the offered flag, and a new one is raised, in the gap.
+            core.store
+                .update_session(&between, |rec: &mut SessionRecord| {
+                    rec.data = None;
+                    Ok(vec![])
+                })
+                .unwrap();
+            let mut f = crate::content::ContentFlags::default();
+            f.raise(crate::content::deterministic::label(
+                Flag::Injection,
+                "nod_between",
+                crate::content::ItemKind::FetchedPage,
+                "a page read in the gap".into(),
+                theseus_protocol::now_unix_ms(),
+            ));
+            core.store
+                .update_session(&between, |rec: &mut SessionRecord| {
+                    rec.data = Some(Box::new(f));
+                    Ok(vec![])
+                })
+                .unwrap();
+        }),
+    );
+    let done = r
+        .core
+        .confirm_granting(
+            &q.correlation_id,
+            None,
+            owner_in_dm(),
+            &GrantAnswer {
+                pattern: CLEAR_FLAG.into(),
+            },
+        )
+        .unwrap();
+    assert!(done.approved);
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let left = rec.data.as_ref().and_then(|d| d.label(Flag::Injection).cloned());
+    assert_eq!(
+        left.map(|l| l.source),
+        Some("a page read in the gap".to_string()),
+        "the new flag stays"
+    );
+    assert!(r.rows("content.removed").is_empty(), "nothing was removed");
+    let told: Vec<String> = r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(str::to_string))
+        .filter(|t| t.starts_with("ℹ️ FYI · Approve and clear left a newer flag"))
+        .collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+}
+
 /// At `ask`, outside text's card offers "Approve and clear"; its press ends the hold as if the
 /// owner had spoken: a later call is free, and one after new outside text is asked again.
 #[tokio::test]

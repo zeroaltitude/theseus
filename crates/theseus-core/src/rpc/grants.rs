@@ -15,7 +15,7 @@
 //! `policy.granted` and `policy.grant_ended` rows stay in old ledgers.
 
 use anyhow::{anyhow, bail, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_protocol::grants::{GrantAnswer, GrantOffer};
 use theseus_protocol::modes::SessionMode;
 use theseus_protocol::GateRecord;
@@ -105,12 +105,13 @@ static CLEARING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 impl Core {
     /// "Approve and clear" (issue 54). Nothing happens unless the question still waits: a stale
-    /// or replayed answer changes nothing. The flag's removal is judged first, as `/trust` and the
-    /// notice's Remove are judged (`Act::Unlabel`), so a press that may not remove it changes
-    /// nothing; then the call is approved; then the flag the offer was made for is removed (one
-    /// raised before the question was asked, never a newer one) through `content.unlabel` as the
-    /// presser. The approved call's result is the boundary the hold counts from, as if the owner
-    /// had just spoken.
+    /// or replayed answer changes nothing. The flag the offer was made for (one raised before the
+    /// question was asked) is captured; its removal is judged first, as `/trust` and the notice's
+    /// Remove are judged (`Act::Unlabel`), so a press that may not remove it changes nothing; then
+    /// the call is approved; then that flag, and only that flag, is removed: its identity is
+    /// compared inside the session's own mutation (`unlabel_session_if`), so a flag raised since
+    /// stays, and the owner is told so. The approved call's result is the boundary the hold counts
+    /// from, as if the owner had just spoken.
     fn confirm_clearing(
         &self,
         rec: &SessionRecord,
@@ -132,9 +133,11 @@ impl Core {
                 a.state.as_str()
             );
         }
-        let clears_flag = offered.pattern == theseus_protocol::grants::CLEAR_FLAG
-            && self.offered_flag(&rec.session_id, a.planned_at_ms)?;
-        if clears_flag {
+        let flag = match offered.pattern == theseus_protocol::grants::CLEAR_FLAG {
+            true => self.offered_flag(&rec.session_id, a.planned_at_ms)?,
+            false => None,
+        };
+        if flag.is_some() {
             let what = format!("Removing injection from session {}", rec.session_id);
             self.judge_act(
                 &who,
@@ -152,21 +155,25 @@ impl Core {
             holds.unclear(correlation_id);
             return done;
         }
-        // Already judged. Only the flag the offer was made for is removed: if the session lost it
-        // since (a `/trust`) and carries a newer one, that one stays.
-        if clears_flag && self.offered_flag(&rec.session_id, a.planned_at_ms)? {
-            if let Err(e) = self.unlabel_session(&rec.session_id, "injection", who) {
-                tracing::warn!(error = %format!("{e:#}"), "the cleared flag was not removed");
-            }
+        let Some(expected) = flag else {
+            return done;
+        };
+        #[cfg(test)]
+        between_hook(&rec.session_id);
+        let injection = crate::content::Flag::Injection;
+        match self.unlabel_session_if(&rec.session_id, injection, &who, &expected) {
+            Ok(Some(_)) => {}
+            Ok(None) => self.tell_flag_left(&rec.session_id),
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), "the cleared flag was not removed"),
         }
         done
     }
 }
 
 impl Core {
-    /// Whether the session carries an injection flag raised no later than `asked_ms`: the one a
-    /// question asked then offered to clear.
-    fn offered_flag(&self, session: &str, asked_ms: u64) -> Result<bool> {
+    /// The injection flag the session carries, when it was raised no later than `asked_ms`: the
+    /// one a question asked then offered to clear.
+    fn offered_flag(&self, session: &str, asked_ms: u64) -> Result<Option<crate::content::Label>> {
         let rec = self
             .store
             .get_session::<SessionRecord>(session)?
@@ -175,7 +182,61 @@ impl Core {
             .data
             .as_ref()
             .and_then(|d| d.label(crate::content::Flag::Injection))
-            .is_some_and(|l| l.at_ms <= asked_ms))
+            .filter(|l| l.at_ms <= asked_ms)
+            .cloned())
+    }
+
+    /// The owner is told an "Approve and clear" left a flag: the call was approved, and the flag
+    /// the session carries now is not the one the card offered to clear. A note that cannot be
+    /// staged is logged.
+    fn tell_flag_left(&self, session: &str) {
+        let text = crate::owner_note::note(
+            crate::owner_note::Kind::Fyi,
+            "Approve and clear left a newer flag",
+            &format!("In conversation {}", crate::narrative::short(session)),
+            "The call was approved. The flag on this conversation now is not the one the card \
+             offered to clear, so it stays: /trust or the flag's Remove clears it.",
+        );
+        match self
+            .outbox
+            .stage_to_operator(Some(session), json!({"kind": "notice", "text": text}))
+        {
+            Ok((post, frame)) => match self.store.append(&frame) {
+                Ok(_) => self.outbox.posted(&post),
+                Err(e) => tracing::warn!(error = %format!("{e:#}"), "the left flag's note was not kept"),
+            },
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), "the left flag's note was not staged"),
+        }
+    }
+}
+
+/// What a test runs between the answer's check and the flag's removal: one per session.
+#[cfg(test)]
+type Between = Vec<(String, Box<dyn FnOnce() + Send>)>;
+
+#[cfg(test)]
+static BETWEEN: std::sync::Mutex<Between> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+impl Core {
+    /// Have `f` run, once, between an "Approve and clear" answer's check and its flag's removal in
+    /// `session`: what a test does in that gap.
+    pub(crate) fn between_clear_check(&self, session: &str, f: Box<dyn FnOnce() + Send>) {
+        BETWEEN.lock().unwrap().push((session.to_string(), f));
+    }
+}
+
+/// Run what a test set for `session` between the check and the removal, once.
+#[cfg(test)]
+fn between_hook(session: &str) {
+    let hook = {
+        let mut all = BETWEEN.lock().unwrap();
+        all.iter()
+            .position(|(s, _)| s == session)
+            .map(|i| all.remove(i).1)
+    };
+    if let Some(f) = hook {
+        f();
     }
 }
 

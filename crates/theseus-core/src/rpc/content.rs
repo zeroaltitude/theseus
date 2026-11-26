@@ -206,14 +206,63 @@ impl Core {
                 what: &what,
             },
         )?;
+        let Some(r) = self.remove_flag(session_id, flag, &who, None)? else {
+            bail!(
+                "session {session_id} carries no {} label, so there is nothing to remove",
+                flag.as_str()
+            );
+        };
+        Ok(r)
+    }
+
+    /// [`Core::unlabel_session`], only while the session's `flag` is still `expected` (its node,
+    /// source and time): compared inside the session's own mutation, so a flag raised since is
+    /// never removed by an answer given for another (issue 54). None, and nothing written, when
+    /// the flag there is not that one or there is none.
+    pub(crate) fn unlabel_session_if(
+        &self,
+        session_id: &str,
+        flag: Flag,
+        who: &Answerer,
+        expected: &Label,
+    ) -> Result<Option<UnlabelResult>> {
+        let what = format!("Removing {} from session {session_id}", flag.as_str());
+        self.judge_act(
+            who,
+            Act::Unlabel {
+                session: session_id,
+                what: &what,
+            },
+        )?;
+        self.remove_flag(session_id, flag, who, Some(expected))
+    }
+
+    /// The removal itself, in the session's own mutation, and its announcement; with `expected`,
+    /// only while the flag there is that one.
+    fn remove_flag(
+        &self,
+        session_id: &str,
+        flag: Flag,
+        who: &Answerer,
+        expected: Option<&Label>,
+    ) -> Result<Option<UnlabelResult>> {
         let out = self
             .store
             .with_session(session_id, |rec| {
+                if let Some(e) = expected {
+                    let now = rec.data.as_ref().and_then(|d| d.label(flag));
+                    let same = now.is_some_and(|l| {
+                        l.at_ms == e.at_ms && l.node == e.node && l.source == e.source
+                    });
+                    if !same {
+                        return Ok(None);
+                    }
+                }
                 let Some((r, frame)) = removed(
                     rec,
                     session_id,
                     flag,
-                    &who,
+                    who,
                     theseus_protocol::method::CONTENT_UNLABEL,
                     None,
                     (
@@ -228,14 +277,10 @@ impl Core {
                 Ok(Some(r))
             })?
             .flatten();
-        let Some(r) = out else {
-            bail!(
-                "session {session_id} carries no {} label, so there is nothing to remove",
-                flag.as_str()
-            );
-        };
-        self.announce_removal(session_id, &r);
-        Ok(r)
+        if let Some(r) = &out {
+            self.announce_removal(session_id, r);
+        }
+        Ok(out)
     }
 
     /// A removal written: narrated, and published to the session's watchers.
