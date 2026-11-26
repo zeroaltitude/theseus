@@ -526,21 +526,23 @@ fn names_are_checked_and_readers_are_worded() {
     assert!(valid_name("lantern_key") && valid_name("K2"));
     assert!(!valid_name("2k") && !valid_name("a-b") && !valid_name(""));
     let p = |s: &str| s.split('.').map(str::to_string).collect::<Vec<_>>();
+    // Settings with no such provider or server: the words alone, with no address to give.
+    let (cfg, _) = crate::Config::parse(crate::config_change::tests::FILE).unwrap();
     assert_eq!(
-        describe(&p("providers.lantern.api_key_secret")),
+        describe(&cfg, &p("providers.lantern.api_key_secret")),
         "the provider `lantern` (its key)"
     );
     assert_eq!(
-        describe(&p("broker.programs.deployer.env.DEPLOY_KEY")),
+        describe(&cfg, &p("broker.programs.deployer.env.DEPLOY_KEY")),
         "the program `deployer` (its variable `DEPLOY_KEY`)"
     );
     assert_eq!(
-        describe(&p("mcp.servers.docs.auth_secret")),
+        describe(&cfg, &p("mcp.servers.docs.auth_secret")),
         "the attached server `docs` (its key)"
     );
     assert_eq!(
-        describe(&p("tools.web.search_key_secret")),
-        "the setting `tools.web.search_key_secret`"
+        describe(&cfg, &p("tools.web.search_key_secret")),
+        "the web search (its key)"
     );
 }
 
@@ -848,7 +850,11 @@ async fn a_new_name_alone_is_one_card_with_no_proof() {
         assert!(q.reason.contains(part), "{part}: {}", q.reason);
     }
     assert!(!q.reason.contains("second proof"), "{}", q.reason);
-    assert_eq!(r.file_text(), crate::config_change::tests::FILE, "nothing before the yes");
+    assert_eq!(
+        r.file_text(),
+        crate::config_change::tests::FILE,
+        "nothing before the yes"
+    );
     r.core
         .confirm_action(&q.correlation_id, true, None, "cli")
         .unwrap();
@@ -881,7 +887,11 @@ async fn the_voices_default_name_is_one_card_that_names_the_voice() {
         "{}",
         asks[0].reason
     );
-    assert_eq!(r.file_text(), crate::config_change::tests::FILE, "nothing before the yes");
+    assert_eq!(
+        r.file_text(),
+        crate::config_change::tests::FILE,
+        "nothing before the yes"
+    );
 }
 
 /// Case 3: anything off the list takes main's path for the WHOLE change, with main's proof: the
@@ -1155,4 +1165,3 @@ async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
         }
     }
 }
-

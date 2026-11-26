@@ -608,7 +608,10 @@ async fn a_flag_raised_between_the_check_and_the_removal_stays() {
         .unwrap();
     assert!(done.approved);
     let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    let left = rec.data.as_ref().and_then(|d| d.label(Flag::Injection).cloned());
+    let left = rec
+        .data
+        .as_ref()
+        .and_then(|d| d.label(Flag::Injection).cloned());
     assert_eq!(
         left.map(|l| l.source),
         Some("a page read in the gap".to_string()),
@@ -620,7 +623,11 @@ async fn a_flag_raised_between_the_check_and_the_removal_stays() {
         .outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
-        .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(str::to_string))
+        .filter_map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .map(str::to_string)
+        })
         .filter(|t| t.starts_with("ℹ️ FYI · Approve and clear left a newer flag"))
         .collect();
     assert_eq!(told.len(), 1, "{told:?}");

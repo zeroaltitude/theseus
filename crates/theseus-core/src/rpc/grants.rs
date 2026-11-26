@@ -203,9 +203,13 @@ impl Core {
         {
             Ok((post, frame)) => match self.store.append(&frame) {
                 Ok(_) => self.outbox.posted(&post),
-                Err(e) => tracing::warn!(error = %format!("{e:#}"), "the left flag's note was not kept"),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "the left flag's note was not kept")
+                }
             },
-            Err(e) => tracing::warn!(error = %format!("{e:#}"), "the left flag's note was not staged"),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "the left flag's note was not staged")
+            }
         }
     }
 }

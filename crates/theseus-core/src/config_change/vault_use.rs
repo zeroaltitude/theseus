@@ -163,7 +163,7 @@ fn given(to: &[String]) -> String {
     match to.is_empty() {
         true => "No setting is set to read it; a setting that reads this name by default may use \
                  it."
-            .into(),
+        .into(),
         false => format!("Given to: {}.", to.join("; ")),
     }
 }
@@ -196,7 +196,10 @@ fn default_readers(cfg: &crate::Config) -> Vec<(String, String)> {
         (cfg.judge.key_secret.clone(), JUDGE.into()),
         (cfg.voice.key_secret.clone(), VOICE.into()),
         (cfg.mcp_server.key_secret.clone(), MCP_SERVER.into()),
-        (cfg.google.credentials.client.clone(), "Google (its client)".into()),
+        (
+            cfg.google.credentials.client.clone(),
+            "Google (its client)".into(),
+        ),
         (
             cfg.google.credentials.refresh_token.clone(),
             "Google (its refresh token)".into(),
