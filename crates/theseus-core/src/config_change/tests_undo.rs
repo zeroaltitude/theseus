@@ -107,11 +107,6 @@ fn rig() -> Rig {
     let mut cfg = Config::example();
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.policy.enforcement = Posture::Notify;
-    // Every undo asked on its card, as an owner who sets the tools to approve
-    // has it (issue 57; `tests.rs`, `ASKING`).
-    for t in super::tests::ASKING {
-        cfg.policy.tools.insert(t.into(), Posture::Approve);
-    }
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
     cfg.config_file = Some(file.clone());
     // No index tender runs in a test, so a daemon that waits for it to answer
@@ -140,26 +135,6 @@ impl Rig {
 
     async fn turn(&self, sid: &str, tool: &str, call: Value) {
         self.model.calls.lock().unwrap().push((tool.into(), call));
-        self.run(sid, Some("change a setting")).await;
-        // Under `approve` the gate asks for the call itself first: the owner says
-        // yes from their own terminal, and the call that waited runs.
-        while let Some(q) = self
-            .asked()
-            .into_iter()
-            .find(|q| super::tests::ASKING.contains(&q.tool.as_str()) && q.session_id == sid)
-        {
-            if self
-                .core
-                .confirm_action(&q.correlation_id, true, None, "cli")
-                .is_err()
-            {
-                break;
-            }
-            self.run(sid, None).await;
-        }
-    }
-
-    async fn run(&self, sid: &str, input: Option<&str>) {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -173,7 +148,7 @@ impl Rig {
                 prompt: None,
                 surface: None,
                 session: rec,
-                input: input.map(str::to_string),
+                input: Some("change a setting".into()),
                 target,
                 sink: EventSink::new(self.core.bus.clone(), sid, None),
                 author: "test".into(),

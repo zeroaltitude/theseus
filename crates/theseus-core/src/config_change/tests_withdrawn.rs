@@ -8,20 +8,13 @@ use theseus_judge::band::Band;
 
 use crate::capture::act::{Done, Message};
 use crate::capture::{Heard, Said, Verdict};
-use crate::config_change::tests::{change, rig, rig_told, Rig};
+use crate::config_change::tests::{change, rig, Rig};
 use crate::node::{Body, ResultStatus};
 use crate::Core;
 
 const SETTING: &str = "please set self-improvement install to auto";
 const PERSONA: &str = "I ask for a small persona change, add a line to the helper persona: I sign \
                        off status updates with a dash";
-
-/// A settings question that is asked whatever the tool's setting (issue 57: a
-/// sensitive table keeps its card, and this one needs no code), at the default:
-/// the card is asked in the turn that holds the owner's words.
-fn asks_always() -> serde_json::Value {
-    change("content_based_security.injection", json!("refuse"))
-}
 
 /// The node of the session's input message, once its turn has written it.
 fn input_node(core: &Core, sid: &str) -> String {
@@ -76,7 +69,7 @@ fn held(r: &Rig) -> (Vec<String>, Vec<String>) {
 /// change is the only question, the other is withdrawn, and the ledger says so.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_settings_question_withdraws_the_standing_order_question_for_the_same_message() {
-    let r = rig_told();
+    let r = rig();
     let sid = r.session();
     let core = r.core.clone();
     let id = sid.clone();
@@ -87,7 +80,8 @@ async fn a_settings_question_withdraws_the_standing_order_question_for_the_same_
             Done::Asked(_)
         ));
     });
-    r.turn(&sid, asks_always()).await;
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     assert_eq!(r.asked().len(), 1, "the settings question is asked");
@@ -101,7 +95,7 @@ async fn a_settings_question_withdraws_the_standing_order_question_for_the_same_
 /// prompt of it. The turn's settings question ends the record, and says so.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_settings_question_ends_the_record_kept_from_the_same_message() {
-    let r = rig_told();
+    let r = rig();
     let sid = r.session();
     let core = r.core.clone();
     let id = sid.clone();
@@ -112,7 +106,8 @@ async fn a_settings_question_ends_the_record_kept_from_the_same_message() {
             Done::Kept(_)
         ));
     });
-    r.turn(&sid, asks_always()).await;
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
     assert_eq!(r.asked().len(), 1);
     assert_eq!(held(&r), (vec![], vec![]));
     let rows = r.rows("standing.revoked");
@@ -135,9 +130,10 @@ async fn a_settings_question_ends_the_record_kept_from_the_same_message() {
 /// makes no ask and no record, and the same verdict on another message does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_verdict_that_comes_after_the_settings_question_makes_nothing() {
-    let r = rig_told();
+    let r = rig();
     let sid = r.session();
-    r.turn(&sid, asks_always()).await;
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
     let node = input_node(&r.core, &sid);
     assert_eq!(
         hear(&r.core, &sid, &node, SETTING, Heard::Order),
@@ -156,7 +152,7 @@ async fn a_verdict_that_comes_after_the_settings_question_makes_nothing() {
 /// of another session's, stays.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn what_capture_made_of_another_message_is_left_alone() {
-    let r = rig_told();
+    let r = rig();
     let sid = r.session();
     let other = r.session();
     hear(
@@ -185,7 +181,8 @@ async fn what_capture_made_of_another_message_is_left_alone() {
         let node = input_node(&core, &id);
         hear(&core, &id, &node, SETTING, Heard::Order);
     });
-    r.turn(&sid, asks_always()).await;
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
     let (asks, kept) = held(&r);
     assert_eq!(
         asks,

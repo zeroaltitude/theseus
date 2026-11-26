@@ -199,9 +199,6 @@ impl Core {
                 .self_item_closed(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item has left the backlog"),
-            Undo::ConfigUndo(n) => self
-                .settings_change_undone(*n)
-                .then_some("the settings change was already put back"),
             #[cfg(test)]
             Undo::Probe(_) => None,
         })
@@ -242,11 +239,6 @@ impl Core {
                 };
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
-            // No method of its own: the settings undo's own write, in the core.
-            Undo::ConfigUndo(n) => self
-                .undo_change_pressed(*n, &who.label, &who.via())
-                .map(drop)
-                .map_err(|e| RpcFailure::invalid(anyhow::anyhow!(e))),
             #[cfg(test)]
             Undo::Probe(_) => {
                 PROBED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

@@ -49,11 +49,6 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
-    /// `config.undo` of a settings change, by its number in the history. It
-    /// has no method of its own (`config.undo` is a tool): `told.undo` puts it
-    /// back in the core by the undo's own write (`config_change::told::press`).
-    #[serde(rename = "config.undo")]
-    ConfigUndo(u32),
     /// An undo with no method of its own, for the tests: its arm in
     /// `rpc::told` counts the times it ran.
     #[cfg(test)]
@@ -70,8 +65,6 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
-            // No method of its own: the one door's.
-            Undo::ConfigUndo(_) => method::TOLD_UNDO,
             #[cfg(test)]
             Undo::Probe(_) => method::TOLD_UNDO,
         }
@@ -86,7 +79,6 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
-            Undo::ConfigUndo(n) => json!({"id": n, "author": author}),
             #[cfg(test)]
             Undo::Probe(id) => json!({"id": id, "author": author}),
         }
@@ -100,8 +92,6 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-            // No method of its own: the note's own door, from a terminal.
-            Undo::ConfigUndo(_) => by_door(),
             #[cfg(test)]
             Undo::Probe(_) => by_door(),
         }
@@ -280,21 +270,6 @@ mod tests {
             assert_eq!(p["author"], json!("ana"));
             assert_eq!(u.command(), cmd);
         }
-    }
-
-    /// A settings change's undo has no method of its own: it names the one
-    /// door's, and its note's way back from a terminal is the note's own
-    /// `theseus told undo`.
-    #[test]
-    fn a_settings_change_undo_names_the_one_door() {
-        let u = Undo::ConfigUndo(4);
-        assert_eq!(u.method(), method::TOLD_UNDO);
-        assert_eq!(
-            serde_json::to_value(&u).unwrap(),
-            json!({"method": "config.undo", "id": 4})
-        );
-        assert_eq!(u.params("ana", None), json!({"id": 4, "author": "ana"}));
-        assert_eq!(u.command(), by_door());
     }
 
     /// A restart: the core gone and its store opened again under a new one.

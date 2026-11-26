@@ -363,11 +363,11 @@ impl Tool for Detach {
     }
 
     fn description(&self) -> &str {
-        "Take away an MCP server that is attached, on the owner's word. It is removed at once and \
-         the owner is told, unless they set this tool to ask (then one card says what stops and \
-         when); a server that was attached by asking stops at once, one started from the settings \
-         at a restart. To change a server, detach it and attach it again. Offered only to the \
-         owner, in a private place."
+        "Take away an MCP server that is attached, on the owner's word. A server that was \
+         attached by asking is removed at once and the owner is told, unless they set this tool \
+         to ask; one started from the settings file stops at a restart, so it waits on the \
+         owner's card, which says what stops and when. To change a server, detach it and attach \
+         it again. Offered only to the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -532,13 +532,6 @@ fn put(
     marker: Value,
 ) -> Result<(String, Value), String> {
     let (base, digest, settings) = candidate;
-    // A restart makes live what was written since the start: the card says so.
-    let live = match restart {
-        true => super::told::going_live(tc.store, rt.config_change.started_ms),
-        false => vec![],
-    };
-    let question = format!("{question}{}", super::told::going_live_line(&live));
-    let question = question.as_str();
     let args = json!({
             "question": question,
             "settled": super::words::mcp(&marker, restart),
@@ -551,9 +544,9 @@ fn put(
             "asked_by": asked_by(tc),
             "mcp": marker,
     });
-    // Issue 57: removing a server follows the tool's own setting (`told.rs`); a
-    // restart it needs is held to the same bound as any.
-    if args["mcp"]["op"] == "detach" {
+    // Issue 57: removing a server that was attached live follows the tool's own
+    // setting (`told.rs`); one that needs a restart keeps its card.
+    if args["mcp"]["op"] == "detach" && !restart {
         if let Some(said) = detach_told(rt, tc, correlation_id, &args)? {
             return Ok((said, json!({"settings": settings.len(), "told": true})));
         }
@@ -581,9 +574,9 @@ fn put(
     ))
 }
 
-/// A detach with no card, when the tool's setting lets it run and a restart it
-/// needs is not past its bound or making a secret live (`told.rs`): what the
-/// tool says. None: the card is asked.
+/// A detach with no card of a server that stops with no restart, when the
+/// tool's setting lets it run (`told.rs`): what the tool says. None: the card
+/// is asked.
 fn detach_told(
     rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
@@ -592,16 +585,6 @@ fn detach_told(
 ) -> Result<Option<String>, String> {
     let Some(setting) = super::told::untold(rt, DETACH) else {
         return Ok(None);
-    };
-    let records = match args["restart"] == true {
-        false => vec![],
-        true => {
-            let live = super::told::going_live(tc.store, rt.config_change.started_ms);
-            match (live.is_empty(), super::told::restart_spent(tc)) {
-                (true, Ok(spend)) => vec![spend],
-                _ => return Ok(None),
-            }
-        }
     };
     let core = rt
         .config_change
@@ -617,12 +600,9 @@ fn detach_told(
         id: correlation_id,
         session_id: tc.session_id,
         args,
-        by: super::told::BY,
         setting: &setting,
-        records,
     };
-    core.write_told(t, |_| (said, Some(super::told::Note::Plain(note))))
-        .map(Some)
+    core.write_told(t, said, note).map(Some)
 }
 
 /// Settings that change anything but the server's own table are not this tool's.
