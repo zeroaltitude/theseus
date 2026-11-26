@@ -22,24 +22,31 @@ fn model(_: &std::path::Path, _: Arc<FakeDiscord>) -> Arc<dyn Provider> {
     Arc::new(FakeProvider::scripted(vec![Scripted::text("Hello.")]))
 }
 
-/// `#lab`, the notices channel (private, bound `notify = true`, ana and ben
-/// admitted) and ana's DM.
-fn file() -> String {
+/// `#lab`, the notices channel (bound `notify = true`, private when `private`,
+/// ana and ben admitted) and ana's DM.
+fn file(private: bool) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
          [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
-         [[channel]]\nid = \"{NOTICES}\"\nname = \"notices\"\nusers = [\"{ANA}\", \"{BEN}\"]\nmention_only = false\nprivate = true\nnotify = true\n\
+         [[channel]]\nid = \"{NOTICES}\"\nname = \"notices\"\nusers = [\"{ANA}\", \"{BEN}\"]\nmention_only = false\nprivate = {private}\nnotify = true\n\
          [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
     )
 }
 
-/// Ana is the owner; the flag freezes at `mode`.
+/// Ana is the owner; the flag freezes at `mode`; the notices place is private.
 async fn rig(mode: InjectionMode) -> Rig {
+    rig_in(mode, true).await
+}
+
+async fn rig_in(mode: InjectionMode, private: bool) -> Rig {
     let guild = Guild::new(DEFAULT_GUILD, (ANA, "ana"))
         .member(BEN, "ben")
-        .private_channel(LAB, "lab", &[ANA])
-        .private_channel(NOTICES, "notices", &[ANA, BEN]);
-    Rig::start_tweaked(model, guild, &file(), &[], move |c| {
+        .private_channel(LAB, "lab", &[ANA]);
+    let guild = match private {
+        true => guild.private_channel(NOTICES, "notices", &[ANA, BEN]),
+        false => guild.channel(NOTICES, "notices"),
+    };
+    Rig::start_tweaked(model, guild, &file(private), &[], move |c| {
         c.places.owner = Some(vec![format!("discord:{ANA}")]);
         c.content_based_security.injection = mode;
     })
@@ -179,5 +186,31 @@ async fn under_refuse_the_flag_stays_in_the_dm() {
         notices(&r, NOTICES).is_empty(),
         "nothing in the notices place"
     );
+    r.stop();
+}
+
+/// Under `notify`, a SHARED notices place is not where the owner's Remove counts: the notice
+/// stays in his DM, where it does, and nothing goes to the notices place.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn under_notify_a_shared_notices_place_leaves_the_flag_in_the_dm() {
+    let r = rig_in(InjectionMode::Notify, false).await;
+    let sid = dm_session(&r).await;
+    assert!(raise(&r, &sid));
+    r.until("the notice in the DM", || !notices(&r, ANA_DM).is_empty())
+        .await;
+    let m = notices(&r, ANA_DM).remove(0);
+    assert!(
+        m.versions
+            .last()
+            .unwrap()
+            .starts_with("ℹ️ FYI · Theseus flagged what it read as trying to steer it\n"),
+        "{:?}",
+        m.versions
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(notices(&r, NOTICES).is_empty(), "nothing in the shared place");
+    r.press(&m.id, "Remove", (ANA, "ana"));
+    r.until("the label is removed", || !carrying(&r, &sid))
+        .await;
     r.stop();
 }
