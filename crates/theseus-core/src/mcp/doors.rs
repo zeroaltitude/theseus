@@ -121,6 +121,9 @@ impl McpBoard {
             }
             if let Some(c) = &core {
                 if let Some(stored) = super::read_stored(&c.store, &s.name) {
+                    // The record whole (its digest, and any field added
+                    // later), then each tool's names (round 7).
+                    add(json(&stored));
                     for t in &stored.tools {
                         tool_texts(&s.name, t)
                             .into_iter()
@@ -137,6 +140,7 @@ impl McpBoard {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for (name, list) in listed.iter() {
             add(serde_json::json!(name));
+            add(json(list));
             for t in &list.tools {
                 tool_texts(name, t)
                     .into_iter()

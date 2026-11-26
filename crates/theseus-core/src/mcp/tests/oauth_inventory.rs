@@ -10,13 +10,14 @@
 use std::time::Duration;
 
 use serde_json::json;
-use theseus_mcp::oauth::fake::AuthConfig;
+use theseus_mcp::oauth::fake::{AuthConfig, FakeAuth};
 
-use super::oauth::{call, Rig};
+use super::oauth::{call, rig_edit, Rig};
 use super::oauth_doors::{plain_lists, rig_doors, sign_in, state, NAME};
 use super::oauth_exits::{all_exits, capture, issued_in};
 use super::{session, turn, until};
 use crate::approval::Surface;
+use crate::config::mcp::McpOauth;
 use crate::mcp::attached::{Attached, NOTE_AUTHOR};
 use crate::mcp::doors::{RENEWAL_SHOWN, SHOWN_WORDS};
 use crate::mcp::State;
@@ -275,4 +276,103 @@ async fn a_keyless_failure_note_is_stored_as_main_stores_it() {
     let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
     let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[]);
     assert!(found.is_empty(), "{} values in the exits", found.len());
+}
+
+/// A genuine tool list from an earlier run, and its own digest.
+fn earlier_list() -> crate::mcp::StoredList {
+    let tools: Vec<crate::mcp::Listed> = vec![serde_json::from_value(json!({
+        "name": "previous_tool",
+        "description": "from an earlier run",
+        "inputSchema": {"type": "object"}
+    }))
+    .unwrap()];
+    crate::mcp::StoredList {
+        digest: crate::mcp::digest(&tools),
+        tools,
+    }
+}
+
+/// The stored tool record is read whole (round 7): a token equal to the
+/// digest of a signed-in server's stored list from an earlier run (in no
+/// live status: the server is not seeded and has not listed) is refused at
+/// the finish, before anything is kept or sent; and so is one equal to the
+/// digest of a list an attach's trial retained.
+#[tokio::test]
+async fn a_token_equal_to_a_stored_lists_digest_is_refused() {
+    let list = earlier_list();
+    let digest = list.digest.clone();
+    // The store's record of the server that signs in.
+    {
+        let (buf, _guard) = capture();
+        let stored = list.clone();
+        let r = rig_edit(
+            FakeAuth::start(AuthConfig {
+                access_token_is: Some(digest.clone()),
+                ..AuthConfig::default()
+            })
+            .await,
+            McpOauth::default(),
+            move |store_dir| {
+                crate::store::Store::open(store_dir)
+                    .unwrap()
+                    .put_meta(&format!("{}{NAME}", crate::mcp::STORED_PREFIX), &stored)
+                    .unwrap();
+            },
+            |cfg| {
+                let docs = cfg.mcp.servers.remove("docs").unwrap();
+                cfg.mcp.servers.insert(NAME.into(), docs);
+            },
+        )
+        .await;
+        let sid = session(&r.core, None);
+        r.core.mcp.start();
+        let status = r.core.mcp.status();
+        let mine = status.iter().find(|s| s.name == NAME).unwrap();
+        assert_ne!(
+            mine.digest, digest,
+            "not seeded: the digest is in no live status"
+        );
+        assert!(serde_json::to_string(&status)
+            .unwrap()
+            .find(&digest)
+            .is_none());
+        let done = sign_in(&r).await;
+        assert_eq!(
+            done["error"]["message"], SHOWN_WORDS,
+            "the store's record: {done}"
+        );
+        let kept =
+            crate::mcp::oauth::file(&crate::mcp::oauth::dir(&r.dir.path().join("store")), NAME);
+        assert!(!kept.exists(), "nothing is written");
+        assert_ne!(r.auth.last_bearer().as_deref(), Some(digest.as_str()));
+        turn(&r.core, &sid, "use the docs").await;
+        let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+        let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[&digest]);
+        assert!(found.is_empty(), "{} values in the exits", found.len());
+    }
+    // A list an attach's trial retained.
+    {
+        let (buf, _guard) = capture();
+        let (r, _plain) = rig_doors(AuthConfig {
+            access_token_is: Some(digest.clone()),
+            ..AuthConfig::default()
+        })
+        .await;
+        let sid = session(&r.core, None);
+        r.core.mcp.keep_listed("trialled", list.clone());
+        r.core.mcp.start();
+        let done = sign_in(&r).await;
+        assert_eq!(
+            done["error"]["message"], SHOWN_WORDS,
+            "the trial's list: {done}"
+        );
+        let kept =
+            crate::mcp::oauth::file(&crate::mcp::oauth::dir(&r.dir.path().join("store")), NAME);
+        assert!(!kept.exists(), "nothing is written");
+        assert_ne!(r.auth.last_bearer().as_deref(), Some(digest.as_str()));
+        turn(&r.core, &sid, "use the docs").await;
+        let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+        let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[&digest]);
+        assert!(found.is_empty(), "{} values in the exits", found.len());
+    }
 }
