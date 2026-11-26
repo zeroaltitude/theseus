@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at commit 3512b3a6, over every file git tracks:
+Counted at commit 44fc0767, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -19,8 +19,8 @@ Counted at commit 3512b3a6, over every file git tracks:
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
 | crates/theseus-aws-catalog | 5,996 | 1,394 | 644 |
 | crates/theseus-aws-guard | 2,861 | 1,522 | 323 |
-| crates/theseus-core | 271,575 | 314,697 | 97,882 |
-| crates/theseus-discord | 34,001 | 46,165 | 11,274 |
+| crates/theseus-core | 272,320 | 315,958 | 98,202 |
+| crates/theseus-discord | 34,037 | 46,413 | 11,311 |
 | crates/theseus-exam | 5,403 | 3,237 | 1,247 |
 | crates/theseus-files | 2,377 | 682 | 297 |
 | crates/theseus-follow | 657 | 875 | 283 |
@@ -32,34 +32,34 @@ Counted at commit 3512b3a6, over every file git tracks:
 | crates/theseus-mcp | 4,272 | 1,658 | 668 |
 | crates/theseus-memory | 722 | 770 | 372 |
 | crates/theseus-ontology | 3,618 | 4,160 | 960 |
-| crates/theseus-protocol | 21,051 | 7,993 | 8,451 |
+| crates/theseus-protocol | 21,078 | 8,010 | 8,460 |
 | crates/theseus-root-install | 696 | 440 | 122 |
 | crates/theseus-sandbox | 2,891 | 3,616 | 1,642 |
 | crates/theseus-sim | 18,194 | 3,692 | 3,935 |
 | crates/theseus-store | 5,841 | 5,993 | 2,678 |
 | crates/theseus-tools | 4,918 | 3,315 | 1,128 |
-| crates/theseus-tui | 13,116 | 12,986 | 3,122 |
+| crates/theseus-tui | 13,127 | 13,001 | 3,125 |
 | crates/theseus-voice | 6,144 | 6,651 | 2,023 |
-| crates/theseusd | 5,348 | 33,477 | 5,743 |
+| crates/theseusd | 5,348 | 33,462 | 5,746 |
 | infra/ | 554 | 1,432 | 193 |
 | scripts/ | 10,150 | 9,198 | 3,682 |
-| **Total** | **621,116** | **604,437** | **206,760** |
+| **Total** | **621,935** | **605,963** | **207,132** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes
 
 ### What each crate builds
 
-From the `release` build of 6dfa00a8 (an optimised build; a library's newest `.rlib` when the build directory holds several). An `.rlib` carries metadata and code for link-time optimisation, so it is far larger than what its crate adds to an executable: `scripts/size-breakdown.py` gives that.
+From the `release` build of f030f24a (an optimised build; a library's newest `.rlib` when the build directory holds several). An `.rlib` carries metadata and code for link-time optimisation, so it is far larger than what its crate adds to an executable: `scripts/size-breakdown.py` gives that.
 
 | Crate | Library (.rlib) | Executables |
 |---|---:|---|
-| crates/theseus | 6.65 MB | theseus 11.35 MB |
+| crates/theseus | 6.65 MB | theseus 11.36 MB |
 | crates/theseus-aws | 1.75 MB |  |
 | crates/theseus-aws-catalog | 8.26 MB |  |
 | crates/theseus-aws-guard | 4.68 MB |  |
-| crates/theseus-core | 279.48 MB |  |
-| crates/theseus-discord | 69.06 MB |  |
+| crates/theseus-core | 280.48 MB |  |
+| crates/theseus-discord | 69.84 MB |  |
 | crates/theseus-exam | not built |  |
 | crates/theseus-files | 3.62 MB |  |
 | crates/theseus-follow | 0.26 MB |  |
@@ -74,12 +74,12 @@ From the `release` build of 6dfa00a8 (an optimised build; a library's newest `.r
 | crates/theseus-protocol | 74.08 MB |  |
 | crates/theseus-root-install | 0.22 MB | theseus-root-install 0.36 MB |
 | crates/theseus-sandbox | 2.61 MB |  |
-| crates/theseus-sim | 4.93 MB | theseus-sim 40.70 MB |
+| crates/theseus-sim | 4.93 MB | theseus-sim 40.72 MB |
 | crates/theseus-store | 5.11 MB |  |
 | crates/theseus-tools | 6.31 MB |  |
 | crates/theseus-tui | — | theseus-tui 5.07 MB |
 | crates/theseus-voice | 5.35 MB |  |
-| crates/theseusd | — | theseusd 83.13 MB |
+| crates/theseusd | — | theseusd 83.31 MB |
 
 ### Executables that are installed and run
 
