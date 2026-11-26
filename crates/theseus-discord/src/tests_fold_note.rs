@@ -761,7 +761,13 @@ fn stage_failing_settle(r: &Rig, body: Value) -> String {
 
 /// Whether post `post` has settled as delivered.
 fn succeeded(r: &Rig, post: &str) -> bool {
-    r.core.kernel.outbox_action(post).ok().flatten().map(|a| a.state) == Some(ActionState::Succeeded)
+    r.core
+        .kernel
+        .outbox_action(post)
+        .ok()
+        .flatten()
+        .map(|a| a.state)
+        == Some(ActionState::Succeeded)
 }
 
 /// The `(channel, message)` post `post`'s detail says it was written folded
@@ -794,16 +800,32 @@ async fn a_folded_fallback_whose_settle_failed_is_still_folded_after_its_retry()
     let post = stage_failing_settle(&r, fyi("retried-after-a-failed-settle"));
     r.until("the post settled on its retry", || succeeded(&r, &post))
         .await;
-    assert!(!crate::courier::fold_note::settle_fault_pending(&post), "it failed once");
+    assert!(
+        !crate::courier::fold_note::settle_fault_pending(&post),
+        "it failed once"
+    );
     let ms = note_messages(&r, &post);
     assert_eq!(ms.len(), 1, "one DM message: {ms:#?}");
     let m = &ms[0];
     assert!(m.edits >= 1, "the retry wrote it again: {m:#?}");
-    assert!(m.versions.iter().all(|v| v == LINE), "closed throughout: {m:#?}");
+    assert!(
+        m.versions.iter().all(|v| v == LINE),
+        "closed throughout: {m:#?}"
+    );
     assert_eq!(labels(m), ["Show note"]);
     assert_eq!(stored(&r, &post), (ANA_DM.to_string(), m.id.clone(), false));
-    assert!(r.posted(NOTICES).iter().all(|x| !x.content.contains("retried")));
-    open_and_close(&r, ANA_DM, m, &fyi_text("retried-after-a-failed-settle"), LINE).await;
+    assert!(r
+        .posted(NOTICES)
+        .iter()
+        .all(|x| !x.content.contains("retried")));
+    open_and_close(
+        &r,
+        ANA_DM,
+        m,
+        &fyi_text("retried-after-a-failed-settle"),
+        LINE,
+    )
+    .await;
 }
 
 /// Its mirror: a note written open (the DM bound open) whose settle fails
@@ -814,7 +836,10 @@ async fn an_open_note_whose_settle_failed_is_still_open_after_its_retry() {
     let post = stage_failing_settle(&r, fyi("open-after-a-failed-settle"));
     r.until("the post settled on its retry", || succeeded(&r, &post))
         .await;
-    assert!(!crate::courier::fold_note::settle_fault_pending(&post), "it failed once");
+    assert!(
+        !crate::courier::fold_note::settle_fault_pending(&post),
+        "it failed once"
+    );
     let ms: Vec<Msg> = r
         .posted(ANA_DM)
         .into_iter()
@@ -824,7 +849,10 @@ async fn an_open_note_whose_settle_failed_is_still_open_after_its_retry() {
     assert_eq!(ms[0].content, fyi_text("open-after-a-failed-settle"));
     assert!(ms[0].buttons.is_empty(), "{:#?}", ms[0]);
     let a = r.core.kernel.outbox_action(&post).unwrap().unwrap();
-    assert!(a.detail.unwrap()["note_fold"].is_null(), "no pair for an open note");
+    assert!(
+        a.detail.unwrap()["note_fold"].is_null(),
+        "no pair for an open note"
+    );
 }
 
 /// A rig over a store in which `words`' FYI was dispatched five minutes
