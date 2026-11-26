@@ -190,7 +190,7 @@ async fn a_branch_held_at_its_push_is_never_reviewed_joined_or_carded_again() {
     files.push(("src/sail.rs", &comment));
     write(&tree_of(&r), &files);
     let said = r.turn(&sid, WIRE, input()).await;
-    held(&r, &said);
+    assert!(said.contains("It was not pushed"), "{said}");
     let b = built(&r);
     assert_eq!(b["gate"], "green", "an attempt the join would take: {b}");
     let main = git(&r.f.upstream, &["rev-parse", "refs/heads/main"]);
@@ -211,6 +211,7 @@ async fn a_branch_held_at_its_push_is_never_reviewed_joined_or_carded_again() {
     }
     assert_eq!(git(&r.f.upstream, &["rev-parse", "refs/heads/main"]), main);
     assert!(rows(&r, "self.review.verdict").is_empty(), "no review");
+    held(&r, &said);
     assert_eq!(rows(&r, "self.join.stopped").len(), 1, "the one held stop");
     assert_eq!(
         crate::tests_day_ceiling::posts(&r.core, "self_keel").len(),
