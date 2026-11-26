@@ -909,11 +909,13 @@ async fn a_reviewers_removal_in_its_scratch_is_bound_to_l1() {
     let view = jobs[0].sandbox.as_ref().expect("an L1 view");
     let tree = crate::rsi::join::scratch::tree_of(&scratch(&r.target));
     assert!(view.ro_paths.contains(&tree), "{:?}", view.ro_paths);
+    // In L1 its temporary files are the view's own `/tmp`: no `TMPDIR` under its scratch, which main gave its
+    // command at L0 (`own_removals::review_tmp`).
     let tmp = jobs[0].env.iter().find(|(k, _)| k == "TMPDIR");
-    let want = scratch(&r.target).join("tmp").display().to_string();
+    let at_l0 = scratch(&r.target).join("tmp").display().to_string();
     assert_eq!(
-        tmp.map(|(_, v)| v.as_str()),
-        Some(want.as_str()),
+        tmp.map(|(_, v)| v.as_str()).filter(|v| *v == at_l0),
+        None,
         "{:?}",
         jobs[0].env
     );
