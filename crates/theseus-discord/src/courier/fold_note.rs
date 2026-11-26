@@ -167,7 +167,12 @@ pub(crate) fn settle_fault_pending(post: &str) -> bool {
 /// How many of post `post`'s settles a test's fault failed.
 #[cfg(test)]
 pub(crate) fn settle_failures(post: &str) -> usize {
-    SETTLE_FAILED.lock().unwrap().iter().filter(|p| *p == post).count()
+    SETTLE_FAILED
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|p| *p == post)
+        .count()
 }
 
 /// What a press on a folded note asks for: its post, open or closed, where.
@@ -264,7 +269,12 @@ impl Lane {
             }
             let msgs = &self.msgs;
             self.notes.shown.retain(|k, s| msgs.get(k) == Some(&s.at));
-            let shown = Shown { post, at, folded, resent };
+            let shown = Shown {
+                post,
+                at,
+                folded,
+                resent,
+            };
             self.notes.shown.insert(w.key.clone(), shown);
         }
         wrote
@@ -304,7 +314,10 @@ impl Lane {
                 if !f[i].1 {
                     f.remove(i);
                 }
-                SETTLE_FAILED.lock().unwrap().push(correlation_id.to_string());
+                SETTLE_FAILED
+                    .lock()
+                    .unwrap()
+                    .push(correlation_id.to_string());
                 anyhow::bail!("a test's settle failed, as on a full disk");
             }
         }

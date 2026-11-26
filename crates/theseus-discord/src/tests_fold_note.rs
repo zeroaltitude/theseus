@@ -966,7 +966,12 @@ async fn rebind(r: &Rig, file: &str) {
     let revision = crate::bindings::Bindings::parse(file).unwrap().revision;
     std::fs::write(r.dir.path().join("bindings.toml"), file).unwrap();
     r.until("the change is bound", || {
-        r.core.bindings.all().first().and_then(|b| b.revision.clone()) == Some(revision.clone())
+        r.core
+            .bindings
+            .all()
+            .first()
+            .and_then(|b| b.revision.clone())
+            == Some(revision.clone())
     })
     .await;
 }
@@ -980,15 +985,21 @@ async fn a_folded_note_whose_settle_failed_stays_folded_when_its_dm_is_bound_ope
     let r = rig("", None, vec![]).await;
     let post = stage_held(&r, fyi("folded-then-bound-open"));
     let m = folded(&r, ANA_DM, &post).await;
-    r.until("a settle failed", || crate::courier::fold_note::settle_failures(&post) > 0)
-        .await;
+    r.until("a settle failed", || {
+        crate::courier::fold_note::settle_failures(&post) > 0
+    })
+    .await;
     rebind(&r, &file(OPEN, None)).await;
     crate::courier::fold_note::release_settle(&post);
     r.until("the post settled on its retry", || succeeded(&r, &post))
         .await;
     let ms = note_messages(&r, &post);
     assert_eq!(ms.len(), 1, "{ms:#?}");
-    assert!(ms[0].versions.iter().all(|v| v == LINE), "closed throughout: {:#?}", ms[0]);
+    assert!(
+        ms[0].versions.iter().all(|v| v == LINE),
+        "closed throughout: {:#?}",
+        ms[0]
+    );
     assert_eq!(labels(&ms[0]), ["Show note"]);
     assert_eq!(stored(&r, &post), (ANA_DM.to_string(), m.id.clone(), false));
     open_and_close(&r, ANA_DM, &m, &fyi_text("folded-then-bound-open"), LINE).await;
@@ -1003,18 +1014,31 @@ async fn an_open_note_whose_settle_failed_stays_open_when_its_dm_is_bound_folded
     let post = stage_held(&r, fyi(words));
     r.until("the open note", || first_with(&r, ANA_DM, words).is_some())
         .await;
-    r.until("a settle failed", || crate::courier::fold_note::settle_failures(&post) > 0)
-        .await;
+    r.until("a settle failed", || {
+        crate::courier::fold_note::settle_failures(&post) > 0
+    })
+    .await;
     rebind(&r, &file("", None)).await;
     crate::courier::fold_note::release_settle(&post);
     r.until("the post settled on its retry", || succeeded(&r, &post))
         .await;
-    let ms: Vec<Msg> = r.posted(ANA_DM).into_iter().filter(|m| m.versions[0].contains(words)).collect();
+    let ms: Vec<Msg> = r
+        .posted(ANA_DM)
+        .into_iter()
+        .filter(|m| m.versions[0].contains(words))
+        .collect();
     assert_eq!(ms.len(), 1, "{ms:#?}");
-    assert!(ms[0].versions.iter().all(|v| *v == fyi_text(words)), "open throughout: {:#?}", ms[0]);
+    assert!(
+        ms[0].versions.iter().all(|v| *v == fyi_text(words)),
+        "open throughout: {:#?}",
+        ms[0]
+    );
     assert!(ms[0].buttons.is_empty(), "{:#?}", ms[0]);
     let a = r.core.kernel.outbox_action(&post).unwrap().unwrap();
-    assert!(a.detail.unwrap()["note_fold"].is_null(), "no pair for an open note");
+    assert!(
+        a.detail.unwrap()["note_fold"].is_null(),
+        "no pair for an open note"
+    );
 }
 
 /// The copy's mark is the delivery's fact, never the words': a note sent
@@ -1026,9 +1050,13 @@ async fn a_first_note_whose_words_end_with_the_copy_marks_text_is_no_copy() {
     let words = format!("ends-with-the-mark\n{}", crate::render::RESENT);
     let r = rig(OPEN, None, vec![]).await;
     stage(&r, fyi(&words));
-    r.until("the open note", || first_with(&r, ANA_DM, "ends-with-the-mark").is_some())
-        .await;
-    let open = first_with(&r, ANA_DM, "ends-with-the-mark").unwrap().content;
+    r.until("the open note", || {
+        first_with(&r, ANA_DM, "ends-with-the-mark").is_some()
+    })
+    .await;
+    let open = first_with(&r, ANA_DM, "ends-with-the-mark")
+        .unwrap()
+        .content;
     assert_eq!(open, fyi_text(&words), "delivered once, as its words");
     r.stop();
 
@@ -1058,10 +1086,21 @@ async fn a_resent_folded_note_whose_settle_failed_keeps_its_mark_after_the_retry
     let line = format!("{LINE}\n{}", crate::render::RESENT);
     r.until("the post settled on its retry", || succeeded(&r, &post))
         .await;
-    assert_eq!(crate::courier::fold_note::settle_failures(&post), 1, "it failed once");
+    assert_eq!(
+        crate::courier::fold_note::settle_failures(&post),
+        1,
+        "it failed once"
+    );
     let ms = note_messages(&r, &post);
     assert_eq!(ms.len(), 1, "{ms:#?}");
-    assert!(ms[0].versions.iter().all(|v| *v == line), "the mark kept: {:#?}", ms[0]);
-    assert_eq!(stored(&r, &post), (ANA_DM.to_string(), ms[0].id.clone(), true));
+    assert!(
+        ms[0].versions.iter().all(|v| *v == line),
+        "the mark kept: {:#?}",
+        ms[0]
+    );
+    assert_eq!(
+        stored(&r, &post),
+        (ANA_DM.to_string(), ms[0].id.clone(), true)
+    );
     open_and_close(&r, ANA_DM, &ms[0], &open, &line).await;
 }
