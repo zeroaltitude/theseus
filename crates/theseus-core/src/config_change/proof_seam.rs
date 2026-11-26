@@ -194,7 +194,7 @@ mod tests {
             "[secrets]\nanthropic_api_key = \"op://v/i/f\"\nk = \"op://v/i/k\"\n",
             "[places]\npublic_paths = [\"/srv/public\"]\n",
             "[broker.secrets.anthropic_api_key]\nposture = \"approve\"\n",
-            "[mcp_server]\nenabled = true\n",
+            "[mcp_server]\nrequests_per_minute = 30\n",
             "[mcp.servers.files]\ncommand = [\"x\"]\n",
         ];
         let dropped = [
@@ -207,7 +207,7 @@ mod tests {
             "[privacy]\nredact_outbound = false\n",
             "[vault]\nkeep_by_discord = true\n",
             "[tools]\nroots = [\"/x\"]\n",
-            "[tools]\nagent_processes = [\"x\"]\n",
+            "[model]\nsystem = \"be brief\"\n",
         ];
         real(&[kept.as_slice(), dropped.as_slice()].concat());
         for after in kept {
