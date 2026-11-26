@@ -261,3 +261,55 @@ async fn a_turn_only_offers_and_begins_nothing() {
     assert_eq!(r.auth.seen().registrations, 0);
     assert!(r.auth.seen().paths.iter().all(|p| !p.contains("authorize")));
 }
+
+/// When the sign-in goes through a place that is not its issuer's own, the
+/// owner's press must agree (the binding's I agree press) before the daemon
+/// takes the paste; without it nothing is sent, as with the CLI's typed yes.
+#[tokio::test]
+async fn a_place_elsewhere_needs_the_agree_press() {
+    let elsewhere = FakeAuth::start(AuthConfig::default()).await;
+    let issuer = FakeAuth::start(AuthConfig {
+        endpoints_at: Some(elsewhere.base()),
+        iss_supported: true,
+        ..AuthConfig::default()
+    })
+    .await;
+    elsewhere.set(|c| c.issuer = Some(issuer.base()));
+    let r = rig_edit(
+        issuer.clone(),
+        McpOauth::default(),
+        |_| {},
+        |cfg| cfg.places.owner = Some(vec![format!("discord:{OWNER}")]),
+    )
+    .await;
+    r.core.mcp.start();
+    for agreed in [false, true] {
+        let begun = begin(&r, presser(OWNER, true)).await;
+        assert!(
+            begun["elsewhere"].as_array().is_some_and(|e| !e.is_empty()),
+            "{begun}"
+        );
+        let pasted = elsewhere
+            .browse(begun["url"].as_str().unwrap(), false)
+            .await;
+        let done = call(
+            &r.core,
+            Surface::Discord,
+            "mcp.login.finish",
+            with(
+                json!({"login_id": begun["login_id"], "pasted": pasted, "agreed": agreed}),
+                presser(OWNER, true),
+            ),
+        )
+        .await;
+        match agreed {
+            false => assert!(
+                done["error"]["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("not agreed to")),
+                "{done}"
+            ),
+            true => assert_eq!(done["state"], "done", "{done}"),
+        }
+    }
+}

@@ -119,10 +119,12 @@ pub fn run(rt: &ToolRuntime, tc: &TurnCtx<'_>, input: &Value) -> Result<(String,
             i.server
         ));
     }
-    let body = json!({"kind": "mcp_sign_in", "server": i.server, "text": card_text(&i.server)});
     let (post, frame) = tc
         .outbox
-        .stage_to_operator(None, body)
+        .stage_to_operator(
+            None,
+            json!({"kind": "mcp_sign_in", "server": i.server, "text": card_text(&i.server)}),
+        )
         .map_err(|e| format!("the offer was not posted: {e:#}"))?;
     tc.store
         .append(&frame)

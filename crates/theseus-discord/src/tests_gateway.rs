@@ -1109,6 +1109,7 @@ mod content;
 mod content_fyi;
 mod horizon;
 mod keep_form;
+mod mcp_sign_in;
 mod notify;
 mod notify_fyi;
 mod onto;
