@@ -526,6 +526,9 @@ pub(crate) fn sensitive_of(
     }
 }
 
+/// The sensitive settings of a change: each path and why.
+type Sensitive = Vec<(String, String)>;
+
 /// The settings as they are, for a change that uses a vault secret (what its path is classified
 /// against, `vault_use::classify`; None for any other change), and the change's sensitive
 /// settings as [`sensitive_of`] reads them.
@@ -534,7 +537,7 @@ fn sensitive_for(
     settings: &[diff::Setting],
     secret: Option<&vault_use::Chosen>,
     base: &str,
-) -> Result<(Option<crate::Config>, Vec<(String, String)>), String> {
+) -> Result<(Option<crate::Config>, Sensitive), String> {
     let base_cfg = secret
         .map(|_| {
             crate::Config::parse(base)
