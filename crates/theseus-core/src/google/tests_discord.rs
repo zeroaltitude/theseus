@@ -11,8 +11,9 @@ use super::tests::*;
 use crate::approval::Surface;
 use crate::tests_mcp_memory::rpc;
 
-const OWNER: &str = "42";
-const STRANGER: &str = "77";
+/// Discord ids: 15 to 21 digits, as `[places] owner` is checked.
+const OWNER: &str = "100000000000000042";
+const STRANGER: &str = "100000000000000077";
 
 fn state_of(url: &str) -> String {
     url.split(['?', '&'])
