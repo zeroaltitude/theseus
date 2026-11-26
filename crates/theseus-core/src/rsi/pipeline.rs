@@ -116,6 +116,8 @@ mod tests_sealed_line;
 #[cfg(test)]
 mod tests_stale;
 #[cfg(test)]
+mod tests_told_drop;
+#[cfg(test)]
 mod tests_trees;
 mod view;
 

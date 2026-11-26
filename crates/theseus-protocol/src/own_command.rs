@@ -132,6 +132,8 @@ pub const VERBS: &[Entry] = &[
     e("ask", &[], Act),
     e("prompt", &[], Act),
     e("answer", &[], Act),
+    // A note's Undo, from a terminal (`told.undo`): the owner's act.
+    e("told", &[], Act),
     e("stop", &[], Act),
     e("remind", &[], Act),
     e("cancel", &[], Act),

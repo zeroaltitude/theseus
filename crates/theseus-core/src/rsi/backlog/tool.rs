@@ -228,12 +228,13 @@ pub(crate) fn filed(
     })
 }
 
-/// The note's second line: which conversation did it, and what it did.
-fn by(core: &Core, session: &str, did: &str) -> String {
-    let rec: Option<crate::session::SessionRecord> = core.store.get_session(session).ok().flatten();
-    let named = rec.and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
-    let here = crate::judge::onto::words::in_conversation(named.as_deref());
-    format!("{here}, {did}")
+/// The note's second line: which conversation did it, by its short id (never its title, which
+/// is text someone else may have written: the helper's contract), and what it did.
+fn by(session: &str, did: &str) -> String {
+    format!(
+        "In conversation {}, {did}",
+        crate::narrative::short(session)
+    )
 }
 
 /// The owner's note of what a chat tool did on his behalf (issue 57), with its undo, staged for
@@ -249,7 +250,7 @@ pub(crate) fn staged(
 ) -> anyhow::Result<(theseus_kernel::Action, Vec<theseus_store::NewRecord>)> {
     #[cfg(test)]
     fail::injected()?;
-    let by = by(core, session, did);
+    let by = by(session, did);
     crate::owner_note::told::stage(&core.outbox, Some(session), title, &by, body, undo)
 }
 
@@ -285,7 +286,7 @@ pub(crate) fn tell(
     let text = crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
         title,
-        &by(core, session, did),
+        &by(session, did),
         body,
     );
     core.outbox.to_operator(
