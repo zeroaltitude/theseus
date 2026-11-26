@@ -17,9 +17,10 @@
 //!    code runs nowhere else, theseus-pw1q.21.1: `super::jail`), writes the frozen
 //!    report at `<state>/self/reports/<branch with / as ->.md` (what, why,
 //!    the numbers, the verdict, the cost; it ends `<!-- REPORT COMPLETE -->`
-//!    and is never written again), then pushes a green branch when
-//!    `[self] remote` is set, and closes the tree. A red one keeps its tree
-//!    for another attempt, on a new branch.
+//!    and is never written again), and closes the tree of a green branch.
+//!    The branch stays in `[self] repo`: nothing pushes it (issue 53); the
+//!    join reads it there, and only the join publishes, on the owner's yes.
+//!    A red one keeps its tree for another attempt, on a new branch.
 //!
 //! Every attempt ends with one `self.branch.built` row, red or green, and a
 //! halt between phases ends it there, its row naming the phase it stopped
@@ -433,8 +434,9 @@ impl Tool for ProposeChange {
         "Change Theseus's own source on a branch of its own. The first call for an item opens a \
          git worktree off origin/main, outside every other tree, and names its directory: edit \
          it there with the file tools, by absolute path. The next call for the item commits what \
-         the tree holds, runs main's gate on it, writes a frozen report, and pushes the branch \
-         to self/* when a remote is set; a red gate keeps the tree for another attempt. The \
+         the tree holds, runs main's gate on it, writes a frozen report, and keeps the branch on \
+         this machine (nothing is pushed before the owner's yes at the join); a red gate keeps \
+         the tree for another attempt. The \
          gate's verdict is the result, never this call's words. A keel finding stops the item \
          until the owner answers. Nothing here merges. Only a self session may call it; the \
          kill switch stops it between phases."
@@ -767,28 +769,11 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, PUSH, &why);
     }
-    let mut after = String::new();
-    if let Some(remote) = core.cfg.self_improve.remote.clone() {
-        let (p, t, b) = (place.clone(), a.tree.clone(), a.tree.branch.clone());
-        let scrubber = core.tools.scrubber.clone();
-        let pushed = blocking(move || {
-            Ok(tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1)
-                .map(|spec| format!("{remote} {spec}")))
-        })
-        .await?;
-        match pushed {
-            Ok(to) => {
-                after = format!("Pushed to {to}. ");
-                a.pushed = Some(to);
-            }
-            Err(e) => {
-                a.stopped_at = Some(PUSH);
-                after = format!("Not pushed: {e}. ");
-            }
-        }
-    } else {
-        after.push_str("[self] remote is unset, so the branch stays local. ");
-    }
+    // The branch is never pushed from here (issue 53): it stays in `[self] repo`, where the join reads it.
+    let after =
+        "The branch stays on this machine: nothing of it is pushed until the owner reads it and \
+                 says yes at the join. "
+            .to_string();
     // The item's other sessions are ended before the tree goes; this one is making the call.
     if let Err(e) = core
         .end_item_sessions(a.i.item.trim(), Some(tc.session_id))
@@ -1013,7 +998,8 @@ fn told_where_it_reports(
         run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
         run.secs,
         match run.verdict {
-            Verdict::Green => "It is pushed from here.",
+            Verdict::Green =>
+                "It stays on this machine; the join asks the owner before anything is published.",
             Verdict::Keel => "It waits for the owner's word; nothing retries around it.",
             Verdict::Red => "The tree stays open for another attempt.",
         }
@@ -1301,7 +1287,11 @@ fn write_report(
         .collect();
     let remote = core.cfg.self_improve.remote.as_deref().map_or_else(
         || "unset: the branch stays local".to_string(),
-        |r| format!("{r}, pushed after this report when the gate is green"),
+        |r| {
+            format!(
+                "{r}; the branch is not pushed: the join publishes main there on the owner's yes"
+            )
+        },
     );
     let text = format!(
         "# Self branch {branch}\n\n\

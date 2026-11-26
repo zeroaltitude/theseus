@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
 use super::install::Started;
-use super::{blocking, dependencies, git, keel, lock, lock_dir, moved, refused, stats, Run, TRIES};
+use super::{
+    blocking, dependencies, git, keel, lock, lock_dir, moved, publish, refused, stats, Run, TRIES,
+};
 use crate::fact::rsi_join::{SelfJoinAgain, SelfJoined};
 use crate::rsi::rerun;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
@@ -37,7 +39,10 @@ pub(super) struct Merged {
 impl Run<'_> {
     /// The keel check and the join. False when it stopped.
     pub(super) async fn join(&mut self, remote: &str) -> Result<bool> {
-        if !self.phase("keel") || !self.keel_clear(remote).await? || !self.phase("lock") {
+        if !self.phase("keel") || !self.keel_clear(remote).await? {
+            return Ok(false);
+        }
+        if !self.phase(publish::PHASE) || !self.owner_yes(remote).await? || !self.phase("lock") {
             return Ok(false);
         }
         let core = self.core.clone();
@@ -163,6 +168,44 @@ impl Run<'_> {
             &why,
             json!({"classes": classes, "hits": hits.len()}),
         );
+        Ok(false)
+    }
+
+    /// The owner's yes to publishing this head (`publish`): true when he said yes to it. Else the join parks: the
+    /// card is asked, once for the head, and the pass records it as parked. His no is held by its own row; after his
+    /// retry lifts it, the head is asked again.
+    async fn owner_yes(&mut self, remote: &str) -> Result<bool> {
+        let core = self.core.clone();
+        let here = (self.b.branch.clone(), self.b.head.clone());
+        if let Some(asked) = core.publish_asked(&self.b.branch)? {
+            if asked.head == self.b.head {
+                match core.publish_answer(&asked.question)? {
+                    publish::Answer::Yes => return Ok(true),
+                    publish::Answer::Waiting => {
+                        tracing::info!(branch = %self.b.branch, question = %asked.question,
+                            "self-join: waits for the owner's answer to its card");
+                        self.pass.parked.push(here);
+                        return Ok(false);
+                    }
+                    publish::Answer::No if !self.reopened => return Ok(false),
+                    publish::Answer::No | publish::Answer::Ended => {}
+                }
+            }
+        }
+        let (p, r, h) = (self.place.clone(), remote.to_string(), self.b.head.clone());
+        let title = self.b.why.lines().next().unwrap_or("").trim().to_string();
+        let names = (self.b.branch.clone(), self.b.item.clone(), title);
+        let l = blocking(move || {
+            git::fetch(&p, &r)?;
+            let main = git::main_of(&p, &r)?;
+            let names = (names.0.as_str(), names.1.as_str(), names.2.as_str());
+            publish::Leaving::read(&p, publish::Kind::Join, names, &r, &main, &h)
+        })
+        .await?;
+        let question = core.ask_publish(&l)?;
+        let why = "it waits for the owner's yes to publish it";
+        self.stop(publish::PHASE, why, publish::parked(&question, &l));
+        self.pass.parked.push(here);
         Ok(false)
     }
 
