@@ -24,6 +24,48 @@ pub const NOT_YOURS: &str = "a sign-in from Discord is the owner's own press, in
 /// The outbox kind of the card, to the owner's direct messages.
 pub const KIND: &str = "mcp_sign_in";
 
+/// One card per target in this window (issue 59), for every card of the pattern (an MCP server's,
+/// Google's, the alerts'), whoever stages it: a repeated offer within it stages nothing new and says
+/// so. Fixed: no owner setting.
+pub const ONE_CARD_PER: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+fn card_key(target: &str) -> String {
+    format!("consent.card_at.{target}")
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Whether a card for `target` may be staged now: `Err` with the minutes since the last one, when
+/// it is still within `ONE_CARD_PER`.
+pub fn card_due(store: &crate::store::Store, target: &str) -> Result<(), u64> {
+    let window = u64::try_from(ONE_CARD_PER.as_millis()).unwrap_or(u64::MAX);
+    match store.get_meta::<u64>(&card_key(target)).ok().flatten() {
+        Some(at) if unix_ms().saturating_sub(at) < window => {
+            Err(unix_ms().saturating_sub(at) / 60_000)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// A card for `target` was staged now.
+pub fn card_staged(store: &crate::store::Store, target: &str) {
+    if let Err(e) = store.put_meta(&card_key(target), &unix_ms()) {
+        tracing::warn!(target, error = %format!("{e:#}"), "a sign-in card's time was not kept");
+    }
+}
+
+/// What a repeated offer answers: nothing new was posted.
+pub fn already_offered(what: &str, minutes: u64) -> String {
+    format!(
+        "A card for {what} was posted to the owner's direct messages {minutes} minute(s) ago and \
+         is still there, so no new one was posted. Nothing has started."
+    )
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Input {
@@ -58,9 +100,10 @@ impl Tool for Offer {
 
     fn description(&self) -> &str {
         "Offer the owner a Sign in button for an MCP server that signs in (one with an `oauth` \
-         section), when they ask in words to sign in to it. Posts a card with Sign in and Sign out \
-         buttons to the owner's direct messages; it begins nothing, makes no address and never \
-         signs in: only the owner's own press of the button does. Offered in a private place."
+         section), when they ask in words to sign in to it. It posts one card, with Sign in and \
+         Sign out buttons, to the owner's direct messages, at most once per server in fifteen \
+         minutes. It starts no sign-in and changes no server: only the owner's own press of the \
+         button does. Offered in a private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -131,6 +174,14 @@ impl super::McpBoard {
         {
             return;
         }
+        let target = format!("mcp:{server}");
+        if card_due(&core.store, &target).is_err() {
+            // A card for it is still in the owner's direct messages: this change is told by it.
+            if let Err(e) = core.store.put_meta(&key, &transition.to_string()) {
+                tracing::warn!(server, error = %format!("{e:#}"), "the sign-in card's mark was not kept");
+            }
+            return;
+        }
         let staged = core
             .outbox
             .stage_to_operator(
@@ -144,6 +195,7 @@ impl super::McpBoard {
             });
         match staged {
             Ok(()) => {
+                card_staged(&core.store, &target);
                 if let Err(e) = core.store.put_meta(&key, &transition.to_string()) {
                     tracing::warn!(server, error = %format!("{e:#}"), "the sign-in card's mark was not kept");
                 }
@@ -165,8 +217,11 @@ pub fn run(rt: &ToolRuntime, tc: &TurnCtx<'_>, input: &Value) -> Result<(String,
         .extend
         .board()
         .ok_or("the MCP board is not running, so no sign-in can be offered")?;
+    // Configured, or attached in this run: the lookup the sign-in itself uses.
     let signs_in = board
         .server(&i.server)
+        .cloned()
+        .or_else(|| board.loaded_server(&i.server))
         .map(|s| s.cfg.oauth.is_some())
         .ok_or_else(|| format!("no MCP server named {} is attached", i.server))?;
     if !signs_in {
@@ -174,6 +229,13 @@ pub fn run(rt: &ToolRuntime, tc: &TurnCtx<'_>, input: &Value) -> Result<(String,
             "the MCP server {} does not sign in (its settings have no `oauth`), so there is \
              nothing to sign in to",
             i.server
+        ));
+    }
+    let target = format!("mcp:{}", i.server);
+    if let Err(minutes) = card_due(tc.store, &target) {
+        return Ok((
+            already_offered(&format!("the MCP server `{}`", i.server), minutes),
+            json!({"offered": i.server, "began": false, "posted": false}),
         ));
     }
     let (post, frame) = tc
@@ -187,8 +249,9 @@ pub fn run(rt: &ToolRuntime, tc: &TurnCtx<'_>, input: &Value) -> Result<(String,
         .append(&frame)
         .map_err(|e| format!("the offer was not posted: {e:#}"))?;
     tc.outbox.posted(&post);
+    card_staged(tc.store, &target);
     Ok((
         offered(&i.server),
-        json!({"offered": i.server, "began": false}),
+        json!({"offered": i.server, "began": false, "posted": true}),
     ))
 }

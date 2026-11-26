@@ -42,9 +42,10 @@ impl Tool for Offer {
 
     fn description(&self) -> &str {
         "Offer the owner a Confirm alerts button, when they ask in words to confirm the AWS alerts \
-         subscription. Posts a card to the owner's direct messages; it confirms nothing and takes \
-         no token: only the owner's own press of the button, and the token they paste into its \
-         form, does. Offered in a private place."
+         subscription. It posts one card to the owner's direct messages, at most once in fifteen \
+         minutes. It confirms nothing, takes no token and changes nothing: only the owner's own \
+         press of the button, and the token they paste into its form, does. Offered in a private \
+         place."
     }
 
     fn input_schema(&self) -> Value {
@@ -76,6 +77,13 @@ pub fn run(tc: &TurnCtx<'_>) -> Result<(String, Value), String> {
     if tc.class != PlaceClass::Private {
         return Err("the alerts' confirmation is offered only in a private place".into());
     }
+    use crate::mcp::offer::{already_offered, card_due, card_staged};
+    if let Err(minutes) = card_due(tc.store, "alerts") {
+        return Ok((
+            already_offered("the AWS alerts", minutes),
+            json!({"offered": "alerts", "confirmed": false, "posted": false}),
+        ));
+    }
     let (post, frame) = tc
         .outbox
         .stage_to_operator(None, json!({"kind": "aws_alerts", "text": CARD}))
@@ -84,8 +92,9 @@ pub fn run(tc: &TurnCtx<'_>) -> Result<(String, Value), String> {
         .append(&frame)
         .map_err(|e| format!("the offer was not posted: {e:#}"))?;
     tc.outbox.posted(&post);
+    card_staged(tc.store, "alerts");
     Ok((
         OFFERED.to_string(),
-        json!({"offered": "alerts", "confirmed": false}),
+        json!({"offered": "alerts", "confirmed": false, "posted": true}),
     ))
 }

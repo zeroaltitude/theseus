@@ -44,9 +44,9 @@ impl Tool for Offer {
 
     fn description(&self) -> &str {
         "Offer the owner a Connect Google button, when they ask in words to connect Google or its \
-         grant is gone. Posts a card with Connect and Revoke buttons to the owner's direct \
-         messages; it begins nothing, makes no address and never connects: only the owner's own \
-         press of the button does. Offered in a private place."
+         grant is gone. It posts one card, with Connect and Revoke buttons, to the owner's direct \
+         messages, at most once in fifteen minutes. It starts no consent and changes nothing: only \
+         the owner's own press of the button does. Offered in a private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -78,6 +78,13 @@ pub fn run(account: &str, tc: &TurnCtx<'_>) -> Result<(String, Value), String> {
     if tc.class != PlaceClass::Private {
         return Err("a Google consent is offered only in a private place".into());
     }
+    use crate::mcp::offer::{already_offered, card_due, card_staged};
+    if let Err(minutes) = card_due(tc.store, "google") {
+        return Ok((
+            already_offered("Google", minutes),
+            json!({"offered": "google", "began": false, "posted": false}),
+        ));
+    }
     let (post, frame) = tc
         .outbox
         .stage_to_operator(
@@ -89,8 +96,9 @@ pub fn run(account: &str, tc: &TurnCtx<'_>) -> Result<(String, Value), String> {
         .append(&frame)
         .map_err(|e| format!("the offer was not posted: {e:#}"))?;
     tc.outbox.posted(&post);
+    card_staged(tc.store, "google");
     Ok((
         OFFERED.to_string(),
-        json!({"offered": "google", "began": false}),
+        json!({"offered": "google", "began": false, "posted": true}),
     ))
 }

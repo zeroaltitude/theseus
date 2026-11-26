@@ -417,6 +417,7 @@ async fn connect(
         tasks: Default::default(),
         task_threads: Default::default(),
         task_posts: Default::default(),
+        consents: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -645,6 +646,8 @@ pub(crate) struct Shared {
     pub(crate) task_threads: threads::TaskThreads,
     /// The task forums and their posts (theseus-i3do6).
     pub(crate) task_posts: forum::TaskPosts,
+    /// The sign-ins begun here, and the interactions acted on (issue 59).
+    pub(crate) consents: consent::Records,
 }
 
 #[derive(Default)]
@@ -2476,6 +2479,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         tasks: Default::default(),
         task_threads: Default::default(),
         task_posts: Default::default(),
+        consents: Default::default(),
     })
 }
 

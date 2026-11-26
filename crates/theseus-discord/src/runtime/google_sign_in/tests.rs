@@ -16,13 +16,14 @@ fn a_press_names_what_it_does_and_nothing_else() {
     assert_eq!(parse("gsi:in:google"), Some(Press::In));
     assert_eq!(parse("gsi:out:google"), Some(Press::Out));
     assert_eq!(
-        parse("gsi:paste:abc123:0"),
+        parse("gsi:paste:abc123"),
         Some(Press::Paste("abc123".into()))
     );
     for bad in [
         "gsi:in:other",
         "gsi:begin:google",
-        "gsi:paste:a b:0",
+        "gsi:paste:a b",
+        "gsi:paste:abc123:1",
         "mcpin:in:docs",
         "gsi:in:",
     ] {
@@ -42,7 +43,7 @@ fn the_card_has_connect_and_revoke_and_the_form_one_field() {
         "{b}"
     );
     let m = modal("abc123");
-    assert_eq!(m["data"]["custom_id"], "gsi:m:abc123:0");
+    assert_eq!(m["data"]["custom_id"], "gsi:m:abc123");
     assert_eq!(m["data"]["components"].as_array().unwrap().len(), 1);
 }
 
@@ -78,4 +79,21 @@ fn a_failure_is_fixed_words_and_holds_nothing_said() {
         assert_eq!(got, want, "{message}");
         assert!(!got.contains("fake-google-code"), "{got}");
     }
+}
+
+/// A consent whose keeping could not be made sure of says so, in fixed words; a kept one names the
+/// account and what was granted.
+#[test]
+fn an_uncertain_keep_says_so() {
+    let mut done = GoogleAuthFinishResult {
+        state: "done".into(),
+        account: "owner@example.invalid".into(),
+        store: "memory".into(),
+        granted: vec!["Gmail".into()],
+        ..Default::default()
+    };
+    assert_eq!(done_words(&done), MAY_BE_KEPT);
+    done.store = "file".into();
+    let t = done_words(&done);
+    assert!(t.starts_with("✅") && t.contains("Gmail"), "{t}");
 }

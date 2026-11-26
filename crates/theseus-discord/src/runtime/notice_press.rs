@@ -49,7 +49,7 @@ impl Shared {
         } else if let Some(press) = super::google_sign_in::parse(custom_id) {
             self.google_sign_in_press(i, press, who).await;
         } else if super::aws_alerts::parse(custom_id) {
-            self.respond_modal(i, &super::aws_alerts::modal()).await;
+            self.aws_alerts_press(i).await;
         } else if let Some(press) = super::content::parse(custom_id) {
             self.content_press(i, press, who, discord).await;
         } else if let Some(press) = super::self_note::parse(custom_id) {

@@ -17,8 +17,8 @@ fn the_card_is_one_button_and_the_form_one_field() {
     );
     assert!(parse("awsc:in:alerts"));
     assert!(!parse("awsc:in:other") && !parse("gsi:in:google"));
-    let m = modal();
-    assert_eq!(m["data"]["custom_id"], "awsc:m:alerts:0");
+    let m = modal("1a2b");
+    assert_eq!(m["data"]["custom_id"], "awsc:m:1a2b");
     assert!(m["data"]["custom_id"].as_str().unwrap().starts_with(MODAL));
     assert_eq!(m["data"]["components"].as_array().unwrap().len(), 1);
 }

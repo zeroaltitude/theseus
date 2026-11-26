@@ -21,14 +21,13 @@ fn a_press_names_its_server_or_sign_in_and_nothing_else() {
         Some(Press::Agree("abc123".into()))
     );
     assert_eq!(
-        parse("mcpin:paste:abc123:1"),
-        Some(Press::Paste("abc123".into(), true))
+        parse("mcpin:paste:abc123"),
+        Some(Press::Paste("abc123".into()))
     );
-    assert_eq!(
-        parse("mcpin:paste:abc123:0"),
-        Some(Press::Paste("abc123".into(), false))
-    );
+    // No id carries what was agreed: one that tries is no press of this module.
     for bad in [
+        "mcpin:paste:abc123:1",
+        "mcpin:paste:abc123:0",
         "mcpin:in:",
         "mcpin:in:a b",
         "mcpin:begin:docs",
@@ -48,8 +47,11 @@ fn the_card_has_sign_in_and_sign_out_and_the_form_one_field() {
         "{b}"
     );
     assert!(buttons("not a name").is_empty());
-    let m = modal("abc123", true);
-    assert_eq!(m["data"]["custom_id"], "mcpin:m:abc123:1");
+    let m = modal("abc123");
+    assert_eq!(m["data"]["custom_id"], "mcpin:m:abc123");
+    let about = m["data"]["components"][0]["description"].as_str().unwrap();
+    assert!(about.contains("passes through Discord"), "{about}");
+    assert!(about.contains("4,000"), "{about}");
     let fields = m["data"]["components"].as_array().unwrap();
     assert_eq!(fields.len(), 1);
     assert_eq!(fields[0]["component"]["custom_id"], FIELD);
@@ -81,6 +83,11 @@ fn a_failure_is_fixed_words_and_holds_nothing_said() {
             format!("the sign-in was not completed: {pasted}"),
             SERVER_NO,
         ),
+        (
+            -32603,
+            format!("the sign-in was not made sure to last (disk full): {pasted}"),
+            MAY_BE_KEPT,
+        ),
         (-32602, format!("something else: {pasted}"), REFUSED),
     ];
     for (code, message, want) in cases {
@@ -103,7 +110,7 @@ fn the_host_and_every_other_place_are_shown_with_the_agree_words() {
         elsewhere: vec!["https://tokens.example.invalid".into()],
         ..Default::default()
     };
-    let t = host_words(&b);
+    let t = host_lines(&b).join("\n");
     assert!(t.contains("auth.example.invalid"), "{t}");
     assert!(t.contains("tokens.example.invalid"), "{t}");
     assert!(t.contains("I agree"), "{t}");
@@ -113,14 +120,16 @@ fn the_host_and_every_other_place_are_shown_with_the_agree_words() {
     );
 }
 
-/// The address is shown to the user whose press began the sign-in alone.
+/// A sign-out says what happened: forgotten, still kept on disk, or nothing kept.
 #[test]
-fn the_address_is_kept_for_the_presser_alone() {
-    keep_address("only-mine", "https://auth.example.invalid/a", 42);
-    assert_eq!(
-        address_of("only-mine", Some(42)).as_deref(),
-        Some("https://auth.example.invalid/a")
-    );
-    assert_eq!(address_of("only-mine", Some(77)), None);
-    assert_eq!(address_of("only-mine", None), None);
+fn a_sign_out_says_whether_its_kept_file_remains() {
+    let out = |forgot, kept_remains| McpLogoutResult {
+        name: "docs".into(),
+        forgot,
+        kept_remains,
+        ..Default::default()
+    };
+    assert_eq!(signed_out(&out(true, false)), SIGNED_OUT);
+    assert_eq!(signed_out(&out(false, true)), KEPT_REMAINS);
+    assert_eq!(signed_out(&out(false, false)), NOTHING_KEPT);
 }

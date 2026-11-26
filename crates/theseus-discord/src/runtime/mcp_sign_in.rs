@@ -1,49 +1,54 @@
-//! Signing in to an MCP server from Discord, with no one at the machine (issue 59). A child of `runtime`.
+//! Signing in to an MCP server from Discord, with no one at the machine (issue 59). A child of
+//! `runtime`, on the shared pattern (`consent.rs`): every step is claimed once and passes the
+//! owner-in-private judge first, and every step after Sign in needs this binding's record of it.
 //!
 //! A turn can only **offer** the control: `mcp.sign_in_offer` posts one `mcp_sign_in` card to the
-//! owner's direct messages, with **Sign in** and **Sign out** for the named server. Every step after
-//! that is the owner's own press, which the daemon judges (`rpc/mcp_login.rs`: an owner, in a private
-//! place, read off the press as every press is):
+//! owner's direct messages, with **Sign in** and **Sign out** for the named server.
 //!
 //! - **Sign in** (`mcpin:in:<server>`) is `mcp.login.begin` with `manual` (the paste, as `theseus mcp
-//!   login --manual` takes it). The presser alone is told the host he signs in at and every other
-//!   place the sign-in goes through; when there is one, an **I agree** press (`mcpin:agree:<id>`) comes
-//!   first, exactly where the CLI asks for its typed yes. Then the address to open, as a link, and
-//!   **Paste the address** (`mcpin:paste:<id>:<agreed>`).
+//!   login --manual` takes it), and begins the record. The presser alone is told the host he signs in
+//!   at and every other place the sign-in goes through, whole; when there is one, an **I agree**
+//!   press (`mcpin:agree:<id>`) comes first, exactly where the CLI asks for its typed yes, and only
+//!   that user's own press of it moves the record to agreed. Then the address to open, as a link,
+//!   and **Paste the address** (`mcpin:paste:<id>`).
 //! - **Paste the address** opens a modal with one field: the whole address the browser ended on. Its
-//!   submit is `mcp.login.finish { pasted, agreed }`, the daemon's own manual finish.
-//! - **Sign out** (`mcpin:out:<server>`) is `mcp.logout`.
+//!   submit is `mcp.login.finish { pasted, agreed }`, the daemon's own manual finish, with `agreed`
+//!   the record's.
+//! - **Sign out** (`mcpin:out:<server>`) is `mcp.logout`, and retires the server's record.
 //!
-//! **The pasted value goes from the form to the daemon and nowhere else.** It is read off the modal
-//! into the finish's params and handed to the request; it is in no message, no log line, no row and no
-//! reply. Every answer is fixed words: signed in and how many tools, or one failure (expired, not the
-//! address of this sign-in, refused, the server said no) with no part of what was pasted.
+//! **The pasted value passes through Discord to the daemon and is kept nowhere.** It is read off
+//! the modal into the finish's params and handed to the request; it is in no message, no log line,
+//! no row and no reply. Every answer is fixed words.
+
+use std::time::Duration;
 
 use serde_json::Value;
 use theseus_protocol::mcp::{
     McpLoginBeginParams, McpLoginBeginResult, McpLoginFinishParams, McpLoginFinishResult,
     McpLogoutParams, McpLogoutResult,
 };
-use theseus_protocol::{error_code, method, DiscordOrigin};
+use theseus_protocol::{error_code, method};
 use twilight_model::application::interaction::modal::ModalInteractionData;
 use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::message::component::{ButtonStyle, Component};
 
-pub(crate) use super::consent::address_words;
 #[cfg(test)]
 use super::consent::FIELD;
-use super::consent::{self, address_of, button, keep_address, row, word_ok};
+use super::consent::{self, address_words, button, row, word_ok, Stage, Why};
 use super::Shared;
 use crate::rpc_client::CallError;
 
 const PREFIX: &str = "mcpin";
-/// The modal's custom id: `mcpin:m:<login id>:<agreed>`.
+/// The modal's custom id: `mcpin:m:<login id>`.
 pub(crate) const MODAL: &str = "mcpin:m:";
+const WHAT: &str = "mcp sign-in reply";
 
 /// The fixed words a press is answered with.
 pub(crate) const NOT_HERE: &str =
     "🔐 Only you can sign in to an MCP server, and only in a private place: \
      your direct messages with Theseus, or a channel bound private. Nothing began.";
+pub(crate) const NOT_YOURS: &str =
+    "🔐 That sign-in was begun by someone else, so it goes no further here. Nothing was sent.";
 pub(crate) const EXPIRED: &str =
     "🔐 That sign-in is no longer open: it ran out, a newer one began, or \
      Theseus restarted. Press **Sign in** again.";
@@ -53,8 +58,20 @@ pub(crate) const NOT_THIS: &str =
 pub(crate) const REFUSED: &str = "🔐 The sign-in was refused, and nothing was kept.";
 pub(crate) const SERVER_NO: &str =
     "🔐 The server said no, and nothing was kept. Press **Sign in** to try again.";
+pub(crate) const MAY_BE_KEPT: &str =
+    "🔐 The sign-in may have been kept, but Theseus could not make sure of it, so it is not used \
+     now. Check the server's line in `theseus mcp`, or press **Sign in** again.";
 pub(crate) const NO_BEGIN: &str = "🔐 The sign-in could not begin. Nothing was kept.";
+pub(crate) const TOO_LONG: &str =
+    "🔐 This sign-in's address is too long to show whole here, so it is not shown: sign in at \
+     the terminal with `theseus mcp login`. Nothing was kept.";
+pub(crate) const PASTE_TOO_LONG: &str =
+    "🔐 That is longer than the form takes (4,000 characters), so nothing was sent. Sign in at \
+     the terminal with `theseus mcp login`.";
 pub(crate) const SIGNED_OUT: &str = "🔐 Signed out: its sign-in is forgotten here.";
+pub(crate) const KEPT_REMAINS: &str =
+    "🔐 Signed out for now, but its kept sign-in could not be removed: Theseus would use it again \
+     when it next starts. Press **Sign out** again, or run `theseus mcp logout` at the terminal.";
 pub(crate) const NOTHING_KEPT: &str = "🔐 It had no sign-in kept.";
 pub(crate) const NO_SIGN_OUT: &str = "🔐 The sign-out could not be done.";
 
@@ -64,7 +81,7 @@ pub(crate) enum Press {
     In(String),
     Out(String),
     Agree(String),
-    Paste(String, bool),
+    Paste(String),
 }
 
 pub(crate) fn parse(custom_id: &str) -> Option<Press> {
@@ -74,14 +91,11 @@ pub(crate) fn parse(custom_id: &str) -> Option<Press> {
         "in" => Press::In(word.into()),
         "out" => Press::Out(word.into()),
         "agree" => Press::Agree(word.into()),
-        "paste" => {
-            let (id, agreed) = word.split_once(':')?;
-            Press::Paste(id.into(), agreed == "1")
-        }
+        "paste" => Press::Paste(word.into()),
         _ => return None,
     };
     let w = match &press {
-        Press::In(w) | Press::Out(w) | Press::Agree(w) | Press::Paste(w, _) => w,
+        Press::In(w) | Press::Out(w) | Press::Agree(w) | Press::Paste(w) => w,
     };
     word_ok(w).then_some(press)
 }
@@ -110,36 +124,35 @@ pub(crate) fn buttons(server: &str) -> Vec<Component> {
     ])
 }
 
-fn paste_button(id: &str, agreed: bool) -> Vec<Component> {
-    consent::paste_button(PREFIX, id, agreed)
-}
-
 /// The modal "Paste the address" opens: one field.
-pub(crate) fn modal(id: &str, agreed: bool) -> Value {
-    consent::modal(PREFIX, id, agreed, "Finish the sign-in")
+pub(crate) fn modal(id: &str) -> Value {
+    consent::modal(PREFIX, id, "Finish the sign-in")
 }
 
-/// What the presser is shown first: the host, and every other place it goes through.
-pub(crate) fn host_words(b: &McpLoginBeginResult) -> String {
-    let mut t = format!("🔐 You will sign in at `{}`.", b.host);
+/// What the presser is shown first, line by line: the host, and every other place it goes through.
+pub(crate) fn host_lines(b: &McpLoginBeginResult) -> Vec<String> {
+    let mut t = vec![format!("🔐 You will sign in at `{}`.", b.host)];
     for h in &b.elsewhere {
-        t.push_str(&format!(
-            "\nPart of the sign-in goes through `{h}`, which is not its issuer's own address."
+        t.push(format!(
+            "Part of the sign-in goes through `{h}`, which is not its issuer's own address."
         ));
     }
     if !b.elsewhere.is_empty() {
-        t.push_str("\nPress **I agree** to go on; nothing is sent until you do.");
+        t.push("Press **I agree** to go on; nothing is sent until you do.".into());
     }
     t
 }
 
-/// A failure, in fixed words: never any part of what the daemon or the presser said.
+/// A failure, in fixed words: never any part of what the daemon or the presser said. Chosen by how
+/// the daemon's words begin, or by fixed words of its own.
 pub(crate) fn failure(e: &CallError) -> &'static str {
     if e.code == error_code::REFUSED {
         return NOT_HERE;
     }
     let m = e.message.as_str();
-    if m.starts_with("no sign-in is open") || m.contains("the redirect was taken") {
+    if m.starts_with("the sign-in was not made sure to last") {
+        MAY_BE_KEPT
+    } else if m.starts_with("no sign-in is open") || m.contains("the redirect was taken") {
         EXPIRED
     } else if m.contains("not this sign-in's")
         || m.contains("the address")
@@ -153,50 +166,70 @@ pub(crate) fn failure(e: &CallError) -> &'static str {
     }
 }
 
+/// What a sign-out says: forgotten, still kept on disk, or nothing to forget.
+pub(crate) fn signed_out(out: &McpLogoutResult) -> &'static str {
+    if out.kept_remains {
+        KEPT_REMAINS
+    } else if out.forgot {
+        SIGNED_OUT
+    } else {
+        NOTHING_KEPT
+    }
+}
+
+/// A step refused before any request, in fixed words.
+fn refused(why: Why) -> &'static str {
+    match why {
+        Why::NotYours => NOT_YOURS,
+        Why::Missing | Why::Stale | Why::Stage => EXPIRED,
+    }
+}
+
 impl Shared {
     /// A press of this module's controls.
     pub(super) async fn mcp_sign_in_press(&self, i: &Interaction, press: Press, who: &str) {
-        let discord = consent::presser(i);
+        let Some((user, origin)) = self.consent_gate(i, WHAT, NOT_HERE).await else {
+            return;
+        };
         match press {
-            Press::In(server) => self.mcp_begin(i, &server, who, discord).await,
-            Press::Agree(id) => match address_of(&id, consent::user_of(i)) {
-                Some(url) => {
-                    self.mcp_reply(i, &address_words(&url), paste_button(&id, true))
-                        .await
+            Press::In(server) => self.mcp_begin(i, &server, who, user, origin).await,
+            Press::Agree(id) => {
+                let ok = |r: &consent::Record| r.stage == Stage::Begun && r.needs_agree;
+                match self.consents.step(PREFIX, &id, Some(user), ok) {
+                    Ok(r) => {
+                        self.consents.set(PREFIX, &id, Stage::Agreed);
+                        let words = address_words(&r.url).unwrap_or_else(|| TOO_LONG.into());
+                        self.consent_reply(i, WHAT, &words, consent::paste_button(PREFIX, &id))
+                            .await;
+                    }
+                    Err(why) => self.consent_reply(i, WHAT, refused(why), vec![]).await,
                 }
-                None => self.tell(i, EXPIRED.into()).await,
+            }
+            Press::Paste(id) => match self.consents.step(PREFIX, &id, Some(user), |r| r.ready()) {
+                Ok(_) => self.respond_modal(i, &modal(&id)).await,
+                Err(why) => self.consent_reply(i, WHAT, refused(why), vec![]).await,
             },
-            Press::Paste(id, agreed) => self.respond_modal(i, &modal(&id, agreed)).await,
-            Press::Out(server) => self.mcp_logout(i, &server, who, discord).await,
+            Press::Out(server) => self.mcp_logout(i, &server, who, origin).await,
         }
     }
 
-    /// An ephemeral answer with controls, to the presser alone.
-    async fn mcp_reply(&self, i: &Interaction, text: &str, components: Vec<Component>) {
-        self.consent_reply(i, "mcp sign-in reply", text, components)
-            .await;
-    }
-
-    /// Edit the acknowledged answer to `text`, with `components`.
-    async fn mcp_finish(&self, i: &Interaction, text: &str, components: &[Component]) {
-        self.consent_finish(i, "mcp sign-in reply", text, components)
-            .await;
-    }
-
-    /// **Sign in**: the daemon's manual begin, as the presser.
+    /// **Sign in**: the daemon's manual begin, as the presser; the record begun.
     async fn mcp_begin(
         &self,
         i: &Interaction,
         server: &str,
         who: &str,
-        discord: Option<DiscordOrigin>,
+        user: u64,
+        origin: theseus_protocol::DiscordOrigin,
     ) {
-        self.ack_ephemeral(i).await;
+        if !self.consent_ack(i, WHAT).await {
+            return;
+        }
         let params = McpLoginBeginParams {
             name: server.to_string(),
             manual: true,
             author: Some(who.to_string()),
-            discord,
+            discord: Some(origin.clone()),
         };
         let r = self
             .rpc
@@ -209,52 +242,82 @@ impl Shared {
                     true => NOT_HERE,
                     false => NO_BEGIN,
                 };
-                return self.mcp_finish(i, words, &[]).await;
+                return self.consent_finish(i, WHAT, words, &[]).await;
             }
         };
-        keep_address(&b.login_id, &b.url, consent::user_of(i).unwrap_or(0));
-        match b.elsewhere.is_empty() {
-            true => {
-                let text = format!("{}\n{}", host_words(&b), address_words(&b.url));
-                self.mcp_finish(i, &text, &paste_button(&b.login_id, false))
-                    .await
-            }
-            false => {
-                let agree = row(vec![button(
-                    format!("{PREFIX}:agree:{}", b.login_id),
-                    "I agree",
-                    ButtonStyle::Primary,
-                )]);
-                self.mcp_finish(i, &host_words(&b), &agree).await
-            }
-        }
+        let (Some(address), Some(mut shown)) =
+            (address_words(&b.url), consent::pages(&host_lines(&b)))
+        else {
+            return self.consent_finish(i, WHAT, TOO_LONG, &[]).await;
+        };
+        let needs_agree = !b.elsewhere.is_empty();
+        let lives = Duration::from_secs(b.expires_secs);
+        let rec = consent::record(
+            &self.consents,
+            PREFIX,
+            &b.login_id,
+            user,
+            server,
+            origin,
+            needs_agree,
+            lives,
+            &b.url,
+        );
+        self.consents.begin(rec);
+        let controls = if needs_agree {
+            row(vec![button(
+                format!("{PREFIX}:agree:{}", b.login_id),
+                "I agree",
+                ButtonStyle::Primary,
+            )])
+        } else {
+            shown.push(address);
+            consent::paste_button(PREFIX, &b.login_id)
+        };
+        self.consent_pages(i, WHAT, &shown, &controls).await;
     }
 
-    /// The form's submit: the daemon's manual finish, as the presser. The field goes into the
-    /// request and nowhere else.
+    /// The form's submit: the daemon's manual finish, as the presser, with what the record says was
+    /// agreed. The field goes into the request and nowhere else.
     pub(super) async fn mcp_sign_in_modal(
         &self,
         i: &Interaction,
         m: &ModalInteractionData,
         who: &str,
     ) {
-        let Some((login_id, agreed)) = consent::submitted(m, PREFIX) else {
-            return self.tell(i, EXPIRED.into()).await;
+        let Some((user, origin)) = self.consent_gate(i, WHAT, NOT_HERE).await else {
+            return;
         };
-        self.ack_ephemeral(i).await;
-        let discord = consent::presser(i);
+        let Some(login_id) = consent::submitted(m, PREFIX) else {
+            return self.consent_reply(i, WHAT, EXPIRED, vec![]).await;
+        };
+        let rec = match self
+            .consents
+            .step(PREFIX, &login_id, Some(user), |r| r.ready())
+        {
+            Ok(r) => r,
+            Err(why) => return self.consent_reply(i, WHAT, refused(why), vec![]).await,
+        };
+        let Some(pasted) = consent::pasted(m) else {
+            return self.consent_reply(i, WHAT, PASTE_TOO_LONG, vec![]).await;
+        };
+        self.consents.set(PREFIX, &login_id, Stage::Pasted);
+        if !self.consent_ack(i, WHAT).await {
+            return;
+        }
         let params = McpLoginFinishParams {
-            login_id,
-            pasted: Some(consent::pasted(m)),
+            login_id: login_id.clone(),
+            pasted: Some(pasted),
             wait_secs: 0,
-            agreed,
+            agreed: rec.stage == Stage::Agreed,
             author: Some(who.to_string()),
-            discord,
+            discord: Some(origin),
         };
         let r = self
             .rpc
             .call::<_, McpLoginFinishResult>(method::MCP_LOGIN_FINISH, params)
             .await;
+        self.consents.retire(PREFIX, &login_id);
         let (text, controls) = match r {
             Ok(done) if done.state == "done" => (
                 format!(
@@ -268,34 +331,36 @@ impl Shared {
             Ok(_) => (EXPIRED.to_string(), vec![]),
             Err(e) => (failure(&e).to_string(), vec![]),
         };
-        self.mcp_finish(i, &text, &controls).await;
+        self.consent_finish(i, WHAT, &text, &controls).await;
     }
 
-    /// **Sign out**: the daemon's logout, as the presser.
+    /// **Sign out**: the daemon's logout, as the presser; the server's record retired.
     async fn mcp_logout(
         &self,
         i: &Interaction,
         server: &str,
         who: &str,
-        discord: Option<DiscordOrigin>,
+        origin: theseus_protocol::DiscordOrigin,
     ) {
-        self.ack_ephemeral(i).await;
+        if !self.consent_ack(i, WHAT).await {
+            return;
+        }
+        self.consents.retire_target(PREFIX, server);
         let params = McpLogoutParams {
             name: server.to_string(),
             author: Some(who.to_string()),
-            discord,
+            discord: Some(origin),
         };
         let r = self
             .rpc
             .call::<_, McpLogoutResult>(method::MCP_LOGOUT, params)
             .await;
         let text = match r {
-            Ok(out) if out.forgot => SIGNED_OUT,
-            Ok(_) => NOTHING_KEPT,
+            Ok(out) => signed_out(&out),
             Err(e) if e.code == error_code::REFUSED => NOT_HERE,
             Err(_) => NO_SIGN_OUT,
         };
-        self.mcp_finish(i, text, &[]).await;
+        self.consent_finish(i, WHAT, text, &[]).await;
     }
 }
 
