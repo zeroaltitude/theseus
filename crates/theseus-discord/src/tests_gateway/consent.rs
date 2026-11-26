@@ -212,3 +212,100 @@ fn in_no_exit(r: &Rig, buf: &Arc<Mutex<Vec<u8>>>, values: &[&str]) {
         }
     }
 }
+
+/// Google's consent succeeds through the fake gateway, with the fake Google (its loopback stand-in,
+/// which the settings allow for tests and scratch daemons alone): the owner's press shows what it
+/// asks and the address, her Paste opens the form, her submit connects Google and keeps the grant
+/// where `theseus google auth` keeps it; the code, the pasted address and the refresh token are in
+/// no reply, post, ledger row, outbox entry or log line.
+#[tokio::test]
+async fn googles_consent_succeeds_through_the_gateway_and_nothing_pasted_is_in_any_exit() {
+    use theseus_google::fake::{Fake, CODE as GCODE, REFRESH_TOKEN};
+    let (buf, _guard) = traced();
+    let google = Fake::start().await;
+    let keep = tempfile::tempdir().unwrap();
+    let token_file = keep.path().join("google-refresh-token");
+    super::MORE_SECRETS.with(|m| {
+        m.borrow_mut().extend([
+            (
+                "google_client".to_string(),
+                Some("client_id: id-1.apps.example\nclient_secret: s3cret-client-0123".to_string()),
+            ),
+            ("google_refresh_token".to_string(), None),
+        ]);
+    });
+    let account = "owner@example.test";
+    let model =
+        |_: &std::path::Path, _| -> Arc<dyn Provider> { Arc::new(FakeProvider::scripted(vec![])) };
+    let file_ref = format!("file:{}", token_file.display());
+    let url = google.url();
+    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], move |cfg| {
+        cfg.google = theseus_core::config::GoogleConfig {
+            account: account.into(),
+            endpoint: Some(url),
+            credentials: theseus_core::config::GoogleCredentialNames::default(),
+            ..Default::default()
+        };
+        cfg.secrets.insert(
+            "google_client".into(),
+            "op://vault/google client/notesPlain".into(),
+        );
+        cfg.secrets.insert("google_refresh_token".into(), file_ref);
+    })
+    .await;
+    offered(
+        &r,
+        json!({"kind": "google_sign_in", "account": account,
+               "text": theseus_core::google::offer::card_text(account)}),
+    );
+    let card_of = |m: &theseus_sim::fake_discord::Msg| m.versions[0].contains("Connect Google for");
+    r.until("the card", || r.posted(ANA_DM).iter().any(card_of))
+        .await;
+    let card = r.posted(ANA_DM).into_iter().find(card_of).unwrap();
+    let began = r.press(&card.id, "Connect Google", (ANA, "ana"));
+    let shown = || {
+        r.fake
+            .replies()
+            .iter()
+            .filter(|x| x.interaction.as_deref() == Some(began.as_str()))
+            .filter_map(|x| x.content.clone())
+            .find(|c| c.contains("](<"))
+    };
+    r.until("the address is shown", || shown().is_some()).await;
+    let text = shown().unwrap();
+    let address = text
+        .split("](<")
+        .nth(1)
+        .unwrap()
+        .split(">)")
+        .next()
+        .unwrap()
+        .to_string();
+    let state = address
+        .split(['?', '&'])
+        .find_map(|p| p.strip_prefix("state="))
+        .unwrap()
+        .to_string();
+    let paste = r
+        .fake
+        .press_reply(&began, "Paste the address", ANA, "ana")
+        .unwrap();
+    let form_of = || {
+        r.fake
+            .replies()
+            .iter()
+            .find(|x| x.interaction.as_deref() == Some(paste.as_str()))
+            .and_then(|x| x.modal.as_ref())
+            .and_then(|m| m["custom_id"].as_str().map(str::to_string))
+    };
+    r.until("the form opens", || form_of().is_some()).await;
+    let pasted = format!("http://127.0.0.1:41999/?code={GCODE}&state={state}&scope=x");
+    let (from_dm, _) = submitted(&r, &form_of().unwrap(), &pasted);
+    r.until("Google is connected", || {
+        told(&r, &from_dm, "✅ Google is connected for")
+    })
+    .await;
+    let kept = std::fs::read_to_string(&token_file).unwrap();
+    assert!(kept.contains(REFRESH_TOKEN), "kept where the CLI keeps it");
+    in_no_exit(&r, &buf, &[GCODE, "41999/?code", REFRESH_TOKEN]);
+}

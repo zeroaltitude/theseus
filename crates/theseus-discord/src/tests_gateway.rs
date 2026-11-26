@@ -69,6 +69,9 @@ thread_local! {
     /// theseus-emqx: the live file's tests submit to them by hand. Read on
     /// the test's own thread, before the binding starts.
     pub(crate) static OPEN_AT_BIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// More secrets this thread's next core holds, by name (`None`: not resolved yet).
+    pub(crate) static MORE_SECRETS: std::cell::RefCell<Vec<(String, Option<String>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 impl Rig {
@@ -410,15 +413,24 @@ fn core_at(
     tweak(&mut cfg);
     let name = cfg.discord.token_secret.clone();
     let jev = cfg.judge.key_secret.clone();
-    let secrets = SecretBoard::new([name.clone(), jev.clone()], Instant::now());
-    secrets.publish(
-        [
-            (name, Ok(Secret::new("fake-token-not-a-secret".into()))),
-            (jev, Ok(Secret::new("jev-test-key-0123456789".into()))),
-        ]
-        .into(),
-        "test",
-    );
+    let more = MORE_SECRETS.with(|m| m.borrow_mut().split_off(0));
+    let names = [name.clone(), jev.clone()]
+        .into_iter()
+        .chain(more.iter().map(|(n, _)| n.clone()));
+    let secrets = SecretBoard::new(names, Instant::now());
+    let mut values: std::collections::BTreeMap<String, Result<Secret, String>> = [
+        (name, Ok(Secret::new("fake-token-not-a-secret".into()))),
+        (jev, Ok(Secret::new("jev-test-key-0123456789".into()))),
+    ]
+    .into();
+    for (n, v) in more {
+        values.insert(
+            n,
+            v.map(Secret::new)
+                .ok_or_else(|| "not there yet".to_string()),
+        );
+    }
+    secrets.publish(values, "test");
     let store = theseus_core::store::Store::open(&dir.join("store")).unwrap();
     let providers = [(cfg.model.provider.clone(), model)].into_iter().collect();
     Core::build(theseus_core::rpc::Parts {
