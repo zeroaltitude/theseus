@@ -1173,9 +1173,10 @@ async fn the_notes_undo_removes_exactly_the_entry_for_the_owner_alone() {
     assert_eq!(r.file_text(), crate::config_change::tests::FILE);
 }
 
-/// The note's Undo refuses when the settings changed since the use: nothing is written.
+/// The note's Undo no longer applies when the settings changed since the use: nothing is written,
+/// and the note says so and how to undo it on a card.
 #[tokio::test]
-async fn the_notes_undo_refuses_when_the_settings_changed_since() {
+async fn the_notes_undo_no_longer_applies_when_the_settings_changed_since() {
     use crate::config_change::tests_answer::owner_in_dm;
     let (r, _dir, _d) = rig_vault("ok");
     let sid = r.session();
@@ -1186,7 +1187,14 @@ async fn the_notes_undo_refuses_when_the_settings_changed_since() {
     r.turn_with("vault_use", &sid, c).await;
     assert_eq!(r.rows("config.changed").len(), 2);
     let later = r.file_text();
-    let e = r.core.told_undo(&first, &owner_in_dm()).await.unwrap_err();
-    assert!(e.message.contains("the settings changed after change #"), "{e:?}");
+    let moved = r.core.told_undo(&first, &owner_in_dm()).await.unwrap();
+    assert!(
+        moved
+            .text
+            .contains("This Undo no longer applies: the settings changed after change #"),
+        "{}",
+        moved.text
+    );
     assert_eq!(r.file_text(), later);
+    assert!(r.rows("config.undone").is_empty());
 }

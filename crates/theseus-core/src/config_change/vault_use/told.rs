@@ -24,14 +24,12 @@ use crate::toolrun::{ToolRuntime, TurnCtx};
 /// Who approved a told use, in its `config.changed` row and the history.
 pub const TOLD: &str = "told: the owner's own turn";
 
-/// The note's title, its second line (the conversation) and its body: what was kept under which
-/// name, that nothing reads it, and that a restart does not change that. `told::stage_dm` adds the
-/// Undo. Names and references only, never the value.
-pub(crate) fn note_parts(
-    title: Option<&str>,
-    used: &Chosen,
-    number: u32,
-) -> (&'static str, String, String) {
+/// The note's title, its second line (the conversation, by its short id, never its title) and its
+/// body: what was kept under which name, that nothing reads it, and that a restart does not change
+/// that. `told::stage_dm` adds the Undo. The words follow `told::stage`'s contract: fixed words,
+/// ids, the settings name, and the vault's own names for the item and field as the daemon's check
+/// found them; never the value, model-written words or outside text.
+pub(crate) fn note_parts(session_id: &str, used: &Chosen, number: u32) -> (&'static str, String, String) {
     let c = &used.checked;
     let section = c
         .section
@@ -47,8 +45,8 @@ pub(crate) fn note_parts(
     (
         "Theseus kept a vault secret's name in its settings",
         format!(
-            "{}, at your word, without a card:",
-            crate::judge::onto::words::in_conversation(title)
+            "In conversation {}, at your word, without a card:",
+            crate::narrative::short(session_id)
         ),
         format!(
             "The item \"{}\", field \"{}\"{section}, in the vault \"{}\", is kept under the new name \
@@ -126,13 +124,7 @@ pub(super) fn put_told(
     if let Err(e) = tc.store.defer(rec) {
         tracing::warn!(error = %format!("{e:#}"), "vault.use: the change's row was not kept");
     }
-    let title = tc
-        .store
-        .get_session::<crate::session::SessionRecord>(tc.session_id)
-        .ok()
-        .flatten()
-        .and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
-    let (head, by, body) = note_parts(title.as_deref(), used, number);
+    let (head, by, body) = note_parts(tc.session_id, used, number);
     let told = tell(tc, (head, &by, &body), number);
     let said = format!(
         "Done{}: `secrets.{}` now reads the vault's item \"{}\", field \"{}\", and nothing reads \
