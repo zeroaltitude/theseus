@@ -311,7 +311,11 @@ mod tests {
             "google.account"
         );
         let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
-        assert_eq!(with_secrets(account), Needs::Card, "an AWS account's region");
+        assert_eq!(
+            with_secrets(account),
+            Needs::Card,
+            "an AWS account's region"
+        );
         for extra in [
             "regions = [\"us-west-2\"]\n",
             "deployment = \"theseus\"\n",
