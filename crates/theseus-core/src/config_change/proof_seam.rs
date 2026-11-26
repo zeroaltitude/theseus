@@ -352,7 +352,6 @@ mod tests {
             "[self_fix]\nturn_minutes = 600\n",
             "[google]\nmax_sends_per_day = 500\n",
             "[google]\ntrusted_senders = [\"a@example.test\"]\n",
-            "[mcp.servers.files]\nread = [\"delete_everything\"]\n",
             "[import.openclaw]\nagents = [\"main\"]\n",
             "[personas.theseus]\nfiles = [\"/x.md\"]\n",
             "[context]\nfiles = [\"/x.md\"]\n",
@@ -360,6 +359,14 @@ mod tests {
         ]) {
             assert_eq!(n, Needs::Proof, "outside the list: {c}");
         }
+        let server = "[mcp.servers.files]\ncommand = [\"x\"]\n";
+        let read = format!("{server}read = [\"delete_everything\"]\n");
+        real(&[server, &read]);
+        assert_eq!(
+            Needs::of(&between(server, &read)),
+            Needs::Proof,
+            "an MCP server's read"
+        );
         assert_eq!(
             Needs::of(&between("", "[self]\ninstall = \"auto\"\n")),
             Needs::Fresh,
