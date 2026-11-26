@@ -122,6 +122,8 @@ pub enum Buttons {
     /// A turn's folded steps (issue 56): Show steps, or open at a page, Hide steps
     /// and the pages' buttons; and the turn's "Should I have asked?" choices.
     Fold(fold::FoldButtons),
+    /// A folded FYI note (issue 56): Show note, or, open, Hide note, for this post.
+    FoldNote(String, bool),
     /// Remove every component.
     Clear,
     /// Components V2 (theseus-2j2ka): the write's `content` is the components as JSON,

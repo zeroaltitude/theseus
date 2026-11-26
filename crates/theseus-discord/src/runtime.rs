@@ -766,6 +766,8 @@ enum PlaceMsg {
     /// to check; then, checked, for the place to show.
     Fold(Box<fold::Ask>),
     FoldShow(Box<fold::Ask>),
+    /// A press on a folded note, for the place's lane.
+    Note(Box<crate::courier::NotePress>),
     /// Its lane is back from an outage: the place writes its folds again.
     LaneBack,
 }
@@ -2088,7 +2090,11 @@ impl Place {
                 self.task_msg(m).await
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind | PlaceMsg::Fold(_) | PlaceMsg::FoldShow(_) | PlaceMsg::LaneBack => {}
+            PlaceMsg::Unbind
+            | PlaceMsg::Fold(_)
+            | PlaceMsg::FoldShow(_)
+            | PlaceMsg::Note(_)
+            | PlaceMsg::LaneBack => {}
             PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;

@@ -58,6 +58,7 @@ mod channels;
 pub mod commands;
 mod emojis;
 mod events;
+mod forge;
 mod forums;
 mod overwrites;
 mod reactions;
@@ -66,6 +67,7 @@ mod threads;
 pub use channels::FakeChannel;
 pub use emojis::FakeEmoji;
 pub use events::{FakeEvent, GUILD_EVENT_LIMIT};
+pub use forge::Forged;
 pub use threads::{FakeHook, FakeTag, FakeThread, HoldAt};
 
 use crate::fake_gateway::{self, FakeGateway, GatewayState, Where};
