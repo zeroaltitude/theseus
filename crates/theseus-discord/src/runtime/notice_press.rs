@@ -40,7 +40,9 @@ impl Shared {
         who: &str,
         discord: Option<DiscordOrigin>,
     ) -> bool {
-        if let Some(press) = super::persona_soul::parse(custom_id) {
+        if let Some(post) = super::told::parse(custom_id) {
+            self.told_press(i, post, who, discord).await;
+        } else if let Some(press) = super::persona_soul::parse(custom_id) {
             self.persona_soul_press(i, press, who).await;
         } else if let Some(press) = super::content::parse(custom_id) {
             self.content_press(i, press, who, discord).await;

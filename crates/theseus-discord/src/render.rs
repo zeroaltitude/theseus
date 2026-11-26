@@ -34,6 +34,7 @@ pub(crate) mod board_v2;
 pub(crate) mod card_v2;
 pub(crate) mod cite;
 mod deferred;
+pub(crate) mod fold;
 mod held;
 mod heldquestion;
 pub(crate) mod history;
@@ -99,6 +100,8 @@ pub enum Buttons {
     Again(String),
     /// A mint's card (theseus-xzxqv): Undo, for this write (the judgment's id).
     OntoUndo(String),
+    /// A note of an act done unasked (issue 57): Undo, for this post.
+    Told(String),
     /// A new persona's card (theseus-utfnl): Write its soul and Decline, for this persona.
     PersonaSoul(String),
     /// A self note's Drop for each started item `(id, title)` and its Halt (theseus-o1h3f.7).
@@ -116,6 +119,9 @@ pub enum Buttons {
     /// A reply's cited sources, for the session whose recall gave them, and the turn whose
     /// message it offers to make a task (theseus-bh3t.5).
     Sources(String, Vec<cite::Source>, Option<String>),
+    /// A turn's folded steps (issue 56): Show steps, or open at a page, Hide steps
+    /// and the pages' buttons; and the turn's "Should I have asked?" choices.
+    Fold(fold::FoldButtons),
     /// Remove every component.
     Clear,
     /// Components V2 (theseus-2j2ka): the write's `content` is the components as JSON,

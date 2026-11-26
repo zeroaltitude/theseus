@@ -134,6 +134,8 @@ impl Core {
             .tasks
             .values()
             .filter(|t| t.state == TaskState::Proposed)
+            // Not before a minute after its note is written, by any start (issue 57).
+            .filter(|t| !self.rsi.pipeline.chat_holds.held(t))
             .filter(|t| only.is_none_or(|o| o == t.id))
             // A pattern is minted by a later step, never started as a fix.
             .filter(|t| w.st.items.get(&t.id).is_some_and(|m| m.pattern.is_none()))

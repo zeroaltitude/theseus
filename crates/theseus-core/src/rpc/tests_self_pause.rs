@@ -72,10 +72,11 @@ fn a_strangers_clear_and_a_jobs_are_refused_and_the_pause_stands() {
     assert_eq!(refused.len(), 2, "{refused:?}");
 }
 
-/// The chat tool: its schema is closed, it asks for the owner's yes at every posture, and its wall
-/// refuses a place that is not the owner's own and a session that is not a conversation, changing nothing.
+/// The chat tool: its schema is closed, it follows its own posture (no ask at every posture, issue
+/// 57), and its wall refuses a place that is not the owner's own and a session that is not a
+/// conversation, changing nothing.
 #[test]
-fn the_chat_tool_is_closed_asks_for_the_owner_and_is_walled() {
+fn the_chat_tool_is_closed_follows_its_posture_and_is_walled() {
     let s = SelfPause.input_schema();
     assert_eq!(s["additionalProperties"], json!(false));
     assert_eq!(s["required"], json!(["action"]));
@@ -86,7 +87,7 @@ fn the_chat_tool_is_closed_asks_for_the_owner_and_is_walled() {
     let plan = SelfPause
         .plan(&json!({"action": "pause"}), &ToolCtx::default())
         .unwrap();
-    assert!(plan.authority.is_some(), "the owner's own yes acts");
+    assert!(plan.authority.is_none(), "it follows its own posture");
     assert!(Args::parse(&json!({"action": "stop"})).is_err());
     assert!(Args::parse(&json!({})).is_err());
     let c = acting(0, 10);

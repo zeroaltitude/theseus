@@ -28,11 +28,13 @@ pub(crate) const LAB: u64 = 900_000_000_000_000_010;
 pub(crate) const ANA_DM: u64 = ANA + 1;
 
 /// `#lab`, where ana may drive Theseus, bound private or shared, and ana's DM.
+/// Its places show a turn's steps open, a message a loop, as these tests read
+/// them (issue 56: a place folds them unless it says `steps = "open"`).
 pub(crate) fn bindings(lab_private: bool) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = {lab_private}\n\
-         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = {lab_private}\nsteps = \"open\"\n\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\nsteps = \"open\"\n"
     )
 }
 
@@ -1116,6 +1118,8 @@ mod reply;
 mod self_note;
 mod self_word;
 mod standing;
+mod standing_notices;
+mod told;
 
 /// A message with a Jev notice's Noise button for `judgment`, posted in
 /// `channel` as the bot's, as a forged or stale copy would be. Its id.

@@ -65,14 +65,17 @@ mod onto_card;
 pub(crate) mod persona_soul;
 mod remind;
 pub(crate) mod sched;
+mod told;
 pub(crate) use capture_card::{buttons as capture_buttons, card_of as capture_card};
 pub(crate) use horizon::{answers_of as horizon_answers, buttons as horizon_buttons};
 pub(crate) use onto_card::{buttons as onto_buttons, write_of as onto_write};
 pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
 pub(crate) use source::source_buttons;
+pub(crate) use told::buttons as told_buttons;
 mod bound_before;
 pub(crate) mod default_forum;
 mod extensions;
+pub(crate) mod fold;
 pub(crate) mod forum;
 mod guild_thread;
 mod guilds;
@@ -128,6 +131,8 @@ pub(crate) mod emoji;
 mod tests_command_reply;
 #[cfg(test)]
 mod tests_held;
+#[cfg(test)]
+mod tests_lane_back;
 #[cfg(test)]
 mod tests_steer;
 #[cfg(test)]
@@ -757,6 +762,12 @@ enum PlaceMsg {
     /// Someone is typing here: the core is told, with this session's id
     /// (theseus-tnky).
     Typing(DiscordOrigin),
+    /// A press on a turn's fold (issue 56, `runtime/fold.rs`), for its lane
+    /// to check; then, checked, for the place to show.
+    Fold(Box<fold::Ask>),
+    FoldShow(Box<fold::Ask>),
+    /// Its lane is back from an outage: the place writes its folds again.
+    LaneBack,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1284,7 +1295,8 @@ impl Shared {
             .as_ref()
             .map(|(_, n)| format!("discord:{n}"))
             .unwrap_or_else(|| "discord".into());
-        if !allowed {
+        // A fold's press shows only what was shown openly: anyone here may.
+        if !allowed && !fold::is_press(&i) {
             self.respond(
                 &i,
                 InteractionResponseType::ChannelMessageWithSource,
@@ -1294,9 +1306,11 @@ impl Shared {
             .await;
             return;
         }
-        // `/prompt`: its autocomplete, its modal, and the modal's submit, which
-        // answer in their own ways (`runtime/prompt.rs`).
-        if self.prompt_interaction(&i, &tx, &who).await
+        // A fold's press (`runtime/fold.rs`); `/prompt`: its autocomplete, its
+        // modal, and the modal's submit, which answer in their own ways
+        // (`runtime/prompt.rs`).
+        if fold::pressed(&self, &i, &tx)
+            || self.prompt_interaction(&i, &tx, &who).await
             || self.remind_interaction(&i, &who).await
             || live_board::work_interaction(&i, &tx, &who)
         {
@@ -1583,12 +1597,22 @@ impl Shared {
         content: Option<String>,
         ephemeral: bool,
     ) {
-        let data = content.map(|c| InteractionResponseData {
-            content: Some(command_reply::leaving(&self.core.exits, &c)),
-            flags: ephemeral.then_some(MessageFlags::EPHEMERAL),
-            allowed_mentions: Some(AllowedMentions::default()),
-            ..Default::default()
-        });
+        let data = match content {
+            Some(c) => Some(InteractionResponseData {
+                content: Some(command_reply::leaving(&self.core.exits, &c)),
+                flags: ephemeral.then_some(MessageFlags::EPHEMERAL),
+                allowed_mentions: Some(AllowedMentions::default()),
+                ..Default::default()
+            }),
+            // A private answer deferred says so now, as what completes it is private only if
+            // its first answer was: a press in a shared place is answered to the presser alone
+            // (issue 57: a note's Undo in a shared notices place).
+            None if ephemeral => Some(InteractionResponseData {
+                flags: Some(MessageFlags::EPHEMERAL),
+                ..Default::default()
+            }),
+            None => None,
+        };
         let resp = InteractionResponse { kind, data };
         if let Err(e) = self
             .interact
@@ -2064,7 +2088,7 @@ impl Place {
                 self.task_msg(m).await
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind => {}
+            PlaceMsg::Unbind | PlaceMsg::Fold(_) | PlaceMsg::FoldShow(_) | PlaceMsg::LaneBack => {}
             PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
@@ -2377,7 +2401,7 @@ impl Place {
 
     /// Live progress to the place's lane: best-effort, never replayed.
     fn apply(&mut self, ops: Vec<crate::render::Op>) {
-        for op in ops {
+        for op in self.view.out(ops, &self.renderer) {
             let _ = self.lane.send(LaneMsg::Live(op));
         }
     }

@@ -254,9 +254,13 @@ impl Core {
         let mut captured_row = fact::row(&captured, Some(&m.session), None)?;
         captured_row.key = Some(super::captured_key(&v.judgment));
         let rows = vec![fact::row(&added, Some(&m.session), None)?, captured_row];
+        // The owner is told of every record kept, wherever its words were said (issue 57): the
+        // CLI's and the web UI's too, which hear the narrative line as well. The card carries
+        // his own words, so it is his DM's alone: `standing_card` is no informing kind, and
+        // never goes to a notices place, which may be shared.
         let body = json!({"kind": "standing_card", "text": super::kept_card(&notice),
             "card": {"mode": "kept", "id": rec.id}});
-        let post = self.card_for(&m.session, c.place.as_deref(), body)?;
+        let post = Some(self.outbox.stage_to_operator(Some(&m.session), body)?);
         let done = Done::Kept(rec.id.clone());
         let say = Say::Kept(rec.clone(), v.judgment.clone(), v.confidence, notice);
         let records = vec![rec];
@@ -324,8 +328,9 @@ impl Core {
         ))
     }
 
-    /// A card for the owner's DM, staged for this frame, when the words came
-    /// from Discord; the CLI and the web UI hear the narrative line instead.
+    /// An ask's card for the owner's DM, staged for this frame, when the words
+    /// came from Discord; the CLI and the web UI hear the narrative line
+    /// instead, and answer there.
     fn card_for(
         &self,
         session: &str,

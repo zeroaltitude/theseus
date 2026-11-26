@@ -521,7 +521,7 @@ fn conditions(core: &Core, s: &Scene, tool: &dyn Tool) -> Vec<ExplainCondition> 
     if takes(tool, "url") && p.private_addresses == crate::web::net::PrivateAddresses::Ask {
         out.push(cond(
             "private_address",
-            "a URL whose host is a private address (DD5)",
+            "a URL whose host is a private address (DD5); a literal loopback or LAN address (127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) runs at the posture, at least notify, and the owner is told, but in a shared place it asks",
             Vec::new(),
             "approve",
         ));

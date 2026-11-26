@@ -290,11 +290,13 @@ pub(crate) fn guild() -> Guild {
 }
 
 /// `#lab` (private or shared, with `extra` keys) and ana's DM.
+/// Its places show a turn's steps open, a message a loop, as these tests read
+/// them (issue 56: a place folds them unless it says `steps = "open"`).
 pub(crate) fn bindings(private: bool, extra: &str) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\", \"{CY}\"]\nmention_only = false\nprivate = {private}\n{extra}\
-         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\", \"{CY}\"]\nmention_only = false\nprivate = {private}\nsteps = \"open\"\n{extra}\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\nsteps = \"open\"\n"
     )
 }
 
@@ -442,6 +444,63 @@ async fn a_task_in_a_guild_channel_gets_a_thread_where_its_stream_lands_and_one_
     // Quiet for a while: no second rename.
     tokio::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(threads(&r)[0].names.len(), 2, "{:?}", threads(&r)[0].names);
+}
+
+/// The same task with `#lab` folded, as a place that says nothing is (issue
+/// 56): its thread takes the channel's word, so the task's steps are one
+/// closed line there that a press in the thread opens, and none of its tool
+/// lines reach the channel.
+#[tokio::test]
+async fn a_task_thread_of_a_folded_channel_folds_its_steps_and_a_press_there_opens_them() {
+    let r = Rig::start_tweaked(
+        |dir, fake| {
+            placed_model(
+                fake,
+                vec![start(&[REEF]), Scripted::text("Started.")],
+                vec![(
+                    REEF,
+                    [vec![gate(dir)], sleeps(1, "Reef charted, all of it.")].concat(),
+                )],
+            )
+        },
+        guild(),
+        &bindings(true, "").replace("steps = \"open\"\n", ""),
+        &[],
+        tweak,
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "a thread for the task", || !threads(&r).is_empty()).await;
+    let t = threads(&r).remove(0);
+    bound(&r, t.id).await;
+    open_gate(&r);
+    let fold = |r: &Rig| {
+        r.posted(t.id)
+            .into_iter()
+            .find(|m| m.buttons.iter().any(|b| b.custom_id.starts_with("fold:")))
+    };
+    until(&r, "the task's fold in its thread, its call done", || {
+        fold(&r).is_some_and(|f| f.content.starts_with("-# ") && f.content.contains(" command"))
+            && r.posted(LAB)
+                .iter()
+                .any(|m| m.content.contains("Reef charted"))
+    })
+    .await;
+    let f = fold(&r).unwrap();
+    assert!(
+        f.versions.iter().all(|v| !v.contains("sleep")),
+        "the closed line holds no argument: {f:#?}"
+    );
+    assert!(!said(&r, t.id).contains("sleep 1"), "no open tool line");
+    assert!(
+        !r.posted(LAB).iter().any(|m| m.content.contains("sleep")),
+        "none of the task's lines in the channel"
+    );
+    r.press(&f.id, "Show steps", (ANA, "ana"));
+    until(&r, "the fold open in the thread", || {
+        fold(&r).is_some_and(|f| f.content.contains("sleep 1"))
+    })
+    .await;
 }
 
 /// A task that only answers (a shared place's tasks run no program).
