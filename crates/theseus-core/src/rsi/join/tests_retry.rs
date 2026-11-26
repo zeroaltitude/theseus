@@ -379,7 +379,8 @@ async fn a_branch_moved_after_its_review_is_not_what_a_retry_joins() {
     std::fs::remove_file(&marker).unwrap();
     retry(&r, &id, &owner(), None).unwrap();
     let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
-    assert!(pass.joined.is_empty() && pass.parked.is_empty(), "{pass:?}");
+    assert_eq!(pass.joined.len(), 0, "{pass:?}");
+    assert_eq!(pass.parked.len(), 0, "{pass:?}");
     let on_main = git(
         &r.f.upstream,
         &["ls-tree", "-r", "--name-only", "refs/heads/main"],

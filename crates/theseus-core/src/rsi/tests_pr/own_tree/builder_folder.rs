@@ -172,6 +172,14 @@ async fn only_a_self_builders_sandboxed_command_with_an_open_tree_gets_the_folde
         asked_l0.sandbox.is_some(),
         "a self session's command runs in L1"
     );
+    assert!(
+        asked_l0.env.iter().any(|(k, _)| k == "CARGO_TARGET_DIR"),
+        "with its builder's folder"
+    );
+    assert!(
+        builder_dir::root_in(&state(&r)).exists(),
+        "the folder made for it"
+    );
 
     // A self session whose item has no open tree.
     let closed = task_record(&r, "tides");
