@@ -52,8 +52,8 @@
   },
   "tools": []
 }
-tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
-tools sha256: e4e2269d1e02596dff4baafd28685d78f6037b3221f02ebe19e7a939dd2957a0
+tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait mcp_sign_in_offer owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
+tools sha256: dd8b6a500aa2e71a633ec49dc2adc5f85f44b082cb27821d0fcbc1a42bed0212
 == dm
 {
   "betas": [],
@@ -108,5 +108,5 @@ tools sha256: e4e2269d1e02596dff4baafd28685d78f6037b3221f02ebe19e7a939dd2957a0
   },
   "tools": []
 }
-tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
-tools sha256: e4e2269d1e02596dff4baafd28685d78f6037b3221f02ebe19e7a939dd2957a0
+tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait mcp_sign_in_offer owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
+tools sha256: dd8b6a500aa2e71a633ec49dc2adc5f85f44b082cb27821d0fcbc1a42bed0212
