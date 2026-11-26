@@ -19,7 +19,8 @@
 //!    token, and an AWS guardrail: AWS design §3.6) waits for approval at
 //!    every posture, and is marked as the floor;
 //! 2. an AWS session mint (STS `AssumeRole*` and its kin, theseus-a3s3), a URL
-//!    whose host is a private address (DD5), and an AWS call that deletes what
+//!    whose host is a private address (DD5; a literal loopback or LAN one is
+//!    told and not asked, issue 57), and an AWS call that deletes what
 //!    holds state (§3.9) wait for approval. The roots wait for nothing: a
 //!    read, a working directory, an argument or a write outside them follows
 //!    the tool's posture, whichever tool makes it (theseus-ewi, theseus-m9fdg),
@@ -910,9 +911,25 @@ impl ToolPolicy {
             },
             _ => now,
         };
+        // A literal loopback or LAN address runs at the posture and is told,
+        // so an `open` line cannot make it silent either (issue 57). A line
+        // that asks asks, in its own words.
+        let told = self
+            .told_address(plan)
+            .filter(|_| now.posture != Posture::Approve)
+            .map(|why| format!("{why}, which is told and not asked"));
+        let now = match (&told, now.posture) {
+            (Some(_), Posture::Open) => PostureNow {
+                posture: Posture::Notify,
+                setting: "[policy] private_addresses".into(),
+                ..now
+            },
+            _ => now,
+        };
         let labels = outside.clone();
         let why = std::iter::once(now.why())
             .chain(notify_listed)
+            .chain(told)
             .chain(outside)
             .collect::<Vec<_>>()
             .join("; ");
@@ -1180,7 +1197,9 @@ impl ToolPolicy {
         if plan.authority.is_some() || plan.aws.is_some() {
             return false;
         }
-        if self.private_address(plan).is_some() {
+        // Every private address, a told one too: what runs unasked is the
+        // posture's to say, never a self session's fail-open.
+        if self.any_private_address(plan).is_some() {
             return false;
         }
         self.floor(&self.view(plan)).is_none()
@@ -1343,13 +1362,38 @@ impl ToolPolicy {
     /// outside the roots; theseus-m9fdg for the rest), and a notify at least:
     /// an `open` line cannot make it silent. The floor still refuses, for
     /// every tool.
+    ///
+    /// A literal loopback or LAN address is not this (issue 57; the owner,
+    /// 2026-11-25: the approve is for what is truly dangerous and cannot be
+    /// undone): it runs at the tool's posture, at least a notice
+    /// ([`Self::told_address`]), and the owner is told. A shared place keeps
+    /// its card for it (`toolrun::told::in_shared`).
     fn private_address(&self, plan: &Plan) -> Option<String> {
+        if self.told_address(plan).is_some() {
+            return None;
+        }
+        self.any_private_address(plan)
+            .map(|why| format!("{why}, and a private address waits for approval"))
+    }
+
+    /// Why the call's URL names a private address, told or not, while
+    /// `private_addresses` asks.
+    fn any_private_address(&self, plan: &Plan) -> Option<String> {
         let ask = self.private_addresses == crate::web::net::PrivateAddresses::Ask;
         plan.url
             .as_deref()
             .filter(|_| ask)
             .and_then(crate::web::net::private_url)
-            .map(|why| format!("{why}, and a private address waits for approval"))
+    }
+
+    /// Why the call's URL is a private address that runs and is told rather
+    /// than asked (`web::net::told_host`), while `private_addresses` asks.
+    pub(crate) fn told_address(&self, plan: &Plan) -> Option<String> {
+        let ask = self.private_addresses == crate::web::net::PrivateAddresses::Ask;
+        plan.url
+            .as_deref()
+            .filter(|_| ask)
+            .and_then(crate::web::net::told_url)
     }
 
     /// Does any resource of this plan write?

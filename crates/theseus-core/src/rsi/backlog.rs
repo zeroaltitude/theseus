@@ -719,10 +719,18 @@ impl Core {
 
     /// Write a working set's frame, then say its rows.
     fn backlog_write(&self, w: &mut Work) -> Result<()> {
-        if w.changed.is_empty() && w.parent.is_none() && w.said.is_empty() {
+        self.backlog_write_with(w, Vec::new())
+    }
+
+    /// `backlog_write`, with `more` records in the same frame: what is written with the work, or
+    /// not at all (a chat filing's note, issue 57).
+    fn backlog_write_with(&self, w: &mut Work, more: Vec<NewRecord>) -> Result<()> {
+        if w.changed.is_empty() && w.parent.is_none() && w.said.is_empty() && more.is_empty() {
             return Ok(());
         }
-        self.store.append(&w.frame()?)?;
+        let mut frame = w.frame()?;
+        frame.extend(more);
+        self.store.append(&frame)?;
         let rec = self.rec(None);
         for s in w.said.drain(..) {
             s.announce(&rec);

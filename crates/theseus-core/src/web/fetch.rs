@@ -276,8 +276,12 @@ impl Web {
     /// one (theseus-7gir.20).
     async fn get(&self, first: &Url, cap: usize, approved: bool) -> Result<Got, ToolFailure> {
         // The operator approved this call, and so the private host its URL
-        // names: that origin, and no other.
-        let origin = (approved && net::private_host(first).is_some()).then(|| first.origin());
+        // names: that origin, and no other. A literal loopback or LAN address
+        // is reached unapproved, as the gate told it (issue 57): its origin,
+        // and no other, so a redirect from it to any private host is refused.
+        let ours =
+            (approved && net::private_host(first).is_some()) || net::told_host(first).is_some();
+        let origin = ours.then(|| first.origin());
         let open = self.private == net::PrivateAddresses::Open;
         let mut url = first.clone();
         let mut redirects = 0;

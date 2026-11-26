@@ -10,7 +10,11 @@
 //!   under a new category when `new` is paired with a `<kind>_name` answer at
 //!   the act band (the name is one code mined, `n2`). `new` at the act band
 //!   with no such name asks for the naming call and writes nothing.
-//! - **confirm**: a question for the owner, and nothing written.
+//! - **confirm** (issue 57): filed as at the act band, and the owner is told
+//!   with an undo (`ontology.undo`) rather than asked; a `new` is minted when
+//!   its `<kind>_name` reaches the confirm band, and with no name nothing is
+//!   written or asked. A project is still asked about: attaching one is a
+//!   session's field the undo does not put back.
 //! - **below**: nothing; the judgment's own row is the record.
 //!
 //! The operator's memberships are never touched: a list the operator filled
@@ -44,7 +48,8 @@ pub enum Step {
         minted: bool,
         confidence: f64,
     },
-    /// The confirm band: ask, write nothing.
+    /// A project at the confirm band: ask, write nothing (its attach is not
+    /// one `ontology.undo` puts back).
     Ask {
         kind: String,
         /// What it asks about, whole: the category's path, a project's
@@ -214,7 +219,6 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
         if answer == "none" || confidence < bands.confirm {
             continue;
         }
-        let act = confidence >= bands.act;
         let at = At {
             j,
             o,
@@ -228,7 +232,7 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
             let Some(id) = nth(&candidates, &answer, 'c') else {
                 continue;
             };
-            existing(&at, kind, id, act, confidence)
+            existing(&at, kind, id, confidence)
         };
         match step {
             Ok(Done::Step(s)) => plan.steps.push(s),
@@ -371,22 +375,14 @@ fn path_of(o: &Ontology, id: &CategoryId) -> Vec<String> {
     o.path(id).iter().map(|c| c.name.clone()).collect()
 }
 
-/// The candidate `id`, filed, asked about, or left.
-fn existing(at: &At, kind: &str, id: &str, act: bool, confidence: f64) -> Result<Done, String> {
+/// The candidate `id`, filed or left: from the confirm band as from the act
+/// band (issue 57), the card telling the owner below the act band.
+fn existing(at: &At, kind: &str, id: &str, confidence: f64) -> Result<Done, String> {
     let (o, plan, now_ms) = (at.o, at.plan, at.now_ms);
     let id = CategoryId::parse(id).map_err(|e| e.to_string())?;
     let Some(c) = o.category(&id) else {
         return Ok(Done::Nothing);
     };
-    if !act {
-        return Ok(Done::Step(Step::Ask {
-            kind: kind.into(),
-            name: Some(path_of(o, &id).join(" › ")),
-            how: Some(format!("theseus ontology member {} +{id}", plan.session)),
-            category: Some(id),
-            confidence,
-        }));
-    }
     let list = match with_member(o, plan, kind, &id, confidence, now_ms) {
         Ok(Some(l)) => l,
         Ok(None) => return Ok(Done::Nothing),
@@ -434,26 +430,24 @@ fn check_write(
     Ok(Done::Write(step, records))
 }
 
-/// `new`: a minted category when a mined name is named at the act band.
+/// `new`: a minted category when a mined name is named at the act band, or,
+/// from the confirm band (issue 57), at the confirm band. With no such name
+/// the act band calls for one, and the confirm band does nothing.
 fn new_category(at: &At, kind: &str, names: &[String], confidence: f64) -> Result<Done, String> {
     let (j, o, plan, bands, now_ms) = (at.j, at.o, at.plan, at.bands, at.now_ms);
     let named = choice(j, &format!("{kind}_name"))
         .filter(|(_, c)| *c >= bands.confirm)
         .and_then(|(a, c)| Some((nth(names, &a, 'n')?.clone(), c)));
-    if confidence < bands.act {
-        return Ok(Done::Step(Step::Ask {
-            kind: kind.into(),
-            name: named.map(|(n, _)| n),
-            category: None,
-            how: None,
-            confidence,
-        }));
-    }
-    let Some((name, name_confidence)) = named.filter(|(_, c)| *c >= bands.act) else {
-        return Ok(Done::Step(Step::Unnamed {
-            kind: kind.into(),
-            confidence,
-        }));
+    let act = confidence >= bands.act;
+    let bar = if act { bands.act } else { bands.confirm };
+    let Some((name, name_confidence)) = named.filter(|(_, c)| *c >= bar) else {
+        return Ok(match act {
+            true => Done::Step(Step::Unnamed {
+                kind: kind.into(),
+                confidence,
+            }),
+            false => Done::Nothing,
+        });
     };
     let confidence = confidence.min(name_confidence);
     // A name the kind already holds files under that category.
@@ -462,7 +456,7 @@ fn new_category(at: &At, kind: &str, names: &[String], confidence: f64) -> Resul
         .find(|c| c.kind() == kind && c.name.eq_ignore_ascii_case(&name));
     if let Some(c) = held {
         let id = c.id.clone();
-        return existing(at, kind, id.as_str(), true, confidence);
+        return existing(at, kind, id.as_str(), confidence);
     }
     let id = o.mint_id(kind, &name).map_err(|e| e.to_string())?;
     let parent = parent_for(o, plan, kind);

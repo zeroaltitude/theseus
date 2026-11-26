@@ -14,8 +14,8 @@
 //! **Who.** Setting a pause is anyone's, as a halt is (it only makes Theseus do less); clearing
 //! it is the owner's, from any place they are, never from a job's shell (`Core::self_pause`,
 //! judged as the backlog's words are). It is reached by `theseus self pause` and `unpause`, by
-//! the RPC method `self.pause`, and from chat by the tool `self.pause` (`pause_tool.rs`), where
-//! the gate asks for the owner's own yes at every posture.
+//! the RPC method `self.pause`, and from chat by the tool `self.pause` (`pause_tool.rs`), which
+//! follows its own posture and tells the owner, its note written before the change (issue 57).
 
 use theseus_protocol::rsi::{SelfPauseParams, SelfPauseResult};
 
@@ -123,6 +123,52 @@ impl Core {
             )?;
         }
         Ok(self.self_pause_apply(p.clear, p.why.as_deref(), &who.who()))
+    }
+
+    /// The chat tool's move (issue 57): when it would change anything, `tell` writes the owner's
+    /// note first, under the pause's lock, and only then is the change applied, so a note that
+    /// cannot be written leaves the pause as it was (the act is not done) and a call that changes
+    /// nothing tells nothing. A pause lives in memory, so a restart after the note clears it, as
+    /// the note says a restart does.
+    pub(crate) fn self_pause_told(
+        &self,
+        clear: bool,
+        why: Option<&str>,
+        by: &str,
+        tell: impl FnOnce() -> anyhow::Result<()>,
+    ) -> anyhow::Result<SelfPauseResult> {
+        let mut slot = self
+            .rsi
+            .pipeline
+            .paused
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let changes = slot.is_some() == clear;
+        if changes {
+            tell()?;
+        }
+        if clear {
+            *slot = None;
+        } else {
+            *slot = Some(Pause {
+                why: why
+                    .map(str::trim)
+                    .filter(|w| !w.is_empty())
+                    .map(str::to_string),
+                by: by.to_string(),
+                at_ms: theseus_protocol::now_unix_ms(),
+            });
+        }
+        let now = slot.clone();
+        drop(slot);
+        if clear && changes {
+            self.rsi.pipeline.kick();
+        }
+        Ok(SelfPauseResult {
+            paused: now.is_some(),
+            changed: changes,
+            words: now.map(|n| n.words()),
+        })
     }
 
     /// The move itself, judged by the caller: the RPC's `self_pause` above, and the chat tool,
