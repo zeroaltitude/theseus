@@ -231,6 +231,15 @@ async fn a_renewal_that_returns_a_shown_value_is_refused() {
         state(&r, NAME) == State::NeedsSignIn.as_str()
     })
     .await;
+    // The list accepted before stays offered: the refused value changed
+    // nothing in it.
+    assert!(r
+        .core
+        .mcp
+        .catalog
+        .all()
+        .iter()
+        .any(|t| t.server.name == NAME && t.listed.name == "says_schema_key"));
     assert_ne!(r.auth.last_bearer().as_deref(), Some(candidate.as_str()));
     let kept = std::fs::read_to_string(crate::mcp::oauth::file(
         &crate::mcp::oauth::dir(&r.dir.path().join("store")),
