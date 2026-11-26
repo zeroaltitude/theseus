@@ -725,6 +725,10 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   alone, and a message with neither half is never made; the turn, its cards and its reply are unchanged. There is
   no thinking message of its own (an earlier cut's `:think`), and the binding showed no thinking before
   theseus-l1y1.
+- **A place folds a turn's steps unless its binding says `steps = "open"`** (issue 56): one message a turn,
+  `<turn>:fold`, closed by default, **Show steps** / **Hide steps**. Its lane is the fold's ONE writer; a fold never
+  shows what its place hides now; never folded: the reply, a card, a question, a post. The rules are the module docs
+  of `render/fold.rs`, `runtime/fold.rs`, `courier/press.rs`; tests `tests_fold*.rs`.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).

@@ -55,6 +55,14 @@ pub(crate) struct Shown {
     pub thinking: bool,
 }
 
+/// A turn's thinking, for its fold's closed line (`fold.rs`): still
+/// streaming, or how long it took in all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Thought {
+    Thinking,
+    For(u64),
+}
+
 #[derive(Default)]
 pub(crate) struct Process {
     exits: Option<std::sync::Arc<theseus_core::exits::Exits>>,
@@ -90,11 +98,12 @@ impl Loop {
     /// The message as the place shows it: the thinking (streaming, or
     /// folded), then the tool lines; empty when it shows neither.
     fn content(&self, s: Shown, exits: Option<&theseus_core::exits::Exits>) -> String {
-        let tools = if s.tools {
-            self.tools.as_deref().unwrap_or("")
-        } else {
-            ""
-        };
+        self.compose(self.tools.as_deref().unwrap_or(""), s, exits)
+    }
+
+    /// The message with `tools` for its tool lines.
+    fn compose(&self, tools: &str, s: Shown, exits: Option<&theseus_core::exits::Exits>) -> String {
+        let tools = if s.tools { tools } else { "" };
         let head = match self.thought {
             _ if !s.thinking || !self.thinks() => String::new(),
             Some(secs) => format!("-# 💭 thought for {secs} s"),
@@ -164,6 +173,36 @@ impl Process {
             _ => return vec![],
         }
         self.tick(s)
+    }
+
+    /// Turn `turn`'s thinking: none when no loop of it thought.
+    pub(crate) fn thought(&self, turn: &str) -> Option<Thought> {
+        let (_, loops) = self.turns.iter().find(|(t, _)| t == turn)?;
+        let mut secs = None;
+        for lp in loops.values().filter(|lp| lp.thinks()) {
+            match lp.thought {
+                None => return Some(Thought::Thinking),
+                Some(s) => secs = Some(secs.unwrap_or(0) + s),
+            }
+        }
+        secs.map(Thought::For)
+    }
+
+    /// Loop `li`'s process message of turn `turn`, its tool lines `tools`
+    /// (the renderer's, as it gives them, whatever the place shows), as the
+    /// place shows it under `s` now: a fold's open page is drawn from this,
+    /// so it never shows a half its place has since hidden (`fold.rs`).
+    pub(crate) fn compose(&self, turn: &str, li: u32, tools: &str, s: Shown) -> String {
+        let lp = self
+            .turns
+            .iter()
+            .find(|(t, _)| t == turn)
+            .and_then(|(_, loops)| loops.get(&li));
+        match lp {
+            Some(lp) => lp.compose(tools, s, self.exits.as_deref()),
+            None if s.tools => tools.to_string(),
+            None => String::new(),
+        }
     }
 
     /// The turns the renderer holds now (`Renderer::held`): the rest are

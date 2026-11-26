@@ -17,12 +17,14 @@ use theseus_sim::fake_discord::{FakeDiscord, Guild, Msg, DEFAULT_GUILD};
 
 use crate::tests_gateway::{Rig, ANA, ANA_DM, LAB};
 
-/// `#lab`, bound private with `lab`'s words, and ana's DM with none.
+/// `#lab`, bound private with `lab`'s words, and ana's DM with none else.
+/// Both show a turn's steps open, a message a loop, as these tests read them
+/// (issue 56: a place folds them unless it says `steps = "open"`).
 fn bindings(lab: &str) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n{lab}\
-         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\nsteps = \"open\"\n{lab}\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\nsteps = \"open\"\n"
     )
 }
 

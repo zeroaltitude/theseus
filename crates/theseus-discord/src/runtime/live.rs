@@ -296,7 +296,11 @@ impl Place {
         self.label = r.label;
         self.users = r.users;
         self.mention_only = r.mention_only;
-        self.view.set(r.show);
+        // A fold that shows a half the place now hides is written again
+        // (issue 56), by the lane, as any live state is.
+        for op in self.view.set(r.show, &self.renderer) {
+            let _ = self.lane.send(LaneMsg::Live(op));
+        }
         let _ = self.lane.send(LaneMsg::Label(self.label.clone()));
         self.shared
             .place_limit(&self.key, &self.label, &self.session_id);
