@@ -60,6 +60,7 @@ impl Place {
             }
             PlaceMsg::Fold(ask) => self.fold_asked(*ask),
             PlaceMsg::FoldShow(ask) => self.fold_show(*ask),
+            PlaceMsg::Note(n) => self.note_asked(n),
             PlaceMsg::LaneBack => self.lane_back(),
             m => self.handle(m).await,
         }

@@ -53,6 +53,8 @@ pub(super) const INVITE_PERMISSIONS: u64 = 326_686_067_792;
 pub(crate) struct Bits {
     pub(crate) guild: Option<String>,
     pub(crate) ceiling: Option<PlaceCeiling>,
+    /// How it shows a turn's steps and an FYI note (issue 56).
+    pub(crate) steps: crate::bindings::Steps,
 }
 
 impl PlaceBits {
@@ -106,6 +108,7 @@ impl PlaceBits {
             let bits = Bits {
                 guild: Some(c.guild.clone()),
                 ceiling: c.ceiling.clone(),
+                steps: c.steps,
             };
             (format!("channel:{}", c.id), bits)
         });
@@ -113,6 +116,7 @@ impl PlaceBits {
             let bits = Bits {
                 guild: None,
                 ceiling: d.ceiling.clone(),
+                steps: d.steps,
             };
             (format!("dm:{}", d.user), bits)
         });
