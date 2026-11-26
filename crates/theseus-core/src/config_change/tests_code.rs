@@ -114,7 +114,11 @@ async fn a_dollar_limit_that_converts_to_zero_micro_dollars_needs_the_code() {
         r.core
             .confirm_action(&q.correlation_id, true, None, "cli")
             .unwrap();
-        assert_eq!(field(kernel_of(&r.file_text())), 1, "{key}: written, one micro-dollar");
+        assert_eq!(
+            field(kernel_of(&r.file_text())),
+            1,
+            "{key}: written, one micro-dollar"
+        );
     }
 }
 
@@ -127,7 +131,10 @@ async fn the_hard_multiple_is_its_own_whole_number_case() {
     let q = card_of(&r, change("kernel.spend_limit_hard_multiple", json!(0))).await;
     assert!(q.needs_proof, "{}", q.reason);
     assert_eq!(
-        kernel_of(&format!("{FILE}\n[kernel]\nspend_limit_hard_multiple = 0\n")).spend_hard_multiple,
+        kernel_of(&format!(
+            "{FILE}\n[kernel]\nspend_limit_hard_multiple = 0\n"
+        ))
+        .spend_hard_multiple,
         0,
         "the kernel holds no stop"
     );
@@ -196,7 +203,11 @@ async fn in_a_change_of_several_the_stricter_rule_wins() {
     };
     let q = card_of(&r, both(0.0000001)).await;
     assert!(q.needs_proof, "{}", q.reason);
-    assert!(q.reason.contains("kernel.daily_runaway_usd"), "{}", q.reason);
+    assert!(
+        q.reason.contains("kernel.daily_runaway_usd"),
+        "{}",
+        q.reason
+    );
     decline(&r, &q);
     let q = card_of(&r, both(1000.0)).await;
     assert!(!q.needs_proof, "{}", q.reason);

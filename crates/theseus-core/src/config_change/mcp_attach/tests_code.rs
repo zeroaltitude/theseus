@@ -57,8 +57,12 @@ async fn removing_a_server_asks_its_card_with_no_code() {
     assert!(r.core.mcp.is_loaded("wc"));
     for name in ["wc", "base"] {
         let sid = r.session();
-        r.turn(&sid, "mcp_detach", json!({"name": name, "reason": "the owner asked"}))
-            .await;
+        r.turn(
+            &sid,
+            "mcp_detach",
+            json!({"name": name, "reason": "the owner asked"}),
+        )
+        .await;
         let (status, text) = r.result(&sid);
         assert_eq!(status, ResultStatus::Ok, "{name}: {text}");
         assert!(!text.contains("second proof"), "{name}: {text}");

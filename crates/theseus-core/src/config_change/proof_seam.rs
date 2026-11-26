@@ -258,7 +258,8 @@ mod tests {
             assert_eq!(n, Needs::Proof, "{c}");
             let s = between("", &c);
             assert!(
-                s.iter().all(|s| group(&s.path) == Some(Group::SelfAndAccounts)),
+                s.iter()
+                    .all(|s| group(&s.path) == Some(Group::SelfAndAccounts)),
                 "{c}"
             );
         }
@@ -297,30 +298,58 @@ mod tests {
             real(&[&from]);
             assert_eq!(needs(&from, &k(key, "40.0")), Needs::Card, "{key} tighter");
             assert_eq!(needs(&k(key, "40.0"), &from), Needs::Proof, "{key} raised");
-            assert_eq!(needs(&from, &from.replace("50.0", "50.0000001")), Needs::Proof, "{key} the same micro-dollars");
+            assert_eq!(
+                needs(&from, &from.replace("50.0", "50.0000001")),
+                Needs::Proof,
+                "{key} the same micro-dollars"
+            );
             for v in ["0.0000004", "0.0000005", "0.0000006", "0.000001"] {
                 let micros = theseus_kernel::usd_to_micros(v.parse().unwrap());
                 let want = match micros {
                     0 => Needs::Proof,
                     _ => Needs::Card,
                 };
-                assert_eq!(needs(&from, &k(key, v)), want, "{key} = {v} ({micros} micro-dollars)");
+                assert_eq!(
+                    needs(&from, &k(key, v)),
+                    want,
+                    "{key} = {v} ({micros} micro-dollars)"
+                );
                 let held = effective(Unit::Dollars, &serde_json::json!(v.parse::<f64>().unwrap()));
                 assert_eq!(held == Some(u64::MAX), micros == 0, "{key} = {v}");
             }
-            assert_eq!(needs("", &k(key, "40.0")), Needs::Proof, "{key} set where there was none");
+            assert_eq!(
+                needs("", &k(key, "40.0")),
+                Needs::Proof,
+                "{key} set where there was none"
+            );
             assert_eq!(needs(&from, ""), Needs::Proof, "{key} removed");
         }
         let hard = |v: &str| k("spend_limit_hard_multiple", v);
         real(&[&hard("10"), &hard("0")]);
         assert_eq!(needs(&hard("10"), &hard("5")), Needs::Card);
-        assert_eq!(needs(&hard("10"), &hard("0")), Needs::Proof, "0 never stops");
-        assert_eq!(needs(&hard("0"), &hard("5")), Needs::Card, "from never to a stop");
+        assert_eq!(
+            needs(&hard("10"), &hard("0")),
+            Needs::Proof,
+            "0 never stops"
+        );
+        assert_eq!(
+            needs(&hard("0"), &hard("5")),
+            Needs::Card,
+            "from never to a stop"
+        );
         assert_eq!(needs(&hard("5"), &hard("10")), Needs::Proof);
         let step = |v: &str| k("daily_notice_step_usd", v);
-        assert_eq!(needs(&step("200.0"), &step("100.0")), Needs::Proof, "not a listed limit");
+        assert_eq!(
+            needs(&step("200.0"), &step("100.0")),
+            Needs::Proof,
+            "not a listed limit"
+        );
         let day = |v: &str| format!("[self.budget]\nday_usd = {v}\n");
-        assert_eq!(needs(&day("5.0"), &day("3.0")), Needs::Proof, "not a listed limit");
+        assert_eq!(
+            needs(&day("5.0"), &day("3.0")),
+            Needs::Proof,
+            "not a listed limit"
+        );
         let both = |c: &str, r: &str| {
             format!("[kernel]\ndaily_spend_ceiling_usd = {c}\ndaily_runaway_usd = {r}\n")
         };
@@ -330,7 +359,10 @@ mod tests {
             Needs::Proof,
             "the stricter rule wins"
         );
-        assert_eq!(needs(&both("50.0", "2000.0"), &both("40.0", "1000.0")), Needs::Card);
+        assert_eq!(
+            needs(&both("50.0", "2000.0"), &both("40.0", "1000.0")),
+            Needs::Card
+        );
     }
 
     /// The catalog's prices decide what a call is charged and reserved: a change to one needs
@@ -349,7 +381,11 @@ mod tests {
         let needs = |b: &str, a: &str| Needs::of(&between(b, a));
         assert_eq!(needs(&cases[0], &cases[1]), Needs::Proof, "to zero");
         assert_eq!(needs(&cases[0], &cases[2]), Needs::Proof, "raised");
-        assert_eq!(needs("", &cases[3]), Needs::Proof, "set where there was none");
+        assert_eq!(
+            needs("", &cases[3]),
+            Needs::Proof,
+            "set where there was none"
+        );
         assert_eq!(needs("", &cases[4]), Needs::Card, "not a price");
     }
 }

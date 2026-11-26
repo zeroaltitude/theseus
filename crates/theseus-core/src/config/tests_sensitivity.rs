@@ -205,7 +205,11 @@ fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
     let text = super::tests::uncommented(Config::EXAMPLE_TOML);
     let cfg = Config::from_toml(&text).expect("the uncommented template parses");
     let mut all = Vec::new();
-    valued(&serde_json::to_value(&cfg).unwrap(), &mut Vec::new(), &mut all);
+    valued(
+        &serde_json::to_value(&cfg).unwrap(),
+        &mut Vec::new(),
+        &mut all,
+    );
     let named = |pick: &dyn Fn(&[String]) -> bool| {
         let mut v: Vec<String> = all
             .iter()
@@ -226,8 +230,14 @@ fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
         got,
         (
             ADDRESSES.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-            FOLDERS_AND_AGENTS.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-            PROMPT_TEXT.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            FOLDERS_AND_AGENTS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            PROMPT_TEXT
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
         ),
         "the groups as the configuration holds them now: (addresses, folders and agents, prompt \
          text)\n{got:#?}"
