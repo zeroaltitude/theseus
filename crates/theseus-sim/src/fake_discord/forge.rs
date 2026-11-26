@@ -51,7 +51,11 @@ impl FakeDiscord {
             user: f.user,
         };
         let mut message = message_json(&msg);
-        message["components"] = msg.components_json.clone();
+        // A message with none carries an empty list, as Discord sends it.
+        message["components"] = match &msg.components_json {
+            serde_json::Value::Null => serde_json::json!([]),
+            c => c.clone(),
+        };
         let d = fake_gateway::component_press_with(&i, message, f.custom_id, 2, &[]);
         if !gw.dispatch("INTERACTION_CREATE", d) {
             return Err("no client is connected to the gateway".into());

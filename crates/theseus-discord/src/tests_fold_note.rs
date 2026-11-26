@@ -145,16 +145,34 @@ async fn folded(r: &Rig, channel: u64, post: &str) -> Msg {
     r.posted(channel).into_iter().find(has).unwrap()
 }
 
+/// A press of `button` on message `id` by ana, sent once the stand-in's
+/// gateway has a client to take it (a new process connects after its start
+/// returns): the interaction's id.
+async fn press(r: &Rig, id: &str, button: &str) -> String {
+    let sent = std::sync::Mutex::new(None);
+    r.until("the press taken by the gateway", || {
+        let p = r.fake.press(&theseus_sim::fake_discord::Pressed {
+            message: id,
+            button,
+            user: ANA,
+            name: "ana",
+        });
+        p.map(|i| *sent.lock().unwrap() = Some(i)).is_ok()
+    })
+    .await;
+    sent.into_inner().unwrap().unwrap()
+}
+
 /// Show note, then Hide note, on `m` in `channel`: open, its words are
 /// `open`; closed, its line is `line` again.
 async fn open_and_close(r: &Rig, channel: u64, m: &Msg, open: &str, line: &str) {
-    r.press(&m.id, "Show note", (ANA, "ana"));
+    press(r, &m.id, "Show note").await;
     r.until("the note open", || {
         message(r, channel, &m.id).content == open
     })
     .await;
     assert_eq!(labels(&message(r, channel, &m.id)), ["Hide note"]);
-    r.press(&m.id, "Hide note", (ANA, "ana"));
+    press(r, &m.id, "Hide note").await;
     r.until("the note closed", || {
         message(r, channel, &m.id).content == line
     })
@@ -539,7 +557,7 @@ async fn a_folded_note_opens_after_its_place_starts_again_or_says_it_is_too_old(
     )
     .await;
     let before = message(&r, ANA_DM, &f.id);
-    let pressed = r.press(&f.id, "Show note", (ANA, "ana"));
+    let pressed = press(&r, &f.id, "Show note").await;
     r.until("the presser told", || told(&r, &pressed, TOO_OLD))
         .await;
     let m = message(&r, ANA_DM, &f.id);
