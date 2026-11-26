@@ -226,11 +226,11 @@ impl Core {
         // decision; a change that needs the proof is written only if its
         // question was asked with the mark its settings call for (the same
         // rule the card was asked by: `Needs::of`, or the server's own).
-        // A plain use of a vault secret is the card alone, as main has it
+        // A use of a vault secret keeps main's requirement exactly
         // (`sensitive_of`); every other change is read by the code table.
-        let needs = match (server, used.is_some() && sens.is_empty()) {
+        let needs = match (server, used.is_some()) {
             (true, _) => super::mcp_attach::needs(args, &settings),
-            (false, true) => proof_seam::Needs::plain(&settings),
+            (false, true) => proof_seam::Needs::of_main(!sens.is_empty(), &settings),
             (false, false) => proof_seam::Needs::of(&settings),
         };
         proof_seam::at_yes(&self.store, &a.correlation_id, needs)?;

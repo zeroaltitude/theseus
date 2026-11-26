@@ -35,13 +35,15 @@ pub enum Needs {
 }
 
 impl Needs {
-    /// What a change asks when nothing in it is read as needing the code (a plain use of a
-    /// vault secret, `config_change::sensitive_of`): fresh when any setting needs a fresh code,
-    /// else the card alone, as main has it.
-    pub fn plain(settings: &[Setting]) -> Self {
-        match needs_fresh(settings) {
-            true => Self::Fresh,
-            false => Self::Card,
+    /// MAIN's requirement, exactly, for a use of a vault secret (`config_change::sensitive_of`):
+    /// fresh first, then the code whenever main's sensitivity says so (`sensitive`), else the
+    /// card alone. A plain use is not sensitive there, so it is the card alone; any other use
+    /// keeps main's code, never this lane's dropped lists.
+    pub fn of_main(sensitive: bool, settings: &[Setting]) -> Self {
+        match (needs_fresh(settings), sensitive) {
+            (true, _) => Self::Fresh,
+            (false, true) => Self::Proof,
+            (false, false) => Self::Card,
         }
     }
 
@@ -268,42 +270,98 @@ mod tests {
         Needs::of(&s)
     }
 
-    /// (G3) Dropped by the owner's word ("I'll take your recommendation"): self-improvement, the
-    /// AWS and Google accounts, the vault, the folders Theseus may touch and which agents are
-    /// read take the card alone. The global exceptions inside those sections still need the
-    /// code: a spending key under `self` or `aws`, a key that reads a secret
-    /// (`google.credentials`), and `self.install = "auto"` (a fresh code). Mixed with a G1, G2
-    /// or K setting, the stricter rule wins.
+    /// (G3) Dropped by the owner's word ("I'll take your recommendation"), for EXACTLY the closed
+    /// list of shapes: each takes the card alone. Every setting just outside the list keeps
+    /// main's code: `self.install` (as `true` too), the rest of `self` (`remote`,
+    /// `reviewer_profile`, `revert_window_hours`, `sealed`), `self_issues`, `self_fix`, an AWS
+    /// account's hands network, Google's send limit and trusted senders, an MCP server's `read`,
+    /// the imported history's source and agents, and the context files. The global exceptions
+    /// win inside the list's tables (a spending key, a key that reads a secret), and a mixed
+    /// change takes the strictest.
     #[test]
-    fn group_g3_self_and_accounts_take_the_card_alone_by_his_word() {
-        use crate::config::sensitivity::{group, Group};
+    fn group_g3_is_a_closed_list_of_exact_settings() {
+        use crate::config::sensitivity::DROPPED_SHAPES;
+        assert_eq!(
+            DROPPED_SHAPES,
+            [
+                "self.mode",
+                "aws.accounts.*.region",
+                "aws.accounts.*.regions",
+                "aws.accounts.*.deployment",
+                "aws.accounts.*.durability",
+                "google.account",
+                "google.services",
+                "google.calendars",
+                "vault.keep_by_discord",
+                "tools.roots",
+                "tools.projects_dir",
+                "lsp.servers.*.roots",
+                "index.weights_dir",
+            ]
+        );
         for (c, n) in of_each(&[
             "[self]\nmode = \"act\"\n",
-            "[self_issues]\nmax = 3\n",
-            "[self_fix]\nlines = 50\n",
-            "[google]\nmax_sends_per_day = 5\n",
+            "[google]\naccount = \"me@example.test\"\n",
+            "[google]\nservices = [\"gmail\"]\n",
+            "[google]\ncalendars = [\"primary\"]\n",
             "[vault]\nkeep_by_discord = true\n",
             "[tools]\nroots = [\"/x\"]\n",
-            "[import.openclaw]\nagents = [\"main\"]\n",
+            "[tools]\nprojects_dir = \"/x\"\n",
+            "[lsp.servers.rust]\nroots = [\"Cargo.toml\"]\n",
+            "[index]\nweights_dir = \"/x\"\n",
         ]) {
             assert_eq!(n, Needs::Card, "{c}");
-            let s = between("", &c);
-            assert!(
-                s.iter()
-                    .all(|s| group(&s.path) == Some(Group::SelfAndAccounts)),
-                "{c}"
-            );
         }
         let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
-        assert_eq!(
-            with_secrets(account),
-            Needs::Card,
-            "an AWS account's region"
-        );
-        // The exceptions win inside the dropped group.
-        for (c, n) in of_each(&["[self.budget]\nday_usd = 3.0\n"]) {
-            assert_eq!(n, Needs::Proof, "a spending key under self: {c}");
+        assert_eq!(with_secrets(account), Needs::Card, "an AWS account's region");
+        for extra in [
+            "regions = [\"us-west-2\"]\n",
+            "deployment = \"theseus\"\n",
+            "durability = true\n",
+        ] {
+            assert_eq!(
+                Needs::of(&between(
+                    &format!("{SECRETS}\n{account}"),
+                    &format!("{SECRETS}\n{account}{extra}")
+                )),
+                Needs::Card,
+                "{extra}"
+            );
         }
+        // Just outside the list: main's code.
+        for (c, n) in of_each(&[
+            "[self]\ninstall = true\n",
+            "[self]\nremote = \"elsewhere\"\n",
+            "[self]\nreviewer_profile = \"opus\"\n",
+            "[self]\nrevert_window_hours = 0\n",
+            "[self.sealed]\nevery_branch = true\n",
+            "[self_issues]\nenabled = true\n",
+            "[self_fix]\nlines = 5000\n",
+            "[self_fix]\nfiles = 500\n",
+            "[self_fix]\nturn_minutes = 600\n",
+            "[google]\nmax_sends_per_day = 500\n",
+            "[google]\ntrusted_senders = [\"a@example.test\"]\n",
+            "[mcp.servers.files]\nread = [\"delete_everything\"]\n",
+            "[import.openclaw]\nagents = [\"main\"]\n",
+            "[personas.theseus]\nfiles = [\"/x.md\"]\n",
+            "[context]\nfiles = [\"/x.md\"]\n",
+            "[self.budget]\nday_usd = 3.0\n",
+        ]) {
+            assert_eq!(n, Needs::Proof, "outside the list: {c}");
+        }
+        assert_eq!(
+            Needs::of(&between("", "[self]\ninstall = \"auto\"\n")),
+            Needs::Fresh,
+            "self.install = auto"
+        );
+        assert_eq!(
+            with_secrets(&format!(
+                "{account}\n[aws.accounts.111122223333.hands_network]\nvpc = \"vpc-0a1b2c3d4e5f60718\"\n\
+                 subnets = [\"subnet-0a1b2c3d4e5f60711\"]\nsecurity_group = \"sg-0a1b2c3d4e5f60718\"\n"
+            )),
+            Needs::Proof,
+            "an AWS account's hands network"
+        );
         assert_eq!(
             with_secrets(&format!("{account}daily_budget_usd = 20\n")),
             Needs::Proof,
@@ -314,16 +372,11 @@ mod tests {
             Needs::Proof,
             "a key that reads a secret"
         );
-        assert_eq!(
-            Needs::of(&between("", "[self]\ninstall = \"auto\"\n")),
-            Needs::Fresh,
-            "self.install = auto"
-        );
-        // Mixed with a G1, a G2 or a K setting, the code.
         for other in [
             "[model]\nprovider = \"anthropic\"\n",
             "[judge]\nenabled = false\n",
             "[policy.tools]\n\"proc.run\" = \"open\"\n",
+            "[self]\ninstall = true\n",
         ] {
             let mixed = format!("[tools]\nroots = [\"/x\"]\n\n{other}");
             real(&[&mixed]);
@@ -331,13 +384,31 @@ mod tests {
         }
     }
 
-    /// (D) Dropped tonight: prompt text, a long prompt value included, takes the card alone;
-    /// mixed with a setting that keeps the code, the stricter rule wins.
+    /// (D) Prompt text is EXACTLY the closed list of shapes (a long value included): each takes
+    /// the card alone. A key that only has "prompt" or "note" in its name keeps main's code:
+    /// `model.end_note` (a switch) and `notify.unprompted_pace_secs` (a pacing limit). Mixed
+    /// with a setting that keeps the code, the stricter rule wins.
     #[test]
-    fn group_d_prompt_text_takes_the_card_alone() {
+    fn group_d_prompt_text_is_a_closed_list_of_exact_settings() {
+        use crate::config::sensitivity::PROMPT_TEXT_SHAPES;
+        assert_eq!(
+            PROMPT_TEXT_SHAPES,
+            ["model.system", "profiles.*.system", "personas.*.card"]
+        );
         let long = format!("[model]\nsystem = \"{}\"\n", "be brief. ".repeat(80));
-        for (c, n) in of_each(&["[model]\nsystem = \"be brief\"\n", &long]) {
+        for (c, n) in of_each(&[
+            "[model]\nsystem = \"be brief\"\n",
+            &long,
+            "[profiles.opus]\nsystem = \"be brief\"\n",
+            "[personas.theseus]\ncard = \"a calm voice\"\n",
+        ]) {
             assert_eq!(n, Needs::Card, "{c}");
+        }
+        for (c, n) in of_each(&[
+            "[model]\nend_note = false\n",
+            "[notify]\nunprompted_pace_secs = 0\n",
+        ]) {
+            assert_eq!(n, Needs::Proof, "not prompt text: {c}");
         }
         let mixed = "[model]\nsystem = \"be brief\"\n\n[judge]\nenabled = false\n";
         real(&[mixed]);

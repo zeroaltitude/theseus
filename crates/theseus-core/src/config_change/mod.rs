@@ -529,17 +529,17 @@ pub(crate) fn sensitive_of(
 /// The sensitive settings of a change: each path and why.
 type Sensitive = Vec<(String, String)>;
 
-/// What a change's card asks besides the yes (issue 57): a plain use of a vault secret (nothing
-/// sensitive, by [`sensitive_of`]) is main's answer, the card alone; every other change is read by
-/// the code table (`proof_seam::Needs::of`).
+/// What a change's card asks besides the yes (issue 57): a use of a vault secret keeps MAIN's
+/// requirement exactly (`Needs::of_main` by [`sensitive_of`]: a plain use the card alone, any
+/// other use main's code); every other change is read by the code table (`Needs::of`).
 fn needs_of(
     secret: Option<&vault_use::Chosen>,
     sens: &Sensitive,
     settings: &[diff::Setting],
 ) -> proof_seam::Needs {
-    match secret.is_some() && sens.is_empty() {
-        true => proof_seam::Needs::plain(settings),
-        false => proof_seam::Needs::of(settings),
+    match secret {
+        Some(_) => proof_seam::Needs::of_main(!sens.is_empty(), settings),
+        None => proof_seam::Needs::of(settings),
     }
 }
 

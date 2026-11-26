@@ -230,3 +230,208 @@ async fn in_a_change_of_several_the_stricter_rule_wins() {
     let q = card_of(&r, both(1000.0)).await;
     assert!(!q.needs_proof, "{}", q.reason);
 }
+
+/// What a real proposal of `call`, on the file `FILE` with `extra` after it, asks at the card
+/// and at the yes: an error when the card or the yes takes less than the code.
+async fn code_at_card_and_yes(tool: &str, extra: &str, call: Value) -> Result<(), String> {
+    let r = rig();
+    if !extra.is_empty() {
+        file_with(&r, extra);
+    }
+    let before = r.file_text();
+    let sid = r.session();
+    r.turn_with(tool, &sid, call.clone()).await;
+    let (status, text) = r.result(&sid);
+    if status != ResultStatus::Ok {
+        return Err(format!("{call}: no card: {text}"));
+    }
+    let Some(q) = r.asked().into_iter().find(|q| q.session_id == sid) else {
+        return Err(format!("{call}: no card: {text}"));
+    };
+    if !q.needs_proof && !q.needs_fresh_proof {
+        return Err(format!("{call}: the card alone"));
+    }
+    let yes = r.core.confirm_action(&q.correlation_id, true, None, "cli");
+    match yes {
+        Ok(_) => return Err(format!("{call}: the yes alone was taken")),
+        Err(e) if !e.to_string().contains("theseus owner proof enroll") => {
+            return Err(format!("{call}: the yes was refused for another reason: {e:#}"))
+        }
+        Err(_) => {}
+    }
+    if r.file_text() != before {
+        return Err(format!("{call}: written"));
+    }
+    Ok(())
+}
+
+/// Issue 57, round 4 (the review's counterexamples): every setting just outside the two closed
+/// lists keeps main's code, at the card and at the yes, through a real proposal on a real
+/// file, optional and non-default fields included. Each case runs on its own rig.
+#[tokio::test]
+async fn the_settings_just_outside_the_closed_lists_keep_mains_code() {
+    let remove = |path: &str| {
+        json!({"changes": [{"path": path, "remove": true}], "reason": "the owner asked for it"})
+    };
+    let cases: Vec<(&str, Value)> = vec![
+        ("", change("self.install", json!(true))),
+        ("", change("self", json!({"install": true, "mode": "act"}))),
+        ("[mcp.servers.docs]\ncommand = [\"docs-server\"]\n", change("mcp.servers.docs.read", json!(["delete_everything"]))),
+        (
+            "[mcp.servers.docs]\ncommand = [\"docs-server\"]\n",
+            change("mcp.servers.docs", json!({"command": ["docs-server"], "read": ["delete_everything"]})),
+        ),
+        ("[google]\nmax_sends_per_day = 5\n", change("google.max_sends_per_day", json!(500))),
+        ("[google]\nmax_sends_per_day = 5\n", remove("google.max_sends_per_day")),
+        ("[self_fix]\nlines = 50\nfiles = 5\nturn_minutes = 10\n", change("self_fix.lines", json!(5000))),
+        ("[self_fix]\nlines = 50\nfiles = 5\nturn_minutes = 10\n", change("self_fix.files", json!(500))),
+        ("[self_fix]\nlines = 50\nfiles = 5\nturn_minutes = 10\n", change("self_fix.turn_minutes", json!(600))),
+        ("[self_fix]\nlines = 50\nfiles = 5\nturn_minutes = 10\n", remove("self_fix.lines")),
+        ("[self_fix]\nlines = 50\nfiles = 5\nturn_minutes = 10\n", remove("self_fix.files")),
+        ("[self_fix]\nlines = 50\nfiles = 5\nturn_minutes = 10\n", remove("self_fix.turn_minutes")),
+        ("[self.sealed]\nevery_branch = true\n", change("self.sealed.every_branch", json!(false))),
+        ("", change("self.sealed.dir", json!("/tmp/sealed"))),
+        ("", change("import.openclaw.state_dir", json!("/tmp/openclaw"))),
+        ("", change("import.openclaw.agents", json!(["main"]))),
+        ("", change("personas.theseus.files", json!(["/tmp/persona.md"]))),
+        ("", change("context.files", json!(["/tmp/context.md"]))),
+        ("", change("self_issues.enabled", json!(true))),
+        ("", change("self.remote", json!("elsewhere"))),
+        ("", change("self.reviewer_profile", json!("opus"))),
+        ("", change("self.revert_window_hours", json!(0))),
+        ("", change("model.end_note", json!(false))),
+        ("", change("notify.unprompted_pace_secs", json!(0))),
+    ];
+    let mut wrong = Vec::new();
+    for (extra, call) in cases {
+        if let Err(why) = code_at_card_and_yes("config_propose", extra, call).await {
+            wrong.push(why);
+        }
+    }
+    let secrets = FILE.replace(
+        "anthropic_api_key = \"op://v/i/f\"\n",
+        "anthropic_api_key = \"op://v/i/f\"\naws_access_key_id = \"op://v/i/a\"\n\
+         aws_secret_access_key = \"op://v/i/b\"\n",
+    );
+    let r = rig();
+    std::fs::write(
+        &r.file,
+        format!(
+            "{secrets}\n[aws.accounts.111122223333]\nregion = \"us-west-2\"\n\n\
+             [aws.accounts.111122223333.hands_network]\nvpc = \"vpc-0a1b2c3d4e5f60718\"\n\
+             subnets = [\"subnet-0a1b2c3d4e5f60711\"]\n"
+        ),
+    )
+    .unwrap();
+    let call = change(
+        "aws.accounts.111122223333.hands_network.security_group",
+        json!("sg-0a1b2c3d4e5f60718"),
+    );
+    let q = card_of(&r, call.clone()).await;
+    if !q.needs_proof {
+        wrong.push(format!("{call}: the card alone"));
+    }
+    assert!(wrong.is_empty(), "less than main's code:\n{}", wrong.join("\n"));
+}
+
+/// `self.install = true` put back by an undo keeps main's code too.
+#[tokio::test]
+async fn an_undo_that_puts_back_self_install_true_keeps_the_code() {
+    let r = rig();
+    let before = format!("{FILE}\n[self]\ninstall = true\n");
+    r.seed(&before, FILE, &["self.install"]);
+    let n = r.rows("config.changed")[0]["previous_copy"].as_u64().unwrap();
+    let sid = r.session();
+    r.turn_with("config_undo", &sid, json!({"change": n})).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let q = r.asked().into_iter().find(|q| q.session_id == sid).expect("a card");
+    assert!(q.needs_proof, "{}", q.reason);
+    let e = r
+        .core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap_err();
+    assert!(e.to_string().contains("theseus owner proof enroll"), "{e:#}");
+    assert_eq!(r.file_text(), FILE);
+}
+
+/// Each setting of the closed list takes the card alone through a real proposal, and the yes
+/// alone writes it.
+#[tokio::test]
+async fn each_setting_of_the_closed_list_takes_the_card_alone() {
+    for call in [
+        change("self.mode", json!("act")),
+        change("google.account", json!("me@example.test")),
+        change("vault.keep_by_discord", json!(true)),
+        change("tools.projects_dir", json!("/tmp/projects")),
+        change("index.weights_dir", json!("/tmp/weights")),
+        change("lsp.servers.rust.roots", json!(["Cargo.toml"])),
+        change("profiles.opus.system", json!("be brief")),
+        change("personas.theseus.card", json!("a calm voice")),
+    ] {
+        let r = rig();
+        let q = card_of(&r, call.clone()).await;
+        assert!(!q.needs_proof && !q.needs_fresh_proof, "{call}: {q:?}");
+        r.core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap();
+        assert_ne!(r.file_text(), FILE, "{call}: written");
+    }
+}
+
+/// Finding 6: a use of a vault secret keeps MAIN's requirement exactly. With the reference
+/// already identical and a folder beside it, the code (main: the proposal names the secret);
+/// with a changed reference, the code; a plain use, the card alone, and its yes writes.
+#[tokio::test]
+async fn a_vault_use_keeps_mains_requirement_exactly() {
+    use std::sync::Arc;
+    let rig_vault = |file: &str| {
+        let r = rig();
+        std::fs::write(&r.file, file).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        r.core
+            .tools
+            .look
+            .set_vault(Arc::new(crate::secrets::look::tests::stub(dir.path(), "ok")));
+        (r, dir)
+    };
+    let call = |also: Value| {
+        json!({"vault": "Harbor", "item": "Lantern key", "field": "credential",
+               "name": "lantern_key", "also": also,
+               "reason": "the key is in the vault as Lantern key"})
+    };
+    let with_ref = |reference: &str| {
+        FILE.replace(
+            "anthropic_api_key = \"op://v/i/f\"\n",
+            &format!("anthropic_api_key = \"op://v/i/f\"\nlantern_key = \"{reference}\"\n"),
+        )
+    };
+    let roots = json!([{"path": "tools.roots", "value": ["/tmp/elsewhere"]}]);
+    for (file, what) in [
+        (with_ref("op://Harbor/Lantern key/credential"), "the same reference"),
+        (with_ref("op://Harbor/Other key/credential"), "a changed reference"),
+    ] {
+        let (r, _d) = rig_vault(&file);
+        let sid = r.session();
+        r.turn_with("vault_use", &sid, call(roots.clone())).await;
+        let (status, text) = r.result(&sid);
+        assert_eq!(status, ResultStatus::Ok, "{what}: {text}");
+        let q = r.asked().into_iter().find(|q| q.session_id == sid).expect("a card");
+        assert!(q.needs_proof, "{what}: as on main, the code: {}", q.reason);
+        let e = r
+            .core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap_err();
+        assert!(e.to_string().contains("theseus owner proof enroll"), "{what}: {e:#}");
+        assert_eq!(r.file_text(), file, "{what}");
+    }
+    let (r, _d) = rig_vault(FILE);
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(json!([]))).await;
+    let q = r.asked().into_iter().find(|q| q.session_id == sid).expect("a card");
+    assert!(!q.needs_proof && !q.needs_fresh_proof, "a plain use: {q:?}");
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    assert!(r.file_text().contains("lantern_key = \"op://Harbor/Lantern key/credential\""));
+}

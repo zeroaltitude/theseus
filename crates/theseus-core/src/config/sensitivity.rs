@@ -313,7 +313,7 @@ pub const KEPT_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
 pub const PRICE_KEYS: [&str; 3] = ["long_prompt", "off_peak", "bytes_per_token"];
 
 /// A group the owner decided by his word (2026-11-25, "I'll take your recommendation"): each
-/// keeps the code while it is in [`KEEPS`], and takes the card's yes alone when it is not.
+/// keeps the code while it is in [`KEEPS`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
     /// (G1) KEPT by the owner's word: every key whose value is an address that conversations,
@@ -323,64 +323,73 @@ pub enum Group {
     /// (G2) KEPT by the owner's word: the tables that decide or guard later gates
     /// ([`GATE_TABLES`]).
     Gates,
-    /// (G3) DROPPED by the owner's word: self-improvement, the AWS and Google accounts, the
-    /// vault ([`ACCOUNT_TABLES`]), the folders and files Theseus may touch ([`FOLDER_REASON`]),
-    /// and which processes count as agents. The global exceptions still win inside it: a key
-    /// that reads a secret, who the owner is, a sandbox-like key, any spending key, and
-    /// `self.install = "auto"`.
-    SelfAndAccounts,
 }
 
-/// The groups whose code is KEPT, by the owner's word: G1 and G2. A group not in this list
-/// (G3) takes the card's yes alone; each is one entry to flip.
+/// The groups whose code is KEPT, by the owner's word: G1 and G2. Each is one entry to flip.
 pub const KEEPS: [Group; 2] = [Group::Addresses, Group::Gates];
 
 /// (G2) The tables that decide or guard later gates: KEPT by the owner's word.
 pub const GATE_TABLES: [&str; 3] = ["judge", "privacy", "content_based_security"];
 
-/// (G3) Self-improvement, the AWS and Google accounts, and the vault: DROPPED by the owner's
-/// word.
-pub const ACCOUNT_TABLES: [&str; 6] = ["self", "self_issues", "self_fix", "aws", "google", "vault"];
+/// (G3) The code is DROPPED (the card's yes is enough) by the owner's word for exactly these
+/// settings, a CLOSED list of exact shapes (`*` is one freely named entry): "turning the self
+/// loop on" (`self.mode`), "the AWS and Google account settings", "the vault's form location"
+/// and "tool folders". Nothing is matched by a word inside a key's name; every other setting
+/// of those tables keeps main's rule ([`reason`]).
+pub const DROPPED_SHAPES: [&str; 13] = [
+    "self.mode",
+    "aws.accounts.*.region",
+    "aws.accounts.*.regions",
+    "aws.accounts.*.deployment",
+    "aws.accounts.*.durability",
+    "google.account",
+    "google.services",
+    "google.calendars",
+    "vault.keep_by_discord",
+    "tools.roots",
+    "tools.projects_dir",
+    "lsp.servers.*.roots",
+    "index.weights_dir",
+];
 
-/// (D) The code is DROPPED (the card's yes is enough) for prompt text ([`PROMPT_REASON`]),
-/// as the owner's yes named it,
-/// including a long prompt value. Prompt files, removing an MCP server and attaching one with
-/// no secret, env, address or egress take their own cards with no code
-/// (`config_change::prompt_file`, `config_change::mcp_attach::needs`); so does tightening one
-/// of [`TIGHTENS`].
-pub const DROPPED_KEYS: [&str; 1] = [PROMPT_REASON];
+/// (D) The code is DROPPED for prompt text, as the owner's yes named it: exactly these
+/// settings (a long value included), a CLOSED list of exact shapes. Prompt files, removing an
+/// MCP server and attaching one with no secret, env, address or egress take their own cards
+/// with no code (`config_change::prompt_file`, `config_change::mcp_attach::needs`); so does
+/// tightening one of [`TIGHTENS`].
+pub const PROMPT_TEXT_SHAPES: [&str; 3] = ["model.system", "profiles.*.system", "personas.*.card"];
 
-/// (D) Whether `path` is prompt TEXT: a key of [`DROPPED_KEYS`]'s kind that holds the text
-/// itself (`system`, `end_note`, a persona's `card`, an instruction), not one that chooses a
-/// persona or sizes one (`default_persona`, `persona_max_tokens`), which keep what main does.
+/// Whether `path` is exactly `shape`: as many parts, each equal, `*` matching any one.
+pub fn shaped(path: &[String], shape: &str) -> bool {
+    let parts: Vec<&str> = shape.split('.').collect();
+    parts.len() == path.len() && parts.iter().zip(path).all(|(s, p)| *s == "*" || *s == p)
+}
+
+/// (G3) Whether `path` is one of [`DROPPED_SHAPES`].
+pub fn dropped_by_his_word(path: &[String]) -> bool {
+    DROPPED_SHAPES.iter().any(|s| shaped(path, s))
+}
+
+/// (D) Whether `path` is one of [`PROMPT_TEXT_SHAPES`].
 pub fn prompt_text(path: &[String]) -> bool {
-    let persona = path
-        .last()
-        .is_some_and(|k| k.to_ascii_lowercase().contains("persona"));
-    !persona && reason(path).is_some_and(|r| DROPPED_KEYS.contains(&r.as_str()))
+    PROMPT_TEXT_SHAPES.iter().any(|s| shaped(path, s))
 }
 
 /// The group a setting is in, when it is in one ([`Group`]).
 pub fn group(path: &[String]) -> Option<Group> {
     let first = path.first()?.as_str();
-    let keys = || path.iter().skip(1);
     let provider = |k: &String| {
         let k = k.to_ascii_lowercase();
         k == "provider" || k.ends_with("_provider")
     };
-    if keys().any(|k| key_reason(k) == Some(ADDRESS_REASON) || provider(k)) {
+    if path
+        .iter()
+        .skip(1)
+        .any(|k| key_reason(k) == Some(ADDRESS_REASON) || provider(k))
+    {
         return Some(Group::Addresses);
     }
-    if GATE_TABLES.contains(&first) {
-        return Some(Group::Gates);
-    }
-    let agent = |k: &String| k.to_ascii_lowercase().contains("agent");
-    if ACCOUNT_TABLES.contains(&first)
-        || keys().any(|k| key_reason(k) == Some(FOLDER_REASON) || agent(k))
-    {
-        return Some(Group::SelfAndAccounts);
-    }
-    None
+    GATE_TABLES.contains(&first).then_some(Group::Gates)
 }
 
 /// Whether `path` prices a model call (`catalog.<model>.<a price>`), or names a catalog row
@@ -398,7 +407,8 @@ fn price(path: &[String]) -> bool {
 /// top of the card's yes (issue 57), or `None` when the card alone is enough. In order, the
 /// strictest first: the fresh proof ([`needs_fresh_proof`]); (K) [`KEPT_TABLES`], a price,
 /// [`KEPT_KEYS`], a spending limit not made tighter ([`tightened`]); a group, by [`KEEPS`];
-/// (D) [`DROPPED_KEYS`]; and else what main does ([`reason`]).
+/// (G3) [`DROPPED_SHAPES`] and (D) [`PROMPT_TEXT_SHAPES`]; and else what main does
+/// ([`reason`]).
 pub fn proof_reason(
     path: &[String],
     before: Option<&serde_json::Value>,
@@ -431,7 +441,7 @@ pub fn proof_reason(
             false => None,
         };
     }
-    match prompt_text(path) {
+    match dropped_by_his_word(path) || prompt_text(path) {
         true => None,
         false => reason(path),
     }

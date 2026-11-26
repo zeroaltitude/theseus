@@ -226,47 +226,18 @@ const ADDRESSES: &[&str] = &[
     "web.dev_origin",
     "web.port",
 ];
-/// (G3) The folders, files and agent lists the configuration holds today outside the account
-/// tables: DROPPED by the owner's word, with the global exceptions still winning.
-const FOLDERS_AND_AGENTS: &[&str] = &[
-    "import.openclaw.state_dir",
-    "index.weights_dir",
-    "mcp.servers.github.read",
-    "personas.theseus.files",
-    "tools.projects_dir",
-    "tools.roots",
-];
-/// (D) The prompt-text keys the configuration holds today.
-const PROMPT_TEXT: &[&str] = &[
-    "model.end_note",
-    "model.system",
-    "personas.theseus.card",
-    "profiles.dsflash.system",
-    "profiles.dspro.system",
-    "profiles.fable.system",
-    "profiles.fable51.system",
-    "profiles.fable52.system",
-    "profiles.glm.system",
-    "profiles.glm53.system",
-    "profiles.haiku.system",
-    "profiles.kimi.system",
-    "profiles.kimimax.system",
-    "profiles.mythos.system",
-    "profiles.opus.system",
-    "profiles.sonnet.system",
-];
-
-/// Issue 57, the second reason table by groups: the walk of every setting the configuration
-/// accepts (the uncommented template, parsed) names each key of the groups found by kind; no
+/// Issue 57, the second reason table by groups: the walk of the settings the template holds
+/// (the uncommented template, parsed) names each address of G1, which keeps the code; and no
 /// setting needs less than main asked of it (main: every sensitive setting needs the code)
-/// except prompt text (D) and the group the owner's word dropped (G3); and inside that group
-/// every global exception (a key that reads a secret, the owner, a sandbox-like key, a
-/// spending key) still needs the code. A spending limit is set where there was none here,
-/// which keeps the code.
+/// except one of the two CLOSED lists of exact shapes (G3, by the owner's word; D, prompt
+/// text). Those lists are pinned literally in `config_change::proof_seam`'s tests; the real
+/// proposals of `config_change::tests_code` hold the settings just outside them, with the
+/// optional fields this walk misses. A spending limit is set where there was none here, which
+/// keeps the code.
 #[test]
-fn each_group_names_its_keys_and_only_the_dropped_ones_are_weaker_than_main() {
+fn the_addresses_keep_the_code_and_only_the_closed_lists_are_weaker_than_main() {
     use super::sensitivity::{
-        group, key_reason, prompt_text, proof_reason, reason, Group, KEEPS, KEPT_KEYS, SPEND_REASON,
+        dropped_by_his_word, group, prompt_text, proof_reason, reason, Group,
     };
     let text = super::tests::uncommented(Config::EXAMPLE_TOML);
     let cfg = Config::from_toml(&text).expect("the uncommented template parses");
@@ -276,72 +247,32 @@ fn each_group_names_its_keys_and_only_the_dropped_ones_are_weaker_than_main() {
         &mut Vec::new(),
         &mut all,
     );
-    let named = |pick: &dyn Fn(&[String]) -> bool| {
-        let mut v: Vec<String> = all
-            .iter()
-            .filter(|(p, _)| pick(p))
-            .map(|(p, _)| p.join("."))
-            .collect();
-        v.sort();
-        v.dedup();
-        v
-    };
-    let accounts = |p: &[String]| super::sensitivity::ACCOUNT_TABLES.contains(&p[0].as_str());
-    // A setting of (K), or a fresh one, is decided before any group.
     let kept = |p: &[String]| {
         super::sensitivity::KEPT_TABLES.contains(&p[0].as_str())
             || super::sensitivity::needs_fresh_proof(p, None)
     };
-    let got = (
-        named(&|p| group(p) == Some(Group::Addresses) && !kept(p)),
-        named(&|p| group(p) == Some(Group::SelfAndAccounts) && !accounts(p) && !kept(p)),
-        named(&prompt_text),
-    );
-    assert_eq!(
-        got,
-        (
-            ADDRESSES.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-            FOLDERS_AND_AGENTS
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>(),
-            PROMPT_TEXT
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>(),
-        ),
-        "the groups as the configuration holds them now: (addresses, folders and agents, prompt \
-         text)\n{got:#?}"
-    );
-    let dropped = |p: &[String]| group(p).is_some_and(|g| !KEEPS.contains(&g));
+    let mut addresses: Vec<String> = all
+        .iter()
+        .filter(|(p, _)| group(p) == Some(Group::Addresses) && !kept(p))
+        .map(|(p, _)| p.join("."))
+        .collect();
+    addresses.sort();
+    addresses.dedup();
+    assert_eq!(addresses, ADDRESSES, "the addresses the template holds now");
+    for (p, v) in &all {
+        if group(p) == Some(Group::Addresses) {
+            assert!(proof_reason(p, None, Some(v)).is_some(), "{p:?}");
+        }
+    }
     let weaker: Vec<String> = all
         .iter()
         .filter(|(p, v)| {
             reason(p).is_some()
                 && !prompt_text(p)
-                && !dropped(p)
+                && !dropped_by_his_word(p)
                 && proof_reason(p, None, Some(v)).is_none()
         })
         .map(|(p, _)| p.join("."))
         .collect();
     assert!(weaker.is_empty(), "weaker than main: {weaker:#?}");
-    let exception = |p: &[String]| {
-        p.iter()
-            .skip(1)
-            .any(|k| key_reason(k).is_some_and(|w| KEPT_KEYS.contains(&w) || w == SPEND_REASON))
-    };
-    let lost: Vec<String> = all
-        .iter()
-        .filter(|(p, v)| dropped(p) && exception(p) && proof_reason(p, None, Some(v)).is_none())
-        .map(|(p, _)| p.join("."))
-        .collect();
-    assert!(
-        lost.is_empty(),
-        "an exception inside the dropped group lost its code: {lost:#?}"
-    );
-    assert!(
-        all.iter()
-            .any(|(p, v)| dropped(p) && proof_reason(p, None, Some(v)).is_none()),
-        "the dropped group takes the card alone somewhere"
-    );
 }
