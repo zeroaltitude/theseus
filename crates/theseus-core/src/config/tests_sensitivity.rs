@@ -221,9 +221,14 @@ fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
         v
     };
     let accounts = |p: &[String]| super::sensitivity::ACCOUNT_TABLES.contains(&p[0].as_str());
+    // A setting of (K), or a fresh one, is decided before any group.
+    let kept = |p: &[String]| {
+        super::sensitivity::KEPT_TABLES.contains(&p[0].as_str())
+            || super::sensitivity::needs_fresh_proof(p, None)
+    };
     let got = (
-        named(&|p| group(p) == Some(Group::Addresses)),
-        named(&|p| group(p) == Some(Group::SelfAndAccounts) && !accounts(p)),
+        named(&|p| group(p) == Some(Group::Addresses) && !kept(p)),
+        named(&|p| group(p) == Some(Group::SelfAndAccounts) && !accounts(p) && !kept(p)),
         named(&|p| reason(p).is_some_and(|r| DROPPED_KEYS.contains(&r.as_str()))),
     );
     assert_eq!(
