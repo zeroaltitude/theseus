@@ -24,11 +24,12 @@
 pub(crate) mod ask;
 mod board;
 mod catchup;
+mod fold_note;
 mod held;
 mod notices;
 mod offer;
 mod press;
-pub(crate) use press::{Press, Told};
+pub(crate) use press::{NoteAsk, NotePress, Press, Told};
 mod recall;
 mod subagent;
 pub(crate) mod v2;
@@ -101,6 +102,8 @@ pub(crate) enum LaneMsg {
     BoardMoved,
     /// A press on a turn's fold, checked here first (`press.rs`, issue 56).
     Press(Box<Press>),
+    /// A press on a folded note, checked and written here (`fold_note.rs`).
+    NotePress(Box<NotePress>),
 }
 
 /// Why a call to Discord did not go through.
@@ -381,6 +384,8 @@ pub(crate) struct Lane {
     /// The posts stopped at a card held for its call (`waits_for_its_call`):
     /// live progress may go on, but the posts have not all gone.
     card_held: bool,
+    /// Where the post being delivered was written folded (`fold_note.rs`).
+    note_folded: Option<(String, (u64, u64))>,
 }
 
 impl Lane {
@@ -428,6 +433,7 @@ impl Lane {
             presses: Vec::new(),
             came_back: false,
             card_held: false,
+            note_folded: None,
         }
     }
 
@@ -532,6 +538,7 @@ impl Lane {
             }
             LaneMsg::BoardMoved => self.board_moved(),
             LaneMsg::Press(p) => self.pressed(press::Pending::of(p)),
+            LaneMsg::NotePress(n) => self.pressed(press::Pending::Note(n)),
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => {
@@ -808,7 +815,7 @@ impl Lane {
             {
                 w.content = format!("{}\n{}", w.content, render::RESENT);
             }
-            let wrote = self.write(&w).await;
+            let wrote = self.note_write(a, &w).await;
             let fyi = (&mut notices, maybe_landed, &mut plan.extra);
             let Some(wrote) = self.through_notices(a, &w, wrote, fyi).await else {
                 return Ok(());
@@ -837,6 +844,7 @@ impl Lane {
             self.notices_ok();
         }
         let mut extra = plan.extra;
+        self.mark_folded(a, &mut extra);
         extra["ms"] = json!(t0.elapsed().as_millis() as u64);
         if resend {
             extra["resent"] = json!(true);
@@ -2082,6 +2090,7 @@ impl Lane {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
             }
             Buttons::Fold(f) => crate::runtime::fold::buttons(f),
+            Buttons::FoldNote(p, open) => crate::runtime::fold::note_buttons(p, *open),
             Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
         if !comps.is_empty() {
@@ -2164,6 +2173,7 @@ impl Lane {
                 offer.as_deref(),
             )),
             Buttons::Fold(f) => Some(crate::runtime::fold::buttons(f)),
+            Buttons::FoldNote(p, open) => Some(crate::runtime::fold::note_buttons(p, *open)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep | Buttons::V2 => None,
         };

@@ -21,6 +21,11 @@
 //! gone, the place writes each fold it still holds once more, as it shows now
 //! (`Place::lane_back`).
 //!
+//! A folded FYI note (`courier/fold_note.rs`) is pressed the same way, by
+//! `fold:no:<post>` and `fold:nc:<post>`: its place's lane writes it, only
+//! when the post's own record says it was written folded to exactly the
+//! pressed channel and message, under the same wait and cancel.
+//!
 //! A press only shows again what the place showed openly before, under what
 //! it shows now: it changes nothing else and asks the core nothing. So anyone
 //! the place answers may press it, as anyone who can see the conversation
@@ -39,7 +44,8 @@ use twilight_model::http::interaction::InteractionResponseType;
 
 use super::show::Unshown;
 use super::{LaneMsg, Place, PlaceMsg, Shared};
-use crate::courier::{Press, Told};
+use crate::bindings::Steps;
+use crate::courier::{NoteAsk, NotePress, Press, Told};
 use crate::render::fold::{FoldButtons, SUFFIX};
 use crate::render::Op;
 
@@ -60,6 +66,9 @@ pub(crate) const AWAY: &str =
 
 /// What the presser is told when the pressed message is not the turn's fold.
 pub(crate) const NOT_HERE: &str = "This button is not this message's: nothing was changed.";
+
+/// What the presser is told when a note's post cannot be read back.
+pub(crate) const NOTE_GONE: &str = "This note is too old to show again.";
 
 /// What the presser is told when the place shows no steps now.
 pub(crate) const HIDDEN: &str = "This place shows no steps now.";
@@ -94,6 +103,7 @@ fn said(t: Told) -> Option<&'static str> {
         Told::TooOld => Some(TOO_OLD),
         Told::Hidden => Some(HIDDEN),
         Told::Cancelled => Some(CANCELLED),
+        Told::NoteGone => Some(NOTE_GONE),
     }
 }
 
@@ -119,10 +129,34 @@ pub(crate) fn parse(custom_id: &str) -> Option<(String, Option<usize>)> {
     (!turn.is_empty()).then(|| (turn.to_string(), page))
 }
 
-/// Whether `i` is a press on a fold.
+/// A folded note's press id as its post and whether it opens it.
+pub(crate) fn parse_note(custom_id: &str) -> Option<(String, bool)> {
+    let rest = custom_id.strip_prefix(PREFIX)?;
+    let (open, post) = match rest.split_once(':')? {
+        ("no", post) => (true, post),
+        ("nc", post) => (false, post),
+        _ => return None,
+    };
+    (!post.is_empty()).then(|| (post.to_string(), open))
+}
+
+/// A folded note's button: Show note, or, open, Hide note.
+pub(crate) fn note_buttons(post: &str, open: bool) -> Vec<Component> {
+    let b = if open {
+        button("Hide note", format!("{PREFIX}nc:{post}"))
+    } else {
+        button("Show note", format!("{PREFIX}no:{post}"))
+    };
+    vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![b],
+    })]
+}
+
+/// Whether `i` is a press on a fold or a folded note.
 pub(super) fn is_press(i: &Interaction) -> bool {
     matches!(&i.data, Some(InteractionData::MessageComponent(c))
-        if parse(&c.custom_id).is_some())
+        if parse(&c.custom_id).is_some() || parse_note(&c.custom_id).is_some())
 }
 
 fn button(label: &str, custom_id: String) -> Component {
@@ -176,9 +210,10 @@ pub(super) fn pressed(
     let Some(InteractionData::MessageComponent(c)) = &i.data else {
         return false;
     };
-    let Some((turn, page)) = parse(&c.custom_id) else {
+    let (fold, note) = (parse(&c.custom_id), parse_note(&c.custom_id));
+    if fold.is_none() && note.is_none() {
         return false;
-    };
+    }
     let Some(at) = i
         .channel
         .as_ref()
@@ -190,14 +225,22 @@ pub(super) fn pressed(
     };
     let (reply, answer) = oneshot::channel();
     let state = Arc::new(AtomicU8::new(WAITING));
-    let ask = Ask {
-        turn,
-        page,
-        at,
-        state: state.clone(),
-        reply,
+    let msg = match (fold, note) {
+        (Some((turn, page)), _) => PlaceMsg::Fold(Box::new(Ask {
+            turn,
+            page,
+            at,
+            state: state.clone(),
+            reply,
+        })),
+        (None, Some((post, open))) => PlaceMsg::Note(Box::new(note_press(
+            NoteAsk { post, open, at },
+            state.clone(),
+            reply,
+        ))),
+        (None, None) => return false,
     };
-    let sent = place.send(PlaceMsg::Fold(Box::new(ask))).is_ok();
+    let sent = place.send(msg).is_ok();
     let (shared, i) = (shared.clone(), i.clone());
     tokio::spawn(async move {
         shared
@@ -230,6 +273,25 @@ async fn answer_of(state: &AtomicU8, mut answer: oneshot::Receiver<Told>, wait: 
     }
 }
 
+/// A folded note's press, for its place's lane: taken just before its edit,
+/// unless its presser stopped waiting; its presser answered once.
+fn note_press(ask: NoteAsk, state: Arc<AtomicU8>, reply: oneshot::Sender<Told>) -> NotePress {
+    NotePress {
+        ask,
+        take: Box::new(move || taken(&state)),
+        then: Box::new(move |r| {
+            let _ = reply.send(r.err().unwrap_or(Told::Shown));
+        }),
+    }
+}
+
+/// Take a press still waiting; false when its presser stopped waiting first.
+fn taken(state: &AtomicU8) -> bool {
+    state
+        .compare_exchange(WAITING, TAKEN, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
 /// Cancel a press still waiting; false when its place took it first.
 fn dropped(state: &AtomicU8) -> bool {
     state
@@ -238,6 +300,21 @@ fn dropped(state: &AtomicU8) -> bool {
 }
 
 impl Shared {
+    /// How the place whose channel is `channel` shows its steps and notes: a
+    /// bound channel's word, or a DM's by its user. A channel bound nowhere
+    /// is folded, as a place that says nothing is.
+    pub(crate) fn steps_in(&self, channel: u64) -> Steps {
+        let user = {
+            let r = self.routes.lock().unwrap();
+            r.dm_channel
+                .iter()
+                .find(|(_, c)| **c == channel)
+                .map(|(u, _)| *u)
+        };
+        let key = user.map_or_else(|| format!("channel:{channel}"), |u| format!("dm:{u}"));
+        self.place_bits.get(&key).steps
+    }
+
     /// The lane `target` is back from an outage and every post that waited
     /// has gone: its place writes its folds once more (`Place::lane_back`).
     pub(crate) fn lane_back(&self, target: &str) {
@@ -280,11 +357,7 @@ impl Place {
     /// hold the turn, sent to the lane as the fold's latest state. A press
     /// its presser has stopped waiting for changes nothing.
     pub(super) fn fold_show(&mut self, ask: Ask) {
-        let taken = ask
-            .state
-            .compare_exchange(WAITING, TAKEN, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok();
-        if !taken {
+        if !taken(&ask.state) {
             return;
         }
         if !self.renderer.knows(&ask.turn) && !self.renderer.was_rebuilt() {
@@ -305,6 +378,11 @@ impl Place {
         let _ = ask.reply.send(told);
     }
 
+    /// A press on a folded note: its lane checks and writes it.
+    pub(super) fn note_asked(&self, n: Box<NotePress>) {
+        let _ = self.lane.send(LaneMsg::NotePress(n));
+    }
+
     /// Its lane is back from an outage, every post that waited gone: each
     /// fold the place still holds is written once more, as it shows now. An
     /// update the outage dropped is not lost, and nothing was kept meanwhile.
@@ -318,6 +396,18 @@ impl Place {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A note's press id says its post and whether it opens; a turn's id is
+    /// no note's, and a note's no turn's.
+    #[test]
+    fn a_note_press_id_carries_its_post() {
+        assert_eq!(parse_note("fold:no:act_1"), Some(("act_1".into(), true)));
+        assert_eq!(parse_note("fold:nc:act_1"), Some(("act_1".into(), false)));
+        for bad in ["fold:no:", "fold:o:0:turn_a", "fold:c:turn_a", "src:no:x"] {
+            assert_eq!(parse_note(bad), None, "{bad}");
+        }
+        assert_eq!(parse("fold:no:act_1"), None);
+    }
 
     /// The press's wait, on a clock the test drives (tokio's paused time):
     /// no answer within it, and the press is dropped and told so, and its

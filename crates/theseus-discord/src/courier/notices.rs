@@ -236,7 +236,8 @@ impl Lane {
         );
         let mut to_dm = w.clone();
         to_dm.channel = dm.0;
-        self.write(&to_dm).await
+        // Folded in the DM as any DM note is (`fold_note.rs`, issue 56).
+        self.note_write(a, &to_dm).await
     }
 }
 

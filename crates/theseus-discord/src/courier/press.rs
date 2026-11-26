@@ -16,7 +16,12 @@
 //! progress always was: nothing is kept for it. Back from the outage, once
 //! every post that waited has gone, the lane tells its place, which writes
 //! each fold it still holds once more (`runtime/fold.rs`, `Place::lane_back`).
+//!
+//! A folded note's press (`fold_note.rs`) waits in the same queue, is
+//! refused the same way while the lane waits out Discord, and is checked
+//! against its post's own record and written here.
 
+pub(crate) use super::fold_note::NoteAsk;
 use super::Lane;
 
 /// What a press came to, for its presser.
@@ -34,6 +39,8 @@ pub(crate) enum Told {
     Hidden,
     /// Not taken in time: dropped, and nothing changed.
     Cancelled,
+    /// The note's post cannot be read back.
+    NoteGone,
 }
 
 /// A press on the fold under `key`, for the lane to check before the place
@@ -47,16 +54,32 @@ pub(crate) struct Press {
     pub then: Box<dyn FnOnce(Result<(), Told>) + Send + Sync>,
 }
 
+/// A press on a folded note, for the lane to check and write.
+pub(crate) struct NotePress {
+    pub ask: NoteAsk,
+    /// Claims the press just before its edit: false when its presser has
+    /// stopped waiting for it (`runtime/fold.rs`).
+    pub take: Box<dyn FnOnce() -> bool + Send + Sync>,
+    /// Called once: `Ok` when the note was written as asked, or why not.
+    pub then: Box<dyn FnOnce(Result<(), Told>) + Send + Sync>,
+}
+
 /// A press the lane holds until its earlier writes are done.
-pub(super) struct Pending(Box<Press>);
+pub(super) enum Pending {
+    Fold(Box<Press>),
+    Note(Box<NotePress>),
+}
 
 impl Pending {
     pub(super) fn of(p: Box<Press>) -> Self {
-        Self(p)
+        Self::Fold(p)
     }
 
     fn refuse(self, why: Told) {
-        (self.0.then)(Err(why));
+        match self {
+            Self::Fold(p) => (p.then)(Err(why)),
+            Self::Note(n) => (n.then)(Err(why)),
+        }
     }
 }
 
@@ -91,9 +114,17 @@ impl Lane {
                 p.refuse(Told::Away);
                 continue;
             }
-            let Pending(p) = p;
-            let r = self.fold_at(&p.key, p.at).await;
-            (p.then)(r);
+            match p {
+                Pending::Fold(p) => {
+                    let r = self.fold_at(&p.key, p.at).await;
+                    (p.then)(r);
+                }
+                Pending::Note(n) => {
+                    let NotePress { ask, take, then } = *n;
+                    let r = self.note(&ask, take).await;
+                    then(r);
+                }
+            }
         }
     }
 
