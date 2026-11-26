@@ -13,6 +13,7 @@ use super::answer::Go;
 use super::hand::hand_words;
 use super::{exec_program, is_commit, rooted, short, Presence, ACK, CONFIRM_WITHIN_SECS, LIB_DIR};
 use crate::config::self_improve::SelfInstall;
+use crate::config_change::proof_seam;
 use crate::ledger::LedgerRow;
 use crate::rpc::Core;
 use crate::rsi::join::{blocking, install};
@@ -45,6 +46,19 @@ impl Core {
         {
             tracing::warn!(error = %format!("{e:#}"), "self-install: the owner's notice was not written");
         }
+    }
+
+    /// Whether an authenticator app is paired: without one no card is made (the owner could not answer it), and no
+    /// build is spent on it.
+    pub(crate) fn root_proof_enrolled(&self) -> bool {
+        let status = self.proofs.status();
+        status.enrolled && !status.unavailable
+    }
+
+    /// Whether the card `a` was asked with the second proof (the daemon's own mark, staged in the frame that
+    /// asked it): the wall behind the gate, for a card that was made without one.
+    pub(crate) fn root_card_marked(&self, a: &Action) -> bool {
+        crate::owner_proof::marked(&self.store, &a.correlation_id).is_some()
     }
 
     /// Whether the service runs a root-owned build and `[self] install` is not `"off"`: whether a join is this
@@ -104,6 +118,12 @@ impl Core {
                 c8 = short(merge),
                 by_hand = hand_words(step.as_deref()),
             ));
+            return true;
+        }
+        if mode.asks() && !self.root_proof_enrolled() {
+            // No authenticator app is paired: the card could not be answered, so it is not made, and no build is
+            // spent on it.
+            self.root_no_proof(merge, what);
             return true;
         }
         // The loop is installing from here (issue 41): its build, then the helper's run, until a terminal answer or the
@@ -184,6 +204,24 @@ impl Core {
         }
     }
 
+    /// No card while no authenticator app is paired.
+    fn root_no_proof(&self, merge: &str, what: &str) {
+        self.root_row(
+            "refused",
+            merge,
+            "no card: the install needs the second proof, and no authenticator app is paired",
+            "",
+            Value::Null,
+        );
+        self.root_tell(format!(
+            "Theseus joined a change to main ({what}, {c8}) and would install it with the administrator's helper, \
+             which needs your second proof, and no authenticator app is paired yet, so it did not ask. To pair one, \
+             run `theseus owner proof enroll` in your own terminal. It is joined and not installed: the step is in \
+             docs/setup.md, \"A root-owned install\".",
+            c8 = short(merge)
+        ));
+    }
+
     /// The install's own session, opened at its first card: the question is planned on it, as a pack promotion's is on
     /// the ladder's (`rpc::packs`), since the owner's CLI and cockpit open no session to name.
     fn install_session(&self) -> Result<SessionRecord> {
@@ -237,8 +275,13 @@ impl Core {
             &proposal,
             RetryClass::NonRepeatable,
             None,
-            // The card alone, with no code (issue 57).
-            |_| Ok(Vec::new()),
+            // Asked with the owner's second proof: the daemon's own mark, in the frame that asks.
+            |a| {
+                Ok(proof_seam::Needs::Proof
+                    .mark(&a.correlation_id)?
+                    .into_iter()
+                    .collect())
+            },
         );
         let ended = self
             .kernel
@@ -251,7 +294,10 @@ impl Core {
             .fetch_min(a.planned_at_ms + ttl, SeqCst);
         self.session_rec(&rec.session_id)
             .record(&crate::fact::tool::CallAsked {
-                request: &confirm_request(&a, &rec, ttl),
+                request: &ConfirmRequest {
+                    needs_proof: true,
+                    ..confirm_request(&a, &rec, ttl)
+                },
             });
         self.root_row(
             "asked",
@@ -272,7 +318,7 @@ pub(super) fn question_text(go: &Go, old_dir: &str) -> String {
          It is already joined to main. Theseus will put its programs in {LIB_DIR}/{c8} with the administrator's \
          helper, point the service at them, and restart. A turn that is running when it restarts is cut. If the new \
          build is not answering within {mins} minutes, Theseus goes back to the build before ({old_dir}) and tells \
-         you.",
+         you. This needs your second proof.",
         what = go.what,
         mins = CONFIRM_WITHIN_SECS / 60,
     )

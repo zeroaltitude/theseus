@@ -271,14 +271,9 @@ fn block(e: &Entry, now_ms: u64) -> String {
         Some(p) => format!("asked in {p}"),
         None => "asked in a conversation in the terminal or the web UI".into(),
     };
-    // A change the tool's setting let run with no card (issue 57) names that setting.
-    let approved = match (
-        e.approved_by == super::told::BY,
-        e.via == e.approved_by || e.via.is_empty(),
-    ) {
-        (true, _) => format!("made with no card ({}), and you were told", e.via),
-        (false, true) => format!("approved by {}", e.approved_by),
-        (false, false) => format!("approved by {} through {}", e.approved_by, e.via),
+    let approved = match e.via == e.approved_by || e.via.is_empty() {
+        true => format!("approved by {}", e.approved_by),
+        false => format!("approved by {} through {}", e.approved_by, e.via),
     };
     let restart = match e.restart {
         true => "it needed a restart",

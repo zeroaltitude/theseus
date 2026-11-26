@@ -9,9 +9,9 @@
 //!
 //! 1. **After a join** ([`offer`]): on a rooted layout, with `[self] install` not `"off"` and the helper there, the
 //!    change the loop just joined is built (in L1, as every install builds) and, for `"ask"`, put to the owner on a
-//!    card: "Install the change Theseus joined: <title>, <commit8>?". The card is the question, with no code (issue
-//!    57: `self revert` undoes an install, and a failed start goes back by itself). `"auto"` makes no card (turning it
-//!    on needed a fresh code).
+//!    card: "Install the change Theseus joined: <title>, <commit8>?". It is sensitive, so it goes through the same
+//!    mark as `config.propose` for the second proof (`config_change::proof_seam`): with no authenticator app paired, no
+//!    card is made and the owner is told how to pair one. `"auto"` makes no card (turning it on needed a fresh code).
 //! 2. **On the yes** ([`answer`]): the commit must be one the loop's own `self.joined` row names and main's head on
 //!    the remote at that moment. The programs are staged, the helper runs through `sudo -n`, the program of the service's start command
 //!    (in the unit, or in the drop-in whose `ExecStart=` wins: [`start`]) is pointed at the new directory and systemd is

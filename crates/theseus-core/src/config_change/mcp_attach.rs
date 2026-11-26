@@ -6,9 +6,9 @@
 //!
 //! 1. refuses unless the caller is the owner (`wall.rs`). Attaching can give a
 //!    server secrets and a network, so a card for one whose table names a
-//!    secret or a host is marked as needing the second proof (`proof_seam.rs`,
-//!    [`needs`]): a code, or an open window of the same place. Nothing has
-//!    started by then;
+//!    secret, an env, an address or egress is marked as needing the second
+//!    proof (`proof_seam.rs`, [`needs`]): a code, or an open window of the
+//!    same place. Nothing has started by then;
 //! 2. **tries the server once**, in the sandbox (L1, whatever the owner asked
 //!    for it to run in), with no secret and no network beyond the hosts asked
 //!    for, and lists its tools. A server over HTTP is asked for its list
@@ -303,7 +303,7 @@ impl Tool for Attach {
          the sandbox with no secret, lists its tools, and shows the owner one card with what will \
          run, each tool, which tools are read-only (only those you name in `read`), which secrets \
          it is given by name, and which hosts it may reach. Only the owner's yes attaches it \
-         (with a second proof when it is given a secret or a host), and its tools are offered from the next message with no restart. \
+         (with a second proof when it is given a secret, an env, an address or egress), and its tools are offered from the next message with no restart. \
          A secret a server needs is named by its `[secrets]` entry (`env`: variable to secret \
          name; `auth_secret` for HTTP): never a value. A command or address its maker publishes may be \
          looked up with the web tools rather than asked for: give it with a `source`, never a guess. \
@@ -363,11 +363,10 @@ impl Tool for Detach {
     }
 
     fn description(&self) -> &str {
-        "Take away an MCP server that is attached, on the owner's word. A server that was \
-         attached by asking is removed at once and the owner is told, unless they set this tool \
-         to ask; one started from the settings file stops at a restart, so it waits on the \
-         owner's card, which says what stops and when. To change a server, detach it and attach \
-         it again. Offered only to the owner, in a private place."
+        "Take away an MCP server that is attached, on the owner's word. Shows the owner one card \
+         with what stops and when; only their yes removes it, and a server \
+         that was attached by asking stops at once. To change a server, detach it and attach it \
+         again. Offered only to the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -532,7 +531,9 @@ fn put(
     marker: Value,
 ) -> Result<(String, Value), String> {
     let (base, digest, settings) = candidate;
-    let args = json!({
+    let proposal = Proposal {
+        tool: ACK.into(),
+        args: json!({
             "question": question,
             "settled": super::words::mcp(&marker, restart),
             "base_sha256": crate::config_copy::sha256(base),
@@ -543,17 +544,7 @@ fn put(
             "outside_text": outside_text(tc),
             "asked_by": asked_by(tc),
             "mcp": marker,
-    });
-    // Issue 57: removing a server that was attached live follows the tool's own
-    // setting (`told.rs`); one that needs a restart keeps its card.
-    if args["mcp"]["op"] == "detach" && !restart {
-        if let Some(said) = detach_told(rt, tc, correlation_id, &args)? {
-            return Ok((said, json!({"settings": settings.len(), "told": true})));
-        }
-    }
-    let proposal = Proposal {
-        tool: ACK.into(),
-        args,
+        }),
         resource: Some("config".into()),
         policy_context: json!({}),
     };
@@ -572,37 +563,6 @@ fn put(
         said,
         json!({"settings": settings.len(), "candidate": digest}),
     ))
-}
-
-/// A detach with no card of a server that stops with no restart, when the
-/// tool's setting lets it run (`told.rs`): what the tool says. None: the card
-/// is asked.
-fn detach_told(
-    rt: &ToolRuntime,
-    tc: &TurnCtx<'_>,
-    correlation_id: &str,
-    args: &Value,
-) -> Result<Option<String>, String> {
-    let Some(setting) = super::told::untold(rt, DETACH) else {
-        return Ok(None);
-    };
-    let core = rt
-        .config_change
-        .core()
-        .ok_or("Theseus is not ready to change its settings: try again in a moment")?;
-    let name = args["mcp"]["name"].as_str().unwrap_or_default();
-    let note = super::told::detach_note(args, &card::lit(name), &setting);
-    let said = format!(
-        "Removed, with no card ({setting} lets {DETACH} run); the owner was told.\n{}",
-        note.lines().skip(2).collect::<Vec<_>>().join("\n")
-    );
-    let t = super::told::Told {
-        id: correlation_id,
-        session_id: tc.session_id,
-        args,
-        setting: &setting,
-    };
-    core.write_told(t, said, note).map(Some)
 }
 
 /// Settings that change anything but the server's own table are not this tool's.
@@ -774,9 +734,10 @@ pub fn detach(
 }
 
 /// What a server's card asks besides the yes (issue 57): attaching one whose table names a
-/// secret (`env`, `auth_secret`) or a host (`url`, `egress`) needs the owner's code; attaching
-/// one with neither, and removing one, need the card alone. Read from the settings that
-/// really change, at the card and again at the yes.
+/// secret (`env`, `auth_secret`), an address (`url`) or egress needs the owner's code;
+/// attaching one with none of these, and removing one, need the card alone (removing a server
+/// gives nothing to anyone). Read from the settings that really change, at the card and again
+/// at the yes.
 pub(crate) fn needs(args: &Value, settings: &[diff::Setting]) -> proof_seam::Needs {
     let attach = args["mcp"]["op"] == "attach";
     let reaches = settings.iter().any(|s| {
@@ -822,7 +783,7 @@ pub(crate) fn at_yes(args: &Value, settings: &[diff::Setting]) -> Result<bool, S
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_no_card;
+mod tests_code;
 #[cfg(test)]
 mod tests_proof;
 #[cfg(test)]

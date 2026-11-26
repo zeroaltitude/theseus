@@ -143,12 +143,10 @@ pub const ANNOUNCEMENT_KINDS: &[&str] = &[
 ];
 
 /// The body key a post sets when its kind alone cannot say whether it is an
-/// announcement (theseus-nuqut): `"announce": true` says it is. `spend_ceiling`
-/// needs it — the AWS month warning and the Google upkeep note set it, and the
-/// day ceiling's warning does not, because it can stop work and so stays in the
-/// owner's DM — and so does `notice`: the FYI note of a settings act run with
-/// no card sets it (`config_change::told`, issue 57), and every other notice
-/// stays in the DM.
+/// announcement (theseus-nuqut): `"announce": true` says it is. Only
+/// `spend_ceiling` needs it today — the AWS month warning and the Google
+/// upkeep note set it, and the day ceiling's warning does not, because it can
+/// stop work and so stays in the owner's DM.
 pub const ANNOUNCE_KEY: &str = "announce";
 
 /// Whether a post staged to [`OPERATOR_TARGET`] is an announcement rather

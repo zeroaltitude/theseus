@@ -43,7 +43,6 @@ pub mod restart;
 pub mod show;
 pub mod shown;
 pub mod source;
-pub mod told;
 pub mod undo;
 pub mod vault_keep;
 pub mod vault_use;
@@ -657,7 +656,7 @@ pub(crate) fn ask(
         .plan_confirm_with(tc.guard, &proposal, RetryClass::NonRepeatable, None, |a| {
             let mut records = vec![NewRecord::json(
                 kinds::META,
-                Some(&call_key(correlation_id)),
+                Some(&format!("{CALL_PREFIX}{correlation_id}")),
                 &said,
             )?];
             // A card that asks for the second proof is marked by the daemon's
@@ -696,11 +695,6 @@ pub(crate) fn ask(
         tc.record(&crate::fact::tool::CallAsked { request: &request });
     }
     Ok(())
-}
-
-/// The key of the record a call run again after a restart reads.
-pub(crate) fn call_key(correlation_id: &str) -> String {
-    format!("{CALL_PREFIX}{correlation_id}")
 }
 
 /// A proposal run again after a restart: what the first run asked, else why
@@ -774,8 +768,6 @@ pub(crate) mod tests;
 #[cfg(test)]
 pub(crate) mod tests_answer;
 #[cfg(test)]
-mod tests_code;
-#[cfg(test)]
 mod tests_look;
 #[cfg(test)]
 mod tests_look_card;
@@ -803,6 +795,8 @@ mod tests_profile_run;
 mod tests_profile_run_more;
 #[cfg(test)]
 mod tests_proof;
+#[cfg(test)]
+mod tests_code;
 #[cfg(test)]
 mod tests_source;
 #[cfg(test)]
