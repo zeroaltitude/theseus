@@ -231,6 +231,7 @@ impl Shared {
             author: Some(who.to_string()),
             discord: Some(origin.clone()),
         };
+        consent::sending(method::MCP_LOGIN_BEGIN);
         let r = self
             .rpc
             .call::<_, McpLoginBeginResult>(method::MCP_LOGIN_BEGIN, params)
@@ -313,6 +314,7 @@ impl Shared {
             author: Some(who.to_string()),
             discord: Some(origin),
         };
+        consent::sending(method::MCP_LOGIN_FINISH);
         let r = self
             .rpc
             .call::<_, McpLoginFinishResult>(method::MCP_LOGIN_FINISH, params)
@@ -351,6 +353,7 @@ impl Shared {
             author: Some(who.to_string()),
             discord: Some(origin),
         };
+        consent::sending(method::MCP_LOGOUT);
         let r = self
             .rpc
             .call::<_, McpLogoutResult>(method::MCP_LOGOUT, params)

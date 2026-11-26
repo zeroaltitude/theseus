@@ -1198,6 +1198,7 @@ mod oauth_hostile;
 mod oauth_inventory;
 mod oauth_offer_card;
 mod oauth_offered;
+mod offer_turn;
 
 #[tokio::test]
 async fn a_protocol_error_is_still_the_servers_outside_text() {

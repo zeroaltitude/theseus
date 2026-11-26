@@ -197,6 +197,7 @@ impl Shared {
             author: Some(who.to_string()),
             discord: Some(origin.clone()),
         };
+        consent::sending(method::GOOGLE_AUTH_BEGIN);
         let r = self
             .rpc
             .call::<_, GoogleAuthBeginResult>(method::GOOGLE_AUTH_BEGIN, params)
@@ -264,6 +265,7 @@ impl Shared {
             author: Some(who.to_string()),
             discord: Some(origin),
         };
+        consent::sending(method::GOOGLE_AUTH_FINISH);
         let r = self
             .rpc
             .call::<_, GoogleAuthFinishResult>(method::GOOGLE_AUTH_FINISH, params)
@@ -292,6 +294,7 @@ impl Shared {
             author: Some(who.to_string()),
             discord: Some(origin),
         };
+        consent::sending(method::GOOGLE_REVOKE);
         let r = self
             .rpc
             .call::<_, GoogleRevokeResult>(method::GOOGLE_REVOKE, params)

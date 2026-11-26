@@ -1106,6 +1106,7 @@ mod calendar;
 mod card_question;
 mod cards;
 mod consent;
+mod consent_gate;
 mod content;
 mod content_fyi;
 mod horizon;

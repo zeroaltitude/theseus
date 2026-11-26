@@ -69,6 +69,19 @@ async fn a_lost_sign_in_gets_one_card_for_its_loss() {
         .unwrap();
     r.core.mcp.offer_sign_in("docs", &format!("lost:{since}"));
     assert_eq!(cards(&r).len(), 1, "the same loss, no second card");
+    // Past the one-card window (its time put back), the mark alone holds the same loss to one
+    // card; another loss gets its own.
+    r.core
+        .store
+        .put_meta("consent.card_at.mcp:docs", &0_u64)
+        .unwrap();
+    r.core.mcp.offer_sign_in("docs", &format!("lost:{since}"));
+    assert_eq!(cards(&r).len(), 1, "the mark holds the same loss");
+    r.core.mcp.offer_sign_in("docs", "lost:another");
+    assert_eq!(cards(&r).len(), 2, "another loss, its own card");
+    // Within the window, a third change posts none: the card is still the owner's.
+    r.core.mcp.offer_sign_in("docs", "lost:a-third");
+    assert_eq!(cards(&r).len(), 2, "one card per server in its window");
     // Every card is the operator's: none waits for any other place.
     let all = r.core.outbox.open_for(crate::outbox::OPERATOR_TARGET).len()
         + r.core.outbox.open_for(&sid).len();

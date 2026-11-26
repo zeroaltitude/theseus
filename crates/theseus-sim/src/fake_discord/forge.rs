@@ -16,6 +16,11 @@ pub struct Forged<'a> {
 }
 
 impl FakeDiscord {
+    /// Deliver interaction `id` again, exactly as it was first sent, as Discord may: whether it was.
+    pub fn redeliver(&self, id: &str) -> bool {
+        self.gateway.get().is_some_and(|gw| gw.redeliver(id))
+    }
+
     /// Send a forged press through the gateway: the interaction carries the
     /// message as it is, and the forged id as the pressed one. The
     /// interaction's id, or why it could not be sent.

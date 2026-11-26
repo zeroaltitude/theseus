@@ -57,6 +57,20 @@ const CLAIMS_MAX: usize = 4096;
 /// The sign-ins open at most, of every kind; the oldest goes first.
 const OPEN_MAX: usize = 16;
 
+/// The daemon requests this module's users sent, by method (tests: a refusal sends none; each test
+/// runs in its own process).
+#[cfg(test)]
+pub(crate) static SENT: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+
+/// A request to the daemon is about to go: noted for the tests, nothing else.
+pub(crate) fn sending(method: &'static str) {
+    #[cfg(test)]
+    SENT.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(method);
+    let _ = method;
+}
+
 /// A word a custom id may carry: a server's name, or a sign-in's id.
 pub(crate) fn word_ok(w: &str) -> bool {
     !w.is_empty()

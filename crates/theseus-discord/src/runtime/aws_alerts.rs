@@ -165,6 +165,7 @@ impl Shared {
             author: Some(who.to_string()),
             discord: Some(origin),
         };
+        consent::sending(method::AWS_CONFIRM_ALERTS);
         let r = self
             .rpc
             .call::<_, AwsConfirmAlertsResult>(method::AWS_CONFIRM_ALERTS, params)

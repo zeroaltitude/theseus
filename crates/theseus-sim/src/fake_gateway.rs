@@ -56,6 +56,8 @@ struct Inner {
     next_conn: u64,
     /// Frames waiting for the current connection to send them.
     queue: Vec<String>,
+    /// Each interaction dispatched, by its id, for a delivery of it again.
+    interactions: std::collections::HashMap<String, Value>,
 }
 
 pub struct FakeGateway {
@@ -109,11 +111,27 @@ impl FakeGateway {
             return false;
         }
         g.seq += 1;
+        if t == "INTERACTION_CREATE" {
+            let id = d["id"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| d["id"].to_string());
+            g.interactions.insert(id, d.clone());
+        }
         let frame = json!({"op": 0, "t": t, "s": g.seq, "d": d}).to_string();
         g.queue.push(frame);
         g.st.sent.push(t.to_string());
         cv.notify_all();
         true
+    }
+
+    /// Deliver interaction `id` again, exactly as it was first sent (Discord may): whether it was.
+    pub fn redeliver(&self, id: &str) -> bool {
+        let d = {
+            let (m, _) = &*self.inner;
+            m.lock().unwrap().interactions.get(id).cloned()
+        };
+        d.is_some_and(|d| self.dispatch("INTERACTION_CREATE", d))
     }
 
     /// Wait until a client has identified (or resumed) and is connected.

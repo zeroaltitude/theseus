@@ -141,6 +141,27 @@ impl Tool for Offer {
     }
 }
 
+/// Keep that `key`'s change was told.
+fn mark(store: &crate::store::Store, key: &str, transition: &str) {
+    if let Err(e) = store.put_meta(key, &transition.to_string()) {
+        tracing::warn!(key, error = %format!("{e:#}"), "the sign-in card's mark was not kept");
+    }
+}
+
+/// Whether the change `transition` was told already: by a card staged for it, or by one for
+/// `target` still in the owner's direct messages (then it is marked told).
+fn told_already(store: &crate::store::Store, key: &str, target: &str, transition: &str) -> bool {
+    let marked = store.get_meta::<String>(key).ok().flatten();
+    if marked.as_deref() == Some(transition) {
+        return true;
+    }
+    if card_due(store, target).is_err() {
+        mark(store, key, transition);
+        return true;
+    }
+    false
+}
+
 /// The META key that says for which transition `server`'s card was last staged.
 fn offered_key(server: &str) -> String {
     format!("mcp.sign_in_offered.{server}")
@@ -164,22 +185,8 @@ impl super::McpBoard {
             return;
         }
         let key = offered_key(server);
-        if core
-            .store
-            .get_meta::<String>(&key)
-            .ok()
-            .flatten()
-            .as_deref()
-            == Some(transition)
-        {
-            return;
-        }
         let target = format!("mcp:{server}");
-        if card_due(&core.store, &target).is_err() {
-            // A card for it is still in the owner's direct messages: this change is told by it.
-            if let Err(e) = core.store.put_meta(&key, &transition.to_string()) {
-                tracing::warn!(server, error = %format!("{e:#}"), "the sign-in card's mark was not kept");
-            }
+        if told_already(&core.store, &key, &target, transition) {
             return;
         }
         let staged = core
@@ -196,9 +203,7 @@ impl super::McpBoard {
         match staged {
             Ok(()) => {
                 card_staged(&core.store, &target);
-                if let Err(e) = core.store.put_meta(&key, &transition.to_string()) {
-                    tracing::warn!(server, error = %format!("{e:#}"), "the sign-in card's mark was not kept");
-                }
+                mark(&core.store, &key, transition);
             }
             Err(e) => {
                 tracing::warn!(server, error = %format!("{e:#}"), "the sign-in card was not posted")

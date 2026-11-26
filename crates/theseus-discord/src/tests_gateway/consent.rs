@@ -15,7 +15,7 @@ use theseus_sim::fake_discord::Modal;
 
 use super::{bindings, guild, Rig, ANA, ANA_DM, LAB};
 use crate::runtime::aws_alerts::{AWS_NO, NOT_HERE as ALERTS_NOT_HERE};
-use crate::runtime::google_sign_in::{GOOGLE_NO, NOT_HERE, NO_REVOKE};
+use crate::runtime::google_sign_in::{EXPIRED, NOT_HERE, NO_REVOKE};
 
 /// Invented: the address a browser ended on, with a code in it. Never in any output.
 const PASTED: &str = "http://127.0.0.1:41999/?code=INVENTED-GOOGLE-7713&state=abc";
@@ -128,11 +128,10 @@ async fn the_google_card_and_form_say_fixed_words_and_the_address_is_in_no_exit(
         .await;
 
     // The form, from her DM: the daemon's failure in fixed words; from #lab: refused.
-    let (from_dm, from_lab) = submitted(&r, "gsi:m:0123abcd:0", PASTED);
-    r.until("ana is told in fixed words", || {
-        told(&r, &from_dm, GOOGLE_NO)
-    })
-    .await;
+    // The form, for a consent this binding never began: refused before any request.
+    let (from_dm, from_lab) = submitted(&r, "gsi:m:0123abcd", PASTED);
+    r.until("ana is told in fixed words", || told(&r, &from_dm, EXPIRED))
+        .await;
     r.until("the shared channel is refused", || {
         told(&r, &from_lab, NOT_HERE)
     })
@@ -159,9 +158,20 @@ async fn the_alerts_card_and_form_say_fixed_words_and_the_token_is_in_no_exit() 
     let labels: Vec<&str> = card.buttons.iter().map(|b| b.label.as_str()).collect();
     assert_eq!(labels, ["Confirm alerts"]);
     assert!(r.posted(LAB).iter().all(|m| !card_of(m)), "never in #lab");
-    // The form, from her DM: no account is bound, so AWS's failure in fixed words; from #lab:
-    // refused.
-    let (from_dm, from_lab) = submitted(&r, "awsc:m:alerts:0", ALERTS);
+    // Her press opens the form; sent from her DM, no account is bound, so AWS's failure in fixed
+    // words; the same form from #lab is refused.
+    let press = r.press(&card.id, "Confirm alerts", (ANA, "ana"));
+    let form_of = || {
+        r.fake
+            .replies()
+            .iter()
+            .find(|x| x.interaction.as_deref() == Some(press.as_str()))
+            .and_then(|x| x.modal.as_ref())
+            .and_then(|m| m["custom_id"].as_str().map(str::to_string))
+    };
+    r.until("her form opens", || form_of().is_some()).await;
+    let id = form_of().unwrap();
+    let (from_dm, from_lab) = submitted(&r, &id, ALERTS);
     r.until("ana is told in fixed words", || told(&r, &from_dm, AWS_NO))
         .await;
     r.until("the shared channel is refused", || {

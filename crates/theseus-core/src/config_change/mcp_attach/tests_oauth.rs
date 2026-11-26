@@ -169,6 +169,14 @@ async fn a_real_401_goes_through_attach_the_card_the_proof_and_the_write() {
             .count()
     };
     assert_eq!(cards(), 1, "one card for the attach");
+    // The offer finds the server attached in this run (not in the settings it started with), and
+    // posts no second card while the first is still the owner's.
+    let asks = r.session();
+    r.turn(&asks, "mcp_sign_in_offer", json!({"server": "docs"}))
+        .await;
+    let (_, said) = r.result(&asks);
+    assert!(said.contains("no new one was posted"), "{said}");
+    assert_eq!(cards(), 1, "one card still");
     // Started, the loaded server waits for its sign-in: no crash.
     r.core.mcp.start();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
