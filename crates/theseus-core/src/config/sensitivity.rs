@@ -295,8 +295,47 @@ pub const PROOF_TABLES: [&str; 8] = [
 
 /// The kinds of key, in any table, a change to which needs the code too: where a secret is
 /// read from, who the owner is, and the sandbox's kind (what may run and the hosts it may
-/// reach). A spending ceiling or budget needs it only when raised ([`proof_reason`]).
+/// reach). A spending limit needs it unless it is known to be tightened ([`proof_reason`]).
 pub const PROOF_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
+
+/// Why a price is kept for the code (`PRICE_KEYS`).
+pub const PRICE_REASON: &str = "a price that decides what a model call is charged or reserved";
+
+/// What zero means for a spending limit whose direction is known ([`TIGHTENS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Zero {
+    /// Zero is refused by the settings' own check (`limits::check_dollars`).
+    Refused,
+    /// Zero means "never stop": no limit at all.
+    Never,
+}
+
+/// The spending limits whose direction is known, each with what zero means: for
+/// these, and only these, a change to a tighter limit needs the card alone. Every
+/// other spending key needs the code in either direction until its meaning is
+/// written here (`config/limits.rs` and `KernelSection` say each).
+pub const TIGHTENS: [(&str, &str, Zero); 5] = [
+    ("kernel", "spend_limit_usd", Zero::Refused),
+    ("kernel", "daily_spend_ceiling_usd", Zero::Refused),
+    ("kernel", "spend_limit_hard_multiple", Zero::Never),
+    ("kernel", "daily_runaway_usd", Zero::Never),
+    ("kernel", "runaway_usd_per_10min", Zero::Never),
+];
+
+/// The catalog's keys that price a call: what it is charged and what is reserved
+/// for it before it is made. Each needs the code in either direction: a lower
+/// price lets more calls through the same dollar limits.
+pub const PRICE_KEYS: [&str; 3] = ["long_prompt", "off_peak", "bytes_per_token"];
+
+/// Whether `path` prices a model call (`catalog.<model>.<a price>`), or names a
+/// catalog row whole.
+fn price(path: &[String]) -> bool {
+    path.first().is_some_and(|t| t == "catalog")
+        && (path.len() < 3
+            || path.iter().skip(2).any(|k| {
+                k.ends_with("_per_mtok") || PRICE_KEYS.contains(&k.as_str())
+            }))
+}
 
 /// Why a change of `path` from `before` to `after` needs the owner's authenticator code on
 /// top of the card's yes (issue 57), or `None` when the card alone is enough. The second
@@ -306,9 +345,11 @@ pub const PROOF_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
 /// - who the owner is and the proof itself: [`needs_fresh_proof`], a code typed for it;
 /// - a table nobody classified, and the tables of [`PROOF_TABLES`];
 /// - in any table, a key of a kind [`PROOF_KEYS`] names;
-/// - a spending ceiling or budget that is raised, or whose change cannot be read as a lowering
-///   (a removal, a value set where there was none, or one that is not a number): money spent
-///   cannot come back. Lowering one needs no code.
+/// - a catalog price ([`PRICE_KEYS`] and every `*_per_mtok`), in either direction;
+/// - a spending limit, unless it is one of [`TIGHTENS`] and the change makes it tighter by
+///   what it means (zero that means "never stop" is no limit at all). A removal, a value set
+///   where there was none, or one that is not a number keeps the code: money spent cannot
+///   come back.
 pub fn proof_reason(
     path: &[String],
     before: Option<&serde_json::Value>,
@@ -327,25 +368,47 @@ pub fn proof_reason(
     if !known {
         return reason(path);
     }
+    if price(path) {
+        return Some(PRICE_REASON.into());
+    }
     for k in path.iter().skip(1) {
         let lower = k.to_ascii_lowercase();
         if let Some(why) = key_reason(k).filter(|w| PROOF_KEYS.contains(w)) {
             return Some(why.into());
         }
-        if spend_key(&lower) && !lowered(before, after) {
-            return Some(format!("{SPEND_REASON}, raised"));
+        if spend_key(&lower) && !tightened(path, before, after) {
+            return Some(format!("{SPEND_REASON}, not made tighter"));
         }
     }
     None
 }
 
-/// Whether a value went down: both sides numbers, and the new one lower.
-fn lowered(before: Option<&serde_json::Value>, after: Option<&serde_json::Value>) -> bool {
+/// Whether a change makes a spending limit of [`TIGHTENS`] tighter by what it
+/// means: both sides numbers, and the new limit lower, where a zero that means
+/// "never stop" is no limit at all. Any other key, or any other change: no.
+fn tightened(
+    path: &[String],
+    before: Option<&serde_json::Value>,
+    after: Option<&serde_json::Value>,
+) -> bool {
+    let [table, key] = path else {
+        return false;
+    };
+    let known = TIGHTENS
+        .iter()
+        .find(|(t, k, _)| *t == table.as_str() && *k == key.as_str());
+    let Some((_, _, zero)) = known else {
+        return false;
+    };
+    let limit = |v: f64| match (*zero, v == 0.0) {
+        (Zero::Never, true) => f64::INFINITY,
+        _ => v,
+    };
     match (
         before.and_then(serde_json::Value::as_f64),
         after.and_then(serde_json::Value::as_f64),
     ) {
-        (Some(b), Some(a)) => a < b,
+        (Some(b), Some(a)) => limit(a) < limit(b),
         _ => false,
     }
 }

@@ -165,67 +165,121 @@ mod tests {
         );
     }
 
+    /// Every case is a setting a real configuration accepts, so the classifier is
+    /// read on the schema, not on made-up keys.
+    fn real(cases: &[&str]) {
+        let bad: Vec<String> = cases
+            .iter()
+            .filter_map(|c| crate::Config::parse(c).err().map(|e| format!("{c}: {e:#}")))
+            .collect();
+        assert!(bad.is_empty(), "not accepted: {bad:#?}");
+    }
+
     /// Issue 57: the code is kept for the rules, secrets, the sandbox, places, the broker, where
-    /// Theseus listens, its MCP server and a raised spend; every other sensitive setting keeps its
-    /// card and needs no code.
+    /// Theseus listens and its MCP server; every other sensitive setting keeps its card and
+    /// needs no code.
     #[test]
-    fn the_code_is_kept_for_the_gates_and_money_and_dropped_for_the_rest() {
-        for after in [
+    fn the_code_is_kept_for_the_gates_and_dropped_for_the_rest() {
+        let kept = [
             "[policy.tools]\n\"proc.run\" = \"open\"\n",
             "[secrets]\nk = \"op://v/i/f\"\n",
             "[places]\npublic = [\"discord:9\"]\n",
             "[broker]\nenabled = true\n",
-            "[server]\nport = 9\n",
-            "[mcp_server]\nport = 9\n",
-            "[google]\ncredentials = \"elsewhere\"\n",
+            "[mcp_server]\nenabled = true\n",
             "[mcp.servers.files]\ncommand = [\"x\"]\n",
-            "[mcp.servers.files]\nauth_secret = \"k\"\n",
-            "brand_new = 1\n",
-        ] {
-            assert_eq!(Needs::of(&between("", after)), Needs::Proof, "{after}");
-        }
-        for after in [
+        ];
+        let dropped = [
             "[self]\nmode = \"act\"\n",
-            "[self_issues]\nrepo = \"x\"\n",
-            "[self_fix]\nin_place = true\n",
-            "[aws]\nregion = \"x\"\n",
-            "[google]\nenabled = true\n",
-            "[content_based_security]\ninjection = \"notify\"\n",
+            "[self_issues]\nmax = 3\n",
+            "[self_fix]\nlines = 50\n",
+            "[google]\nmax_sends_per_day = 5\n",
+            "[content_based_security]\ninjection = \"refuse\"\n",
             "[judge]\nenabled = false\n",
-            "[privacy]\nmodels = [\"x\"]\n",
-            "[vault]\nform = true\n",
+            "[privacy]\nredact_outbound = false\n",
+            "[vault]\nkeep_by_discord = true\n",
             "[tools]\nroots = [\"/x\"]\n",
             "[tools]\nagent_processes = [\"x\"]\n",
-            "[model]\nsystem = \"x\"\n",
-            "[model]\nprovider = \"x\"\n",
-            "[providers.x]\napi_base = \"https://x.example\"\n",
-        ] {
+        ];
+        real(&kept);
+        real(&dropped);
+        for after in kept {
+            assert_eq!(Needs::of(&between("", after)), Needs::Proof, "{after}");
+        }
+        for after in dropped {
             assert_eq!(Needs::of(&between("", after)), Needs::Card, "{after}");
         }
     }
 
-    /// Raising a spending ceiling or budget needs the code; lowering one does not; a change that
-    /// cannot be read as a lowering keeps it.
+    /// Issue 57, the conductor's ruling (money): a spending limit goes without the code only
+    /// when it is one whose meaning is known and the change makes it tighter by that meaning.
+    /// Zero that means "never stop" is no limit at all, so setting it is a raise; a removal, a
+    /// value set where there was none, and every limit whose meaning is not written keep the
+    /// code. The stricter rule wins in a change of several.
     #[test]
-    fn only_a_lowered_spend_goes_without_the_code() {
-        let usd = |b: &str, a: &str| Needs::of(&between(b, a));
-        let five = "[self.budget]\nusd = 5.0\n";
-        let three = "[self.budget]\nusd = 3.0\n";
-        assert_eq!(usd(five, three), Needs::Card);
-        assert_eq!(usd(three, five), Needs::Proof);
-        assert_eq!(usd("", five), Needs::Proof, "set where there was none");
-        assert_eq!(
-            usd(five, ""),
-            Needs::Proof,
-            "removed: its default may be higher"
+    fn a_spending_limit_goes_without_the_code_only_when_made_tighter_by_what_it_means() {
+        let k = |key: &str, v: &str| format!("[kernel]\n{key} = {v}\n");
+        let needs = |b: &str, a: &str| Needs::of(&between(b, a));
+        let all = [
+            k("daily_spend_ceiling_usd", "50.0"),
+            k("daily_spend_ceiling_usd", "40.0"),
+            k("daily_runaway_usd", "2000.0"),
+            k("daily_runaway_usd", "1000.0"),
+            k("daily_runaway_usd", "0.0"),
+            k("runaway_usd_per_10min", "200.0"),
+            k("runaway_usd_per_10min", "0.0"),
+            k("spend_limit_hard_multiple", "10"),
+            k("spend_limit_hard_multiple", "5"),
+            k("spend_limit_hard_multiple", "0"),
+            "[self.budget]\nday_usd = 5.0\n".into(),
+            "[self.budget]\nday_usd = 3.0\n".into(),
+        ];
+        real(&all.iter().map(String::as_str).collect::<Vec<_>>());
+        let (ceiling, runaway, burn, hard) = (
+            |v: &str| k("daily_spend_ceiling_usd", v),
+            |v: &str| k("daily_runaway_usd", v),
+            |v: &str| k("runaway_usd_per_10min", v),
+            |v: &str| k("spend_limit_hard_multiple", v),
         );
-        assert_eq!(
-            usd(five, "[self.budget]\nusd = \"lots\"\n"),
-            Needs::Proof,
-            "not a number"
-        );
-        let ceiling = |v: &str| format!("[kernel]\ndaily_spend_ceiling_usd = {v}\n");
-        assert_eq!(usd(&ceiling("50"), &ceiling("40")), Needs::Card);
-        assert_eq!(usd(&ceiling("40"), &ceiling("50")), Needs::Proof);
+        // Tighter by what it means: the card alone.
+        assert_eq!(needs(&ceiling("50.0"), &ceiling("40.0")), Needs::Card);
+        assert_eq!(needs(&runaway("2000.0"), &runaway("1000.0")), Needs::Card);
+        assert_eq!(needs(&runaway("0.0"), &runaway("1000.0")), Needs::Card, "from never to a stop");
+        assert_eq!(needs(&hard("10"), &hard("5")), Needs::Card);
+        // Raised, or zero that means never: the code.
+        assert_eq!(needs(&ceiling("40.0"), &ceiling("50.0")), Needs::Proof);
+        assert_eq!(needs(&runaway("2000.0"), &runaway("0.0")), Needs::Proof, "0 never stops");
+        assert_eq!(needs(&burn("200.0"), &burn("0.0")), Needs::Proof, "0 never pauses");
+        assert_eq!(needs(&hard("10"), &hard("0")), Needs::Proof, "0 never stops");
+        // Direction not known: the code.
+        assert_eq!(needs("", &ceiling("40.0")), Needs::Proof, "set where there was none");
+        assert_eq!(needs(&ceiling("40.0"), ""), Needs::Proof, "removed: its default");
+        let day = |v: &str| format!("[self.budget]\nday_usd = {v}\n");
+        assert_eq!(needs(&day("5.0"), &day("3.0")), Needs::Proof, "a limit not yet written down");
+        // The stricter rule wins: one limit tighter and one lifted.
+        let both = |c: &str, r: &str| format!("[kernel]\ndaily_spend_ceiling_usd = {c}\ndaily_runaway_usd = {r}\n");
+        real(&[&both("40.0", "0.0")]);
+        assert_eq!(needs(&both("50.0", "2000.0"), &both("40.0", "0.0")), Needs::Proof);
+        assert_eq!(needs(&both("50.0", "2000.0"), &both("40.0", "1000.0")), Needs::Card);
+    }
+
+    /// Issue 57: the catalog's prices decide what a call is charged and reserved, so a change
+    /// to one needs the code in either direction; a catalog figure that is not a price needs the
+    /// card alone.
+    #[test]
+    fn a_catalog_price_needs_the_code_in_either_direction() {
+        let row = |k: &str, v: &str| format!("[catalog.\"claude-sonnet-5-5\"]\n{k} = {v}\n");
+        let cases = [
+            row("input_per_mtok", "3.0"),
+            row("input_per_mtok", "0.0"),
+            row("input_per_mtok", "9.0"),
+            row("cache_write_1h_per_mtok", "0.0"),
+            row("vision", "false"),
+        ];
+        real(&cases.iter().map(String::as_str).collect::<Vec<_>>());
+        let needs = |b: &str, a: &str| Needs::of(&between(b, a));
+        assert_eq!(needs(&cases[0], &cases[1]), Needs::Proof, "to zero");
+        assert_eq!(needs(&cases[0], &cases[2]), Needs::Proof, "raised");
+        assert_eq!(needs("", &cases[3]), Needs::Proof, "set where there was none");
+        assert_eq!(needs("", &cases[4]), Needs::Card, "not a price");
     }
 }
