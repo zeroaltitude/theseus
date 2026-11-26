@@ -148,8 +148,9 @@ async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it(
     assert!(!folder.starts_with(r.f.place.trees().canonicalize().unwrap()));
 }
 
-/// No other call gets it: not another principal's, not a self session's call at L0, not a self
-/// session whose tree is not open. The folder is not made for them either.
+/// No other call gets it: not another principal's, not a self session whose tree is not open. The
+/// folder is not made for them. A self session's call that asks for L0 runs in L1 all the same
+/// (issue 53), with its folder.
 #[tokio::test]
 async fn only_a_self_builders_sandboxed_command_with_an_open_tree_gets_the_folder() {
     let kept = Arc::new(Kept::default());
@@ -164,14 +165,12 @@ async fn only_a_self_builders_sandboxed_command_with_an_open_tree_gets_the_folde
     assert!(first.env.iter().all(|(k, _)| k != "CARGO_TARGET_DIR"));
     assert!(!builder_dir::root_in(&state(&r)).exists(), "none made");
 
-    // A self session's call at L0 has no view to bind it in.
+    // A self session's call that asks for L0 runs in L1 all the same.
     r.turn(&sid, "proc_run", built(&t.dir, false)).await;
-    let l0 = kept.args.lock().unwrap()[1].clone();
-    assert!(l0.sandbox.is_none());
-    assert!(l0.env.iter().all(|(k, _)| k != "CARGO_TARGET_DIR"));
+    let asked_l0 = kept.args.lock().unwrap()[1].clone();
     assert!(
-        !builder_dir::root_in(&state(&r)).exists(),
-        "none made at L0"
+        asked_l0.sandbox.is_some(),
+        "a self session's command runs in L1"
     );
 
     // A self session whose item has no open tree.

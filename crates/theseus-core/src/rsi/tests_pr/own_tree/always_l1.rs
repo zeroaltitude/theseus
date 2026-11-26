@@ -142,24 +142,21 @@ async fn a_self_sessions_shell_cannot_reach_the_daemons_state() {
     let (sid, tree) = task(&r, "sails");
     let store = r.f.place.state.join("store");
     assert!(store.exists());
-    let probe = tree.join("probe.txt");
     let script = format!(
-        "if [ -e '{}' ]; then echo SEEN; else echo UNSEEN; fi > '{}'",
-        store.display(),
-        probe.display()
+        "if [ -e '{}' ]; then echo STORE-VISIBLE; else echo STORE-HIDDEN; fi",
+        store.display()
     );
-    r.turn(
-        &sid,
-        "proc_run",
-        json!({"argv": ["sh", "-c", script], "cwd": tree}),
-    )
-    .await;
+    let said = r
+        .turn(
+            &sid,
+            "proc_run",
+            json!({"argv": ["sh", "-c", script], "cwd": tree}),
+        )
+        .await;
     assert!(ran_in_l1(&r, &sid), "the command ran in L1");
-    let seen = std::fs::read_to_string(&probe).unwrap_or_default();
-    assert_eq!(
-        seen.trim(),
-        "UNSEEN",
-        "the store (and the socket beside it) is hidden: {seen}"
+    assert!(
+        said.contains("STORE-HIDDEN") && !said.contains("STORE-VISIBLE"),
+        "{said}"
     );
 }
 

@@ -374,16 +374,17 @@ async fn a_branch_moved_after_its_review_is_not_what_a_retry_joins() {
         &["worktree", "remove", "--force", wt.to_str().unwrap()],
     );
     git(repo, &["branch", "-f", &branch, &moved]);
-    // The alarm is over and the owner asks: the reviewed head joins, and what came after does not.
+    // The alarm is over and the owner asks: the branch's ref is no longer the reviewed head, so
+    // neither is offered for publishing (issue 53: a yes binds the ref's head), and nothing joins.
     std::fs::remove_file(&marker).unwrap();
     retry(&r, &id, &owner(), None).unwrap();
     let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
-    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+    assert!(pass.joined.is_empty() && pass.parked.is_empty(), "{pass:?}");
     let on_main = git(
         &r.f.upstream,
         &["ls-tree", "-r", "--name-only", "refs/heads/main"],
     );
-    assert!(on_main.contains("erosion.txt"), "{on_main}");
+    assert!(!on_main.contains("erosion.txt"), "{on_main}");
     assert!(!on_main.contains("unreviewed.txt"), "{on_main}");
 }
 

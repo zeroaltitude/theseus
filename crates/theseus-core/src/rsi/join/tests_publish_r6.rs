@@ -370,6 +370,9 @@ async fn a_fast_forward_of_main_keeps_the_yes() {
 #[tokio::test]
 async fn a_rewritten_main_voids_the_yes() {
     let r = rig(SelfMode::Act);
+    // Main gets a second commit, so its tip has a parent a rewrite keeps.
+    onto_upstream_main(&r, "second", false);
+    repo_git(&r, &["fetch", "-q", "origin"]);
     r.seed("trim-the-sails", PROVED, SONNET);
     pass(&r).await;
     let first = cards(&r.core).pop().unwrap().correlation_id;
