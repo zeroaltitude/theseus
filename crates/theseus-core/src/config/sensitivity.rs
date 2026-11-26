@@ -418,8 +418,12 @@ pub fn proof_reason(
             false => Some(format!("{SPEND_REASON}, not made tighter")),
         };
     }
-    if group(path).is_some_and(|g| PENDING.contains(&g)) {
-        return reason(path).or_else(|| Some(format!("{:?}", group(path))));
+    // A group keeps the code while it is in PENDING, and drops it when taken out.
+    if let Some(g) = group(path) {
+        return match PENDING.contains(&g) {
+            true => reason(path).or_else(|| Some(format!("{g:?}"))),
+            false => None,
+        };
     }
     match prompt_text(path) {
         true => None,
