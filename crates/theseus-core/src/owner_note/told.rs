@@ -49,11 +49,6 @@ pub enum Undo {
     /// pause's reason, a phrase of the caller's own, never the model's words.
     #[serde(rename = "self.pause")]
     SelfPause(String),
-    /// A told Google act put back as it was (issue 57), named by the act's
-    /// result node (`google::told`). It has no method of its own: `told.undo`
-    /// runs it inside the core.
-    #[serde(rename = "google.take_back")]
-    GoogleTakeBack(String),
     /// An undo with no method of its own, for the tests: its arm in
     /// `rpc::told` counts the times it ran.
     #[cfg(test)]
@@ -69,7 +64,6 @@ impl Undo {
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
             Undo::SelfPause(_) => method::SELF_PAUSE,
-            Undo::GoogleTakeBack(_) => method::TOLD_UNDO,
             #[cfg(test)]
             Undo::Probe(_) => method::TOLD_UNDO,
         }
@@ -86,7 +80,6 @@ impl Undo {
             Undo::SelfPause(why) => {
                 json!({"clear": false, "why": why, "author": author, "discord": discord})
             }
-            Undo::GoogleTakeBack(id) => json!({"id": id, "author": author}),
             #[cfg(test)]
             Undo::Probe(id) => json!({"id": id, "author": author}),
         }
@@ -99,7 +92,6 @@ impl Undo {
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
             Undo::SelfPause(why) => format!("theseus self pause {why}"),
-            Undo::GoogleTakeBack(_) => by_door(),
             #[cfg(test)]
             Undo::Probe(_) => by_door(),
         }
@@ -289,25 +281,6 @@ mod tests {
             assert_eq!(p["author"], json!("ana"));
             assert_eq!(u.command(), cmd);
         }
-    }
-
-    /// An undo with no method of its own runs inside `told.undo`: its method
-    /// is that door's, its tag names it in the note's body alone, and its
-    /// way back from a terminal is the door's own verb.
-    #[test]
-    fn a_google_take_back_has_no_method_of_its_own() {
-        let u = Undo::GoogleTakeBack("nod_1".into());
-        assert_eq!(u.method(), method::TOLD_UNDO);
-        assert_eq!(
-            serde_json::to_value(&u).unwrap(),
-            json!({"method": "google.take_back", "id": "nod_1"})
-        );
-        assert!(!method::ALL.contains(&"google.take_back"));
-        assert_eq!(
-            u.params("ana", None),
-            json!({"id": "nod_1", "author": "ana"})
-        );
-        assert_eq!(u.command(), "theseus told undo <this-note>");
     }
 
     /// A restart: the core gone and its store opened again under a new one.

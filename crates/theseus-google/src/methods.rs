@@ -540,7 +540,7 @@ pub fn resolve(
         .collect();
     // The filled path, not the template: a path's own `{x}` filled with `send`
     // is a send.
-    let class = classify(&verb, &path, id, &query, body);
+    let class = classify(&verb, &path, id, &query);
     let body = match body {
         None | Some(Value::Null) => Body::None,
         Some(v) => Body::Json(v.clone()),

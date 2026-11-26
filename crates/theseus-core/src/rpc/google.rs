@@ -5,12 +5,6 @@
 //! (theseus-zmgb), a speed bump; L1 is the boundary. The paste, when there is
 //! one, is read from the terminal and travels here in a param, never an
 //! argument; none of these answers holds a token, a code or a secret.
-//!
-//! [`crate::Core::google_take_back`] (issue 57) takes back a tidy act
-//! Theseus did unasked, for a note's Undo once `told.undo` has judged the
-//! press: it runs only the calls the act's own result recorded
-//! (`google::told`), each through `google.call` and each one that asks
-//! nobody; anything that would ask is refused.
 
 use std::sync::Arc;
 
@@ -58,32 +52,6 @@ impl crate::Core {
                 error_code::METHOD_NOT_FOUND,
                 format!("unknown method {other:?}"),
             )),
-        }
-    }
-
-    /// The told act whose result node is `id`, taken back: `told.undo`'s arm
-    /// for [`crate::owner_note::told::Undo::GoogleTakeBack`], which has judged
-    /// the press already. Each thing the act changed is put back exactly as it
-    /// was before it (`google::take_back`), each tried; one that cannot be is
-    /// said, with how many were put back.
-    pub(crate) async fn google_take_back(&self, id: &str) -> Result<(), RpcFailure> {
-        let node = self.store.get_node(id).map_err(RpcFailure::invalid)?;
-        let Some(before) = node.and_then(|(_, n)| crate::google::told::undo_before(&n)) else {
-            return Err(RpcFailure::new(
-                error_code::INVALID_PARAMS,
-                format!("{id} is no Google act Theseus can take back"),
-            ));
-        };
-        let g = self.google()?;
-        let mut rows = Vec::new();
-        let tools = (crate::google::mail::LABEL, crate::google::drive::SHARE);
-        let p = crate::google::take_back::restore(&g, tools, &before, &mut rows).await;
-        for row in &rows {
-            self.google_row(&crate::fact::google::GoogleCalled { row });
-        }
-        match p.whole() {
-            true => Ok(()),
-            false => Err(RpcFailure::new(error_code::INVALID_PARAMS, p.words())),
         }
     }
 

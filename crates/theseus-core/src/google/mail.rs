@@ -1289,7 +1289,7 @@ impl Tool for LabelTool {
     fn description(&self) -> &str {
         "Change labels on Gmail threads (ids from gmail_search): add or remove INBOX (archive), \
          UNREAD (mark read), STARRED, or a user label by name. trash moves them to Trash \
-         (recoverable), and the owner is told. In a session that read outside text, \
+         (recoverable) and asks the owner every time. In a session that read outside text, \
          this asks."
     }
     fn input_schema(&self) -> Value {
@@ -1319,110 +1319,52 @@ impl Tool for LabelTool {
                 a.ids.len()
             ),
             class: Some(ToolClass::Write),
+            authority: a.trash.then(|| {
+                "moves mail to Trash, so the owner decides it, every time, at every posture".into()
+            }),
             ..Default::default()
         })
     }
-    fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {
+    fn run_async(&self, input: &Value, _ctx: &ToolCtx) -> AsyncRun {
         let args: Result<LabelArgs, String> = parse(input);
         let m = self.0.clone();
-        let approved = ctx.approved;
         Box::pin(async move {
             let a = args.map_err(ToolFailure::new)?;
             a.checked().map_err(ToolFailure::new)?;
             let mut rows = Vec::new();
-            if a.trash {
-                return m.trash(rows, &a.ids, approved).await;
-            }
+            let class = if a.trash { "authority" } else { "write" };
             let add = m.label_ids(&mut rows, &a.add).await?;
             let remove = m.label_ids(&mut rows, &a.remove).await?;
-            let body = json!({"addLabelIds": add, "removeLabelIds": remove});
+            let (what, body) = if a.trash {
+                ("trash", json!({}))
+            } else {
+                (
+                    "modify",
+                    json!({"addLabelIds": add, "removeLabelIds": remove}),
+                )
+            };
             let mut done = Vec::new();
             for id in &a.ids {
-                m.act(&mut rows, "write", id, "modify", &body)
+                m.act(&mut rows, class, id, what, &body)
                     .await
                     .map_err(|f| failure(f, &rows))?;
                 done.push(id.as_str());
             }
-            let text = format!("Relabelled {} thread(s): {}\n", done.len(), done.join(", "));
-            let meta = json!({"ids": done, "trash": false});
+            let text = format!(
+                "{} {} thread(s): {}\n",
+                if a.trash { "Trashed" } else { "Relabelled" },
+                done.len(),
+                done.join(", ")
+            );
+            let meta = json!({"ids": done, "trash": a.trash});
             Ok(finished(m.g.account(), text, meta, &rows, Source::None))
         })
     }
 }
 
 impl Mail {
-    /// The trash (issue 57): each given thread's messages (or the message
-    /// itself) read with their labels, then each moved to the Trash on its
-    /// own, so only those messages move and the owner's Undo puts each back
-    /// exactly (`take_back`). One that fails stops the rest, and what moved
-    /// before it is told with its Undo.
-    async fn trash(
-        &self,
-        mut rows: Vec<Value>,
-        ids: &[String],
-        approved: bool,
-    ) -> Result<Finished, ToolFailure> {
-        use super::{take_back, told};
-        let mut before: Vec<(String, Vec<String>)> = Vec::new();
-        for id in ids {
-            let found = match take_back::gmail_thread(&self.g, &mut rows, LABEL, id).await {
-                Ok(Some(msgs)) => msgs,
-                Ok(None) => match take_back::gmail_labels(&self.g, &mut rows, LABEL, id).await {
-                    Ok(Some(labels)) => vec![(id.clone(), labels)],
-                    Ok(None) => {
-                        return Err(refusal(
-                            format!("no Gmail thread or message is {id}"),
-                            &rows,
-                        ))
-                    }
-                    Err(f) => return Err(failure(f, &rows)),
-                },
-                Err(f) => return Err(failure(f, &rows)),
-            };
-            for m in found {
-                if !before.iter().any(|(x, _)| *x == m.0) {
-                    before.push(m);
-                }
-            }
-        }
-        let of = before.len();
-        let mut moved = Vec::new();
-        for (id, labels) in &before {
-            let did = take_back::gmail_post(&self.g, &mut rows, LABEL, id, "trash", json!({}));
-            let failed = match did.await {
-                Ok(Some(_)) => None,
-                Ok(None) => Some(refusal(format!("no Gmail message is {id}"), &rows)),
-                Err(f) => Some(failure(f, &rows)),
-            };
-            if let Some(mut f) = failed {
-                if !moved.is_empty() {
-                    f.message = format!(
-                        "{} ({} of {of} message(s) were moved to the Trash before it)",
-                        f.message,
-                        moved.len()
-                    );
-                    if !approved {
-                        f.meta[told::KEY] = told::mail_trashed(moved, of);
-                    }
-                }
-                return Err(f);
-            }
-            moved.push(told::gmail_before(id, labels));
-        }
-        let text = format!(
-            "Trashed {of} message(s) in {} thread(s): {}\n",
-            ids.len(),
-            ids.join(", ")
-        );
-        let mut meta = json!({"ids": ids, "trash": true});
-        if !approved {
-            meta[told::KEY] = told::mail_trashed(moved, of);
-        }
-        Ok(finished(self.g.account(), text, meta, &rows, Source::None))
-    }
-
-    /// A thread's `modify`, else (an id that is no thread's first message)
-    /// the message's own: the kind that took it.
+    /// A thread's `modify` or `trash`, else (an id that is no thread's first
+    /// message) the message's own.
     async fn act(
         &self,
         rows: &mut Vec<Value>,
@@ -1430,7 +1372,7 @@ impl Mail {
         id: &str,
         what: &str,
         body: &Value,
-    ) -> Result<&'static str, CallFailed> {
+    ) -> Result<(), CallFailed> {
         let mut first = None;
         for kind in ["threads", "messages"] {
             let method = format!("gmail.users.{kind}.{what}");
@@ -1443,7 +1385,7 @@ impl Mail {
                 .rest(rows, (LABEL, &method, class), Some(id.into()), req)
                 .await
             {
-                Ok(_) => return Ok(kind),
+                Ok(_) => return Ok(()),
                 Err(f) if first.is_none() && rows.last().is_some_and(|r| r["status"] == 404) => {
                     first = Some(f)
                 }

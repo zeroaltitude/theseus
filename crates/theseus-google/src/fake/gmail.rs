@@ -424,7 +424,7 @@ pub fn answer(mb: &Mailbox, req: &Req) -> Option<Reply> {
                 None => not_found(),
             },
             ("POST", ["drafts", "send"]) => send(s, req),
-            ("POST", ["threads", id, op @ ("modify" | "trash" | "untrash")]) => {
+            ("POST", ["threads", id, op @ ("modify" | "trash")]) => {
                 let (add, remove) = labels_of_op(op, req);
                 match s.threads.get_mut(*id) {
                     Some(msgs) => {
@@ -434,7 +434,7 @@ pub fn answer(mb: &Mailbox, req: &Req) -> Option<Reply> {
                     None => not_found(),
                 }
             }
-            ("POST", ["messages", id, op @ ("modify" | "trash" | "untrash")]) => {
+            ("POST", ["messages", id, op @ ("modify" | "trash")]) => {
                 let (add, remove) = labels_of_op(op, req);
                 let hit = s
                     .threads
@@ -467,10 +467,6 @@ fn find(s: &State, id: &str) -> Option<Msg> {
 fn labels_of_op(op: &str, req: &Req) -> (Vec<String>, Vec<String>) {
     if op == "trash" {
         return (vec!["TRASH".into()], vec!["INBOX".into()]);
-    }
-    // The fake's model of Gmail's untrash: the trash's mirror.
-    if op == "untrash" {
-        return (vec!["INBOX".into()], vec!["TRASH".into()]);
     }
     let b = req.json();
     let list = |k: &str| -> Vec<String> {

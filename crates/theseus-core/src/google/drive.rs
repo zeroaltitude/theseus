@@ -410,7 +410,7 @@ impl Tool for DriveTool {
             }
             Op::Share => {
                 "Share a Drive file with `email` or `anyone_with_link` as `role`, `remove` that \
-                 access, or `trash` the file. A share or remove asks every time."
+                 access, or `trash` the file. Asks the owner every time."
             }
         }
     }
@@ -535,19 +535,14 @@ impl Tool for DriveTool {
             }
             Op::Share => {
                 let s = Sharing::of(input)?;
-                // A trash or restore is put back exactly by the owner's Undo,
-                // so it is told (issue 57); a grant or a revoke asks.
-                let told = matches!(s.change, Change::Trash(_));
                 Ok(Plan {
                     summary: s.summary(),
                     class: Some(ToolClass::Write),
-                    authority: (!told).then(|| {
-                        format!(
-                            "{}, which reaches other people or removes a file, so the owner \
-                             decides it, every time, at every posture",
-                            s.summary()
-                        )
-                    }),
+                    authority: Some(format!(
+                        "{}, which reaches other people or removes a file, so the owner decides \
+                         it, every time, at every posture",
+                        s.summary()
+                    )),
                     ..Default::default()
                 })
             }
@@ -557,7 +552,6 @@ impl Tool for DriveTool {
     fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {
         let g = self.0.clone();
         let umask = ctx.umask;
-        let approved = ctx.approved;
         let work: Result<Work, String> = match self.1 {
             Op::Find => Find::of(input).map(Work::Find),
             Op::Read => Reading::of(input, ctx).map(Work::Read),
@@ -569,7 +563,7 @@ impl Tool for DriveTool {
                 Work::Find(f) => f.run(&g).await,
                 Work::Read(r) => r.run(&g, umask).await,
                 Work::Write(w) => w.run(&g).await,
-                Work::Share(s) => s.run(&g, approved).await,
+                Work::Share(s) => s.run(&g).await,
             }
         })
     }
@@ -1462,54 +1456,28 @@ impl Sharing {
         }
     }
 
-    /// A trash (`t`) or restore, the file's state read before it: what it
-    /// tells the owner, which his Undo puts back exactly (issue 57).
-    async fn trash(
-        &self,
-        g: &Google,
-        t: bool,
-        rows: &mut Vec<Value>,
-    ) -> Result<Value, ToolFailure> {
-        let id = self.id.as_str();
-        let was = match super::take_back::drive_trashed(g, rows, SHARE, id).await {
-            Ok(Some(w)) => w,
-            Ok(None) => {
-                let said = format!("{}: no such file", self.summary());
-                return Err(refused(said, std::mem::take(rows)));
-            }
-            Err(f) => {
-                rows.pop();
-                return Err(failed(f, std::mem::take(rows), "reading the file first: "));
-            }
-        };
-        let req = sent(
-            Service::Drive,
-            "PATCH",
-            format!("/drive/v3/files/{id}"),
-            &[("fields", "id,name,trashed"), ("supportsAllDrives", "true")],
-            Body::Json(json!({"trashed": t})),
-            Repeat::Safe,
-        );
-        call(
-            g,
-            rows,
-            meta(SHARE, "drive.files.update", Some(id), "write"),
-            req,
-        )
-        .await?;
-        Ok(super::told::drive_trashed(id, t, was))
-    }
-
-    /// The change, and for a trash or restore what it tells the owner unless
-    /// he `approved` it: the file's state read before it, which his Undo puts
-    /// back exactly (issue 57).
-    async fn run(self, g: &Google, approved: bool) -> Result<Finished, ToolFailure> {
+    async fn run(self, g: &Google) -> Result<Finished, ToolFailure> {
         let id = self.id.as_str();
         let files = format!("/drive/v3/files/{id}");
         let mut rows = Vec::new();
-        let mut told = None;
         match &self.change {
-            Change::Trash(t) => told = Some(self.trash(g, *t, &mut rows).await?),
+            Change::Trash(t) => {
+                let req = sent(
+                    Service::Drive,
+                    "PATCH",
+                    files,
+                    &[("fields", "id,name,trashed"), ("supportsAllDrives", "true")],
+                    Body::Json(json!({"trashed": t})),
+                    Repeat::Safe,
+                );
+                call(
+                    g,
+                    &mut rows,
+                    meta(SHARE, "drive.files.update", Some(id), "authority"),
+                    req,
+                )
+                .await?;
+            }
             Change::Grant { who, role, notify } => {
                 let body = match who {
                     Who::User(e) => json!({"type": "user", "role": role, "emailAddress": e}),
@@ -1584,11 +1552,7 @@ impl Sharing {
             }
         }
         let text = format!("done: {}\n", self.summary());
-        let mut m = json!({"id": id});
-        if let Some(t) = told.filter(|_| !approved) {
-            m[super::told::KEY] = t;
-        }
-        let (m, row) = with_rows(m, rows);
+        let (m, row) = with_rows(json!({"id": id}), rows);
         Ok(finish(g.account(), text, m, row, Source::None))
     }
 }

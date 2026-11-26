@@ -707,8 +707,8 @@ fn change(input: &Value, zone: ZoneAt<'_>) -> Result<Change, String> {
     } else {
         None
     };
-    // Off `google.call`'s allow list every event write is authority there
-    // (issue 57); a KEEP reason of the classifier's own must be this tool's too.
+    // Every event write is authority in the classifier, most as `UNLISTED`;
+    // any reason of its own must be this tool's too.
     debug_assert!(
         resolved.class.class != Class::Authority
             || resolved.class.why == Some(theseus_google::classify::UNLISTED)

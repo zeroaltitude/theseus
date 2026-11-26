@@ -900,7 +900,7 @@ async fn search_lists_a_row_a_thread_and_marks_strangers() {
 // ------------------------------------------------------------------ labels
 
 #[tokio::test]
-async fn label_changes_labels_by_name_and_trash_is_told_not_asked() {
+async fn label_changes_labels_by_name_and_trash_asks_by_authority() {
     let r = rig(vec![]).await;
     stranger_thread(&r);
     r.fake.mail().label("Label_7", "Receipts");
@@ -928,12 +928,12 @@ async fn label_changes_labels_by_name_and_trash_is_told_not_asked() {
     )
     .await);
     assert!(!r.fake.mail().labels_of("p2").contains(&"INBOX".to_string()));
-    // Trash is told, not asked (issue 57): the tool's own posture decides it.
+    // Trash asks, whatever any line says.
     let trash = json!({"ids": ["t1"], "trash": true});
     assert!(plan(&r, "gmail.label", trash.clone())
         .unwrap()
         .authority
-        .is_none());
+        .is_some());
     ok(run(&r, "gmail.label", trash).await);
     assert!(r.fake.mail().labels_of("m1").contains(&"TRASH".to_string()));
     let e = run(

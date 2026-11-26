@@ -399,8 +399,7 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
         ),
         ("DELETE /calendar/v3/calendars/team@example.test", json!({})),
         ("POST /calendar/v3/calendars/primary/acl", json!({})),
-        // Off the allow list, an event made through `google.call` asks too
-        // (issue 57): the typed tool is what makes one unasked.
+        // An event made through `google.call` asks.
         ("calendar.events.insert", json!({})),
         ("calendar.events.insert", json!({"sendUpdates": "none"})),
     ] {

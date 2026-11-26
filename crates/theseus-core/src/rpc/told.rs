@@ -208,7 +208,7 @@ impl Core {
         if let Some(found) = self.undo_found(&undo)? {
             return self.receipt(post, who, &text, &told::found_line(found), true);
         }
-        match self.undo_now(&undo, who).await {
+        match self.undo_now(&undo, who) {
             Ok(Effect::Done) => {}
             Ok(Effect::Moved { line, message }) => {
                 // Nothing changed: the note says so, and loses its Undo. A
@@ -282,10 +282,6 @@ impl Core {
                 .self_paused()
                 .is_some()
                 .then_some("new self builds are paused"),
-            // A Google act's outcome is Google's, seen only by a call. A
-            // press after a crash runs the restore again, which sets each
-            // thing to what it was before the act: what is back stays back.
-            Undo::GoogleTakeBack(_) => None,
             #[cfg(test)]
             Undo::Probe(_) => None,
         })
@@ -293,9 +289,8 @@ impl Core {
 
     /// An undo, through the existing code that makes it, as `who`. A new
     /// undo is one arm here: an existing method's function, or an internal
-    /// one when the undo has no method of its own. It awaits: a Google
-    /// take-back calls Google (issue 57).
-    async fn undo_now(&self, undo: &Undo, who: &Answerer) -> Result<Effect, RpcFailure> {
+    /// one when the undo has no method of its own.
+    fn undo_now(&self, undo: &Undo, who: &Answerer) -> Result<Effect, RpcFailure> {
         match undo {
             Undo::StandingRevoke(id) => {
                 let p = StandingRevokeParams {
@@ -326,7 +321,6 @@ impl Core {
                 PROBED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(Effect::Done)
             }
-            Undo::GoogleTakeBack(id) => self.google_take_back(id).await.map(|()| Effect::Done),
             // An unpause's undo: a pause again, with the note's own reason.
             Undo::SelfPause(why) => {
                 let p = theseus_protocol::rsi::SelfPauseParams {

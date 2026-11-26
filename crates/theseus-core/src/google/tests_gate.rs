@@ -117,12 +117,13 @@ async fn google_call_classifies_delete_permissions_and_acl_as_authority_in_its_p
         ),
         ("calendar.acl.insert", json!({})),
         ("calendar.calendars.clear", json!({})),
+        ("gmail.users.messages.trash", json!({"id": "m1"})),
         ("gmail.users.messages.send", json!({})),
         ("gmail.users.messages.insert", json!({})),
         ("calendar.events.insert", json!({"sendUpdates": "all"})),
         ("DELETE /drive/v3/files/abc", json!({})),
         ("POST /drive/v3/files/abc/permissions", json!({})),
-        // Off the allow list, every write asks (issue 57).
+        // Every write asks.
         ("gmail.users.drafts.create", json!({})),
         ("calendar.events.insert", json!({"sendUpdates": "none"})),
         ("POST /gmail/v1/users/me/labels", json!({})),
@@ -136,8 +137,6 @@ async fn google_call_classifies_delete_permissions_and_acl_as_authority_in_its_p
             "sheets.spreadsheets.values.get",
             json!({"spreadsheetId": "s", "range": "A1"}),
         ),
-        // A Gmail message moved to the Trash is told, not asked (issue 57).
-        ("gmail.users.messages.trash", json!({"id": "m1"})),
     ] {
         assert!(!authority(m, params), "{m} is not authority");
     }

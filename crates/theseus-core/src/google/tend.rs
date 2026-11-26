@@ -72,7 +72,7 @@ impl crate::Core {
         }
     }
 
-    pub(crate) fn google_row<F: crate::fact::Fact>(&self, f: &F) {
+    fn google_row<F: crate::fact::Fact>(&self, f: &F) {
         let written = crate::fact::row(f, None, None)
             .and_then(|r: NewRecord| self.store.append(&[r]).map(|_| ()));
         if let Err(e) = written {

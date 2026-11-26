@@ -43,7 +43,7 @@ async fn a_created_drafts_result_is_not_marked_outside_text() {
     );
     let sid = session(&r.core);
     let res = turn(&r.core, &sid, "draft a note to myself").await;
-    // Off the allow list, a draft made through `google.call` asks (issue 57).
+    // A draft made through `google.call` asks.
     let res = approved(&r, &res).await;
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
     assert!(

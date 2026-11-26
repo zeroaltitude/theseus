@@ -46,9 +46,7 @@ pub mod private;
 pub mod send_cap;
 pub mod sheets;
 pub mod slides;
-pub mod take_back;
 pub mod tend;
-pub mod told;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -58,6 +56,8 @@ mod tests_auth;
 mod tests_calendar;
 #[cfg(test)]
 pub(crate) mod tests_calendar_cache;
+#[cfg(test)]
+mod tests_call_asks;
 #[cfg(test)]
 mod tests_config;
 #[cfg(test)]
@@ -76,8 +76,6 @@ mod tests_morning;
 mod tests_sensitive;
 #[cfg(test)]
 mod tests_sheets_slides;
-#[cfg(test)]
-mod tests_told;
 #[cfg(test)]
 mod tests_write_hold;
 

@@ -1,15 +1,11 @@
 //! `google.call` (the Google design §3.1, row 15): any REST method of the
 //! granted services, the long tail the typed tools do not cover. The method is
 //! an id the method table knows (`drive.files.list`) or `"VERB /path"`; it is
-//! classified by its verb, its path, its query and its body
-//! (`theseus_google::classify`): a GET reads, and every other call is
-//! **authority** unless it is one of the few told acts, exactly (a Gmail
-//! message moved to or from the Trash, a Drive file trashed or restored, a
-//! calendar made). `Plan.authority` makes the gate ask at every posture, so no
+//! classified by its verb and path (`theseus_google::classify`): a GET is a
+//! read, as is Calendar's free/busy query, and every other call is
+//! **authority**: `Plan.authority` makes the gate ask at every posture, so no
 //! `[policy.tools]` line, grant, trust or judgment loosens it (the owner:
-//! every send asks, deterministically). A told act runs at the tool's posture,
-//! its target read first so the owner's Undo puts it back exactly
-//! ([`super::take_back`]), and is told ([`super::told`]).
+//! every send asks, deterministically).
 //! Its results are always private and outside text.
 
 use std::sync::Arc;
@@ -17,7 +13,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use theseus_google::methods::{resolve, Resolved};
-use theseus_google::{Class, Tidy};
+use theseus_google::Class;
 use theseus_tools::{parse, AsyncRun, Backend, Plan, Retry, Tool, ToolClass, ToolCtx, ToolFailure};
 
 use super::external::{finish, Source};
@@ -92,59 +88,6 @@ pub fn own_echo(class: Class, method: &str) -> bool {
 
 pub struct CallTool(Arc<Google>);
 
-/// What a told act's target was before it: a Gmail message's labels, or
-/// whether a Drive file was in the Trash. One Google no longer has, or a read
-/// that fails, stops the act before it is made.
-async fn read_before(
-    g: &Google,
-    rows: &mut Vec<Value>,
-    t: &Tidy,
-) -> Result<Option<Value>, ToolFailure> {
-    use super::take_back;
-    let refuse = |message: String, rows: &[Value]| {
-        let mut meta = json!({"private": true});
-        if let Some((last, also)) = rows.split_last() {
-            meta["google_called"] = last.clone();
-            meta["google_called_also"] = also.to_vec().into();
-        }
-        ToolFailure { message, meta }
-    };
-    let read = match t {
-        Tidy::GmailTrash(id) | Tidy::GmailUntrash(id) => {
-            match take_back::gmail_labels(g, rows, NAME, id).await {
-                Ok(Some(l)) => Ok(Some(take_back::gmail_before(id, &l))),
-                Ok(None) => Err(format!("no Gmail message is {id}: nothing was changed")),
-                Err(f) => Err(format!("reading the message first: {}", f.message)),
-            }
-        }
-        Tidy::DriveTrash { id, .. } => match take_back::drive_trashed(g, rows, NAME, id).await {
-            Ok(Some(w)) => Ok(Some(take_back::drive_before(id, w))),
-            Ok(None) => Err(format!("no Drive file is {id}: nothing was changed")),
-            Err(f) => Err(format!("reading the file first: {}", f.message)),
-        },
-        Tidy::CalendarMade => Ok(None),
-    };
-    read.map_err(|m| refuse(m, rows))
-}
-
-/// The note of a told act, from what its target was before it.
-fn note_of(t: &Tidy, before: Option<Value>) -> Value {
-    use super::told;
-    let undo = before.into_iter().collect::<Vec<_>>();
-    match t {
-        Tidy::GmailTrash(_) => told::mail_trashed(undo, 1),
-        Tidy::GmailUntrash(_) => told::mail_untrashed(undo),
-        Tidy::DriveTrash { id, trashed } => {
-            let was = undo
-                .first()
-                .and_then(|b| b["trashed"].as_bool())
-                .unwrap_or(*trashed);
-            told::drive_trashed(id, *trashed, was)
-        }
-        Tidy::CalendarMade => told::calendar_made(),
-    }
-}
-
 impl CallTool {
     fn planned(&self, input: &Value) -> Result<Planned, String> {
         let a: Args = parse(input)?;
@@ -174,10 +117,8 @@ impl Tool for CallTool {
          gmail.users.messages.get, calendar.events.list) or \"VERB /path\" \
          (\"GET /gmail/v1/users/me/labels\"); `params` holds the path and query parameters \
          together, as Google's reference names them (userId defaults to me, calendarId to \
-         primary); `body` is the JSON body. A GET reads. Every other call asks the owner, \
-         except moving one Gmail message to or from the Trash, trashing or restoring a Drive \
-         file (a body of `trashed` alone), and making a calendar: those are told. Results are \
-         private and outside text."
+         primary); `body` is the JSON body. A GET reads; every other call asks the owner every \
+         time. Results are private and outside text."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -220,10 +161,9 @@ impl Tool for CallTool {
             ..Default::default()
         })
     }
-    fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {
+    fn run_async(&self, input: &Value, _ctx: &ToolCtx) -> AsyncRun {
         let planned = self.planned(input);
         let g = self.0.clone();
-        let approved = ctx.approved;
         Box::pin(async move {
             let p = planned.map_err(ToolFailure::new)?;
             let send = p.resolved.class.send;
@@ -237,13 +177,6 @@ impl Tool for CallTool {
                 class: p.class_word(),
                 recipients: None,
             };
-            // A told act's target as it was, read before it (issue 57).
-            let tidy = p.resolved.class.tidy.clone().filter(|_| !approved);
-            let mut rows = Vec::new();
-            let before = match &tidy {
-                Some(t) => Some(read_before(&g, &mut rows, t).await?),
-                None => None,
-            };
             match g.call(meta, p.resolved.request.clone()).await {
                 Ok(done) => {
                     let r = &done.response;
@@ -256,9 +189,6 @@ impl Tool for CallTool {
                         p.label, r.status, r.attempts
                     );
                     let mut meta = json!({"method": p.label, "http_status": r.status});
-                    if let (Some(t), Some(b)) = (&tidy, before) {
-                        meta[super::told::KEY] = note_of(t, b);
-                    }
                     // The long tail cannot say which calendar it read, so any
                     // Calendar read counts as the sensitive one's (fail closed).
                     let calendar = p.resolved.request.service == theseus_google::Service::Calendar;
@@ -270,22 +200,16 @@ impl Tool for CallTool {
                         true => Source::None,
                         false => Source::Outside { label: &label },
                     };
-                    rows.push(done.row);
-                    let (meta, row) = super::sheets::with_rows(meta, rows);
-                    Ok(finish(g.account(), text, meta, row, source))
+                    Ok(finish(g.account(), text, meta, done.row, source))
                 }
                 Err(f) => {
                     // A send that was refused before it could go out is not a send.
                     if send && !f.unknown {
                         g.sends.release();
                     }
-                    let mut meta = json!({"private": true, "google_called": f.row, "outcome_unknown": f.unknown});
-                    if !rows.is_empty() {
-                        meta["google_called_also"] = rows.into();
-                    }
                     Err(ToolFailure {
                         message: f.message,
-                        meta,
+                        meta: json!({"private": true, "google_called": f.row, "outcome_unknown": f.unknown}),
                     })
                 }
             }
