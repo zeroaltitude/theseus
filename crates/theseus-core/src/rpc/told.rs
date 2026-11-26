@@ -275,6 +275,13 @@ impl Core {
                 .self_item_dropped(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item is dropped"),
+            // A pause lives in this process's memory. The note's receipt is asked first: a note
+            // undone once stays undone across a restart. Only a note with no receipt, after a
+            // restart cleared the pause, finds none here, and its press pauses again.
+            Undo::SelfPause(_) => self
+                .self_paused()
+                .is_some()
+                .then_some("new self builds are paused"),
             #[cfg(test)]
             Undo::Probe(_) => None,
         })
@@ -313,6 +320,19 @@ impl Core {
             Undo::Probe(_) => {
                 PROBED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(Effect::Done)
+            }
+            // An unpause's undo: a pause again, with the note's own reason.
+            Undo::SelfPause(why) => {
+                let p = theseus_protocol::rsi::SelfPauseParams {
+                    clear: false,
+                    why: Some(why.clone()),
+                    author: Some(who.label.clone()),
+                    discord: who.discord.clone(),
+                    ..Default::default()
+                };
+                self.self_pause(&p, who)
+                    .map(|_| Effect::Done)
+                    .map_err(failure)
             }
         }
     }

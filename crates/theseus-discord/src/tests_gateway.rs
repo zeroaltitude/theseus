@@ -1118,6 +1118,7 @@ mod reply;
 mod self_note;
 mod self_word;
 mod standing;
+mod standing_notices;
 mod told;
 
 /// A message with a Jev notice's Noise button for `judgment`, posted in

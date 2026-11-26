@@ -204,32 +204,121 @@ async fn a_new_topic_at_the_act_band_is_minted_in_the_judgments_frame_with_its_f
     );
 }
 
-/// A confirm-band answer (0.7) writes nothing, says nothing in the footer,
-/// and sends one card asking.
+/// A confirm-band answer (0.7) is filed as an act-band one is, and the owner
+/// is told with an undo rather than asked (issue 57): the footer says so, one
+/// card carries the undo, and the undo puts the list back byte for byte. A
+/// press from a shared place, by someone else, undoes nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_confirm_band_answer_writes_nothing_and_sends_one_card() {
+async fn a_confirm_band_answer_is_filed_and_told_with_its_undo() {
     let jev = FakeJev::start().unwrap();
-    jev.script_onto("topic", "c1", 0.7);
+    // The session's own category comes first, so the ledger is c2.
+    jev.script_onto("topic", "c2", 0.7);
     let r = rig(jev);
+    let sid = bound(&r.core);
     operator_writes(
         &r.core,
-        vec![Record::Category(Category::new(
-            id("topic:ledger"),
-            "Ledger",
-            "ada",
-        ))],
+        vec![
+            Record::Category(Category::new(id("topic:web"), "web", "ada")),
+            Record::Category(Category::new(id("topic:ledger"), "Ledger", "ada")),
+            held(&sid, &["topic:web"]),
+        ],
     );
+    let was = list_bytes(&r.core, &sid);
+    said(&r, &sid, SAID).await;
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let list = o.member_list(&sid, "topic").expect("the session is filed");
+    let [web, m] = list.members.as_slice() else {
+        panic!("{list:?}")
+    };
+    assert_eq!(web.category, id("topic:web"), "the operator's entry stands");
+    assert_eq!(m.category, id("topic:ledger"));
+    assert_eq!((m.origin, m.confidence), (Origin::Jev, Some(0.7)));
+    assert_eq!(reply(&r.core)["result"]["filed"], "filed: topic › Ledger");
+    let judgment = onto_judgment(&r.core);
+    let cards = cards(&r.core);
+    assert_eq!(cards.len(), 1, "one card, telling");
+    assert_eq!(
+        (&cards[0]["undo"], &cards[0]["write"]),
+        (&json!(true), &json!(judgment))
+    );
+    let text = cards[0]["text"].as_str().unwrap();
+    assert!(text.starts_with("ℹ️ FYI · "), "{text}");
+    assert!(text.contains("\nLedger\n"), "{text}");
+    assert!(
+        text.contains(&format!("theseus ontology undo {judgment}")),
+        "{text}"
+    );
+    let filed = kinds(&r.core.store, "onto.filed");
+    assert_eq!(filed[0].data["steps"][0]["outcome"], "filed");
+    // Someone else's press, from a shared channel: refused, nothing undone.
+    let theirs = crate::tests_capture::call_on(
+        &r.core,
+        crate::approval::Surface::Discord,
+        "ontology.undo",
+        json!({"write": judgment, "author": "someone",
+               "discord": {"user_id": "7", "channel_id": "900000000000000123",
+                           "guild_id": "900000000000000001"}}),
+    )
+    .await;
+    assert_eq!(
+        theirs.error.map(|e| e.code),
+        Some(theseus_protocol::error_code::REFUSED)
+    );
+    assert_ne!(list_bytes(&r.core, &sid), was, "nothing was undone");
+    // The owner's undo puts back exactly what was.
+    r.core
+        .ontology_undo_rpc(
+            &OntologyUndoParams {
+                write: judgment.clone(),
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    assert_eq!(list_bytes(&r.core, &sid), was);
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    assert!(
+        o.category(&id("topic:ledger")).is_some(),
+        "the operator's category stands"
+    );
+}
+
+/// A `new` at the confirm band, named at the confirm band, is minted as at
+/// the act band and told with the mint's card and undo; with no name nothing
+/// is written, asked or named (issue 57).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_topic_at_the_confirm_band_is_minted_when_named_and_else_left() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "new", 0.7);
+    jev.script_onto("topic_name", "n1", 0.7);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    said(&r, &sid, SAID).await;
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let list = o.member_list(&sid, "topic").expect("the session is filed");
+    let c = o.category(&list.members[0].category).expect("minted");
+    assert_eq!(c.name, "Lantern Ledger");
+    let sent = cards(&r.core);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["undo"], true);
+    let text = sent[0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("started keeping track of something new"),
+        "{text}"
+    );
+    // No name: nothing written, no card, no naming call.
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "new", 0.7);
+    let r = rig(jev);
     let sid = bound(&r.core);
     said(&r, &sid, SAID).await;
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
     assert!(o.member_list(&sid, "topic").is_none(), "nothing written");
-    assert!(reply(&r.core)["result"].get("filed").is_none());
-    let cards = cards(&r.core);
-    assert_eq!(cards.len(), 1, "one confirm card");
-    assert_eq!(cards[0]["undo"], false);
-    assert!(cards[0]["text"].as_str().unwrap().contains("topic:ledger"));
-    let filed = kinds(&r.core.store, "onto.filed");
-    assert_eq!(filed[0].data["steps"][0]["outcome"], "asked");
+    assert!(cards(&r.core).is_empty(), "nothing asked");
+    assert!(
+        kinds(&r.core.store, "onto.named").is_empty(),
+        "no naming call"
+    );
 }
 
 /// Below the confirm band an answer is only a record: no row of its own, no

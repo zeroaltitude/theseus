@@ -9,8 +9,10 @@
 //! L0's floor, lists, and posture with its tightening), a granted secret's
 //! posture, a language server's start (by a call, L2, or an edit, L3), a
 //! shared place's word on a private address, the place's floor, a glide's
-//! place rule (38b), and an MCP client's floor (`order`). Each
-//! after the first only raises the posture.
+//! place rule (38b), a routine's grant, a shared place's card for a told
+//! private address (issue 57), and an MCP client's floor (`order`). Each
+//! after the first only raises the posture, but for a routine's grant and a
+//! mode, which lower what their own rules cover.
 
 use serde_json::Value;
 use theseus_tools::{Plan, Tool};
@@ -180,6 +182,11 @@ impl ToolRuntime {
         let decision =
             crate::routine::grant::gate(self, at, tool, plan, input, bound.l1(), decision);
         seen(Layer::Routine, &decision);
+        // A literal loopback or LAN address is told, not asked (issue 57), but in a shared place
+        // it keeps its card, which no layer above may lower.
+        let decision =
+            super::told::in_shared(&self.policy, at.place.class, tool.name(), plan, decision);
+        seen(Layer::SharedFetch, &decision);
         let class = plan.class.unwrap_or(tool.class());
         // An MCP client's session (step 41b): its calls that act wait.
         let decision =

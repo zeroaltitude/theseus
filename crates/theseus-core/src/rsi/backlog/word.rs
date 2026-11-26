@@ -278,13 +278,8 @@ impl Core {
         Ok(true)
     }
 
-    /// A chat session's filing (theseus-cux0o): the same write with no
-    /// `judge_act`, because the caller has judged it. `super::tool` is the
-    /// only caller, and its own wall is stricter than the place rule here --
-    /// a private place the owner is alone in, never a task's -- while the
-    /// gate has already asked for a person's yes at every posture
-    /// (`Plan::authority`). The shape is `self_drop_vetoed`'s: the caller
-    /// judges, this only writes.
+    /// `self_file_in_chat_told` with no note: a test's filing as chat files it.
+    #[cfg(test)]
     pub(crate) fn self_file_in_chat(
         &self,
         finding: &str,
@@ -293,7 +288,26 @@ impl Core {
     ) -> Result<SelfFileResult> {
         let finding = filed::finding_of(finding).map_err(BadItem)?.to_string();
         let title = filed::title_of(&finding, title);
-        self.file_on_backlog(&finding, &title, by)
+        self.file_on_backlog(&finding, &title, by, None)
+    }
+
+    /// A chat session's filing (theseus-cux0o), with the owner's note (issue 57): the same write
+    /// with no `judge_act`, because the caller has judged it. `super::tool` is the only caller,
+    /// and its own wall is stricter than the place rule here -- a private place the owner is
+    /// alone in, never a task's; the call follows the tool's own posture. The shape is
+    /// `self_drop_vetoed`'s: the caller judges, this only writes. `note` stages the note from the
+    /// filing, and the filing and its note are one frame, so neither is written without the
+    /// other. The pipeline is woken once the frame is written.
+    pub(crate) fn self_file_in_chat_told(
+        &self,
+        finding: &str,
+        title: Option<&str>,
+        by: &str,
+        note: &Note<'_>,
+    ) -> Result<SelfFileResult> {
+        let finding = filed::finding_of(finding).map_err(BadItem)?.to_string();
+        let title = filed::title_of(&finding, title);
+        self.file_on_backlog(&finding, &title, by, Some(note))
     }
 
     /// Move an open item to a rank: the owner's word. It keeps the rank.
@@ -540,7 +554,7 @@ impl Core {
                 from_job,
             },
         )?;
-        self.file_on_backlog(&finding, &title, &who.who())
+        self.file_on_backlog(&finding, &title, &who.who(), None)
     }
 
     /// The write both filing routes share: one frame with the item, the
@@ -550,6 +564,7 @@ impl Core {
         finding: &str,
         title: &str,
         filed_by: &str,
+        note: Option<&Note<'_>>,
     ) -> Result<SelfFileResult> {
         let _one = self
             .rsi
@@ -576,17 +591,47 @@ impl Core {
             .position(|o| *o == id)
             .map_or(0, |i| i as u32 + 1);
         let cause = filed::cause_of(&id);
-        self.backlog_write(&mut w)?;
-        self.rsi.pipeline.kick();
-        Ok(SelfFileResult {
+        let res = SelfFileResult {
             item: id,
             title: title.to_string(),
             cause,
             rank,
             filed_by: filed_by.to_string(),
-        })
+        };
+        // A chat filing is held before its frame is staged, and its minute starts once the
+        // frame is written (`pipeline::chat_hold`).
+        let holds = &self.rsi.pipeline.chat_holds;
+        if note.is_some() {
+            holds.writing(&res.item);
+        }
+        // A note that cannot be staged files nothing: nothing has been written yet.
+        let written = (|| -> Result<_> {
+            let staged = note.map(|n| n(&res)).transpose()?;
+            let more = staged.as_ref().map_or_else(Vec::new, |(_, r)| r.clone());
+            self.backlog_write_with(&mut w, more)?;
+            Ok(staged)
+        })();
+        let staged = match written {
+            Ok(s) => s,
+            Err(e) => {
+                holds.failed(&res.item);
+                return Err(e);
+            }
+        };
+        if note.is_some() {
+            holds.written(&res.item);
+        }
+        if let Some((post, _)) = &staged {
+            self.outbox.posted(post);
+        }
+        self.rsi.pipeline.kick();
+        Ok(res)
     }
 }
+
+/// A chat filing's note, staged from the filing for its frame (issue 57).
+pub(crate) type Note<'a> =
+    dyn Fn(&SelfFileResult) -> Result<(theseus_kernel::Action, Vec<theseus_store::NewRecord>)> + 'a;
 
 /// The task a name means among the backlog's: its id or the end of it.
 fn task_graph_resolve(
