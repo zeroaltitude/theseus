@@ -110,6 +110,12 @@ pub struct Config {
     /// close.
     pub exit_on_crash: bool,
     pub name: String,
+    /// A value its tools and prompts say (issue 55, round 4): four tools
+    /// that hold it (as a name, a description, a schema key, a schema
+    /// value), and a prompt `says` whose description, argument name and
+    /// text hold it, with a prompt named after it. A server that signs in
+    /// with `says_token` says the token it was last sent instead.
+    pub says: Option<String>,
 }
 
 impl Default for Config {
@@ -129,6 +135,7 @@ impl Default for Config {
             oauth: None,
             exit_on_crash: false,
             name: "fake".into(),
+            says: None,
         }
     }
 }
@@ -223,6 +230,21 @@ impl Fake {
 
     pub fn config(&self) -> Config {
         lock(&self.cfg).clone()
+    }
+
+    /// What its tools and prompts say from now on (`Config::says`).
+    pub fn set_says(&self, says: Option<String>) {
+        lock(&self.cfg).says = says;
+    }
+
+    /// The value its tools and prompts say, if any: the token last sent to
+    /// a server that signs in with `says_token`, or `Config::says`.
+    fn said(&self) -> Option<String> {
+        let cfg = self.config();
+        match cfg.oauth.filter(|a| a.config().says_token) {
+            Some(a) => a.last_bearer(),
+            None => cfg.says,
+        }
     }
 
     pub fn set_mode(&self, mode: Mode) {
@@ -345,7 +367,7 @@ impl Fake {
                 Ok(r) => ok(r),
                 Err(e) => err(code::INVALID_PARAMS, &e),
             },
-            "prompts/get" => match get_prompt(&params) {
+            "prompts/get" => match get_prompt(&params, self.said()) {
                 Ok(r) => {
                     if self.config().mode == Mode::ChangePrompts {
                         self.prompts_version.fetch_add(1, Ordering::SeqCst);
@@ -469,7 +491,13 @@ impl Fake {
     }
 
     fn prompts(&self) -> Vec<Value> {
-        prompts_at(self.prompts_version.load(Ordering::SeqCst))
+        let mut list = prompts_at(self.prompts_version.load(Ordering::SeqCst));
+        if let Some(v) = self.said() {
+            list.push(json!({"name": "says", "description": format!("about {v}"),
+                "arguments": [{ "name": v, "required": false }]}));
+            list.push(json!({"name": v, "description": "named after a value"}));
+        }
+        list
     }
 
     /// The tool list: five tools, then one more, and a changed `echo`, per
@@ -485,6 +513,19 @@ impl Fake {
         {
             tools.push(json!({"name": t, "description": format!("about {t}"),
                 "inputSchema": {"type": "object"}}));
+        }
+        if let Some(v) = self.said() {
+            let object = |props: Value| json!({"type": "object", "properties": props});
+            tools.extend([
+                json!({"name": v, "description": "named after a value",
+                    "inputSchema": object(json!({}))}),
+                json!({"name": "says_description", "description": v,
+                    "inputSchema": object(json!({}))}),
+                json!({"name": "says_schema_key", "description": "a schema key",
+                    "inputSchema": object(json!({ v.clone(): {"type": "string"} }))}),
+                json!({"name": "says_schema_value", "description": "a schema value",
+                    "inputSchema": object(json!({"x": {"type": "string", "default": v}}))}),
+            ]);
         }
         tools
     }
@@ -1006,7 +1047,7 @@ fn prompts() -> Vec<Value> {
     ]
 }
 
-fn get_prompt(params: &Value) -> Result<Value, String> {
+fn get_prompt(params: &Value, said: Option<String>) -> Result<Value, String> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let arg = |k: &str| {
         params
@@ -1031,6 +1072,10 @@ fn get_prompt(params: &Value) -> Result<Value, String> {
         "review" => (
             "Asks for a review of a file.",
             format!("Review {}.", need("path")?),
+        ),
+        "says" if said.is_some() => (
+            "Says a value.",
+            format!("The value is {}.", said.unwrap_or_default()),
         ),
         other => return Err(format!("Unknown prompt: {}", jsonrpc::clip(other, 80))),
     };
@@ -1189,13 +1234,16 @@ mod tests {
         assert!(fake
             .page(&json!({"cursor": "page-9"}), "tools", fake.tools())
             .is_err());
-        let g =
-            get_prompt(&json!({"name": "greet", "arguments": {"name": "zeroaltitude"}})).unwrap();
+        let g = get_prompt(
+            &json!({"name": "greet", "arguments": {"name": "zeroaltitude"}}),
+            None,
+        )
+        .unwrap();
         assert_eq!(
             g["messages"][0]["content"]["text"],
             "Say hello to zeroaltitude."
         );
-        assert!(get_prompt(&json!({"name": "greet"})).is_err());
-        assert!(get_prompt(&json!({"name": "nope"})).is_err());
+        assert!(get_prompt(&json!({"name": "greet"}), None).is_err());
+        assert!(get_prompt(&json!({"name": "nope"}), None).is_err());
     }
 }

@@ -211,6 +211,7 @@ ledger_kinds! {
     McpServerRefused = "mcp_server.refused",
     McpStarted = "mcp.started",
     McpToolsChanged = "mcp.tools_changed",
+    McpToolsWithheld = "mcp.tools_withheld",
     MemoryArm = "memory.arm",
     MemoryCited = "memory.cited",
     MemoryGated = "memory.gated",

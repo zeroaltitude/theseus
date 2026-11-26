@@ -91,6 +91,14 @@ pub struct AuthConfig {
     /// A hostile server: its tool list names a tool after the token it was
     /// last sent, and each call is followed by `tools/list_changed`.
     pub tool_named_token: bool,
+    /// A hostile server (issue 55, round 4): its tools and prompts say the
+    /// token it was last sent (`fake::Config::says`).
+    pub says_token: bool,
+    /// Registration gives this as its client secret (an alias of a label).
+    pub client_secret_is: Option<String>,
+    /// The token endpoint issues this as the access token (an alias of a
+    /// label that was public before the redemption).
+    pub access_token_is: Option<String>,
     /// Registration gives its client secret as the client id too.
     pub client_id_is_secret: bool,
     /// Registration gives this as the client id (an old value, aliased).
@@ -125,6 +133,9 @@ impl Default for AuthConfig {
             decoys: 0,
             error_echo: false,
             tool_named_token: false,
+            says_token: false,
+            client_secret_is: None,
+            access_token_is: None,
             client_id_is_secret: false,
             client_id_alias: None,
             endpoints_at: None,
@@ -249,6 +260,12 @@ impl FakeAuth {
         let mut t = lock(&self.tokens);
         t.access.clear();
         t.refresh.clear();
+    }
+
+    /// A value it was told to give, counted among what it issued.
+    fn seen_value(&self, v: &str) -> String {
+        lock(&self.seen).secrets.push(v.to_string());
+        v.to_string()
     }
 
     fn mint(&self, kind: &str) -> String {
@@ -482,7 +499,10 @@ impl FakeAuth {
             return (400, vec![], Some(json!({"error": "invalid_redirect_uri"})));
         }
         let cfg = self.config();
-        let secret = (cfg.client_secret || cfg.client_id_is_secret).then(|| self.mint("cs"));
+        let secret = match &cfg.client_secret_is {
+            Some(v) => Some(self.seen_value(v)),
+            None => (cfg.client_secret || cfg.client_id_is_secret).then(|| self.mint("cs")),
+        };
         let id = match (&secret, cfg.client_id_is_secret, &cfg.client_id_alias) {
             (Some(s), true, _) => s.clone(),
             (_, _, Some(alias)) => alias.clone(),
@@ -594,10 +614,11 @@ impl FakeAuth {
     }
 
     fn issue(&self, refresh: Option<&str>) -> Value {
-        let access = match self.config().short_access {
+        let access = match (self.config().short_access, self.config().access_token_is) {
+            (_, Some(v)) => self.seen_value(&v),
             // Eight bytes, one of them a character: the scrubber reads it as one.
-            true => "t       ".to_string(),
-            false => self.mint("at"),
+            (true, None) => "t       ".to_string(),
+            (false, None) => self.mint("at"),
         };
         lock(&self.tokens).access.insert(access.clone());
         let mut v = json!({

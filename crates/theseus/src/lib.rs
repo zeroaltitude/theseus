@@ -25,6 +25,7 @@
 pub mod attach;
 pub mod client;
 pub mod current;
+pub mod mcp_lines;
 pub mod names;
 pub mod notify;
 pub mod outcome;

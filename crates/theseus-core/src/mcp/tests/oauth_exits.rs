@@ -131,7 +131,7 @@ async fn a_signed_in_connection_reaches_only_a_public_address() {
 }
 
 /// The words of a captured log.
-fn capture() -> (Arc<Mutex<Vec<u8>>>, tracing::subscriber::DefaultGuard) {
+pub(super) fn capture() -> (Arc<Mutex<Vec<u8>>>, tracing::subscriber::DefaultGuard) {
     let buf = Arc::new(Mutex::new(Vec::new()));
     let sub = tracing_subscriber::fmt()
         .with_writer(Sink(buf.clone()))
@@ -143,7 +143,7 @@ fn capture() -> (Arc<Mutex<Vec<u8>>>, tracing::subscriber::DefaultGuard) {
 }
 
 /// Every token the fake issued, in any node, ledger row, note or log line.
-fn leaked(r: &Rig, sid: &str, log: &str) -> Vec<String> {
+pub(super) fn leaked(r: &Rig, sid: &str, log: &str) -> Vec<String> {
     let nodes: Vec<String> = r
         .core
         .store

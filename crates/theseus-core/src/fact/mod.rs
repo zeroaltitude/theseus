@@ -526,6 +526,7 @@ facts![
     mcp::McpExited,
     mcp::McpFailed,
     mcp::McpToolsChanged,
+    mcp::McpToolsWithheld,
     crate::aws::hands::group::Launched<'static>,
     crate::aws::hands::group::Settled<'static>,
     crate::aws::hands::poller::Quarantined<'static>,

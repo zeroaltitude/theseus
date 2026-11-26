@@ -37,6 +37,7 @@ pub mod attached;
 pub mod ext;
 pub mod l1;
 pub mod oauth;
+pub mod offered;
 pub mod prompts;
 mod sign_in;
 #[cfg(test)]
@@ -321,6 +322,9 @@ struct Live {
     /// Whether `tools` is the stored list.
     stored: bool,
     digest: String,
+    /// The digest of the tools a server that signs in is not offered,
+    /// for saying a change once (`offered.rs`).
+    withheld: String,
     prompts: u64,
     /// The prompts listed, or the stored ones (36c, `prompts.rs`).
     prompt_state: prompts::PromptState,
@@ -778,6 +782,7 @@ impl McpBoard {
         let tools: Vec<Arc<McpTool>> = pairs
             .iter()
             .zip(wires)
+            .filter(|((s, t), wire)| self.may_offer(s, t, wire))
             .map(|((s, t), wire)| {
                 Arc::new(McpTool::new(
                     s.clone(),
@@ -897,10 +902,12 @@ impl McpBoard {
             .connect(&s.name, &s.cfg, env, key, s.serve.clone())
             .await?;
         let tools = c.client.list_tools().await.map_err(|e| e.to_string())?;
-        let prompts = match c.client.server_info().capabilities.prompts.is_some() {
-            true => c.client.list_prompts().await.unwrap_or_default(),
-            false => Vec::new(),
-        };
+        // A server that signs in offers no prompts yet (`prompts.rs`).
+        let prompts =
+            match c.client.server_info().capabilities.prompts.is_some() && !prompts::signs_in(s) {
+                true => c.client.list_prompts().await.unwrap_or_default(),
+                false => Vec::new(),
+            };
         Ok((c, tools, prompts))
     }
 
@@ -1072,7 +1079,10 @@ impl McpBoard {
     /// A list the server gave: descriptions capped, compared with the list
     /// offered before (a change is ledgered and narrated), stored when it
     /// differs from the store's, and the catalog rebuilt.
-    fn apply(&self, s: &Server, mut tools: Vec<Listed>) {
+    fn apply(&self, s: &Server, tools: Vec<Listed>) {
+        // A server that signs in offers no tool that says a kept value
+        // (issue 55): it is gone before anything below sees it.
+        let mut tools = self.offered(s, tools);
         for t in &mut tools {
             if let Some(d) = &mut t.description {
                 tool::cap_description(d);

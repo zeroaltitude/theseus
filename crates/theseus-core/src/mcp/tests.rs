@@ -1193,6 +1193,7 @@ mod ceilings;
 mod oauth;
 mod oauth_exits;
 mod oauth_hostile;
+mod oauth_offered;
 
 #[tokio::test]
 async fn a_protocol_error_is_still_the_servers_outside_text() {

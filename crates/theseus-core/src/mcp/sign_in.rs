@@ -97,6 +97,29 @@ fn consent_places(server: &discover::AuthServer) -> Vec<String> {
 
 /// Where an address is, for the owner to read: its host, and its port when
 /// it is not the scheme's own.
+/// What a finish or a logout says in place of a label that would show a
+/// value Theseus keeps.
+pub const HIDDEN: &str = "(not shown)";
+
+/// Why, in the words a finish's or a logout's note and log line say.
+const LABEL_HIDDEN: &str =
+    "the server's name or host is not shown: it holds a value Theseus keeps secret";
+
+/// Every string a begin's result shows, and the client id, which it puts in
+/// the address: what `shows_no_secret` reads.
+fn result_strings(r: &McpLoginBeginResult, client_id: &str) -> Vec<String> {
+    let mut v = vec![
+        r.login_id.clone(),
+        r.name.clone(),
+        r.host.clone(),
+        r.url.clone(),
+        r.redirect.clone(),
+        client_id.to_string(),
+    ];
+    v.extend(r.elsewhere.iter().cloned());
+    v
+}
+
 fn place(u: &reqwest::Url) -> String {
     let host = u.host_str().unwrap_or("?");
     match u.port() {
@@ -189,7 +212,24 @@ impl McpBoard {
             .unwrap_or("?")
             .to_string();
         let elsewhere = consent_places(&found.server);
-        self.shows_no_secret(&[&at, &host, &client.id], &elsewhere)?;
+        let id = uuid::Uuid::now_v7().simple().to_string();
+        let result = McpLoginBeginResult {
+            login_id: id.clone(),
+            name: name.to_string(),
+            host: host.clone(),
+            url: at,
+            redirect: if manual {
+                String::new()
+            } else {
+                redirect.clone()
+            },
+            expires_secs: OPEN_FOR.as_secs(),
+            paste_after_secs: if manual { 0 } else { PASTE_AFTER.as_secs() },
+            elsewhere,
+        };
+        // Every string the begin shows, the server's name included, and the
+        // client id it does not: checked before it logs or returns anything.
+        self.shows_no_secret(&result_strings(&result, &client.id))?;
         let (tx, rx) = oneshot::channel();
         let waits = loopback.expect(&pkce, &found.server, &reach);
         let paste = loopback.expect(&pkce, &found.server, &reach);
@@ -198,47 +238,32 @@ impl McpBoard {
             let _ = tx.send(loopback.wait(waits, hold, OPEN_FOR).await);
         })
         .abort_handle();
-        let id = uuid::Uuid::now_v7().simple().to_string();
         // A sign-in begun before is replaced: its listener closes.
         *self.login.lock().await = Some(Pending {
-            id: id.clone(),
+            id,
             server: name.to_string(),
             // The one set: the CLI asks exactly when the daemon requires it.
-            agree: !elsewhere.is_empty(),
+            agree: !result.elsewhere.is_empty(),
             pkce,
-            redirect: redirect.clone(),
+            redirect,
             paste,
             client,
             found,
-            host: host.clone(),
+            host,
             rx: Some(rx),
             listener,
             began: Instant::now(),
         });
         tracing::info!(server = name, "an MCP sign-in began");
-        Ok(McpLoginBeginResult {
-            login_id: id,
-            name: name.to_string(),
-            host,
-            url: at,
-            redirect: if manual { String::new() } else { redirect },
-            expires_secs: OPEN_FOR.as_secs(),
-            paste_after_secs: if manual { 0 } else { PASTE_AFTER.as_secs() },
-            elsewhere,
-        })
+        Ok(result)
     }
 
     /// Nothing a begin shows holds a value the daemon keeps (a client id that
     /// is a secret, an old token aliased into what a server chose): refused,
     /// in constant words, and nothing is shown.
-    fn shows_no_secret(&self, shown: &[&str], more: &[String]) -> Result<(), String> {
-        let text = shown
-            .iter()
-            .copied()
-            .chain(more.iter().map(String::as_str))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let (_, known) = crate::scrub::Scrubber::from_board(self.secrets.clone()).scrub(&text);
+    fn shows_no_secret(&self, shown: &[String]) -> Result<(), String> {
+        let (_, known) =
+            crate::scrub::Scrubber::from_board(self.secrets.clone()).scrub(&shown.join("\n"));
         match known {
             0 => Ok(()),
             _ => Err(
@@ -247,6 +272,14 @@ impl McpBoard {
                     .into(),
             ),
         }
+    }
+
+    /// A label a finish or a logout says (the server's name, the host), or
+    /// `None` when it would show a value the board holds: a token issued by
+    /// the redemption may equal a label that was public before (issue 55).
+    fn label(&self, text: &str) -> Option<String> {
+        let (_, known) = crate::scrub::Scrubber::from_board(self.secrets.clone()).scrub(text);
+        (known == 0).then(|| text.to_string())
     }
 
     /// Wait for the redirect, or take the owner's paste, and finish: the code
@@ -283,33 +316,42 @@ impl McpBoard {
         )
         .await
         .map_err(|e| format!("the sign-in was not completed: {e}"))?;
+        // A token issued just now may equal a label that was public before:
+        // each is checked here, at the finish's own exit.
+        let (name, host) = (self.label(&s.name), self.label(&pending.host));
+        let cmd = name.as_deref().unwrap_or("NAME");
         if let Err(e) = signed.put(kept_of(&url, &pending, &tokens)).await {
             return Err(match super::oauth::may_be_written(&e) {
                 // Past the rename: the file may already hold it.
                 true => format!(
                     "the sign-in was not made sure to last ({e}): it is not used now, but its \
                      file may already hold it, and the daemon's next start may use it. Run \
-                     `theseus mcp login {0}` again, or `theseus mcp logout {0}` to forget it",
-                    s.name
+                     `theseus mcp login {cmd}` again, or `theseus mcp logout {cmd}` to forget it"
                 ),
                 false => format!(
                     "the sign-in could not be kept ({e}), so it is not used: nothing changed. \
-                     Run `theseus mcp login {}` again",
-                    s.name
+                     Run `theseus mcp login {cmd}` again"
                 ),
             });
         }
-        tracing::info!(server = %s.name, "an MCP server was signed in");
+        let hidden = name.is_none() || host.is_none();
+        match &name {
+            Some(n) if !hidden => tracing::info!(server = %n, "an MCP server was signed in"),
+            _ => tracing::info!("an MCP server was signed in; {LABEL_HIDDEN}"),
+        }
         let changes = s.changed.subscribe();
         self.restart(&s.name);
         let (connected, tools) = came_up(&s, changes).await;
         Ok(McpLoginFinishResult {
             state: "done".into(),
-            name: s.name.clone(),
-            host: pending.host.clone(),
+            name: name.unwrap_or_else(|| HIDDEN.into()),
+            host: host.unwrap_or_else(|| HIDDEN.into()),
             connected,
             tools,
-            note: String::new(),
+            note: match hidden {
+                true => format!("The sign-in succeeded and is kept; {LABEL_HIDDEN}."),
+                false => String::new(),
+            },
         })
     }
 
@@ -418,11 +460,18 @@ impl McpBoard {
             ));
         }
         // What was kept stays held on the secret board, so the scrubber still
-        // knows each value.
-        tracing::info!(server = name, revoked, "an MCP server was signed out");
+        // knows each value; the name is checked at this exit against them.
+        let shown = self.label(name);
+        match &shown {
+            Some(n) => tracing::info!(server = %n, revoked, "an MCP server was signed out"),
+            None => tracing::info!(revoked, "an MCP server was signed out; {LABEL_HIDDEN}"),
+        }
+        if shown.is_none() {
+            notes.push(format!("The sign-out happened; {LABEL_HIDDEN}"));
+        }
         self.restart(&s.name);
         Ok(McpLogoutResult {
-            name: name.to_string(),
+            name: shown.unwrap_or_else(|| HIDDEN.into()),
             forgot: kept.is_some() && !kept_remains,
             revoked,
             note: notes.join("; "),

@@ -42,6 +42,8 @@ pub(super) struct Rig {
     pub(super) auth: Arc<FakeAuth>,
     pub(super) fake: Arc<Fake>,
     pub(super) dir: tempfile::TempDir,
+    /// The stand-in model: every request a turn sent it.
+    pub(super) model: Arc<Model>,
 }
 
 /// A core whose server `docs` signs in at a fake authorization server.
@@ -55,6 +57,16 @@ pub(super) async fn rig_with(
     auth: Arc<FakeAuth>,
     oauth: McpOauth,
     setup: impl FnOnce(&std::path::Path),
+) -> Rig {
+    rig_edit(auth, oauth, setup, |_| {}).await
+}
+
+/// `rig_with`, and `edit` on the settings before the core is built.
+pub(super) async fn rig_edit(
+    auth: Arc<FakeAuth>,
+    oauth: McpOauth,
+    setup: impl FnOnce(&std::path::Path),
+    edit: impl FnOnce(&mut Config),
 ) -> Rig {
     let fake = Fake::new(fake::Config {
         oauth: Some(auth.clone()),
@@ -88,6 +100,7 @@ pub(super) async fn rig_with(
             call_timeout_secs: 30,
         },
     );
+    edit(&mut cfg);
     let store_dir = dir.path().join("store");
     setup(&store_dir);
     let store = Store::open(&store_dir).unwrap();
@@ -95,12 +108,13 @@ pub(super) async fn rig_with(
         script: Box::new(script),
         requests: Mutex::default(),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap();
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
         core,
         auth,
         fake,
         dir,
+        model,
     }
 }
 
