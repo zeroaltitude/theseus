@@ -982,3 +982,22 @@ async fn the_frozen_script_mode_is_repaired_on_a_copy_frozen_before_the_fix() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// What a push would send that cannot be read (here, a branch with no commit) is refused as unresolved, which
+/// holds for the owner: never the old git refusal that is passed over (round 4 of issue 53).
+#[test]
+fn a_graph_that_cannot_be_read_is_unresolved_and_holds() {
+    let f = fixture();
+    let t = tree::open(&f.place, "trim the sails", NOW).unwrap();
+    let clean = Scrubber::default();
+    let scrub = |s: &str| clean.scrub(s).1;
+    let r = tree::push(&f.place, &t, "origin", "self/never-made", &scrub, Ok(&Heard::default()));
+    let Err(e) = r else {
+        panic!("pushed: {r:?}");
+    };
+    assert_eq!(
+        e,
+        Refused::Outgoing(super::outgoing::Refusal::Unresolved(super::outgoing::Why::Commits))
+    );
+    assert!(e.holds(), "{e}");
+}

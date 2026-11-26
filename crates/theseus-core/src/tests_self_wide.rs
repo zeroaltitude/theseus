@@ -244,3 +244,45 @@ pub(crate) fn unreadable_role(c: &crate::Core, session: &str) {
     c.store.append(&[bad]).unwrap();
     c.tools.self_pr.forget_roles();
 }
+
+/// What a wide builder is shown through real turns is what the outgoing check refuses (issue 53, round 4): a
+/// DM's words recall laid from another place, and another session's words its view laid at its place, each
+/// refused from the kind of read that showed them; words it was never shown pass.
+#[tokio::test]
+async fn what_recall_and_the_view_lay_in_real_turns_is_what_the_check_refuses() {
+    use crate::rsi::outgoing::leave::{Leaving, Out};
+    use crate::rsi::outgoing::{Heard, Refusal, Source};
+    use crate::tests_view_hand_backs::unmarked;
+    const SECRET: &str = "the kelp vault code is 5519 and the gate opens at the third bell each night";
+    const DESK: &str = "desk: the heron is grey and stands on the third post of the jetty at dawn";
+    let r = acting(true);
+    let c = &r.core;
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    turn_as(c, &dm, SECRET, true).await;
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, DESK, true).await;
+    let builder = self_session(c, "self build: kelp", Some(Role::Builder));
+    unmarked(c, &builder, "builder: what is the kelp vault code?")
+        .await
+        .unwrap();
+    let got = texts(&asked(&r, "builder: what is the kelp vault code").pop().unwrap());
+    assert!(got.contains("5519") && got.contains("third post"), "laid: {got}");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    let heard = Heard::of(&c.store, "kelp-item", &[&builder], until).unwrap();
+    let leaving = |text: &str| Leaving {
+        branch: "self/20261125-kelp".into(),
+        commits: vec![Out {
+            id: "c0ffee00c0ffee00".into(),
+            message: text.into(),
+            ..Out::default()
+        }],
+    };
+    let source = |text: &str| match heard.check(&leaving(text), |_| Ok(Default::default())) {
+        Err(Refusal::Words { source, .. }) => Some(source),
+        _ => None,
+    };
+    assert_eq!(source(SECRET), Some(Source::Recall), "the DM, recalled");
+    assert_eq!(source(DESK), Some(Source::View), "the desk, laid at its place");
+    assert_eq!(source("a sentence of the builder's own that nobody else wrote in any session"), None);
+}

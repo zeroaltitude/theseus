@@ -201,6 +201,11 @@ impl Core {
                 closing(&made.t);
                 return Ok(held);
             }
+            // What it sends is cleared first (`revert_cleared`): held, or put off, by the revert's own stop.
+            if let Some((why, card)) = self.revert_cleared(place, &made, &signed, j).await {
+                closing(&made.t);
+                return Ok(self.revert_held(j, "push", &why, card));
+            }
             let (p, t, r, base, s) = (
                 place.clone(),
                 made.t.clone(),
@@ -253,6 +258,61 @@ impl Core {
             why: why.into(),
             card,
         }
+    }
+
+    /// Whether the signed revert may leave for main (`rsi::outgoing`): none when it may, else why not (fixed
+    /// words and safe ids) and whether that holds it with a card. The daemon's scrubber reads it in every case.
+    /// One whose tree is the tree of a commit already on main sends nothing new: its message is fixed words and
+    /// ids (the branch's and the item's names, already cleared when they left, and commit ids), so it is cleared
+    /// without reading what any session read. Any other (main moved on since the join) is cleared as a join is,
+    /// against what the reverted item's sessions read. A check put off stops it without a card, to try again.
+    async fn revert_cleared(
+        &self,
+        place: &Place,
+        made: &Made,
+        signed: &str,
+        j: &Joined,
+    ) -> Option<(String, bool)> {
+        use crate::rsi::outgoing::clear::{clear, deadline, tree_on_main, Graph, Stop};
+        use crate::rsi::outgoing::{Heard, Refusal, Why};
+        let (p, dir, base, s) = (
+            place.clone(),
+            made.t.dir.clone(),
+            made.base.clone(),
+            signed.to_string(),
+        );
+        let (store, item) = (self.store.clone(), j.item.clone());
+        let scrubber = self.tools.scrubber.clone();
+        let stop = blocking(move || {
+            let unresolved = |w: Why| Ok(Some(Stop::Refused(Refusal::Unresolved(w))));
+            match tree_on_main(&p, &dir, &base, &s) {
+                Ok(true) => {
+                    let format = "--format=%B%n%an%n%ae%n%cn%n%ce";
+                    let Ok(said) = p.git_ok(&dir, &["log", "-1", format, &s]) else {
+                        return unresolved(Why::Commits);
+                    };
+                    let hits = scrubber.scrub(&said).1;
+                    Ok((hits > 0).then_some(Stop::Scrub(hits)))
+                }
+                Ok(false) => {
+                    let heard = Heard::of(&store, &item, &[], deadline());
+                    let g = Graph {
+                        place: &p,
+                        dir: &dir,
+                        base: &base,
+                        tip: &s,
+                        branch: "main",
+                    };
+                    let heard = heard.as_ref().map_err(|u| *u);
+                    Ok(clear(&g, &|x| scrubber.scrub(x).1, heard).err())
+                }
+                Err(w) => unresolved(w),
+            }
+        })
+        .await
+        .unwrap_or(Some(Stop::Refused(Refusal::Unresolved(Why::Commits))))?;
+        let card = !matches!(stop, Stop::Deferred(_));
+        Some((stop.to_string(), card))
     }
 
     fn revert_card(&self, text: String) {

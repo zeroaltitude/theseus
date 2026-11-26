@@ -341,59 +341,113 @@ impl Run<'_> {
     }
 
     /// Whether the signed merge may leave for main: every commit it sends past `base`, the merge and its
-    /// generated message among them, through the daemon's scrub and the outgoing check (`rsi::outgoing`). A
-    /// refusal holds the head for the owner, as an unsigned join is, with a card that names no word of it.
+    /// generated message among them, through the daemon's scrub and the outgoing check (`rsi::outgoing::clear`),
+    /// against what the item's sessions read, gathered once this pass. A refusal holds the head for the owner, as
+    /// an unsigned join is, with one card that names no word of it. A check put off holds nothing: the ledger's
+    /// index not yet built is only logged; a read past its deadline is a stop row, and the
+    /// [`DEFERRALS_HELD`](crate::rsi::outgoing::DEFERRALS_HELD)th in a row holds the head as unresolved.
     async fn cleared(&mut self, t: &Tree, base: &str, signed: &str) -> bool {
-        use crate::rsi::outgoing::{base_text, commits, Heard, Refusal};
-        use tree::Refused;
+        use crate::rsi::outgoing::clear::{clear, Graph, Stop};
+        use crate::rsi::outgoing::{Refusal, Unread, Why};
+        let heard = self.heard().await;
         let (p, dir, base, signed) = (
             self.place.clone(),
             t.dir.clone(),
             base.to_string(),
             signed.to_string(),
         );
-        let (store, item) = (self.core.store.clone(), self.b.item.clone());
-        let builder = self.b.session.clone().unwrap_or_default();
         let scrubber = self.core.tools.scrubber.clone();
-        let checked = blocking(move || {
-            let commits = commits(&p, &dir, &base, &signed)?;
-            let all: Vec<&str> = commits.iter().map(|c| c.text.as_str()).collect();
-            let hits = scrubber.scrub(&all.join("\n")).1;
-            if hits > 0 {
-                let by = "the daemon's scrubber".to_string();
-                return Ok(Some(Refused::Scrub { hits, by }));
-            }
-            let heard = match Heard::of(&store, &item, &[&builder]) {
-                Ok(h) => h,
-                Err(e) => {
-                    return Ok(Some(Refused::Outgoing(Refusal::Unresolved(format!(
-                        "{e:#}"
-                    )))))
-                }
+        let stop = blocking(move || {
+            let g = Graph {
+                place: &p,
+                dir: &dir,
+                base: &base,
+                tip: &signed,
+                branch: "main",
             };
-            let checked = heard.check(&commits, || base_text(&p, &dir, &base));
-            Ok(checked.err().map(Refused::Outgoing))
+            let heard: Result<&_, Unread> = heard.as_ref().map_err(|u| *u);
+            Ok(clear(&g, &|s| scrubber.scrub(s).1, heard).err())
         })
         .await;
-        let why = match checked {
+        let stop = match stop {
             Ok(None) => return true,
-            Ok(Some(why)) => why,
-            Err(e) => Refused::Outgoing(Refusal::Unresolved(format!(
-                "the commits it would send cannot be read: {e:#}"
-            ))),
+            Ok(Some(s)) => s,
+            Err(_) => Stop::Refused(Refusal::Unresolved(Why::Commits)),
         };
+        self.stopped_outgoing(stop, crate::rsi::pr::Exit::Join);
+        false
+    }
+
+    /// What the item's sessions read, from this pass's reads or gathered now (`rsi::outgoing::clear::Reads`).
+    pub(in crate::rsi::join) async fn heard(
+        &mut self,
+    ) -> Result<crate::rsi::outgoing::Heard, crate::rsi::outgoing::Unread> {
+        use crate::rsi::outgoing::{clear::deadline, Heard, Unread, Why};
+        if let Some(h) = self.pass.reads.get(&self.b.item) {
+            return Ok(h);
+        }
+        let (store, item) = (self.core.store.clone(), self.b.item.clone());
+        let builder = self.b.session.clone().unwrap_or_default();
+        let read = blocking(move || Ok(Heard::of(&store, &item, &[&builder], deadline()))).await;
+        let heard = read.unwrap_or(Err(Unread::Unresolved(Why::Session)));
+        if let Ok(h) = &heard {
+            self.pass.reads.put(&self.b.item, h.clone());
+        }
+        heard
+    }
+
+    /// A push the outgoing clearance stopped at `exit` (`cleared`, `fix::at_review`): held with one card, or put
+    /// off. Only fixed categories and safe ids are written.
+    pub(in crate::rsi::join) fn stopped_outgoing(
+        &mut self,
+        stop: crate::rsi::outgoing::Stop,
+        exit: crate::rsi::pr::Exit,
+    ) {
+        use crate::rsi::outgoing::{Deferral, Part, Refusal, Stop, DEFERRALS_HELD};
+        let why = match &stop {
+            Stop::Deferred(Deferral::NotReady) => {
+                tracing::info!(branch = %self.b.branch, "self-join: the outgoing check is put off: {}",
+                    Deferral::NotReady.words());
+                return;
+            }
+            Stop::Deferred(Deferral::Deadline) => {
+                let before = (self.earlier.iter().rev())
+                    .take_while(|s| s.phase == "outgoing")
+                    .count();
+                if before + 1 < DEFERRALS_HELD {
+                    tracing::info!(branch = %self.b.branch, "self-join: the outgoing check is put off: {}",
+                        Deferral::Deadline.words());
+                    self.stop("outgoing", Deferral::Deadline.words(), json!({"deferred": true}));
+                    return;
+                }
+                format!(
+                    "{}, {DEFERRALS_HELD} times in a row, so it is held as unresolved",
+                    Deferral::Deadline.words()
+                )
+            }
+            other => other.to_string(),
+        };
+        let words = matches!(stop, Stop::Refused(Refusal::Words { .. }));
+        let named = !matches!(
+            stop,
+            Stop::Refused(Refusal::Words {
+                part: Part::Branch,
+                ..
+            })
+        );
         let lift = format!(
             "run `{}`",
             theseus_protocol::rsi::retry_command(&self.b.item)
         );
-        self.card(crate::rsi::pr::withheld_text(
-            &self.b.branch,
-            &self.b.item,
-            &why,
-            &lift,
-        ));
-        self.hold("push", &why.to_string(), Value::Null);
-        false
+        let held = crate::rsi::pr::Held {
+            exit,
+            names: named.then_some((self.b.branch.as_str(), self.b.item.as_str())),
+            head: &self.b.head,
+            repo: &self.place.repo,
+            words,
+        };
+        self.card(crate::rsi::pr::withheld_text(&held, &why, &lift));
+        self.hold("push", &why, json!({"outgoing": true}));
     }
 
     /// The dry run on the remote's main, then the merge in its tree with the count folded in

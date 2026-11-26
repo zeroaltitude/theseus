@@ -116,17 +116,24 @@ impl Board {
         &self.state
     }
 
-    /// Record that the self loop opened `session` for `role` (`super::roles`), in memory and in
-    /// the store, before its first turn.
+    /// Record `role` for `session` (`super::roles`) in the store and in memory, after its session opened: a test's
+    /// way. The loop's own producers write a role in the frame that opens its session.
+    #[cfg(test)]
     pub(crate) fn set_role(&self, session: &str, role: super::roles::Role) -> anyhow::Result<()> {
         if let Some(core) = self.core() {
             core.store.append(&[role.record(session)?])?;
         }
+        self.remember_role(session, role);
+        Ok(())
+    }
+
+    /// Keep `role` as `session`'s in memory, over anything kept: its record is already in the store (written in
+    /// the frame that opened the session, or by [`Self::set_role`]).
+    pub(crate) fn remember_role(&self, session: &str, role: super::roles::Role) {
         self.roles
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(session.to_string(), Some(role));
-        Ok(())
     }
 
     /// `session`'s role as [`Self::role_in`] reads it, a role that cannot be read as none: for tests.
@@ -155,14 +162,17 @@ impl Board {
             return Ok(*r);
         }
         let read = super::roles::effective(store, session)?;
+        #[cfg(test)]
+        tests_role_race::between();
         // What is kept stays small: the sessions with no role are forgotten past a bound (each is
         // read again from the store if it asks again).
         let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
         if kept.len() >= ROLES_KEPT {
             kept.retain(|_, r| r.is_some());
         }
-        kept.insert(session.to_string(), read);
-        Ok(read)
+        // A role kept while this read was out (`set_role`, `remember_role`) is newer than it: it stays, and is
+        // the answer.
+        Ok(*kept.entry(session.to_string()).or_insert(read))
     }
 
     pub(crate) fn failed_keel_hold(&self, item: &str) -> bool {
@@ -479,6 +489,28 @@ mod tests_gated;
 #[path = "tests_pr/legacy_fork.rs"]
 mod tests_legacy_fork;
 
+/// A seam between a role's read and its keeping, for a test that puts a write there.
+#[cfg(test)]
+pub(crate) mod tests_role_race {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static BETWEEN: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    /// Run what was set, once, between the read and the keeping.
+    pub(crate) fn between() {
+        if let Some(f) = BETWEEN.with(|b| b.borrow_mut().take()) {
+            f();
+        }
+    }
+
+    /// What the next read on this thread runs between its read and its keeping.
+    pub(crate) fn set(f: impl FnOnce() + 'static) {
+        BETWEEN.with(|b| *b.borrow_mut() = Some(Box::new(f)));
+    }
+}
+
 #[path = "pr_fix.rs"]
 mod fixing;
 pub use fixing::GateSeams;
@@ -745,6 +777,15 @@ async fn attempt(
             }
             // What must not leave holds the item for the owner, as a keel stop does: nothing goes on.
             Err(e) if e.holds() => return withheld(core, place, tc, a, &e),
+            // Put off: no hold and no card. The branch is the join's to check again, as one never pushed.
+            Err(tree::Refused::Deferred(d)) => {
+                tracing::info!(branch = %a.tree.branch, "self.propose_change: the outgoing check is put off: {}", d.words());
+                a.stopped_at = Some(PUSH);
+                after = format!(
+                    "Not pushed: the outgoing check is put off ({}); the join checks it again. ",
+                    d.words()
+                );
+            }
             Err(e) => {
                 a.stopped_at = Some(PUSH);
                 after = format!("Not pushed: {e}. ");
@@ -781,8 +822,9 @@ async fn push_branch(
     let (p, b) = (place.clone(), t.branch.clone());
     let (store, scrubber) = (core.store.clone(), core.tools.scrubber.clone());
     blocking(move || {
-        let heard = super::outgoing::Heard::of(&store, &item, &[&session]);
-        let heard = heard.as_ref().map_err(|e| format!("{e:#}"));
+        let until = super::outgoing::clear::deadline();
+        let heard = super::outgoing::Heard::of(&store, &item, &[&session], until);
+        let heard = heard.as_ref().map_err(|u| *u);
         Ok(
             tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1, heard)
                 .map(|spec| format!("{remote} {spec}")),
@@ -1141,8 +1183,11 @@ fn keel(
     held_for_owner(core, place, tc, a, (text, "It stopped at the keel"))
 }
 
-/// A push refused for what must not leave (`tree::Refused::holds`): held for the owner as a keel stop is,
-/// by its mark and the owner's card, which says what was refused and never a word of it.
+/// A push refused for what must not leave (`tree::Refused::holds`): held for the owner as a keel stop is, by its
+/// mark (every later call is refused), its held stop row (the join and the pipeline skip the head:
+/// `join::Seen`), written before the attempt's own row, and one card. The card, the row and what the model is
+/// told name the refusal's fixed category and safe ids, never a word of what matched; when the branch's own name
+/// held the words, they name neither it nor the item.
 fn withheld(
     core: &Core,
     place: &Place,
@@ -1150,32 +1195,117 @@ fn withheld(
     a: &mut Attempt<'_>,
     why: &tree::Refused,
 ) -> Result<(String, Value), String> {
-    let lift = format!("remove its hold, {}.keel among the self trees", a.tree.slug);
-    let text = withheld_text(&a.tree.branch, &a.i.item, why, &lift);
+    use super::outgoing::{Part, Refusal};
+    let head = a.head.clone().unwrap_or_default();
+    tc.record(&crate::fact::rsi_join::SelfJoinStopped {
+        branch: a.tree.branch.clone(),
+        head: head.clone(),
+        phase: "push".into(),
+        why: why.to_string(),
+        numbers: json!({"held": true, "outgoing": true, "at": "branch"}),
+    });
+    let named = !matches!(
+        why,
+        tree::Refused::Outgoing(Refusal::Words { part: Part::Branch, .. })
+    );
+    let words = matches!(why, tree::Refused::Outgoing(Refusal::Words { .. }));
+    let lift = match named {
+        true => format!("remove its hold, {}.keel among the self trees", a.tree.slug),
+        false => format!(
+            "remove its hold, the `.keel` mark beside the self tree whose branch holds commit {}",
+            super::outgoing::short(&head)
+        ),
+    };
+    let names = named.then_some((a.tree.branch.as_str(), a.i.item.as_str()));
+    let held = Held {
+        exit: Exit::Branch,
+        names,
+        head: &head,
+        repo: &place.repo,
+        words,
+    };
+    let text = withheld_text(&held, why, &lift);
     let stopped = format!("It was not pushed ({why}); it is held");
-    held_for_owner(core, place, tc, a, (text, &stopped))
+    let (mut said, mut meta) = held_for_owner(core, place, tc, a, (text, &stopped))?;
+    // The branch's own name held the words: what the model is told names neither it nor its tree's slug.
+    if !named {
+        for name in [a.tree.branch.as_str(), a.tree.slug.as_str()] {
+            said = said.replace(name, "[a name withheld]");
+        }
+        meta = json!({"head": a.head, "gate": a.verdict, "withheld": true});
+    }
+    Ok((said, meta))
 }
 
-/// The owner's card for a push refused for what must not leave.
-/// `lift` says how its hold is lifted.
-pub(crate) fn withheld_text(branch: &str, item: &str, why: &tree::Refused, lift: &str) -> String {
-    let (what, then) = match why {
-        tree::Refused::Outgoing(super::outgoing::Refusal::Words { .. }) => (
-            "a commit holds words from one of your conversations, which a session working on it read",
-            "Read the branch in its tree: drop it, or take the words out of its commits",
+/// Where a self push was stopped, for the owner's card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Exit {
+    /// The builder's branch, from its tree (the tree stays).
+    Branch,
+    /// A fix made at review (its temporary tree is closed).
+    Review,
+    /// The join to main (the merge's tree is closed).
+    Join,
+}
+
+/// A held push, as its card names it: never a word of what matched.
+pub(crate) struct Held<'a> {
+    pub exit: Exit,
+    /// The branch and the item, unless the branch's own name held the words.
+    pub names: Option<(&'a str, &'a str)>,
+    /// The commit that was not sent.
+    pub head: &'a str,
+    /// The self repository.
+    pub repo: &'a std::path::Path,
+    /// It was refused for words of a conversation (else: it could not be checked).
+    pub words: bool,
+}
+
+/// The owner's card for a push refused for what must not leave, true at the exit it was refused at; `lift` says
+/// how its hold is lifted.
+pub(crate) fn withheld_text(h: &Held<'_>, why: &dyn std::fmt::Display, lift: &str) -> String {
+    let what = match h.words {
+        true => "a commit holds words from one of your conversations, which a session working on it read",
+        false => "what it would send could not be checked",
+    };
+    let head = super::outgoing::short(h.head);
+    let (title, item) = match (h.names, h.exit) {
+        (Some((b, _)), Exit::Branch) => (format!("Self branch {b} was not pushed"), true),
+        (Some((b, _)), Exit::Review) => (format!("A fix of self branch {b} was not pushed"), true),
+        (Some((b, _)), Exit::Join) => (format!("Self branch {b} was not joined to main"), true),
+        (None, _) => (format!("A self branch at commit {head} was not pushed"), false),
+    };
+    let item = match (item, h.names) {
+        (true, Some((_, i))) => format!(" ({i})"),
+        _ => String::new(),
+    };
+    let on = match h.names {
+        Some((b, _)) => format!("commit {head} on {b}"),
+        None => format!("commit {head}"),
+    };
+    let repo = h.repo.display();
+    let then = match h.exit {
+        Exit::Branch => format!(
+            "Nothing of it left this machine, and it is never retried around. The held head is {on}, in its \
+             tree among the self trees: drop the item, or take the words out of its commits, then {lift}."
         ),
-        _ => (
-            "what it would send could not be cleared",
-            "Read the branch in its tree and the record of why: drop it, or make it one that clears",
+        Exit::Review => format!(
+            "This push was stopped: the new fix was not sent (the branch as it stood before the fix may \
+             already be at the remote). The fix is {on} in the self repository; its tree is closed. See it with \
+             `git -C {repo} show {head}`, drop the item or change the branch there, then {lift}."
+        ),
+        Exit::Join => format!(
+            "This push was stopped: the merge was not sent, and main at the remote is as it was (the branch \
+             itself may already be at the remote). The held head is {on} in the self repository; the merge's \
+             tree is closed. See it with `git -C {repo} log -p main..{head}`, drop the item or change the \
+             branch there, then {lift}."
         ),
     };
     crate::owner_note::note(
         crate::owner_note::Kind::Decision,
-        &format!("Self branch {branch} was not pushed"),
-        &format!("{what} ({item}): {why}"),
-        &format!(
-            "Nothing of it left this machine and it is never retried around. {then}, then {lift}."
-        ),
+        &title,
+        &format!("{what}{item}: {why}"),
+        &then,
     )
 }
 

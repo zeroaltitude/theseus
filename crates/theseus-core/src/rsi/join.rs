@@ -208,6 +208,8 @@ pub struct Pass {
     pub joined: Vec<(String, String)>,
     /// `(branch, phase)` for each stop.
     pub stopped: Vec<(String, String)>,
+    /// What each item's sessions read, gathered once in this pass for the outgoing check; in memory only.
+    pub(crate) reads: crate::rsi::outgoing::clear::Reads,
 }
 
 /// A green branch, as its `self.branch.built` row says it.
