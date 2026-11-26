@@ -312,8 +312,9 @@ async fn a_self_sessions_removal_of_a_reviews_scratch_is_bound_to_l1_and_an_oper
         r.turn(&sid).await;
         assert_eq!(r.was_held(&sid), !l1, "{principal}: {:?}", r.results(&sid));
         assert_eq!(bound_to_l1(&sid), l1, "{principal}");
-        assert!(
+        assert_eq!(
             built_in_scratch(&r.target).exists(),
+            !ran_at_l0(&sid),
             "{principal}: nothing removed it at L0"
         );
     }
