@@ -1,7 +1,7 @@
-//! Every command of a self-principal session runs in L1 (issue 53, round 6): its own `sandbox: false` included, a
-//! helper task's included. From there a `git push` to the self repository's remote sends nothing, and a write to the
-//! self repository's git configuration, a tag in it, or git's user-level config does not reach what the daemon's git
-//! reads. A run of `git` or `gh` the broker would hand a credential is refused.
+//! Every command of a self-principal session is bound to L1 (issue 53, round 6), its own `sandbox: false` included,
+//! a helper task's included, and never runs at L0. This rig cannot start L1's init, so what L1 itself hides is not
+//! observed here: `theseusd/tests/sandbox.rs` and `theseusd/tests/self_build.rs` run the real L1 for that. A run of
+//! `git` or `gh` the broker would hand a credential is refused.
 
 use super::*;
 
@@ -70,10 +70,10 @@ fn pushing(r: &Rig, dir: &std::path::Path) -> Vec<String> {
     vec!["sh".into(), "-c".into(), script]
 }
 
-/// (a) and (d): a self session's `git push` to the self remote, asked for at L0 with `sandbox: false`, runs in L1
-/// and sends nothing; so does its helper task's.
+/// (a) and (d): a self session's `git push` to the self remote, asked for at L0 with `sandbox: false`, is bound to
+/// L1 and does not run at L0, so nothing reaches the remote; so is its helper task's.
 #[tokio::test]
-async fn a_self_sessions_push_runs_in_l1_and_sends_nothing() {
+async fn a_self_sessions_push_asked_at_l0_is_bound_to_l1_and_sends_nothing() {
     let r = held(|cfg| cfg.policy.enforcement = Posture::Open);
     let (sid, tree) = task(&r, "sails");
     let helper = helper_of(&r, &sid, "sails-helper");
@@ -86,78 +86,9 @@ async fn a_self_sessions_push_runs_in_l1_and_sends_nothing() {
             json!({"argv": argv, "cwd": tree, "sandbox": false}),
         )
         .await;
-        assert!(ran_in_l1(&r, s), "{who}: the command ran in L1");
+        assert!(ran_in_l1(&r, s), "{who}: the command was bound to L1");
         assert_eq!(remote_refs(&r), before, "{who}: nothing reached the remote");
     }
-}
-
-/// (b): from a self session's shell, a write to the self repository's git config, a tag in it, and a write to
-/// git's user-level config do not reach what the daemon's git reads.
-#[tokio::test]
-async fn a_self_sessions_git_config_writes_do_not_reach_the_daemons_git() {
-    let r = held(|cfg| cfg.policy.enforcement = Posture::Open);
-    let (sid, tree) = task(&r, "sails");
-    let repo = r.f.place.repo.clone();
-    let config_before = std::fs::read(repo.join(".git").join("config")).ok();
-    let script = format!(
-        "git -C '{repo}' config remote.origin.pushurl /tmp/elsewhere; git -C '{repo}' tag around HEAD; \
-         git config --global url./tmp/elsewhere.pushInsteadOf '{up}'; exit 0",
-        repo = repo.display(),
-        up = r.f.upstream.display()
-    );
-    r.turn(
-        &sid,
-        "proc_run",
-        json!({"argv": ["sh", "-c", script], "cwd": tree}),
-    )
-    .await;
-    assert!(ran_in_l1(&r, &sid), "the command ran in L1");
-    let place = &r.f.place;
-    let pushurl = place
-        .git(&repo, &["config", "--get", "remote.origin.pushurl"])
-        .unwrap();
-    assert!(
-        String::from_utf8_lossy(&pushurl.stdout).trim().is_empty(),
-        "no pushurl reached the repository"
-    );
-    let tags = place.git_ok(&repo, &["tag", "--list"]).unwrap();
-    assert!(tags.is_empty(), "no tag: {tags}");
-    let rewrite = place
-        .git(&repo, &["config", "--get-regexp", "pushinsteadof"])
-        .unwrap();
-    assert!(
-        String::from_utf8_lossy(&rewrite.stdout).trim().is_empty(),
-        "no user-level rewrite reached the daemon's git"
-    );
-    assert_eq!(
-        std::fs::read(repo.join(".git").join("config")).ok(),
-        config_before
-    );
-}
-
-/// (c): from a self session's shell the daemon's state, where its store and its socket are, is not there to reach.
-#[tokio::test]
-async fn a_self_sessions_shell_cannot_reach_the_daemons_state() {
-    let r = held(|cfg| cfg.policy.enforcement = Posture::Open);
-    let (sid, tree) = task(&r, "sails");
-    let store = r.f.place.state.join("store");
-    assert!(store.exists());
-    let script = format!(
-        "if [ -e '{}' ]; then echo STORE-VISIBLE; else echo STORE-HIDDEN; fi",
-        store.display()
-    );
-    let said = r
-        .turn(
-            &sid,
-            "proc_run",
-            json!({"argv": ["sh", "-c", script], "cwd": tree}),
-        )
-        .await;
-    assert!(ran_in_l1(&r, &sid), "the command ran in L1");
-    assert!(
-        said.contains("STORE-HIDDEN") && !said.contains("STORE-VISIBLE"),
-        "{said}"
-    );
 }
 
 /// A self session's `git` that the broker would hand a credential is refused in fixed words, and nothing runs.
