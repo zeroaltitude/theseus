@@ -47,14 +47,17 @@ async fn a_rename_only_commit_with_a_ten_word_name_is_refused() {
 }
 
 /// A changed file holding a NUL cannot be read as text: it is not inspected, and the branch is held with a card
-/// that says so.
+/// that says so. The NUL is past the first 8000 bytes, which is all git's own binary rule looks at: only the
+/// check's own reading of the blob finds it.
 #[tokio::test]
 async fn a_file_with_a_nul_is_not_inspected_and_is_held() {
     let r = rig(|_| {});
     let sid = builder(&r).await;
     let tree = tree_of(&r);
     write(&tree, CLEAN);
-    std::fs::write(tree.join("data.bin"), b"tide\0tables").unwrap();
+    let mut data = "tide tables\n".repeat(800).into_bytes();
+    data.extend(b"\0and more tables\n");
+    std::fs::write(tree.join("data.txt"), data).unwrap();
     let said = r.turn(&sid, WIRE, input()).await;
     assert!(said.contains("cannot be read as text"), "{said}");
     held(&r, &said);
