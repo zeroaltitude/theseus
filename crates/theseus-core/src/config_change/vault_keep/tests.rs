@@ -481,6 +481,29 @@ async fn an_item_the_settings_read_is_not_replaced_by_a_turn() {
     assert!(!wrote(dir.path()));
 }
 
+/// An item a use wrote into the settings file, not yet live until the next start, is read by
+/// Theseus's own settings too: a turn may not replace it either (issue 54).
+#[tokio::test]
+async fn an_item_a_written_use_reads_is_not_replaced_by_a_turn() {
+    let (r, dir) = rig_vault("ok");
+    let mut file = std::fs::read_to_string(&r.file).unwrap();
+    file = file.replacen(
+        "[secrets]\n",
+        "[secrets]\nwritten_key = \"op://Harbor/Lantern key/credential\"\n",
+        1,
+    );
+    std::fs::write(&r.file, &file).unwrap();
+    assert!(!r.core.cfg.secrets.contains_key("written_key"), "not live");
+    let sid = r.session();
+    r.turn_with("vault_keep", &sid, input("Lantern key", "credential"))
+        .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("one Theseus's own settings read"), "{text}");
+    assert!(r.asked().is_empty());
+    assert!(!wrote(dir.path()));
+}
+
 /// A plain Approve carries no value: it is refused with the words that say
 /// where to type it, before the proof gate, so no code is spent; a decline works
 /// and writes nothing, and the question's record holds only names.

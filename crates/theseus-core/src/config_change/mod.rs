@@ -105,9 +105,6 @@ pub struct Where {
     /// Held across a yes's re-read, keep and write, so two yeses never both
     /// pass the digest check before either writes.
     pub(crate) writes: Arc<std::sync::Mutex<()>>,
-    /// The secrets a told `vault.use` wrote since this start, each name and
-    /// reference: what a restart makes live, which its card names.
-    pub(crate) told: Arc<std::sync::Mutex<Vec<(String, String)>>>,
 }
 
 impl Where {
@@ -117,7 +114,6 @@ impl Where {
             state,
             core: Arc::default(),
             writes: Arc::default(),
-            told: Arc::default(),
         }
     }
 
@@ -453,7 +449,6 @@ pub fn restart(
         steered,
         reason: &reason,
         wait_secs: RESTART_WAIT_SECS,
-        secrets: &vault_use::told::waiting(&rt.config_change),
     });
     let proposal = Proposal {
         tool: ACK.into(),
@@ -514,26 +509,21 @@ pub(crate) fn sensitive(
     out
 }
 
-/// [`sensitive`], for a change that uses the vault's secret `used` when it names one: the secret's
-/// own entry and the settings that come to read it ask no second proof (issue 54, "using a secret
-/// must not ask for 2fa"); any other sensitive setting the change reaches keeps its own. Read
-/// where the card is asked and again at its yes.
+/// [`sensitive`], for a change that uses the vault's secret `used` (its name, and the settings as
+/// they were) when it names one: a pure use, the WHOLE change being the secret's entry and readers
+/// on `vault_use::classify`'s list, asks no second proof (issue 54, "using a secret must not ask
+/// for 2fa"); any other change is classified whole, as `config.propose`'s is. Read where the card
+/// is asked and again at its yes.
 pub(crate) fn sensitive_of(
     changes: &[edit::Change],
     settings: &[diff::Setting],
-    used: Option<&str>,
+    used: Option<(&crate::Config, &str)>,
 ) -> Vec<(String, String)> {
     let all = sensitive(changes, settings);
-    let Some(name) = used else {
-        return all;
-    };
-    all.into_iter()
-        .filter(|(p, _)| {
-            !settings
-                .iter()
-                .any(|x| edit::dotted(&x.path) == *p && vault_use::told::ours(x, name))
-        })
-        .collect()
+    match used.map(|(base, name)| vault_use::classify::case_of(base, settings, name)) {
+        Some(vault_use::classify::Case::Inert | vault_use::classify::Case::Pure) => Vec::new(),
+        _ => all,
+    }
 }
 
 /// Run `config.propose` for the call `correlation_id` of the turn `tc`: build
@@ -640,7 +630,16 @@ pub(crate) fn put_using(
         vault_use::refuse_other_references(&settings, secret)?;
     }
     let long = too_big(&settings)?;
-    let sens = sensitive_of(changes, &settings, secret.map(|s| s.name.as_str()));
+    let base_cfg = match secret {
+        Some(_) => Some(
+            crate::Config::parse(base)
+                .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?
+                .0,
+        ),
+        None => None,
+    };
+    let used = secret.zip(base_cfg.as_ref()).map(|(s, b)| (b, s.name.as_str()));
+    let sens = sensitive_of(changes, &settings, used);
     let needs = proof_seam::Needs::of(!sens.is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
@@ -650,14 +649,19 @@ pub(crate) fn put_using(
         reason,
         wait_secs: RESTART_WAIT_SECS,
         sources,
-        used: secret.map(|s| s.name.as_str()),
+        used: secret
+            .filter(|_| used.is_some() && sens.is_empty())
+            .map(|s| s.name.as_str()),
     };
     let question = match (undoes, secret) {
         (Some(u), _) => {
             let now = theseus_protocol::now_unix_ms();
             card::question_undoing(u.number, &undo::preface(u, now), &facts)
         }
-        (None, Some(s)) => card::question_using(&s.preface(&loaded, &settings), &facts),
+        (None, Some(s)) => {
+            let was = base_cfg.as_ref().unwrap_or(&loaded);
+            card::question_using(&s.preface(was, &loaded, &settings), &facts)
+        }
         (None, None) => card::question(&facts),
     };
     let digest = write::keep_candidate(&w.state, &candidate)

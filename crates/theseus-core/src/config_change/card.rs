@@ -25,8 +25,9 @@ pub struct Facts<'a> {
     /// What the model said of where it found a setting's value: shown under
     /// that setting as its word, never as a check (`source.rs`).
     pub sources: &'a [super::source::Sourced],
-    /// The vault's secret a `vault.use` card gives to use: its own entry and what comes to read it
-    /// need no second proof (issue 54).
+    /// The vault's secret a `vault.use` card gives to use, when the change is a pure use
+    /// (`vault_use::classify`): the whole change needs no second proof (issue 54). None for every
+    /// other card, whose sensitive settings are listed as `config.propose`'s are.
     pub used: Option<&'a str>,
 }
 
@@ -99,9 +100,6 @@ pub struct RestartFacts<'a> {
     pub steered: bool,
     pub reason: &'a str,
     pub wait_secs: u64,
-    /// What a told use of a secret wrote since this start, which this start
-    /// makes live: each in words, with the settings that read it.
-    pub secrets: &'a [String],
 }
 
 /// The question for a restart the owner asked for in words: what it cuts.
@@ -120,13 +118,6 @@ pub fn restart_question(f: &RestartFacts<'_>) -> String {
          not healthy afterwards it restarts once more.\n",
         f.wait_secs
     );
-    if !f.secrets.is_empty() {
-        out.push_str(&format!(
-            "Your settings file holds what a use of a secret wrote, and this start makes it live: \
-             from this start on, {}.\n",
-            f.secrets.join("; ")
-        ));
-    }
     if f.waiting > 0 {
         out.push_str(&format!(
             "{} waiting on a question to you (a self-improvement build parked on one is among them, \
@@ -219,7 +210,7 @@ fn lines(f: &Facts<'_>) -> String {
     let sensitive: Vec<String> = f
         .settings
         .iter()
-        .filter(|s| !f.used.is_some_and(|n| super::vault_use::told::ours(s, n)))
+        .filter(|_| f.used.is_none())
         .filter_map(|s| {
             sensitivity::reason(&s.path)
                 .map(|why| format!("{} ({why})", super::edit::dotted(&s.path)))

@@ -30,6 +30,14 @@ use crate::store::Store;
 
 /// The note's post kind.
 pub const KIND: &str = "told";
+/// The post kind of a told note that stays in the owner's DM, whatever notices place is bound:
+/// one whose words are for him alone (a vault's names, issue 54). Not an informing kind.
+pub const KIND_DM: &str = "told_dm";
+
+/// Whether a post of `kind` is a told note.
+pub fn is_told(kind: &Value) -> bool {
+    kind == KIND || kind == KIND_DM
+}
 
 /// The existing call that undoes what a note tells: the method, and the id it
 /// takes. Nothing else is carried, so a note can only ask for what the method
@@ -146,13 +154,31 @@ pub fn stage(
     outbox.stage_to_operator(session, json!({"kind": "told", "text": text, "undo": undo}))
 }
 
+/// [`stage`], for a note that stays in the owner's DM ([`KIND_DM`]).
+pub fn stage_dm(
+    outbox: &Outbox,
+    session: Option<&str>,
+    title: &str,
+    by: &str,
+    body: &str,
+    undo: &Undo,
+) -> Result<(Action, Vec<NewRecord>)> {
+    let undo_line = format!("Undo: `{}`", undo.command());
+    let body = match body.trim_end() {
+        "" => undo_line,
+        b => format!("{b}\n{undo_line}"),
+    };
+    let text = note(Kind::Fyi, title, by, &body);
+    outbox.stage_to_operator(session, json!({"kind": "told_dm", "text": text, "undo": undo}))
+}
+
 /// A note's text and its undo, by its post's id: none for any other post.
 pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
     let Some(a) = kernel.outbox_action(post)? else {
         return Ok(None);
     };
     let body = body_of(&a);
-    if body["kind"] != KIND {
+    if !is_told(&body["kind"]) {
         return Ok(None);
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
@@ -174,7 +200,7 @@ pub fn resolve(kernel: &Kernel, name: &str) -> Result<Option<String>> {
     let all: Vec<String> = kernel
         .outbox_actions()?
         .into_iter()
-        .filter(|a| body_of(a)["kind"] == KIND && a.correlation_id.ends_with(name))
+        .filter(|a| is_told(&body_of(a)["kind"]) && a.correlation_id.ends_with(name))
         .map(|a| a.correlation_id)
         .collect();
     match all.as_slice() {

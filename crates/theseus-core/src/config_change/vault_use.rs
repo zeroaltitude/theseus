@@ -34,6 +34,7 @@ use crate::secrets::Source;
 use crate::toolrun::{ToolRuntime, TurnCtx};
 
 pub(crate) mod check;
+pub(crate) mod classify;
 mod put_back;
 #[cfg(test)]
 mod tests;
@@ -69,9 +70,16 @@ pub struct Chosen {
 
 impl Chosen {
     /// What the card says before the settings: the item and the field as the
-    /// owner would recognise them, that the daemon read it, and what is given
-    /// the secret.
-    pub fn preface(&self, cfg: &crate::Config, settings: &[diff::Setting]) -> String {
+    /// owner would recognise them, that the daemon read it, what is given the
+    /// secret, and, for a name that already exists (`was`, the settings as they
+    /// are), what it was read from until now and that every setting already
+    /// reading it will read the new one.
+    pub fn preface(
+        &self,
+        was: &crate::Config,
+        cfg: &crate::Config,
+        settings: &[diff::Setting],
+    ) -> String {
         let c = &self.checked;
         let section = c
             .section
@@ -83,6 +91,25 @@ impl Chosen {
                  character a reference cannot carry."
             }
             false => "",
+        };
+        let repoint = match was.secrets.get(&self.name) {
+            Some(before) if *before != c.reference => {
+                let readers = given_to(was, &self.name);
+                format!(
+                    "This RE-POINTS the name `{}`: until now it was read from {before}.{}\n",
+                    self.name,
+                    match readers.is_empty() {
+                        true => String::new(),
+                        false => format!(
+                            " Every setting that already reads `{}` will read the new item from \
+                             the next start: {}.",
+                            self.name,
+                            readers.join("; ")
+                        ),
+                    }
+                )
+            }
+            _ => String::new(),
         };
         let others = unrelated(settings, &self.name, cfg);
         let also = match others.is_empty() {
@@ -96,7 +123,8 @@ impl Chosen {
             "The secret: the item \"{}\", field \"{}\"{section}, in the vault \"{}\". Theseus read it \
              just now to check: the item and the field are there, its account can read them, and \
              the field holds something. Its value is not shown here, and never goes to the model, \
-             a record or this card.\nIt is kept under the name `{}`, read from {}.{by_id}\n{}\n{also}",
+             a record or this card.\nIt is kept under the name `{}`, read from {}.{by_id}\n{}\n\
+             {repoint}{also}",
             c.item,
             c.field,
             c.vault,
@@ -321,9 +349,13 @@ pub async fn run(
         Value::String(used.checked.reference.clone()),
     )];
     changes.extend(also);
-    // Only the secret's entry and what comes to read it: told, not asked (issue 54).
+    // A new name that nothing reads is written and told; anything else is a card, with no second
+    // proof only for a pure use (`classify.rs`; issue 54).
     let candidate = edit::apply(&base, &changes)?;
-    if told::tells(&diff::between(&base, &candidate)?, &used.name) {
+    let (base_cfg, _) = crate::Config::parse(&base)
+        .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?;
+    let settings = diff::between(&base, &candidate)?;
+    if classify::case_of(&base_cfg, &settings, &used.name) == classify::Case::Inert {
         return told::put_told(rt, tc, correlation_id, &base, &changes, &used);
     }
     super::put_using(

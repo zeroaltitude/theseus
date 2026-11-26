@@ -199,7 +199,9 @@ impl Core {
                 .self_item_closed(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item has left the backlog"),
-            Undo::VaultUseUndo(_) => None,
+            Undo::VaultUseUndo(n) => self
+                .vault_use_put_back_done(*n)
+                .then_some("the secret's entry is already removed"),
             #[cfg(test)]
             Undo::Probe(_) => None,
         })

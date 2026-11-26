@@ -1,36 +1,33 @@
-//! The Undo on the note of a told `vault.use` (issue 54): the wiring before the use put back
-//! exactly, for the owner's press, with no turn. `told.undo` has already judged the press (the
-//! owner, from a private place) and judges no one again here.
+//! The Undo on the note of a told `vault.use` (issue 54): the entry the use added removed again,
+//! for the owner's press, with no turn. `told.undo` has already judged the press (the owner, from
+//! a private place) and judges no one again here.
 //!
-//! It is the undo `config.undo` plans (`undo::plan`): each setting the use touched back to its
-//! value before it, the secret's own entry removed again or pointed back at the item it read,
-//! and nothing else. It is written by the path the use itself took (the previous file kept as a
-//! numbered copy, the file written whole), with a `config.changed` row and the `config.undone`
-//! row a card's yes to an undo writes, so the history says it was undone. Only the change of a
-//! told use is put back here; one whose settings were changed again since is not, and the owner
-//! is told to ask in a conversation, where its card shows what it would overwrite. Like the use,
-//! it takes effect at the next restart, which only the owner starts.
+//! A told use only ever adds a new name that nothing reads (`classify::Case::Inert`), so its undo
+//! removes exactly that entry: the undo `config.undo` plans for the change (`undo::plan`), written
+//! by the settings' one writer (`answer::one_write`), with a `config.changed` row and the
+//! `config.undone` row a card's yes to an undo writes, so the history says it was undone. It runs
+//! only while the settings file is exactly what the use wrote: if the settings changed since, it
+//! refuses and writes nothing, and the owner asks in a conversation, where a card shows the change.
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
-use super::super::{diff, edit, history, read_base, undo, write};
+use super::super::{answer, diff, edit, history, read_base, undo, write};
 use crate::approval::Answerer;
 use crate::config_copy::sha256;
 use crate::ledger::LedgerRow;
 use crate::rpc::Core;
 
 impl Core {
-    /// Put back the told use that was settings change `number`, for `who`'s press.
+    /// Remove the entry the told use that was settings change `number` added, for `who`'s press.
     pub(crate) fn vault_use_put_back(&self, number: u32, who: &Answerer) -> Result<(), String> {
-        let ask =
-            format!("ask Theseus in a conversation to undo change #{number}, and it asks you");
         let w = &self.tools.config_change;
-        let _one = w
-            .writes
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let file = w
+            .file
+            .clone()
+            .ok_or("the settings are not a file this daemon can change")?;
+        let _one = answer::one_write(w)?;
         let rows = history::rows(&self.store);
         let made = rows
             .iter()
@@ -42,22 +39,18 @@ impl Core {
             .ok_or_else(|| format!("change #{number} is not a use of a secret you were told of"))?;
         let session = made.session_id.clone().unwrap_or_default();
         let base = read_base(&self.tools)?;
-        let list = history::entries(&rows, &w.state, w.file.as_deref(), history::SHOWN);
-        let planned = undo::plan(&list, Some(number), &base)?;
-        if !planned.undoes.since.is_empty() {
+        if made.data["digest_after"].as_str() != Some(sha256(&base).as_str()) {
             return Err(format!(
-                "a setting change #{number} made was changed again since, so putting it back would \
-                 overwrite that: {ask}"
+                "the settings changed after change #{number}, so its Undo would not put back only \
+                 that: ask Theseus in a conversation to undo change #{number}, and it asks you"
             ));
         }
+        let list = history::entries(&rows, &w.state, w.file.as_deref(), history::SHOWN);
+        let planned = undo::plan(&list, Some(number), &base)?;
         let candidate = edit::apply(&base, &planned.changes)?;
         crate::Config::parse(&candidate)
             .map_err(|e| format!("the settings with that undo do not load: {e:#}"))?;
         let settings = diff::between(&base, &candidate)?;
-        let file = w
-            .file
-            .clone()
-            .ok_or("the settings are not a file this daemon can change")?;
         let (copy, _) = write::keep_previous(&w.state, &base)
             .map_err(|e| format!("the settings could not be kept, so nothing was put back: {e}"))?;
         write::write_config(&file, &candidate)
@@ -94,12 +87,19 @@ impl Core {
             .iter()
             .map(|r| NewRecord::json(kinds::LEDGER, None, r))
             .collect::<anyhow::Result<Vec<_>>>()
-            .map_err(|e| {
-                format!("the settings were put back, and their record was not made: {e}")
-            })?;
-        self.store.append(&records).map_err(|e| {
-            format!("the settings were put back, and their record was not kept: {e}")
-        })?;
+            .map_err(|e| format!("the settings were put back, and their record was not made: {e}"))?;
+        self.store
+            .append(&records)
+            .map_err(|e| format!("the settings were put back, and their record was not kept: {e}"))?;
         Ok(())
+    }
+
+    /// Whether the told use that was settings change `number` was undone: a `config.undone` row
+    /// names it. What `told.undo` reads before it runs the Undo again after a crash.
+    pub(crate) fn vault_use_put_back_done(&self, number: u32) -> bool {
+        history::rows(&self.store).iter().any(|r| {
+            r.kind == LedgerKind::ConfigUndone.as_str()
+                && r.data["undone"].as_u64() == Some(u64::from(number))
+        })
     }
 }
