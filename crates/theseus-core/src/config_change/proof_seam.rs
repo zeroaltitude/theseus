@@ -1,22 +1,28 @@
 //! Where a card of issue 22 meets the owner's second proof.
 //!
-//! A change to a sensitive setting, an undo of one, an MCP server attached or
-//! removed, and the install of a joined change are never made on the card's
-//! yes alone: each asks for a code from the owner's authenticator app too
-//! (`owner_proof`). The card is **marked** by the daemon's own record, staged
-//! in the frame that asks it ([`Needs::mark`]); the one place an answer
-//! becomes a decision (`rpc::proof_gate`) then approves a marked question only
-//! on a good code or an open window of the answer's own place. The daemon's
-//! write asks once more at the yes ([`at_yes`]): the question must carry the
-//! mark its settings call for, so a card asked without one is never written.
+//! A change to a sensitive setting, an undo of one, and the install of a
+//! joined change are never made on the card's yes alone: each asks for a code
+//! from the owner's authenticator app too (`owner_proof`), except as below.
+//! The card is **marked** by the daemon's own record, staged in the frame that
+//! asks it ([`Needs::mark`]); the one place an answer becomes a decision
+//! (`rpc::proof_gate`) then approves a marked question only on a good code or
+//! an open window of the answer's own place. The daemon's write asks once more
+//! at the yes ([`at_yes`]): the question must carry the mark its settings call
+//! for, so a card asked without one is never written.
 //!
 //! An ordinary change needs the card alone, and so does a sensitive one whose
-//! settings `config::sensitivity::proof_reason` does not name (issue 57: by its
-//! groups, the code is dropped for prompt text, tightening one of the listed
-//! kernel limits, and, by the owner's word, self-improvement, the accounts, the
-//! vault, folders and agents; every other sensitive setting keeps it). A change to who the owner is, to the proof itself, or turning
-//! `[self] install` to `"auto"` is marked fresh: a code typed for that change,
-//! covered by no window.
+//! settings `config::sensitivity::proof_reason` does not name (issue 57): prompt
+//! text (`PROMPT_TEXT_SHAPES`: `model.system`, `profiles.*.system`,
+//! `personas.*.card`), the eight settings the owner's word names
+//! (`DROPPED_SHAPES`: `self.mode`, `aws.accounts.*.regions`, `google.account`,
+//! `vault.keep_by_discord`, `tools.roots`, `tools.projects_dir`,
+//! `lsp.servers.*.roots`, `index.weights_dir`), and tightening one of the five
+//! listed kernel limits. Every other sensitive setting keeps the code. Of the MCP
+//! server cards, only an attach given a secret, an environment, an address or a
+//! network keeps the code; a plain attach and a removal keep their card alone
+//! (`config_change::mcp_attach::needs`). A change to who the owner is, to the
+//! proof itself, or turning `[self] install` to `"auto"` is marked fresh: a code
+//! typed for that change, covered by no window.
 
 use theseus_store::NewRecord;
 
@@ -279,13 +285,8 @@ mod tests {
             DROPPED_SHAPES.as_slice(),
             &[
                 "self.mode",
-                "aws.accounts.*.region",
                 "aws.accounts.*.regions",
-                "aws.accounts.*.deployment",
-                "aws.accounts.*.durability",
                 "google.account",
-                "google.services",
-                "google.calendars",
                 "vault.keep_by_discord",
                 "tools.roots",
                 "tools.projects_dir",
@@ -295,8 +296,6 @@ mod tests {
         );
         for (c, n) in of_each(&[
             "[self]\nmode = \"act\"\n",
-            "[google]\nservices = [\"gmail\"]\n",
-            "[google]\ncalendars = [\"primary\"]\n",
             "[vault]\nkeep_by_discord = true\n",
             "[tools]\nroots = [\"/x\"]\n",
             "[tools]\nprojects_dir = \"/x\"\n",
@@ -312,24 +311,60 @@ mod tests {
         );
         let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
         assert_eq!(
-            with_secrets(account),
+            Needs::of(&between(
+                &format!("{SECRETS}\n{account}"),
+                &format!("{SECRETS}\n{account}regions = [\"us-west-2\"]\n")
+            )),
             Needs::Card,
-            "an AWS account's region"
+            "an AWS account's regions"
         );
-        for extra in [
-            "regions = [\"us-west-2\"]\n",
-            "deployment = \"theseus\"\n",
-            "durability = true\n",
+    }
+
+    /// The five settings the review cut from G3 keep main's code: Google's calendars (an entry
+    /// can carry a `sensitive` flag) and services (they turn services on, sending ones among
+    /// them), and an AWS account's durability, deployment and region (they start, stop and
+    /// direct the store's shipment to AWS).
+    #[test]
+    fn the_five_cut_from_g3_keep_mains_code() {
+        for (c, n) in of_each(&[
+            "[google]\nservices = [\"gmail\"]\n",
+            "[google]\ncalendars = [\"primary\"]\n",
+        ]) {
+            assert_eq!(n, Needs::Proof, "{c}");
+        }
+        let calendars = |sensitive: bool| {
+            format!("[google]\ncalendars = [{{ id = \"primary\", sensitive = {sensitive} }}]\n")
+        };
+        real(&[&calendars(true), &calendars(false)]);
+        assert_eq!(
+            Needs::of(&between(&calendars(true), &calendars(false))),
+            Needs::Proof,
+            "a calendar's sensitive flag"
+        );
+        let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
+        assert_eq!(with_secrets(account), Needs::Proof, "an AWS account");
+        for (from, to) in [
+            ("", "durability = true\n"),
+            ("durability = true\n", "durability = false\n"),
+            ("deployment = \"a\"\n", "deployment = \"b\"\n"),
         ] {
             assert_eq!(
                 Needs::of(&between(
-                    &format!("{SECRETS}\n{account}"),
-                    &format!("{SECRETS}\n{account}{extra}")
+                    &format!("{SECRETS}\n{account}{from}"),
+                    &format!("{SECRETS}\n{account}{to}")
                 )),
-                Needs::Card,
-                "{extra}"
+                Needs::Proof,
+                "{from} -> {to}"
             );
         }
+        assert_eq!(
+            Needs::of(&between(
+                &format!("{SECRETS}\n{account}"),
+                &format!("{SECRETS}\n{}", account.replace("us-west-2", "eu-west-1"))
+            )),
+            Needs::Proof,
+            "an AWS account's region"
+        );
     }
 
     /// (G3) Every setting just outside the closed list keeps main's code: `self.install` (as

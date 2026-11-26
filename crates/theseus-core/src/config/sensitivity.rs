@@ -336,15 +336,10 @@ pub const GATE_TABLES: [&str; 3] = ["judge", "privacy", "content_based_security"
 /// loop on" (`self.mode`), "the AWS and Google account settings", "the vault's form location"
 /// and "tool folders". Nothing is matched by a word inside a key's name; every other setting
 /// of those tables keeps main's rule ([`reason`]).
-pub const DROPPED_SHAPES: [&str; 13] = [
+pub const DROPPED_SHAPES: [&str; 8] = [
     "self.mode",
-    "aws.accounts.*.region",
     "aws.accounts.*.regions",
-    "aws.accounts.*.deployment",
-    "aws.accounts.*.durability",
     "google.account",
-    "google.services",
-    "google.calendars",
     "vault.keep_by_discord",
     "tools.roots",
     "tools.projects_dir",

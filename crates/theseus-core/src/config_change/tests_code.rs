@@ -2,10 +2,16 @@
 //! a real `config.propose` on a real settings file (the rig of `tests.rs`), and
 //! the yes judged by the same rule the card was asked by.
 //!
-//! Every sensitive setting keeps its card. The code is dropped for prompt text,
-//! for tightening one of the five listed kernel limits (compared in the kernel's
-//! own units) and, by the owner's word, for group G3 (self-improvement, the
-//! accounts, the vault, folders, agents); groups G1 and G2 keep it by his word.
+//! Every sensitive setting keeps its card. The code is dropped only for the
+//! closed lists: prompt text (`model.system`, `profiles.*.system`,
+//! `personas.*.card`), the eight settings the owner's word names (`self.mode`,
+//! `aws.accounts.*.regions`, `google.account`, `vault.keep_by_discord`,
+//! `tools.roots`, `tools.projects_dir`, `lsp.servers.*.roots`,
+//! `index.weights_dir`), and tightening one of the five listed kernel limits
+//! (compared in the kernel's own units). Every other sensitive setting keeps it,
+//! G1 and G2 by his word. Of the MCP server cards, only an attach given a secret,
+//! an environment, an address or a network keeps the code; a removal keeps its
+//! card alone.
 
 use serde_json::{json, Value};
 
@@ -234,10 +240,17 @@ async fn in_a_change_of_several_the_stricter_rule_wins() {
 /// What a real proposal of `call`, on the file `FILE` with `extra` after it, asks at the card
 /// and at the yes: an error when the card or the yes takes less than the code.
 async fn code_at_card_and_yes(tool: &str, extra: &str, call: Value) -> Result<(), String> {
+    let file = match extra.is_empty() {
+        true => FILE.to_string(),
+        false => format!("{FILE}\n{extra}"),
+    };
+    code_on(tool, &file, call).await
+}
+
+/// [`code_at_card_and_yes`] on the whole settings file `file`.
+async fn code_on(tool: &str, file: &str, call: Value) -> Result<(), String> {
     let r = rig();
-    if !extra.is_empty() {
-        file_with(&r, extra);
-    }
+    std::fs::write(&r.file, file).unwrap();
     let before = r.file_text();
     let sid = r.session();
     r.turn_with(tool, &sid, call.clone()).await;
@@ -424,7 +437,6 @@ async fn an_undo_that_puts_back_self_install_true_keeps_the_code() {
 async fn each_setting_of_the_closed_list_takes_the_card_alone() {
     for call in [
         change("self.mode", json!("act")),
-        change("google.services", json!(["gmail"])),
         change("vault.keep_by_discord", json!(true)),
         change("tools.projects_dir", json!("/tmp/projects")),
         change("index.weights_dir", json!("/tmp/weights")),
@@ -522,4 +534,113 @@ async fn a_vault_use_keeps_mains_requirement_exactly() {
     assert!(r
         .file_text()
         .contains("lantern_key = \"op://Harbor/Lantern key/credential\""));
+}
+
+/// The settings file with the AWS and Google secrets an account and its credentials name.
+fn with_account_secrets(extra: &str) -> String {
+    let secrets = FILE.replace(
+        "anthropic_api_key = \"op://v/i/f\"\n",
+        "anthropic_api_key = \"op://v/i/f\"\naws_access_key_id = \"op://v/i/a\"\n\
+         aws_secret_access_key = \"op://v/i/b\"\ngoogle_client = \"op://v/i/c\"\n\
+         google_refresh_token = \"op://v/i/d\"\n",
+    );
+    format!("{secrets}\n{extra}")
+}
+
+const ACCOUNT: &str = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
+
+/// Of the eight, an AWS account's allowed regions and the Google account take the card alone
+/// through a real proposal, and the yes alone writes them.
+#[tokio::test]
+async fn the_account_settings_of_the_closed_list_take_the_card_alone() {
+    for (file, call) in [
+        (
+            with_account_secrets(ACCOUNT),
+            change(
+                "aws.accounts.111122223333.regions",
+                json!(["us-west-2", "eu-west-1"]),
+            ),
+        ),
+        (
+            with_account_secrets(""),
+            change("google.account", json!("me@example.test")),
+        ),
+    ] {
+        let r = rig();
+        std::fs::write(&r.file, &file).unwrap();
+        let q = card_of(&r, call.clone()).await;
+        assert!(!q.needs_proof && !q.needs_fresh_proof, "{call}: {q:?}");
+        r.core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap();
+        assert_ne!(r.file_text(), file, "{call}: written");
+    }
+}
+
+/// Round 5: the five settings cut from G3 keep main's code, at the card and at the yes, through
+/// a real proposal, in every spelling: Google's calendars (a `sensitive` flag turned off, and a
+/// plain list changed) and services (one gained); an AWS account's durability (on and off),
+/// deployment and region; and the whole-table forms carrying one of them beside a setting that
+/// is still on the list.
+#[tokio::test]
+async fn the_five_cut_from_g3_keep_mains_code() {
+    let calendars = "[google]\ncalendars = [{ id = \"primary\", sensitive = true }]\n";
+    let cases: Vec<(String, Value)> = vec![
+        (
+            with_account_secrets(calendars),
+            change(
+                "google.calendars",
+                json!([{"id": "primary", "sensitive": false}]),
+            ),
+        ),
+        (
+            with_account_secrets("[google]\ncalendars = [\"primary\"]\n"),
+            change("google.calendars", json!(["primary", "work"])),
+        ),
+        (
+            with_account_secrets("[google]\nservices = [\"calendar\"]\n"),
+            change("google.services", json!(["calendar", "gmail"])),
+        ),
+        (
+            with_account_secrets(ACCOUNT),
+            change("aws.accounts.111122223333.durability", json!(true)),
+        ),
+        (
+            with_account_secrets(&format!("{ACCOUNT}durability = true\n")),
+            change("aws.accounts.111122223333.durability", json!(false)),
+        ),
+        (
+            with_account_secrets(&format!("{ACCOUNT}deployment = \"a\"\n")),
+            change("aws.accounts.111122223333.deployment", json!("b")),
+        ),
+        (
+            with_account_secrets(ACCOUNT),
+            change("aws.accounts.111122223333.region", json!("eu-west-1")),
+        ),
+        (
+            with_account_secrets(""),
+            change(
+                "google",
+                json!({"account": "me@example.test", "services": ["gmail"]}),
+            ),
+        ),
+        (
+            with_account_secrets(ACCOUNT),
+            change(
+                "aws.accounts.111122223333",
+                json!({"region": "eu-west-1", "regions": ["eu-west-1"]}),
+            ),
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (file, call) in cases {
+        if let Err(why) = code_on("config_propose", &file, call).await {
+            wrong.push(why);
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "less than main's code:\n{}",
+        wrong.join("\n")
+    );
 }
