@@ -1206,7 +1206,10 @@ fn withheld(
     });
     let named = !matches!(
         why,
-        tree::Refused::Outgoing(Refusal::Words { part: Part::Branch, .. })
+        tree::Refused::Outgoing(Refusal::Words {
+            part: Part::Branch,
+            ..
+        })
     );
     let words = matches!(why, tree::Refused::Outgoing(Refusal::Words { .. }));
     let lift = match named {
@@ -1273,7 +1276,10 @@ pub(crate) fn withheld_text(h: &Held<'_>, why: &dyn std::fmt::Display, lift: &st
         (Some((b, _)), Exit::Branch) => (format!("Self branch {b} was not pushed"), true),
         (Some((b, _)), Exit::Review) => (format!("A fix of self branch {b} was not pushed"), true),
         (Some((b, _)), Exit::Join) => (format!("Self branch {b} was not joined to main"), true),
-        (None, _) => (format!("A self branch at commit {head} was not pushed"), false),
+        (None, _) => (
+            format!("A self branch at commit {head} was not pushed"),
+            false,
+        ),
     };
     let item = match (item, h.names) {
         (true, Some((_, i))) => format!(" ({i})"),

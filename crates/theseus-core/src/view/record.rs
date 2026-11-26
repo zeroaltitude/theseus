@@ -303,7 +303,10 @@ pub fn every_of_turn(store: &Store, turn: &str) -> Result<Vec<ViewRecord>, Every
         if page.len() < EVERY_PAGE {
             return Ok(out);
         }
-        let last = page.last().and_then(|r| r.key.clone()).ok_or(Every::Index)?;
+        let last = page
+            .last()
+            .and_then(|r| r.key.clone())
+            .ok_or(Every::Index)?;
         // The least key after the last one read.
         from = format!("{last}\u{0}");
     }

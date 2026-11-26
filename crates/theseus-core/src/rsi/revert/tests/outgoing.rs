@@ -56,7 +56,10 @@ fn read_by_its_build(r: &Rig, item: &str) {
         None,
     )
     .unwrap();
-    r.core.store.append(&[shown.record().unwrap(), row]).unwrap();
+    r.core
+        .store
+        .append(&[shown.record().unwrap(), row])
+        .unwrap();
 }
 
 /// A revert of main's newest merge: its tree is the tree main had before it, so it is cleared by the scrub alone,
@@ -74,7 +77,11 @@ async fn a_pure_revert_is_cleared_by_its_tree_alone() {
     assert_eq!(pass.reverted.len(), 1, "{pass:?}");
     let now = r.upstream_main();
     let tree = |c: &str| git(&r.f.upstream, &["rev-parse", &format!("{c}^{{tree}}")]);
-    assert_eq!(tree(&now), tree(&good), "the revert's tree is main's before the join");
+    assert_eq!(
+        tree(&now),
+        tree(&good),
+        "the revert's tree is main's before the join"
+    );
     let read = crate::rsi::outgoing::read::tests_hooks::READS.load(Ordering::SeqCst) - before;
     assert_eq!(read, 0, "no session's reads were gathered");
 }
@@ -86,7 +93,10 @@ async fn a_pure_revert_is_cleared_by_its_tree_alone() {
 async fn a_revert_with_a_new_tree_is_checked_and_refused_before_main_is_pushed() {
     let r = rig(SelfMode::Act);
     r.land("notes", &[("notes.txt", &format!("{SAID}\n"))]);
-    let bad = r.land("trim-mast", &[("broken.txt", "oops\n"), ("notes.txt", "tide tables\n")]);
+    let bad = r.land(
+        "trim-mast",
+        &[("broken.txt", "oops\n"), ("notes.txt", "tide tables\n")],
+    );
     r.joined("trim-mast", &bad);
     read_by_its_build(&r, "trim-mast");
     let later = r.land("later", &[("later.txt", "later\n")]);
@@ -95,7 +105,10 @@ async fn a_revert_with_a_new_tree_is_checked_and_refused_before_main_is_pushed()
     assert!(pass.reverted.is_empty(), "{pass:?}");
     assert_eq!(r.upstream_main(), later, "main was not pushed");
     let stops = r.rows("self.join.stopped");
-    let held = stops.iter().find(|s| s["phase"] == "push").expect("the revert's stop");
+    let held = stops
+        .iter()
+        .find(|s| s["phase"] == "push")
+        .expect("the revert's stop");
     assert_eq!(held["numbers"]["held"], true, "{held}");
     let posts = r.posts();
     assert_eq!(posts.len(), 1, "{posts:?}");

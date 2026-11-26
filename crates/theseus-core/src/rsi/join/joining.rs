@@ -417,7 +417,11 @@ impl Run<'_> {
                 if before + 1 < DEFERRALS_HELD {
                     tracing::info!(branch = %self.b.branch, "self-join: the outgoing check is put off: {}",
                         Deferral::Deadline.words());
-                    self.stop("outgoing", Deferral::Deadline.words(), json!({"deferred": true}));
+                    self.stop(
+                        "outgoing",
+                        Deferral::Deadline.words(),
+                        json!({"deferred": true}),
+                    );
                     return;
                 }
                 format!(

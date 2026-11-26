@@ -45,7 +45,11 @@ pub struct Graph<'a> {
 }
 
 /// Whether `g` may leave: the scrub of what it sends, then the outgoing check against `heard`.
-pub fn clear(g: &Graph<'_>, scrub: &dyn Fn(&str) -> u32, heard: Result<&Heard, Unread>) -> Result<(), Stop> {
+pub fn clear(
+    g: &Graph<'_>,
+    scrub: &dyn Fn(&str) -> u32,
+    heard: Result<&Heard, Unread>,
+) -> Result<(), Stop> {
     let out = leaving(g.place, g.dir, g.base, g.tip, g.branch).map_err(Stop::Refused)?;
     let hits = scrub(&out.scrub_text());
     if hits > 0 {
@@ -120,19 +124,25 @@ pub(crate) mod tests_deadline {
     static DEADLINE: Mutex<Option<Duration>> = Mutex::new(None);
 
     pub(crate) fn get() -> Option<Duration> {
-        *DEADLINE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        *DEADLINE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Every read's deadline, in this process, until the guard drops.
     pub(crate) fn set(d: Duration) -> impl Drop {
-        *DEADLINE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(d);
+        *DEADLINE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(d);
         Reset
     }
 
     struct Reset;
     impl Drop for Reset {
         fn drop(&mut self) {
-            *DEADLINE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            *DEADLINE
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         }
     }
 }

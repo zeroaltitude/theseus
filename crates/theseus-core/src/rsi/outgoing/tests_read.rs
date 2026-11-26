@@ -163,7 +163,10 @@ async fn every_view_of_a_turn_is_read_to_the_index_end() {
     for i in 1..40 {
         crate::tests_view_record::keep(c, &turn, &format!("cmp_{i:03}"), PLACE, vec![]);
     }
-    assert_eq!(crate::view::record::of_turn(&c.store, &turn).unwrap().len(), 32);
+    assert_eq!(
+        crate::view::record::of_turn(&c.store, &turn).unwrap().len(),
+        32
+    );
     let h = Heard::of(&c.store, ITEM, &[&builder], far()).unwrap();
     assert_eq!(refuses(&h), Some(Source::View));
 }
@@ -190,7 +193,8 @@ async fn a_quote_is_read_where_it_was_shown_not_as_its_source_reads_now() {
     let (other, builder) = (session(c), session(c));
     let (_, node) = said(c, &other, SAID);
     look(c, &builder, None, "", vec![quote_of(c, &node)]);
-    const LATER: &str = "an entirely different sentence now stands where those words once were written down";
+    const LATER: &str =
+        "an entirely different sentence now stands where those words once were written down";
     let (_, mut n) = c.store.get_node(&node).unwrap().unwrap();
     if let Body::UserMessage { text, .. } = &mut n.body {
         *text = LATER.into();
@@ -303,7 +307,8 @@ async fn a_fold_is_read_by_its_handle_whatever_its_key() {
     let old = node("fold-old");
     c.store
         .append(&[
-            theseus_store::NewRecord::json(theseus_store::kinds::META, Some(&old_key), &old).unwrap(),
+            theseus_store::NewRecord::json(theseus_store::kinds::META, Some(&old_key), &old)
+                .unwrap(),
             theseus_store::NewRecord::json(
                 theseus_store::kinds::META,
                 Some(&format!("{HANDLE_PREFIX}fold-old")),
@@ -350,7 +355,9 @@ async fn a_childs_and_an_earlier_starts_reads_are_counted() {
         },
         ..TaskRecord::default()
     };
-    c.store.append(&[crate::task_graph::record(&t).unwrap()]).unwrap();
+    c.store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
     let h = Heard::of(&c.store, ITEM, &[&builder], far()).unwrap();
     assert_eq!(refuses(&h), Some(Source::History), "the child");
     // An earlier start, named by its build's row alone.
@@ -417,7 +424,9 @@ async fn the_read_is_bounded_and_put_off_at_its_deadline() {
         evidence,
         ..TaskRecord::default()
     };
-    c.store.append(&[crate::task_graph::record(&t).unwrap()]).unwrap();
+    c.store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
     let before = theseus_store::records_read_here();
     let at = Instant::now();
     Heard::of(&c.store, ITEM, &[], far()).unwrap();

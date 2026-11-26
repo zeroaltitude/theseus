@@ -7,7 +7,8 @@ use super::leave::{Leaving, Out};
 use super::{runs, words, Heard, Part, Refusal, Source, Why, RUN};
 
 /// Words of a conversation: thirteen, none of them code.
-const SAID: &str = "Kelp oars drift past the third bollard, where the heron waits each grey morning.";
+const SAID: &str =
+    "Kelp oars drift past the third bollard, where the heron waits each grey morning.";
 
 fn heard(text: &str) -> Heard {
     let mut h = Heard::default();
@@ -33,7 +34,12 @@ fn none(_: &HashSet<u64>) -> Result<HashSet<u64>, Why> {
 
 /// A base holding `text` in one file.
 fn base_of(text: String) -> impl FnOnce(&HashSet<u64>) -> Result<HashSet<u64>, Why> {
-    move |wanted| Ok(runs(&words(&text)).into_iter().filter(|h| wanted.contains(h)).collect())
+    move |wanted| {
+        Ok(runs(&words(&text))
+            .into_iter()
+            .filter(|h| wanted.contains(h))
+            .collect())
+    }
 }
 
 #[test]
@@ -52,7 +58,11 @@ fn nine_words_pass_and_ten_are_refused() {
     let w: Vec<&str> = SAID.split_whitespace().collect();
     let nine = format!("// {}", w[..9].join(" "));
     assert_eq!(h.check(&commit(&nine), none), Ok(()));
-    let ten = format!("/// {}\n/// {}", w[..5].join(" ").to_uppercase(), w[5..10].join("  "));
+    let ten = format!(
+        "/// {}\n/// {}",
+        w[..5].join(" ").to_uppercase(),
+        w[5..10].join("  ")
+    );
     assert_eq!(
         h.check(&commit(&ten), none),
         Err(Refusal::Words {
@@ -92,7 +102,10 @@ fn a_base_that_cannot_be_read_refuses() {
 fn a_refusal_names_no_word_of_what_matched() {
     let r = heard(SAID).check(&commit(SAID), none).unwrap_err();
     let said = r.to_string();
-    assert!(said.contains("c0ffee00c0ff") && said.contains("a look back"), "{said}");
+    assert!(
+        said.contains("c0ffee00c0ff") && said.contains("a look back"),
+        "{said}"
+    );
     for w in words(SAID).iter().filter(|w| w.len() > 3) {
         assert!(!said.to_lowercase().contains(w.as_str()), "{w}: {said}");
     }
@@ -117,7 +130,10 @@ fn ordinary_words_of_a_change_do_not_trip_it() {
     }
     let base = base_of(format!("acceptance: vec![\"{STOCK}\".into()],"));
     assert_eq!(h.check(&commit(&format!("// {STOCK}")), base), Ok(()));
-    assert!(h.check(&commit(&format!("// {STOCK}")), none).is_err(), "not in the base: a match");
+    assert!(
+        h.check(&commit(&format!("// {STOCK}")), none).is_err(),
+        "not in the base: a match"
+    );
 }
 
 /// Each piece is read on its own: a run is never made across two files, two paths, or a message and a file; and a
@@ -132,7 +148,10 @@ fn each_piece_is_its_own_and_every_piece_is_read() {
     let hyphened = w[..10].join("-").replace([',', '.'], "");
     type Edit = Box<dyn Fn(&mut Out, &str)>;
     let edits: Vec<(Part, Edit)> = vec![
-        (Part::Path, Box::new(|o, t| o.paths = vec![format!("docs/{t}.md")])),
+        (
+            Part::Path,
+            Box::new(|o, t| o.paths = vec![format!("docs/{t}.md")]),
+        ),
         (Part::Names, Box::new(|o, t| o.names = t.to_string())),
         (Part::File, Box::new(|o, t| o.files = vec![t.to_string()])),
     ];
@@ -159,5 +178,8 @@ fn each_piece_is_its_own_and_every_piece_is_read() {
         })
     );
     let said = h.check(&named, none).unwrap_err().to_string();
-    assert!(!said.contains("bollard") && !said.contains("self/"), "{said}");
+    assert!(
+        !said.contains("bollard") && !said.contains("self/"),
+        "{said}"
+    );
 }

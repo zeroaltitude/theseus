@@ -253,7 +253,8 @@ async fn what_recall_and_the_view_lay_in_real_turns_is_what_the_check_refuses() 
     use crate::rsi::outgoing::leave::{Leaving, Out};
     use crate::rsi::outgoing::{Heard, Refusal, Source};
     use crate::tests_view_hand_backs::unmarked;
-    const SECRET: &str = "the kelp vault code is 5519 and the gate opens at the third bell each night";
+    const SECRET: &str =
+        "the kelp vault code is 5519 and the gate opens at the third bell each night";
     const DESK: &str = "desk: the heron is grey and stands on the third post of the jetty at dawn";
     let r = acting(true);
     let c = &r.core;
@@ -266,8 +267,15 @@ async fn what_recall_and_the_view_lay_in_real_turns_is_what_the_check_refuses() 
     unmarked(c, &builder, "builder: what is the kelp vault code?")
         .await
         .unwrap();
-    let got = texts(&asked(&r, "builder: what is the kelp vault code").pop().unwrap());
-    assert!(got.contains("5519") && got.contains("third post"), "laid: {got}");
+    let got = texts(
+        &asked(&r, "builder: what is the kelp vault code")
+            .pop()
+            .unwrap(),
+    );
+    assert!(
+        got.contains("5519") && got.contains("third post"),
+        "laid: {got}"
+    );
     let until = std::time::Instant::now() + std::time::Duration::from_secs(600);
     let heard = Heard::of(&c.store, "kelp-item", &[&builder], until).unwrap();
     let leaving = |text: &str| Leaving {
@@ -283,6 +291,13 @@ async fn what_recall_and_the_view_lay_in_real_turns_is_what_the_check_refuses() 
         _ => None,
     };
     assert_eq!(source(SECRET), Some(Source::Recall), "the DM, recalled");
-    assert_eq!(source(DESK), Some(Source::View), "the desk, laid at its place");
-    assert_eq!(source("a sentence of the builder's own that nobody else wrote in any session"), None);
+    assert_eq!(
+        source(DESK),
+        Some(Source::View),
+        "the desk, laid at its place"
+    );
+    assert_eq!(
+        source("a sentence of the builder's own that nobody else wrote in any session"),
+        None
+    );
 }

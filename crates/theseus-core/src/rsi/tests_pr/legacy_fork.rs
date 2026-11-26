@@ -156,7 +156,11 @@ async fn a_role_kept_while_a_read_is_out_is_not_overwritten_by_the_read() {
         late.tools.self_pr.set_role(&sid, Role::Reviewer).unwrap();
     });
     let read = c.tools.self_pr.role_in(&c.store, &s).unwrap();
-    assert_eq!(read, Some(Role::Reviewer), "the read answers the newer role");
+    assert_eq!(
+        read,
+        Some(Role::Reviewer),
+        "the read answers the newer role"
+    );
     let kept = c.tools.self_pr.role_in(&c.store, &s).unwrap();
     assert_eq!(kept, Some(Role::Reviewer), "and it is the one kept");
     let view = c.runner.view_of(&s);

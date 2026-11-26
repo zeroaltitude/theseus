@@ -51,7 +51,8 @@ impl Heard {
 #[cfg(test)]
 pub(crate) mod tests_hooks {
     /// How many times this process gathered what an item's sessions read (a test runs in a process of its own).
-    pub(crate) static READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    pub(crate) static READS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
 }
 
 fn late(until: Instant) -> Result<(), Unread> {
@@ -87,7 +88,10 @@ pub(crate) fn sessions(
     for r in rows.iter().filter(|r| r.data["item"] == item) {
         match r.kind.as_str() {
             "self.branch.built" => r.session_id.iter().for_each(|s| add(&mut out, s)),
-            _ => r.data["session"].as_str().into_iter().for_each(|s| add(&mut out, s)),
+            _ => r.data["session"]
+                .as_str()
+                .into_iter()
+                .for_each(|s| add(&mut out, s)),
         }
     }
     let tasks = crate::task_graph::all(store).map_err(|_| Why::Tasks)?;
@@ -195,7 +199,10 @@ impl Reader<'_> {
     /// What `session` read: its look backs' and recalls' sources, and what every view of its turns laid.
     fn session(&mut self, session: &str) -> Result<(), Unread> {
         late(self.until)?;
-        let nodes = self.store.session_nodes(session).map_err(|_| Why::Session)?;
+        let nodes = self
+            .store
+            .session_nodes(session)
+            .map_err(|_| Why::Session)?;
         let mut turns = Vec::new();
         for (_, n) in &nodes {
             if let Some(t) = n.turn_id.as_ref().filter(|t| !turns.contains(*t)) {
@@ -217,11 +224,12 @@ impl Reader<'_> {
         }
         for turn in turns {
             late(self.until)?;
-            let views = crate::view::record::every_of_turn(self.store, &turn).map_err(|e| match e {
-                crate::view::record::Every::Index => Why::ViewIndex,
-                crate::view::record::Every::Missing => Why::ViewMissing,
-                crate::view::record::Every::Unreadable => Why::ViewUnreadable,
-            })?;
+            let views =
+                crate::view::record::every_of_turn(self.store, &turn).map_err(|e| match e {
+                    crate::view::record::Every::Index => Why::ViewIndex,
+                    crate::view::record::Every::Missing => Why::ViewMissing,
+                    crate::view::record::Every::Unreadable => Why::ViewUnreadable,
+                })?;
             for v in views {
                 for s in &v.shown {
                     self.piece(&s.piece)?;
@@ -245,7 +253,8 @@ impl Reader<'_> {
 
     /// Exchange `turn`, laid by a view: kept to be read with its session's others when it is another session's.
     fn exchange(&mut self, turn: &str) -> Result<(), Why> {
-        let Some(e) = crate::exchange::exchange(self.store, turn).map_err(|_| Why::Exchange)? else {
+        let Some(e) = crate::exchange::exchange(self.store, turn).map_err(|_| Why::Exchange)?
+        else {
             return Err(Why::Exchange);
         };
         if !self.own.contains(&e.session_id) {
@@ -268,7 +277,12 @@ impl Reader<'_> {
             }
             Space::Recalled { node, .. } => self.node(node, Source::Recall)?,
             Space::Folds { .. } => self.fold(&p.handle.0)?,
-            Space::Card { from: Some(from), .. } | Space::Waiting { from: Some(from), .. } => {
+            Space::Card {
+                from: Some(from), ..
+            }
+            | Space::Waiting {
+                from: Some(from), ..
+            } => {
                 for turn in &from.exchanges {
                     self.exchange(turn)?;
                 }
@@ -309,7 +323,10 @@ impl Reader<'_> {
         let laid = std::mem::take(&mut self.exchanges);
         for (session, turns) in &laid {
             late(self.until)?;
-            let nodes = self.store.session_nodes(session).map_err(|_| Why::Session)?;
+            let nodes = self
+                .store
+                .session_nodes(session)
+                .map_err(|_| Why::Session)?;
             for (_, n) in &nodes {
                 if (n.turn_id.as_ref()).is_some_and(|t| turns.contains(t)) {
                     let text = shown(self.store, n)?;
@@ -317,7 +334,9 @@ impl Reader<'_> {
                 }
             }
             for turn in turns {
-                if let Some(d) = crate::ladder::did::did(self.store, turn).map_err(|_| Why::Exchange)? {
+                if let Some(d) =
+                    crate::ladder::did::did(self.store, turn).map_err(|_| Why::Exchange)?
+                {
                     let line = crate::ladder::did::shown_line(self.store, &d);
                     self.heard.add(&line, Source::View);
                 }

@@ -23,7 +23,8 @@ use crate::rsi::tests_pr::Rig;
 use crate::rsi::tests_tree::git;
 
 /// What the owner said in another conversation: thirteen words.
-pub(super) const SAID: &str = "kelp oars drift past the third bollard where the heron waits each grey morning";
+pub(super) const SAID: &str =
+    "kelp oars drift past the third bollard where the heron waits each grey morning";
 /// The words of [`SAID`] no refusal may hold.
 const TELLS: [&str; 4] = ["kelp", "bollard", "heron", "morning"];
 
@@ -175,7 +176,10 @@ pub(super) fn held_as(r: &Rig, said: &str, item: &str) {
     holds_none(said);
     let b = built(r);
     assert_eq!(b["stopped_at"], "push", "{b}");
-    let mark = r.f.place.trees().join(format!("{}.keel", crate::rsi::tree::slug(item)));
+    let mark =
+        r.f.place
+            .trees()
+            .join(format!("{}.keel", crate::rsi::tree::slug(item)));
     assert!(mark.exists(), "held by the keel stop's mark");
     let stops = rows(r, "self.join.stopped");
     let [stop] = stops.as_slice() else {
@@ -374,7 +378,10 @@ async fn a_check_put_off_at_the_branch_holds_nothing_and_posts_no_card() {
     let mark = r.f.place.trees().join(format!("{ITEM}.keel"));
     assert!(!mark.exists(), "no hold");
     assert!(rows(&r, "self.join.stopped").is_empty(), "no held row");
-    assert!(crate::tests_day_ceiling::posts(&r.core, "self_keel").is_empty(), "no card");
+    assert!(
+        crate::tests_day_ceiling::posts(&r.core, "self_keel").is_empty(),
+        "no card"
+    );
 }
 
 mod join {
@@ -531,7 +538,11 @@ mod join {
         let r = rig();
         let (branch, _) = r.seed("trim", PROVED, SONNET);
         item(&r, "trim");
-        read_elsewhere(&r.core, &builder_of(&r, &branch), "the nets were mended at dawn");
+        read_elsewhere(
+            &r.core,
+            &builder_of(&r, &branch),
+            "the nets were mended at dawn",
+        );
         let (root, up) = (
             r.f.place.state.parent().unwrap().to_path_buf(),
             r.f.upstream.clone(),
@@ -540,7 +551,10 @@ mod join {
             before_push: Some(Arc::new(move |attempt| {
                 if attempt == 1 {
                     let other = root.join("mover");
-                    git(&root, &["clone", "-q", up.to_str().unwrap(), other.to_str().unwrap()]);
+                    git(
+                        &root,
+                        &["clone", "-q", up.to_str().unwrap(), other.to_str().unwrap()],
+                    );
                     std::fs::write(other.join("elsewhere.txt"), "elsewhere\n").unwrap();
                     git(&other, &["add", "-A"]);
                     git(&other, &["commit", "-q", "-m", "elsewhere"]);
@@ -552,7 +566,11 @@ mod join {
         let before = crate::rsi::outgoing::read::tests_hooks::READS.load(Ordering::SeqCst);
         let p = r.core.self_join_pass(&s).await.unwrap();
         assert_eq!(p.joined.len(), 1, "{p:?}");
-        assert_eq!(r.rows("self.joined")[0]["numbers"]["tries"], 2, "two graphs cleared");
+        assert_eq!(
+            r.rows("self.joined")[0]["numbers"]["tries"],
+            2,
+            "two graphs cleared"
+        );
         let read = crate::rsi::outgoing::read::tests_hooks::READS.load(Ordering::SeqCst) - before;
         assert_eq!(read, 1, "read once for the pass");
     }

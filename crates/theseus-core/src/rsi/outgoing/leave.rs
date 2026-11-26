@@ -94,8 +94,24 @@ struct Entry {
 /// The entries `id` changes against `parent` (none: a root commit), renames not followed.
 fn entries(p: &Place, dir: &Path, parent: Option<&str>, id: &str) -> Option<Vec<Entry>> {
     let raw = match parent {
-        Some(parent) => bytes(p, dir, &["diff-tree", "-r", "-z", "--no-renames", "--raw", parent, id])?,
-        None => bytes(p, dir, &["diff-tree", "-r", "-z", "--no-renames", "--raw", "--root", id])?,
+        Some(parent) => bytes(
+            p,
+            dir,
+            &["diff-tree", "-r", "-z", "--no-renames", "--raw", parent, id],
+        )?,
+        None => bytes(
+            p,
+            dir,
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--no-renames",
+                "--raw",
+                "--root",
+                id,
+            ],
+        )?,
     };
     let mut out = Vec::new();
     let mut fields = raw.split(|b| *b == 0).filter(|f| !f.is_empty());
@@ -124,7 +140,15 @@ fn entries(p: &Place, dir: &Path, parent: Option<&str>, id: &str) -> Option<Vec<
 /// The paths git reads as binary in `id` against `parent`, by its own rule and the attributes (`--numstat`
 /// shows each as `-`).
 fn binary(p: &Place, dir: &Path, parent: Option<&str>, id: &str) -> Option<HashSet<String>> {
-    let base = ["diff-tree", "-r", "-z", "--no-renames", "--numstat", "--no-textconv", "--no-ext-diff"];
+    let base = [
+        "diff-tree",
+        "-r",
+        "-z",
+        "--no-renames",
+        "--numstat",
+        "--no-textconv",
+        "--no-ext-diff",
+    ];
     let mut args = base.to_vec();
     match parent {
         Some(parent) => args.extend([parent, id]),
@@ -176,22 +200,33 @@ fn added(old: &str, new: &str) -> String {
 }
 
 /// Every commit in `base..tip`, read in `dir`, and `branch`: what a push of `tip` to `branch` sends.
-pub fn leaving(p: &Place, dir: &Path, base: &str, tip: &str, branch: &str) -> Result<Leaving, Refusal> {
+pub fn leaving(
+    p: &Place,
+    dir: &Path,
+    base: &str,
+    tip: &str,
+    branch: &str,
+) -> Result<Leaving, Refusal> {
     let gone = || Refusal::Unresolved(Why::Commits);
     let list = text(p, dir, &["rev-list", &format!("{base}..{tip}")]).ok_or_else(gone)?;
     let mut commits = Vec::new();
     for id in list.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let message = text(p, dir, &["log", "-1", "--format=%B", id]).ok_or_else(gone)?;
-        let names = text(p, dir, &["log", "-1", "--format=%an%n%ae%n%cn%n%ce", id]).ok_or_else(gone)?;
+        let names =
+            text(p, dir, &["log", "-1", "--format=%an%n%ae%n%cn%n%ce", id]).ok_or_else(gone)?;
         let parent = format!("{id}^1");
         let parent = match p.git(dir, &["rev-parse", "-q", "--verify", &parent]) {
-            Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            Ok(o) if o.status.success() => {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            }
             Ok(_) => None,
             Err(_) => return Err(gone()),
         };
         let entries = entries(p, dir, parent.as_deref(), id).ok_or_else(gone)?;
         let binary = binary(p, dir, parent.as_deref(), id).ok_or_else(gone)?;
-        let uninspectable = || Refusal::Uninspectable { commit: id.to_string() };
+        let uninspectable = || Refusal::Uninspectable {
+            commit: id.to_string(),
+        };
         let mut out = Out {
             id: id.to_string(),
             message,
@@ -225,7 +260,12 @@ pub fn leaving(p: &Place, dir: &Path, base: &str, tip: &str, branch: &str) -> Re
 
 /// Of the runs `wanted`, those the tree at `base` holds: in one of its text files, or in one of its paths, each
 /// on its own.
-pub fn base_runs(p: &Place, dir: &Path, base: &str, wanted: &HashSet<u64>) -> Result<HashSet<u64>, Why> {
+pub fn base_runs(
+    p: &Place,
+    dir: &Path,
+    base: &str,
+    wanted: &HashSet<u64>,
+) -> Result<HashSet<u64>, Why> {
     let mut found = HashSet::new();
     let mut keep = |text: &str| {
         for h in runs(&words(text)) {
@@ -240,7 +280,10 @@ pub fn base_runs(p: &Place, dir: &Path, base: &str, wanted: &HashSet<u64>) -> Re
     }
     // `<base>:<path>\0<line>` for every line of every text file: one file's lines are kept together.
     let grep = p
-        .git(dir, &["grep", "-I", "--null", "--no-color", "-e", "", base, "--"])
+        .git(
+            dir,
+            &["grep", "-I", "--null", "--no-color", "-e", "", base, "--"],
+        )
         .map_err(|_| Why::Base)?;
     // git grep exits 1 when nothing matched (a tree with no text file); anything else is a failed read.
     let grep = match grep.status.code() {

@@ -7,7 +7,9 @@
 use serde_json::json;
 
 use super::tests_gate::{built, input, onto_main, rig, rows, tree_of, write, WIRE};
-use super::tests_outgoing::{bind_dm, builder, held, held_as, holds_none, looks_back, nothing_left, CLEAN, SAID};
+use super::tests_outgoing::{
+    bind_dm, builder, held, held_as, holds_none, looks_back, nothing_left, CLEAN, SAID,
+};
 use crate::rsi::tests_pr::Rig;
 use crate::rsi::tests_tree::git;
 
@@ -33,7 +35,10 @@ async fn a_rename_only_commit_with_a_ten_word_name_is_refused() {
     write(&tree_of(&r), &[("docs/notes.md", "tide tables\n")]);
     commit_all(&r, "notes");
     let tree = tree_of(&r);
-    git(&tree, &["mv", "docs/notes.md", &format!("docs/{}.md", hyphened())]);
+    git(
+        &tree,
+        &["mv", "docs/notes.md", &format!("docs/{}.md", hyphened())],
+    );
     commit_all(&r, "rename");
     let said = r.turn(&sid, WIRE, input()).await;
     assert!(said.contains("the name of a path it changes"), "{said}");
@@ -54,7 +59,9 @@ async fn a_file_with_a_nul_is_not_inspected_and_is_held() {
     assert!(said.contains("cannot be read as text"), "{said}");
     held(&r, &said);
     nothing_left(&r);
-    let card = crate::tests_day_ceiling::posts(&r.core, "self_keel").pop().unwrap();
+    let card = crate::tests_day_ceiling::posts(&r.core, "self_keel")
+        .pop()
+        .unwrap();
     assert!(card.to_string().contains("could not be checked"), "{card}");
 }
 
@@ -65,7 +72,13 @@ async fn a_file_marked_binary_is_not_inspected_and_is_held() {
     let sid = builder(&r).await;
     let tree = tree_of(&r);
     write(&tree, CLEAN);
-    write(&tree, &[(".gitattributes", "notes.txt binary\n"), ("notes.txt", "tide tables\n")]);
+    write(
+        &tree,
+        &[
+            (".gitattributes", "notes.txt binary\n"),
+            ("notes.txt", "tide tables\n"),
+        ],
+    );
     let said = r.turn(&sid, WIRE, input()).await;
     assert!(said.contains("cannot be read as text"), "{said}");
     held(&r, &said);
@@ -78,7 +91,11 @@ async fn a_file_marked_binary_is_not_inspected_and_is_held() {
 async fn a_run_completed_across_old_and_new_words_is_refused() {
     let r = rig(|_| {});
     let w: Vec<&str> = SAID.split(' ').collect();
-    onto_main(&r, "harbour-notes", &[("docs/harbour.md", &format!("{}\n", w[..5].join(" ")))]);
+    onto_main(
+        &r,
+        "harbour-notes",
+        &[("docs/harbour.md", &format!("{}\n", w[..5].join(" ")))],
+    );
     let sid = builder(&r).await;
     looks_back(&r, &sid, SAID).await;
     let mut files = CLEAN.to_vec();
@@ -120,7 +137,10 @@ async fn a_ten_word_branch_name_is_refused_before_any_push() {
         }],
         ..TaskRecord::default()
     };
-    r.core.store.append(&[crate::task_graph::record(&t).unwrap()]).unwrap();
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
     r.core
         .tools
         .self_pr
@@ -130,13 +150,21 @@ async fn a_ten_word_branch_name_is_refused_before_any_push() {
     let said = r.turn(&sid, WIRE, ask.clone()).await;
     assert!(said.contains("Tree open"), "{said}");
     looks_back(&r, &sid, SHORT).await;
-    let tree = r.f.place.trees().canonicalize().unwrap().join(crate::rsi::tree::slug(NAMED));
+    let tree =
+        r.f.place
+            .trees()
+            .canonicalize()
+            .unwrap()
+            .join(crate::rsi::tree::slug(NAMED));
     write(&tree, CLEAN);
     let said = r.turn(&sid, WIRE, ask).await;
     assert!(said.contains("the name of the branch"), "{said}");
     held_as(&r, &said, NAMED);
     nothing_left(&r);
-    let card = crate::tests_day_ceiling::posts(&r.core, "self_keel").pop().unwrap().to_string();
+    let card = crate::tests_day_ceiling::posts(&r.core, "self_keel")
+        .pop()
+        .unwrap()
+        .to_string();
     // The branch is `self/<date>-<the slug>`: neither its name nor its slug is said.
     for w in ["go-to-sea", "sea at six", "-go-to", "self/2026"] {
         assert!(!card.contains(w), "{w}: {card}");
@@ -173,13 +201,23 @@ async fn a_branch_held_at_its_push_is_never_reviewed_joined_or_carded_again() {
     };
     for pass in 1..=2 {
         let p = r.core.self_join_pass(&seams).await.unwrap();
-        assert!(p.reviewed.is_empty() && p.joined.is_empty(), "pass {pass}: {p:?}");
+        assert!(
+            p.reviewed.is_empty() && p.joined.is_empty(),
+            "pass {pass}: {p:?}"
+        );
     }
     assert_eq!(git(&r.f.upstream, &["rev-parse", "refs/heads/main"]), main);
     assert!(rows(&r, "self.review.verdict").is_empty(), "no review");
     assert_eq!(rows(&r, "self.join.stopped").len(), 1, "the one held stop");
-    assert_eq!(crate::tests_day_ceiling::posts(&r.core, "self_keel").len(), 1, "one card");
-    assert!(crate::tests_day_ceiling::posts(&r.core, "self_join").is_empty(), "no card of the join's");
+    assert_eq!(
+        crate::tests_day_ceiling::posts(&r.core, "self_keel").len(),
+        1,
+        "one card"
+    );
+    assert!(
+        crate::tests_day_ceiling::posts(&r.core, "self_join").is_empty(),
+        "no card of the join's"
+    );
     holds_none(&rows(&r, "self.join.stopped")[0].to_string());
 }
 
@@ -188,14 +226,18 @@ fn place_of(r: &Rig, sid: &str) -> String {
     let turn = (r.core.store.session_nodes(sid).unwrap().into_iter())
         .find_map(|(_, n)| n.turn_id)
         .unwrap();
-    crate::exchange::exchange(&r.core.store, &turn).unwrap().unwrap().place
+    crate::exchange::exchange(&r.core.store, &turn)
+        .unwrap()
+        .unwrap()
+        .place
 }
 
 /// `words` said in a session of its own at `place`, as one exchange: its turn.
 fn said_at(r: &Rig, place: &str, words: &str) -> String {
     use crate::exchange::{exchange_record, touch, Exchange, Opener, Root, OWNER};
     let c = &r.core;
-    let other = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    let other =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     c.store.put_session(&other.session_id, &other).unwrap();
     let turn = crate::new_id("trn");
     let at = theseus_protocol::now_unix_ms() - 3_600_000;
@@ -231,8 +273,14 @@ async fn a_fold_a_real_view_laid_is_read_by_its_handle() {
         let r = rig(|_| {});
         let sid = builder(&r).await;
         let place = place_of(&r, &sid);
-        let turn = said_at(&r, &place, "the nets were mended at dawn by the harbour wall");
-        let x = crate::exchange::exchange(&r.core.store, &turn).unwrap().unwrap();
+        let turn = said_at(
+            &r,
+            &place,
+            "the nets were mended at dawn by the harbour wall",
+        );
+        let x = crate::exchange::exchange(&r.core.store, &turn)
+            .unwrap()
+            .unwrap();
         let fold = FoldNode {
             id: format!("fold-{turn}"),
             place: place.clone(),
@@ -265,11 +313,14 @@ async fn a_fold_a_real_view_laid_is_read_by_its_handle() {
         }
         write(&tree_of(&r), &files);
         let said = r.turn(&sid, WIRE, input()).await;
-        let last = (r.core.store.get_session::<crate::session::SessionRecord>(&sid))
-            .unwrap()
-            .unwrap()
-            .last_turn_id
-            .unwrap();
+        let last = (r
+            .core
+            .store
+            .get_session::<crate::session::SessionRecord>(&sid))
+        .unwrap()
+        .unwrap()
+        .last_turn_id
+        .unwrap();
         let views = crate::view::record::every_of_turn(&r.core.store, &last).unwrap();
         let laid = (views.iter().flat_map(|v| &v.shown))
             .any(|s| matches!(s.piece.range.space, crate::view::Space::Folds { .. }));
