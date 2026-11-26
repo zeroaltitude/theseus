@@ -738,7 +738,11 @@ fn told_note(r: &Rig) -> (String, Value, Value) {
         .find(|a| crate::owner_note::told::is_told(&crate::outbox::body_of(a)["kind"]))
         .expect("the use's note, with its Undo");
     let body = crate::outbox::body_of(&a);
-    (a.correlation_id.clone(), body["kind"].clone(), body["undo"].clone())
+    (
+        a.correlation_id.clone(),
+        body["kind"].clone(),
+        body["undo"].clone(),
+    )
 }
 
 /// The settings file of [`crate::config_change::tests::FILE`] with an existing provider and an
@@ -820,8 +824,14 @@ async fn a_new_name_alone_is_written_and_told_in_the_dm() {
 async fn each_listed_reader_is_one_card_with_no_proof_and_a_yes_writes_it() {
     for (path, given) in [
         ("model.api_key_secret", "the main model (its key)"),
-        ("providers.lantern.api_key_secret", "the provider `lantern` (its key)"),
-        ("mcp.servers.wharf.auth_secret", "the attached server `wharf` (its key)"),
+        (
+            "providers.lantern.api_key_secret",
+            "the provider `lantern` (its key)",
+        ),
+        (
+            "mcp.servers.wharf.auth_secret",
+            "the attached server `wharf` (its key)",
+        ),
     ] {
         let (r, _dir, _d) = rig_readers();
         let sid = r.session();
@@ -835,10 +845,18 @@ async fn each_listed_reader_is_one_card_with_no_proof_and_a_yes_writes_it() {
         assert_eq!(asks.len(), 1, "{path}: {asks:?}");
         let q = &asks[0];
         assert!(!q.needs_proof && !q.needs_fresh_proof, "{path}: {q:?}");
-        assert!(q.reason.starts_with("Use a secret from the vault?"), "{path}: {}", q.reason);
+        assert!(
+            q.reason.starts_with("Use a secret from the vault?"),
+            "{path}: {}",
+            q.reason
+        );
         assert!(q.reason.contains(given), "{path}: {}", q.reason);
         assert!(!q.reason.contains("second proof"), "{path}: {}", q.reason);
-        assert_eq!(r.file_text(), WITH_READERS, "{path}: nothing before the yes");
+        assert_eq!(
+            r.file_text(),
+            WITH_READERS,
+            "{path}: nothing before the yes"
+        );
         assert!(use_notes(&r).is_empty(), "{path}");
         r.core
             .confirm_action(&q.correlation_id, true, None, "cli")
@@ -910,9 +928,15 @@ async fn everything_off_the_list_takes_mains_path_with_its_proof() {
         match status {
             ResultStatus::Ok => {
                 assert_eq!(asks.len(), 1, "{also}: {asks:?}");
-                assert!(asks[0].needs_proof, "{also}: as on main, the proof: {}", asks[0].reason);
                 assert!(
-                    asks[0].reason.contains("need a second proof as well as your yes: "),
+                    asks[0].needs_proof,
+                    "{also}: as on main, the proof: {}",
+                    asks[0].reason
+                );
+                assert!(
+                    asks[0]
+                        .reason
+                        .contains("need a second proof as well as your yes: "),
                     "{also}: {}",
                     asks[0].reason
                 );
@@ -950,26 +974,87 @@ fn the_list_is_decided_by_the_paths_shape_and_the_value() {
         before: None,
         after: Some(v),
     };
-    let own = set("secrets.lantern_key", json!("op://Harbor/Lantern key/credential"));
+    let own = set(
+        "secrets.lantern_key",
+        json!("op://Harbor/Lantern key/credential"),
+    );
     use classify::Case::{Inert, Other, Pure};
     for (settings, want) in [
         (vec![own.clone()], Inert),
-        (vec![own.clone(), set("model.api_key_secret", json!("lantern_key"))], Pure),
-        (vec![own.clone(), set("providers.lantern.api_key_secret", json!("lantern_key"))], Pure),
-        (vec![own.clone(), set("mcp.servers.wharf.auth_secret", json!("lantern_key"))], Pure),
-        (vec![own.clone(), set("providers.key.api_key_secret", json!("lantern_key"))], Other),
-        (vec![own.clone(), set("mcp.servers.key.auth_secret", json!("lantern_key"))], Other),
-        (vec![own.clone(), set("mcp.servers.wharf.env.TOKEN", json!("lantern_key"))], Other),
-        (vec![own.clone(), set("mcp.servers.key.command", json!(["lantern_key"]))], Other),
-        (vec![own.clone(), set("model.api_key_secret", json!(["lantern_key"]))], Other),
-        (vec![own.clone(), set("model.api_key_secret", json!("other_key"))], Other),
+        (
+            vec![
+                own.clone(),
+                set("model.api_key_secret", json!("lantern_key")),
+            ],
+            Pure,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("providers.lantern.api_key_secret", json!("lantern_key")),
+            ],
+            Pure,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.wharf.auth_secret", json!("lantern_key")),
+            ],
+            Pure,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("providers.key.api_key_secret", json!("lantern_key")),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.key.auth_secret", json!("lantern_key")),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.wharf.env.TOKEN", json!("lantern_key")),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("mcp.servers.key.command", json!(["lantern_key"])),
+            ],
+            Other,
+        ),
+        (
+            vec![
+                own.clone(),
+                set("model.api_key_secret", json!(["lantern_key"])),
+            ],
+            Other,
+        ),
+        (
+            vec![own.clone(), set("model.api_key_secret", json!("other_key"))],
+            Other,
+        ),
         (vec![own, set("model.model", json!("lantern_key"))], Other),
         (vec![], Other),
     ] {
-        assert_eq!(classify::case_of(&base, &settings, "lantern_key"), want, "{settings:?}");
+        assert_eq!(
+            classify::case_of(&base, &settings, "lantern_key"),
+            want,
+            "{settings:?}"
+        );
     }
     // A new name that a setting already reads is not inert: that reader starts reading it.
-    let read = set("secrets.anthropic_key2", json!("op://Harbor/Lantern key/credential"));
+    let read = set(
+        "secrets.anthropic_key2",
+        json!("op://Harbor/Lantern key/credential"),
+    );
     let (mut b2, _) = crate::Config::parse(WITH_READERS).unwrap();
     b2.model.api_key_secret = "anthropic_key2".into();
     assert_eq!(classify::case_of(&b2, &[read], "anthropic_key2"), Pure);
@@ -987,13 +1072,14 @@ async fn a_told_use_keeps_the_wall_for_each_producer() {
         c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
     });
     let d = tempfile::tempdir().unwrap();
-    r.core
-        .tools
-        .look
-        .set_vault(Arc::new(stub(d.path(), "ok")));
+    r.core.tools.look.set_vault(Arc::new(stub(d.path(), "ok")));
     let dir = d.path().to_path_buf();
     let mut sessions = Vec::new();
-    for principal in ["job", crate::rsi::backlog::PRINCIPAL, crate::mcp_server::PRINCIPAL] {
+    for principal in [
+        "job",
+        crate::rsi::backlog::PRINCIPAL,
+        crate::mcp_server::PRINCIPAL,
+    ] {
         let sid = r.session();
         let rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
         let e = r
@@ -1029,7 +1115,10 @@ async fn a_told_use_keeps_the_wall_for_each_producer() {
         assert_ne!(status, ResultStatus::Ok, "{who}: {text}");
         // In a shared place the tool may not be offered at all; elsewhere the wall says why.
         if who != "shared" {
-            assert!(text.contains("vault.use is "), "{who}: the wall's words: {text}");
+            assert!(
+                text.contains("vault.use is "),
+                "{who}: the wall's words: {text}"
+            );
         }
     }
     assert_eq!(r.file_text(), crate::config_change::tests::FILE);
@@ -1132,7 +1221,10 @@ async fn a_use_during_a_restart_writes_nothing() {
     r.turn_with("vault_use", &sid, call(json!([]))).await;
     let (status, text) = r.result(&sid);
     assert_ne!(status, ResultStatus::Ok, "{text}");
-    assert!(text.contains("another change is still being applied"), "{text}");
+    assert!(
+        text.contains("another change is still being applied"),
+        "{text}"
+    );
     assert_eq!(r.file_text(), crate::config_change::tests::FILE);
     assert!(use_notes(&r).is_empty());
 }
@@ -1173,7 +1265,8 @@ async fn the_notes_undo_removes_exactly_the_entry_for_the_owner_alone() {
     }
     let done = r.core.told_undo(&post, &owner_in_dm()).await.unwrap();
     assert!(
-        done.text.ends_with(&format!("↩️ Undone by discord:{OWNER}.")),
+        done.text
+            .ends_with(&format!("↩️ Undone by discord:{OWNER}.")),
         "{}",
         done.text
     );

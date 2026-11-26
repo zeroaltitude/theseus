@@ -342,8 +342,14 @@ fn the_note_names_safe_sources_and_the_conversation_by_its_id() {
         hold::call_words("config.show"),
     );
     assert!(f.contains("(from https://x.example.test)"), "{f}");
-    assert!(!f.contains("PRIVATE") && !f.contains("k=v") && !f.contains("layer 1"), "{f}");
-    assert!(f.contains("flagged") && f.contains("until the flag is cleared"), "{f}");
+    assert!(
+        !f.contains("PRIVATE") && !f.contains("k=v") && !f.contains("layer 1"),
+        "{f}"
+    );
+    assert!(
+        f.contains("flagged") && f.contains("until the flag is cleared"),
+        "{f}"
+    );
 }
 
 /// Through a real turn: a titled conversation that read a page whose address carries a token in
@@ -351,7 +357,10 @@ fn the_note_names_safe_sources_and_the_conversation_by_its_id() {
 #[tokio::test]
 async fn a_told_span_names_no_title_and_no_path() {
     let r = at(OutsideMode::default());
-    let sid = flagged_at(&r, "https://pages.example.test/reset/PRIVATE-TOKEN#PRIVATE-FRAG");
+    let sid = flagged_at(
+        &r,
+        "https://pages.example.test/reset/PRIVATE-TOKEN#PRIVATE-FRAG",
+    );
     r.core
         .store
         .update_session(&sid, |rec: &mut SessionRecord| {
@@ -362,7 +371,11 @@ async fn a_told_span_names_no_title_and_no_path() {
     r.turn_with("look_theseus", &sid, json!({})).await;
     let told = notes(&r);
     assert_eq!(told.len(), 1, "{told:?}");
-    assert!(told[0].contains("https://pages.example.test"), "{}", told[0]);
+    assert!(
+        told[0].contains("https://pages.example.test"),
+        "{}",
+        told[0]
+    );
     assert!(!told[0].contains("PRIVATE"), "{}", told[0]);
 }
 

@@ -86,10 +86,12 @@ impl Core {
             .iter()
             .map(|r| NewRecord::json(kinds::LEDGER, None, r))
             .collect::<anyhow::Result<Vec<_>>>()
-            .map_err(|e| format!("the settings were put back, and their record was not made: {e}"))?;
-        self.store
-            .append(&records)
-            .map_err(|e| format!("the settings were put back, and their record was not kept: {e}"))?;
+            .map_err(|e| {
+                format!("the settings were put back, and their record was not made: {e}")
+            })?;
+        self.store.append(&records).map_err(|e| {
+            format!("the settings were put back, and their record was not kept: {e}")
+        })?;
         Ok(true)
     }
 

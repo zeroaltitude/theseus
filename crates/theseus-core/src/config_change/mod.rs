@@ -526,19 +526,27 @@ pub(crate) fn sensitive_of(
     }
 }
 
-/// The settings as they are, for a change that uses a vault secret: what its path is classified
-/// against (`vault_use::classify`). None for any other change.
-fn base_of_use(
+/// The settings as they are, for a change that uses a vault secret (what its path is classified
+/// against, `vault_use::classify`; None for any other change), and the change's sensitive
+/// settings as [`sensitive_of`] reads them.
+fn sensitive_for(
+    changes: &[edit::Change],
+    settings: &[diff::Setting],
     secret: Option<&vault_use::Chosen>,
     base: &str,
-) -> Result<Option<crate::Config>, String> {
-    secret
+) -> Result<(Option<crate::Config>, Vec<(String, String)>), String> {
+    let base_cfg = secret
         .map(|_| {
             crate::Config::parse(base)
                 .map(|(c, _)| c)
                 .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))
         })
-        .transpose()
+        .transpose()?;
+    let used = secret
+        .zip(base_cfg.as_ref())
+        .map(|(s, b)| (b, s.name.as_str()));
+    let sens = sensitive_of(changes, settings, used);
+    Ok((base_cfg, sens))
 }
 
 /// Run `config.propose` for the call `correlation_id` of the turn `tc`: build
@@ -645,9 +653,7 @@ pub(crate) fn put_using(
         vault_use::refuse_other_references(&settings, secret)?;
     }
     let long = too_big(&settings)?;
-    let base_cfg = base_of_use(secret, base)?;
-    let used = secret.zip(base_cfg.as_ref()).map(|(s, b)| (b, s.name.as_str()));
-    let sens = sensitive_of(changes, &settings, used);
+    let (base_cfg, sens) = sensitive_for(changes, &settings, secret, base)?;
     let needs = proof_seam::Needs::of(!sens.is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
@@ -658,7 +664,7 @@ pub(crate) fn put_using(
         wait_secs: RESTART_WAIT_SECS,
         sources,
         used: secret
-            .filter(|_| used.is_some() && sens.is_empty())
+            .filter(|_| base_cfg.is_some() && sens.is_empty())
             .map(|s| s.name.as_str()),
     };
     let question = match (undoes, secret) {

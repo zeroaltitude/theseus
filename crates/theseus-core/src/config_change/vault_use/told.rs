@@ -29,7 +29,11 @@ pub const TOLD: &str = "told: the owner's own turn";
 /// that. `told::stage_dm` adds the Undo. The words follow `told::stage`'s contract: fixed words,
 /// ids, the settings name, and the vault's own names for the item and field as the daemon's check
 /// found them; never the value, model-written words or outside text.
-pub(crate) fn note_parts(session_id: &str, used: &Chosen, number: u32) -> (&'static str, String, String) {
+pub(crate) fn note_parts(
+    session_id: &str,
+    used: &Chosen,
+    number: u32,
+) -> (&'static str, String, String) {
     let c = &used.checked;
     let section = c
         .section
@@ -138,7 +142,10 @@ pub(super) fn put_told(
         used.checked.item,
         used.checked.field,
     );
-    Ok((said, json!({"settings": settings.len(), "told": told, "change": number})))
+    Ok((
+        said,
+        json!({"settings": settings.len(), "told": told, "change": number}),
+    ))
 }
 
 /// Stage the use's note in the owner's DM, the shared told note whose Undo removes the entry

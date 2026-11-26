@@ -208,7 +208,10 @@ async fn under_notify_a_shared_notices_place_leaves_the_flag_in_the_dm() {
         m.versions
     );
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert!(notices(&r, NOTICES).is_empty(), "nothing in the shared place");
+    assert!(
+        notices(&r, NOTICES).is_empty(),
+        "nothing in the shared place"
+    );
     r.press(&m.id, "Remove", (ANA, "ana"));
     r.until("the label is removed", || !carrying(&r, &sid))
         .await;

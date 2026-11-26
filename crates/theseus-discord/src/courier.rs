@@ -879,9 +879,7 @@ impl Lane {
         let (channel, extra) = match kind {
             // Only to an owner-private notices place, where his Remove press counts; a shared one
             // leaves it in his DM (issue 54).
-            "content_flag" if !self.notices_private(here, &self.target) => {
-                (here, json!({}))
-            }
+            "content_flag" if !self.notices_private(here, &self.target) => (here, json!({})),
             "content_flag" => {
                 let (channel, place) =
                     self.informed(kind, body, &text, (here, self.target.clone()));
@@ -1045,8 +1043,7 @@ impl Lane {
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "retraction"
             | "self_keel" | "seal_card" | "self_join" | "self_narrow" | "self_narrow_red"
             | "initiative" | "standing_card" | "digest" | "privacy_warning" | "onto_card"
-            | "home_size" | "link_card" | "persona_soul" | "card_question" | "told"
-            | "told_dm" => {
+            | "home_size" | "link_card" | "persona_soul" | "card_question" | "told" | "told_dm" => {
                 self.jev_post(a, &body).await
             }
             // The self-build halt's note, to the owner's DM alone, pinging (theseus-6s7ll).

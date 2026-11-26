@@ -132,12 +132,7 @@ pub(crate) fn span(nodes: &[(u64, Node)]) -> (usize, Option<&str>) {
 /// at `notify`, none, and the owner is told ([`tell`]), unless `injection = "refuse"` refuses the
 /// call of a flagged session after this, as it refuses every one of the nine there. Any other
 /// tool's plan is returned as it came.
-pub(crate) fn ask_or_tell(
-    rt: &ToolRuntime,
-    tc: &TurnCtx<'_>,
-    name: &str,
-    plan: Plan,
-) -> Plan {
+pub(crate) fn ask_or_tell(rt: &ToolRuntime, tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
     if !QUIET.contains(&name) {
         return plan;
     }
@@ -311,7 +306,11 @@ pub(crate) fn tell(holds: &Holds, tc: &TurnCtx<'_>, freeze: bool, name: &str) {
     if !holds.first_in(tc.session_id, &key) {
         return;
     }
-    tell_owner(tc, &note_text(tc.session_id, &cause, call_words(name)), name);
+    tell_owner(
+        tc,
+        &note_text(tc.session_id, &cause, call_words(name)),
+        name,
+    );
 }
 
 /// One note to the owner alone, riding the turn's next frame; never a node of the session. A note
