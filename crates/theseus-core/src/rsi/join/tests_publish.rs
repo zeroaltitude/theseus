@@ -125,7 +125,7 @@ fn remote_heads(r: &Rig) -> String {
 }
 
 fn publish_stops(r: &Rig) -> Vec<Value> {
-    (r.rows("self.join.stopped").into_iter())
+    (r.rows_all("self.join.stopped").into_iter())
         .filter(|d| d["phase"] == publish::PHASE)
         .collect()
 }
@@ -222,8 +222,9 @@ async fn a_yes_publishes_that_head_and_only_that_head() {
     assert!(cards(&r.core).is_empty(), "the card is answered");
 }
 
-/// A new head of the branch after the yes: the yes is the old head's, so the new one is asked again and nothing is
-/// sent; the old card is no longer waiting.
+/// A yes is for the head it was asked about. Here the join meets a new head of the branch (the old one held, so
+/// the join cannot take it; in the loop today a head with a card is never replaced on its branch, since a fix comes
+/// before the card): the old yes does not count, a new card asks for the new head, and nothing is sent.
 #[tokio::test]
 async fn a_moved_head_voids_the_yes() {
     let r = rig(SelfMode::Act);
@@ -268,6 +269,15 @@ async fn a_moved_head_voids_the_yes() {
         numbers: Value::Null,
     });
     assert_ne!(moved, head);
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfJoinStopped {
+            branch: branch.clone(),
+            head: head.clone(),
+            phase: "keel".into(),
+            why: "the old head is held".into(),
+            numbers: serde_json::json!({"held": true}),
+        });
     let pass = r.core.self_join_pass(&seams).await.unwrap();
     assert!(pass.joined.is_empty(), "{pass:?}");
     assert_eq!(pass.parked, [(branch.clone(), moved.clone())], "{pass:?}");

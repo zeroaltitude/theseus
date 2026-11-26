@@ -361,7 +361,17 @@ impl Rig {
         (branch, head)
     }
 
+    /// The rows of `kind`, but a join's wait for the owner's card (`publish`, not held): a test of another phase
+    /// reads the stops it is about. [`Self::rows_all`] has them all.
     pub(crate) fn rows(&self, kind: &str) -> Vec<Value> {
+        let waits =
+            |d: &Value| d["phase"] == super::publish::PHASE && d["numbers"]["parked"] == true;
+        (self.rows_all(kind).into_iter())
+            .filter(|d| kind != "self.join.stopped" || !waits(d))
+            .collect()
+    }
+
+    pub(crate) fn rows_all(&self, kind: &str) -> Vec<Value> {
         self.core
             .store
             .ledger_tail::<crate::ledger::LedgerRow>(100_000)
