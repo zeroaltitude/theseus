@@ -7,7 +7,10 @@
 //! write's actual channel, the DM a refused note falls back to included
 //! (`notices.rs`): the notices place never folds, whatever its word and
 //! whatever `announce` says. A note with a button and every other post are
-//! written as ever.
+//! written as ever. A note that comes while a turn runs is a post like any
+//! other: its own message beside the turn's fold, folded or not by this
+//! rule, never inside the fold, which takes only the turn's process
+//! messages (`render/fold.rs`).
 //!
 //! A folded write's `(channel, message)` is kept with its post as an
 //! additive key of the post's detail, `note_fold`. A press names the post

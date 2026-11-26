@@ -7,9 +7,10 @@
 //! never on a note written open, never on a note with a button, never from
 //! another channel. Folding is decided where the note actually lands: the
 //! notices place never folds, and a note it refuses for good is folded in
-//! the DM as any DM note is. A card, a question, an alert, a refusal, an
-//! error, a reminder, a decision, an action note and a met watch are never
-//! folded.
+//! the DM as any DM note is. A note that comes while a turn runs is the
+//! same: its own closed line beside the turn's fold, never inside it. A
+//! card, a question, an alert, a refusal, an error, a reminder, a decision,
+//! an action note and a met watch are never folded.
 
 use std::sync::Arc;
 
@@ -535,6 +536,96 @@ async fn a_card_its_refusal_and_a_turns_error_are_never_folded_notes() {
     })
     .await;
     never_folded(&r, |m| m.id == card.id || m.content.contains("Turn failed"));
+}
+
+/// The turn's fold in `channel`: the one message with a turn fold's button
+/// (`fold:o:` or `fold:c:`), a note's being `fold:no:` and `fold:nc:`.
+fn turn_fold(r: &Rig, channel: u64) -> Option<Msg> {
+    let turns: Vec<Msg> = r
+        .posted(channel)
+        .into_iter()
+        .filter(|m| {
+            m.buttons
+                .iter()
+                .any(|b| b.custom_id.starts_with("fold:o:") || b.custom_id.starts_with("fold:c:"))
+        })
+        .collect();
+    assert!(turns.len() <= 1, "one turn, one fold: {turns:#?}");
+    turns.into_iter().next()
+}
+
+/// N1, inside a turn: while a turn runs (its command held at a gate, so it
+/// cannot end), an informing note from the operator lane and one posted to
+/// the conversation's own lane are each one closed line of their own beside
+/// the turn's fold, never inside it, and each opens and closes while the
+/// turn still runs; a told note posted then keeps its Undo, open. Once the
+/// turn ends, the notes are still closed lines and still open.
+#[tokio::test]
+async fn an_informing_note_during_a_turn_is_its_own_closed_line_beside_the_turns_fold() {
+    let r = Rig::start_tweaked(
+        |dir, _| {
+            std::fs::create_dir_all(dir.join("work")).unwrap();
+            let gate = dir.join("work").join("gate");
+            let wait = format!("while [ ! -f {} ]; do sleep 0.1; done", gate.to_string_lossy());
+            Arc::new(FakeProvider::scripted(vec![
+                Scripted::tools("", &[("c1", "proc_run", json!({"argv": ["sh", "-c", wait]}))]),
+                Scripted::text("Done waiting."),
+            ]))
+        },
+        guild(),
+        &file("", None),
+        &[],
+        |c| c.places.owner = Some(vec![format!("discord:{ANA}")]),
+    )
+    .await;
+    r.say((ANA, "ana"), None, "Wait for the gate.");
+    r.until("the turn's fold, its command running", || {
+        turn_fold(&r, ANA_DM).is_some_and(|f| f.content.contains("1 command"))
+    })
+    .await;
+    let session = r.core.outbox.place_session(&format!("dm:{ANA}")).unwrap().unwrap();
+    let operator = stage(&r, fyi("operator-during-the-turn"));
+    let target = format!("discord:dm:{ANA}");
+    let own = r.core.outbox.post(&session, "", &target, fyi("own-lane-during-the-turn"));
+    let own = own.unwrap().correlation_id;
+    let (a, frame) = told::stage(
+        &r.core.outbox,
+        None,
+        "Theseus kept a standing order",
+        "without asking you",
+        "told-during-the-turn",
+        &Undo::StandingRevoke("std_during".into()),
+    )
+    .unwrap();
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+    let notes = [
+        (folded(&r, ANA_DM, &operator).await, "operator-during-the-turn"),
+        (folded(&r, ANA_DM, &own).await, "own-lane-during-the-turn"),
+    ];
+    r.until("the told note", || first_with(&r, ANA_DM, "told-during-the-turn").is_some())
+        .await;
+    for (m, words) in &notes {
+        assert_eq!(m.content, LINE);
+        open_and_close(&r, ANA_DM, m, &fyi_text(words), LINE).await;
+    }
+    // Still within the turn: the gate is shut, so its answer cannot exist.
+    assert!(first_with(&r, ANA_DM, "Done waiting.").is_none(), "the turn still runs");
+    let f = turn_fold(&r, ANA_DM).unwrap();
+    assert!(notes.iter().all(|(m, _)| m.id != f.id), "each its own message");
+    never_folded(&r, |m| m.versions[0].contains("told-during-the-turn"));
+    std::fs::write(r.dir.path().join("work").join("gate"), "").unwrap();
+    r.until("the answer", || first_with(&r, ANA_DM, "Done waiting.").is_some())
+        .await;
+    let f = turn_fold(&r, ANA_DM).unwrap();
+    for v in &f.versions {
+        assert!(!v.contains("during-the-turn") && !v.contains("ℹ️"), "not in the fold: {v:?}");
+    }
+    assert!(!note_fold(&f), "the turn's fold carries no note's button: {f:#?}");
+    for (m, words) in &notes {
+        assert_eq!(message(&r, ANA_DM, &m.id).content, LINE);
+        open_and_close(&r, ANA_DM, m, &fyi_text(words), LINE).await;
+    }
 }
 
 /// N1: a note's press goes through its place's lane: while that lane waits
