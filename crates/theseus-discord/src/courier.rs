@@ -1756,12 +1756,7 @@ impl Lane {
                 format!("mcpin:{}", a.correlation_id),
                 Buttons::McpSignIn(crate::runtime::mcp_sign_in::server_of(body)),
             ),
-            // A Connect Google button a turn offered (issue 59).
-            "google_sign_in" => (
-                body["text"].as_str().unwrap_or("").to_string(),
-                format!("gsi:{}", a.correlation_id),
-                Buttons::GoogleSignIn,
-            ),
+            "google_sign_in" => crate::runtime::google_sign_in::card(body, &a.correlation_id),
             // A persona added without a soul asks for it (theseus-utfnl).
             "persona_soul" => (
                 body["text"].as_str().unwrap_or("").to_string(),
