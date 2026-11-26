@@ -902,6 +902,13 @@ impl McpBoard {
             }
             // A sign-in refused for good is not a crash: no retry, no count.
             if let Some(lost) = self.signed(&s).and_then(|g| g.lost()) {
+                // The owner's Sign in card, once for this sign-in's loss (issue 59).
+                if let Some(since) = match self.signed(&s) {
+                    Some(g) => g.kept_since().await,
+                    None => None,
+                } {
+                    self.offer_sign_in(&s.name, &format!("lost:{since}"));
+                }
                 if !self.needs_sign_in(&s, &lost, true).await {
                     return;
                 }

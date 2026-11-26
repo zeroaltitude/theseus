@@ -19,6 +19,8 @@ pub(crate) struct Live {
     name: String,
     listed: bool,
     tools: Vec<String>,
+    /// The trial was refused for want of a sign-in (issue 59).
+    signs_in: bool,
 }
 
 impl Live {
@@ -65,6 +67,7 @@ impl Core {
             op,
             name,
             listed: m["listed"].as_bool().unwrap_or(false),
+            signs_in: m["signs_in"].as_bool().unwrap_or(false),
             tools: m["tools"]
                 .as_array()
                 .map(|v| {
@@ -91,7 +94,13 @@ impl Core {
                 // leaves the list to the server.
                 let acked = live.listed.then_some(live.tools);
                 let stored = self.mcp.take_listed(&live.name);
+                let signs_in = live.signs_in && server.oauth.is_some();
                 self.mcp.load_attached(&live.name, server, stored, acked);
+                // The owner's Sign in card, once for this attach (issue 59).
+                if signs_in {
+                    let at = live.set.get(&live.name).map_or(0, |a| a.at_ms);
+                    self.mcp.offer_sign_in(&live.name, &format!("attach:{at}"));
+                }
             }
             _ => {
                 self.mcp.unload_extension(&live.name);

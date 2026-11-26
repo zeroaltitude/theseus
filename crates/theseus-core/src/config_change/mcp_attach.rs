@@ -669,7 +669,8 @@ pub async fn attach(
         false => Some(candidate_of(&g, &spec)?),
     };
     let tried = try_once(rt, &g.board, &spec, correlation_id).await?;
-    if spec.signs_in_after(&tried) {
+    let signs_in = spec.signs_in_after(&tried);
+    if signs_in {
         built = built.map(|_| candidate_of(&g, &spec)).transpose()?;
     }
     if tried.error.is_none() {
@@ -707,6 +708,9 @@ pub async fn attach(
         "name": spec.name,
         "listed": tried.error.is_none(),
         "tools": tried.tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+        // Refused at its trial for want of a sign-in (issue 59): the yes offers the owner his
+        // Sign in card, once.
+        "signs_in": signs_in,
     });
     put(
         rt,

@@ -98,6 +98,63 @@ impl Tool for Offer {
     }
 }
 
+/// The META key that says for which transition `server`'s card was last staged.
+fn offered_key(server: &str) -> String {
+    format!("mcp.sign_in_offered.{server}")
+}
+
+impl super::McpBoard {
+    /// The daemon's own offer (issue 59): when a server that signs in comes to need a sign-in (its
+    /// sign-in lost for good, or an attach whose trial was refused for want of one), the same card
+    /// the tool stages, to the owner's direct messages, ONCE for `transition`: kept in the store, so
+    /// a retry and a restart for the same transition stage none. A server with no `oauth` gets none.
+    pub(crate) fn offer_sign_in(&self, server: &str, transition: &str) {
+        let signs_in = self
+            .server(server)
+            .cloned()
+            .or_else(|| self.loaded_server(server))
+            .is_some_and(|s| s.cfg.oauth.is_some());
+        let Some(core) = self.core.get().and_then(std::sync::Weak::upgrade) else {
+            return;
+        };
+        if !signs_in {
+            return;
+        }
+        let key = offered_key(server);
+        if core
+            .store
+            .get_meta::<String>(&key)
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some(transition)
+        {
+            return;
+        }
+        let staged = core
+            .outbox
+            .stage_to_operator(
+                None,
+                json!({"kind": "mcp_sign_in", "server": server, "text": card_text(server)}),
+            )
+            .and_then(|(post, frame)| {
+                core.store.append(&frame)?;
+                core.outbox.posted(&post);
+                Ok(())
+            });
+        match staged {
+            Ok(()) => {
+                if let Err(e) = core.store.put_meta(&key, &transition.to_string()) {
+                    tracing::warn!(server, error = %format!("{e:#}"), "the sign-in card's mark was not kept");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(server, error = %format!("{e:#}"), "the sign-in card was not posted")
+            }
+        }
+    }
+}
+
 /// Run the offer: the card to the owner's direct messages, or why not.
 pub fn run(rt: &ToolRuntime, tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), String> {
     if tc.class != PlaceClass::Private {
