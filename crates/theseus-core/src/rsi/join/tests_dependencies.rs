@@ -4,6 +4,7 @@
 //! and where it comes from; a lock file change that changes no package does not
 //! stop a branch.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use theseus_protocol::rsi::SelfMode;
 
 use super::tests::{git, rig, Rig, PROVED, SONNET};
@@ -62,7 +63,7 @@ async fn a_change_of_dependencies_stops_at_the_owners_card_with_names_and_versio
     let (branch, _) = r.seed("try-a-library", &files, SONNET);
     let main = r.upstream_main();
     let seams = r.seams();
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "keel".to_string())], "{pass:?}");
     let posts = r.posts();
     assert_eq!(posts.len(), 1, "{posts:?}");
@@ -83,7 +84,7 @@ async fn a_change_of_dependencies_stops_at_the_owners_card_with_names_and_versio
         "a workspace member is not a dependency"
     );
     assert_eq!(r.upstream_main(), main, "nothing joined");
-    let again = r.core.self_join_pass(&seams).await.unwrap();
+    let again = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(
         again.stopped.is_empty() && again.joined.is_empty(),
         "{again:?}"
@@ -130,7 +131,7 @@ async fn an_npm_change_and_a_source_that_may_not_be_fetched_are_on_the_card() {
     files.push(("cockpit/package-lock.json", &npm));
     files.push(("Cargo.lock", &git_dep));
     r.seed("try-npm", &files, SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     let posts = r.posts();
     assert_eq!(posts.len(), 1, "{posts:?}");
     assert!(
@@ -165,7 +166,7 @@ async fn a_lock_file_that_only_moved_is_not_held() {
     let mut files = PROVED.to_vec();
     files.push(("Cargo.lock", &moved));
     let (branch, _) = r.seed("move-the-lock", &files, SONNET);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert!(pass.stopped.is_empty(), "{pass:?}: {:?}", r.posts());
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     assert_eq!(pass.joined[0].0, branch);
@@ -178,7 +179,7 @@ async fn a_lock_file_that_cannot_be_read_is_held() {
     let mut files = PROVED.to_vec();
     files.push(("Cargo.lock", "this is [not toml"));
     r.seed("break-the-lock", &files, SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     let posts = r.posts();
     assert!(
         posts.len() == 1 && posts[0].contains("Cargo.lock could not be read"),

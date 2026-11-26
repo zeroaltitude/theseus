@@ -3,6 +3,7 @@
 //! the builder's model and pushed; the next pass runs the planted revert and a fresh review on the
 //! fixed head, which joins on an accept, and is rejected on a second `fix`.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,9 +57,10 @@ fn task(r: &Rig, id: &str) -> TaskRecord {
 }
 
 /// The review asks for a fix: the fixer (the reviewer's profile) repairs it in the item's tree,
-/// the code commits it, the gate runs again, the builder's model accepts it, and the branch is
-/// pushed at the new head with its tree closed. The next pass runs the planted revert on that head
-/// and a fresh review, told of the fix and offered none; its accept joins the fixed head.
+/// the code commits it, the gate runs again, the builder's model accepts it, and the branch moves
+/// to the new head in `[self] repo`, never pushed (issue 53), with its tree closed. The next pass
+/// runs the planted revert on that head and a fresh review, told of the fix and offered none; its
+/// accept asks the owner, and on his yes the fixed head joins.
 #[tokio::test]
 async fn a_reviews_fix_is_made_gated_proved_reviewed_afresh_and_joined() {
     let r = rig(|_| {});
@@ -110,10 +112,10 @@ async fn a_reviews_fix_is_made_gated_proved_reviewed_afresh_and_joined() {
     assert_eq!(
         git(
             &r.f.upstream,
-            &["rev-parse", &format!("refs/heads/{branch}")]
+            &["for-each-ref", "--format=%(refname)", "refs/heads/"]
         ),
-        fixed,
-        "pushed at the fixed head"
+        "refs/heads/main",
+        "the fixed branch is not pushed"
     );
     assert!(
         !r.f.place.trees().join("trim").exists(),
@@ -157,7 +159,14 @@ async fn a_reviews_fix_is_made_gated_proved_reviewed_afresh_and_joined() {
     let verdicts = r.rows("self.review.verdict");
     assert_eq!(verdicts[1]["head"], fixed.as_str());
     assert_eq!(verdicts[1]["planted_revert"], "failed", "proved again");
-    let merge = &two.joined[0].1;
+    assert_eq!(two.parked, [(branch.clone(), fixed.clone())], "{two:?}");
+    assert!(
+        two.joined.is_empty(),
+        "nothing joins before the owner's yes"
+    );
+    assert_eq!(crate::rsi::join::tests_publish::owner_says_yes(&r.core), 1);
+    let three = r.core.self_join_pass(&s).await.unwrap();
+    let merge = &three.joined[0].1;
     let parents = git(&r.f.upstream, &["rev-list", "--parents", "-n", "1", merge]);
     assert!(
         parents.ends_with(&fixed),
@@ -174,8 +183,8 @@ async fn a_second_fix_at_review_is_a_reject() {
     let review = scripted(&["fix", "fix"]);
     let fixer = StandIn::writing(&[("note.txt", "named plainly\n")]);
     let s = seams(&review, &fixer);
-    r.core.self_join_pass(&s).await.unwrap();
-    let two = r.core.self_join_pass(&s).await.unwrap();
+    r.core.self_join_pass_yes(&s).await.unwrap();
+    let two = r.core.self_join_pass_yes(&s).await.unwrap();
     assert_eq!(two.reviewed, [(branch, "reject".to_string())], "{two:?}");
     let v = r.rows("self.review.verdict").pop().unwrap();
     assert!(
@@ -201,7 +210,7 @@ async fn a_fix_at_review_the_gate_fails_returns_the_item() {
     let fixer = StandIn::writing(&[("broken.txt", "x\n")]);
     let one = r
         .core
-        .self_join_pass(&seams(&review, &fixer))
+        .self_join_pass_yes(&seams(&review, &fixer))
         .await
         .unwrap();
     assert_eq!(
@@ -245,7 +254,7 @@ async fn with_fix_off_a_reviews_fix_is_a_reject() {
     let fixer = StandIn::writing(&[("note.txt", "x\n")]);
     let one = r
         .core
-        .self_join_pass(&seams(&review, &fixer))
+        .self_join_pass_yes(&seams(&review, &fixer))
         .await
         .unwrap();
     assert_eq!(one.reviewed, [(branch, "reject".to_string())], "{one:?}");
@@ -349,7 +358,7 @@ async fn a_fix_at_review_cut_short_by_a_restart_is_ended_and_its_tree_closed() {
     let fixer = StandIn::writing(&[]);
     let one = r
         .core
-        .self_join_pass(&seams(&review, &fixer))
+        .self_join_pass_yes(&seams(&review, &fixer))
         .await
         .unwrap();
     assert!(one.joined.is_empty(), "{one:?}");
@@ -435,7 +444,7 @@ async fn a_head_with_an_unapproved_fixers_commit_is_not_reviewed() {
     let fixer = StandIn::writing(&[]);
     let one = r
         .core
-        .self_join_pass(&seams(&review, &fixer))
+        .self_join_pass_yes(&seams(&review, &fixer))
         .await
         .unwrap();
     assert!(
@@ -484,7 +493,7 @@ async fn a_join_main_moved_under_says_how_often_its_gate_ran() {
         })),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     let again = r.rows("self.join.again");
     assert_eq!(again.len(), 1, "{again:?}");
@@ -571,7 +580,7 @@ async fn a_review_stopped_at_its_limit_three_times_is_held_for_the_owner() {
         ..seams(&scripted(&[]), &StandIn::writing(&[]))
     };
     for _ in 0..4 {
-        r.core.self_join_pass(&s).await.unwrap();
+        r.core.self_join_pass_yes(&s).await.unwrap();
     }
     let stops: Vec<_> = r
         .rows("self.join.stopped")

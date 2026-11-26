@@ -532,8 +532,9 @@ async fn mode_off_does_nothing() {
 }
 
 /// Two join passes at once (the pipeline's and the join tender's) run one
-/// after the other: the branch is reviewed once and joined once, and the
-/// pipeline's own pass is not spawned while one runs.
+/// after the other: the branch is reviewed once, its card asked once, and
+/// after the owner's yes joined once; the pipeline's own pass is not spawned
+/// while one runs.
 #[tokio::test]
 async fn one_join_pass_at_a_time() {
     use crate::rsi::join::tests::{rig, Slow, PROVED, SONNET};
@@ -546,14 +547,22 @@ async fn one_join_pass_at_a_time() {
     };
     let (a, b) = tokio::join!(j.core.self_join_pass(&seams), j.core.self_join_pass(&seams));
     let (a, b) = (a.unwrap(), b.unwrap());
+    assert_eq!(a.parked.len() + b.parked.len(), 2, "{a:?} {b:?}");
+    assert_eq!(
+        crate::rsi::join::tests_publish::owner_says_yes(&j.core),
+        1,
+        "one card for the head"
+    );
+    let (a, b) = tokio::join!(j.core.self_join_pass(&seams), j.core.self_join_pass(&seams));
+    let (a, b) = (a.unwrap(), b.unwrap());
     assert_eq!(slow.asks(), 1, "one review of one head");
     assert_eq!(slow.most(), 1, "never two reviews at once");
     assert_eq!(j.rows("self.review.verdict").len(), 1);
     assert_eq!(j.rows("self.joined").len(), 1);
-    assert!(
-        j.rows("self.join.stopped").is_empty(),
-        "no second join tried"
-    );
+    let stops: Vec<_> = (j.rows("self.join.stopped").into_iter())
+        .filter(|d| d["phase"] != crate::rsi::join::publish::PHASE)
+        .collect();
+    assert!(stops.is_empty(), "no second join tried: {stops:?}");
     assert_eq!(a.joined.len() + b.joined.len(), 1, "{a:?} {b:?}");
     assert!(a
         .joined
@@ -596,7 +605,8 @@ async fn a_joined_items_tree_is_deleted() {
         .self_pr
         .place(&j.f.place.repo.display().to_string());
     let t = crate::rsi::tree::open(&place, item, theseus_protocol::now_unix_ms()).unwrap();
-    let pass = j.core.self_join_pass(&j.seams()).await.unwrap();
+    use crate::rsi::join::tests_publish::PassYes as _;
+    let pass = j.core.self_join_pass_yes(&j.seams()).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     let seams = Seams {
         probe: Arc::new(Stand::default()),

@@ -1,6 +1,7 @@
 //! The words for the last join when the build that runs came later (issue 20): by hand, after the join's own install
 //! did not take, an install of a later commit of main runs the join inside it. The daemon tells from its own clone.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use serde_json::json;
 use theseus_protocol::rsi::SelfMode;
 
@@ -104,7 +105,7 @@ fn the_words_follow_whether_the_running_build_contains_the_join() {
 async fn the_daemon_tells_from_its_own_clone_whether_the_running_build_has_the_join() {
     let r = rig(SelfMode::Act);
     r.seed("trim-the-sails", PROVED, SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     let merge = r.upstream_main();
     let before = git(&r.f.upstream, &["rev-parse", &format!("{merge}^1")]);
     // Main moves on, and the daemon's clone fetches it.
@@ -153,7 +154,7 @@ async fn the_daemon_tells_from_its_own_clone_whether_the_running_build_has_the_j
 async fn the_start_looks_for_the_running_builds_commit_before_it_answers() {
     let r = rig(SelfMode::Act);
     r.seed("trim-the-sails", PROVED, SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     let merge = r.upstream_main();
     // Built and installed from outside the loop: main moved on upstream, and the clone has not fetched it.
     let later = child_of(&r.f.upstream, &merge);
@@ -249,7 +250,7 @@ async fn a_revert_of_the_join_in_the_running_build_is_said_as_a_revert() {
     for kind in ["self.reverted", "self.vetoed"] {
         let r = rig(SelfMode::Act);
         r.seed("trim-the-sails", PROVED, SONNET);
-        r.core.self_join_pass(&r.seams()).await.unwrap();
+        r.core.self_join_pass_yes(&r.seams()).await.unwrap();
         let merge = r.upstream_main();
         let before = git(&r.f.upstream, &["rev-parse", &format!("{merge}^1")]);
         // The revert: a commit on the join with the tree from before it.

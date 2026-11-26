@@ -6,6 +6,7 @@
 //! suite's log), counting its runs; `cargo` is a stand-in too, first on the path, that records
 //! what it was asked and answers from the scratch directory.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -193,7 +194,7 @@ async fn an_unrelated_test_that_fails_once_is_run_again_and_the_change_joins() {
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     assert_eq!(pass.joined[0].0, branch);
     assert_ne!(r.upstream_main(), main, "it joined");
@@ -233,7 +234,7 @@ async fn an_unrelated_test_that_fails_twice_holds_the_change_and_is_named() {
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main);
     assert_eq!(s.runs("cargo.args"), 1, "once, and no more");
@@ -262,7 +263,7 @@ async fn a_test_the_change_touches_that_fails_is_held_at_once() {
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main);
     assert_eq!(s.runs("cargo.args"), 0, "nothing was run again");
@@ -285,7 +286,7 @@ async fn a_pass_on_the_second_look_does_not_skip_what_follows_the_suite() {
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main, "main is untouched");
     assert_eq!(s.runs("gate.runs"), 2);
@@ -307,7 +308,7 @@ async fn a_red_in_another_phase_is_given_no_second_look() {
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main);
     assert_eq!(s.runs("cargo.args"), 0);
@@ -324,7 +325,7 @@ async fn a_change_in_no_package_reaches_every_test() {
         (passed_again("b", "job::tests::flaky"), 0),
     );
     let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(s.runs("cargo.args"), 0);
     assert_eq!(s.runs("gate.runs"), 1);
@@ -373,7 +374,7 @@ async fn an_unrelated_test_of_the_same_package_that_fails_once_is_run_again_and_
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_WORDS, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     assert_eq!(pass.joined[0].0, branch);
     assert_ne!(r.upstream_main(), main, "it joined");
@@ -412,7 +413,7 @@ async fn a_failed_test_in_a_module_the_change_edits_is_held_at_once() {
         files.push((edited, "// after\n"));
         let (branch, _) = r.seed("trim-the-sails", &files, SONNET);
         let main = r.upstream_main();
-        let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+        let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
         assert_eq!(
             pass.stopped,
             [(branch, "gate".to_string())],
@@ -444,7 +445,7 @@ async fn a_cargo_file_or_a_script_in_the_change_gives_no_second_look() {
         files.push((edited, text));
         let (branch, _) = r.seed("trim-the-sails", &files, SONNET);
         let main = r.upstream_main();
-        let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+        let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
         assert_eq!(
             pass.stopped,
             [(branch, "gate".to_string())],
@@ -467,7 +468,7 @@ async fn an_unrelated_test_of_the_same_package_that_fails_twice_holds_the_change
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_WORDS, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main);
     assert_eq!(s.runs("cargo.args"), 1, "once, and no more");
@@ -489,7 +490,7 @@ async fn a_failed_test_of_another_binary_of_an_edited_package_is_held_at_once() 
     );
     let (branch, _) = r.seed("trim-the-sails", EDITS_WORDS, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main);
     assert_eq!(s.runs("cargo.args"), 0, "nothing was run again");

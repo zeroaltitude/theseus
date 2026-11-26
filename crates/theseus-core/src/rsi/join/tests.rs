@@ -5,6 +5,7 @@
 //! key), stand-in tests (`tests/*.sh`, run with bash), and a seeded green
 //! self branch with its `self.branch.built` row, as self-pr leaves one.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -441,7 +442,7 @@ async fn a_green_branch_is_reviewed_joined_signed_and_noticed_once() {
         reviewer: Arc::new(super::review::CheckTurn),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(
         pass.reviewed,
         [(branch.clone(), "accept".to_string())],
@@ -479,7 +480,7 @@ async fn a_green_branch_is_reviewed_joined_signed_and_noticed_once() {
         "the lock is released"
     );
     // A second pass does nothing more.
-    let again = r.core.self_join_pass(&seams).await.unwrap();
+    let again = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(
         again.reviewed.is_empty() && again.joined.is_empty(),
         "{again:?}"
@@ -534,7 +535,7 @@ async fn a_join_with_an_install_leaves_no_tree_open() {
         installer: installs.clone(),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     let merge = r.upstream_main();
     assert_eq!(pass.joined, [(branch, merge)], "{pass:?}");
     // The install ran, in a tree of its own, and its build tree still holds
@@ -589,7 +590,7 @@ async fn the_old_true_installs_on_a_users_own_layout_and_the_default_does_not() 
             installer: builds.clone(),
             ..r.seams()
         };
-        r.core.self_join_pass(&seams).await.unwrap();
+        r.core.self_join_pass_yes(&seams).await.unwrap();
         assert_eq!(builds.targets.lock().unwrap().len(), installs, "{mode:?}");
     }
 }
@@ -601,7 +602,7 @@ async fn the_same_model_for_builder_and_reviewer_is_refused() {
     let r = rig(SelfMode::Act);
     let (branch, _) = r.seed("trim-the-sails", PROVED, "claude-fable-5-2");
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "refused".to_string())]);
     let v = &r.rows("self.review.verdict")[0];
     assert!(
@@ -616,7 +617,7 @@ async fn the_same_model_for_builder_and_reviewer_is_refused() {
         "no reviewer was asked"
     );
     assert_eq!(r.upstream_main(), main);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(r.rows("self.review.verdict").len(), 1, "refused once");
 }
 
@@ -645,7 +646,7 @@ async fn an_unproved_branch_is_rejected_and_its_item_returns_to_the_backlog() {
         SONNET,
     );
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "reject".to_string())]);
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["planted_revert"], "passed");
@@ -681,7 +682,7 @@ async fn an_unproved_branch_is_rejected_and_its_item_returns_to_the_backlog() {
 async fn a_branch_without_tests_is_rejected() {
     let r = rig(SelfMode::Act);
     r.seed("trim-the-sails", &[("fix.txt", "fixed\n")], SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(
         r.rows("self.review.verdict")[0]["planted_revert"],
         "no-tests"
@@ -718,9 +719,9 @@ async fn a_keel_class_stops_at_the_owners_card_and_waits() {
     files.push(("erosion.txt", "gone\n"));
     let (b, _) = r.seed("erode-a-test", &files, SONNET);
     let seams = r.seams();
-    let one = r.core.self_join_pass(&seams).await.unwrap();
+    let one = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(one.stopped, [(a.clone(), "keel".to_string())], "{one:?}");
-    let two = r.core.self_join_pass(&seams).await.unwrap();
+    let two = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(two.stopped, [(b.clone(), "keel".to_string())], "{two:?}");
     let posts = r.posts();
     assert_eq!(posts.len(), 2, "{posts:?}");
@@ -735,7 +736,7 @@ async fn a_keel_class_stops_at_the_owners_card_and_waits() {
         posts[1]
     );
     assert_eq!(r.upstream_main(), main, "nothing joined");
-    let three = r.core.self_join_pass(&seams).await.unwrap();
+    let three = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(
         three.stopped.is_empty() && three.joined.is_empty(),
         "{three:?}"
@@ -785,7 +786,7 @@ async fn a_test_main_gained_since_the_cut_is_not_one_the_branch_removed() {
     git(&other, &["add", "-A"]);
     git(&other, &["commit", "-q", "-m", "a test main gains later"]);
     git(&other, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert!(pass.stopped.is_empty(), "{pass:?}: {:?}", r.posts());
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     assert_eq!(pass.joined[0].0, branch);
@@ -823,7 +824,7 @@ async fn the_data_rules_files_stop_at_the_owners_card() {
     }
     let seams = r.seams();
     for (i, path) in PLANTS.iter().enumerate() {
-        let pass = r.core.self_join_pass(&seams).await.unwrap();
+        let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
         assert_eq!(
             pass.stopped,
             [(format!("self/20261014-plant-{i}"), "keel".to_string())],
@@ -853,7 +854,7 @@ async fn a_held_lock_waits() {
         .unwrap()
         .unwrap();
     let (core, seams) = (r.core.clone(), r.seams());
-    let pass = tokio::spawn(async move { core.self_join_pass(&seams).await });
+    let pass = tokio::spawn(async move { core.self_join_pass_yes(&seams).await });
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert!(!pass.is_finished(), "it waits for the lock");
     assert_eq!(r.upstream_main(), main);
@@ -893,7 +894,7 @@ async fn main_moving_mid_join_redoes_the_dry_run() {
         })),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     let j = &r.rows("self.joined")[0];
     assert_eq!(j["numbers"]["tries"], 2);
@@ -913,7 +914,7 @@ async fn nothing_is_pushed_without_a_signature() {
     git(&r.f.place.repo, &["config", "--unset", "user.signingkey"]);
     let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "sign".to_string())]);
     assert_eq!(r.upstream_main(), main);
     assert!(r.rows("self.joined").is_empty());
@@ -938,7 +939,7 @@ async fn a_red_gate_on_the_merge_leaves_main_untouched() {
     files.push(("broken.txt", "red\n"));
     let (branch, _) = r.seed("trim-the-sails", &files, SONNET);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main);
     let s = &r.rows("self.join.stopped")[0];
@@ -975,7 +976,7 @@ async fn a_halt_between_phases_stops_it_and_says_where() {
         })),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "sign".to_string())]);
     let s = &r.rows("self.join.stopped")[0];
     assert_eq!(s["phase"], "sign");
@@ -992,7 +993,7 @@ async fn a_halt_between_phases_stops_it_and_says_where() {
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
         .unwrap()
         .len();
-    let next = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let next = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(next.gate, "halted");
     assert_eq!(
         r.core
@@ -1015,7 +1016,7 @@ async fn mode_off_does_nothing() {
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
         .unwrap()
         .len();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.gate, "off");
     assert_eq!(
         pass,
@@ -1085,7 +1086,7 @@ async fn an_unset_reviewer_profile_asks_jev_and_reviews_on_its_pick() {
     crate::tests_job_ask::pick(&jev, "opus", 0.95);
     let r = rig_jev(&jev, None);
     r.seed("trim-the-sails", PROVED, SONNET);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed[0].1, "accept", "{pass:?}");
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["model"], "claude-opus-5-5", "{v}");
@@ -1108,7 +1109,7 @@ async fn a_set_reviewer_profile_asks_jev_nothing() {
     crate::tests_job_ask::pick(&jev, "haiku", 0.95);
     let r = rig_jev(&jev, Some("opus"));
     r.seed("trim-the-sails", PROVED, SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["model"], "claude-opus-5-5", "{v}");
     assert!(reviewer_asks(&jev).is_empty());
@@ -1122,7 +1123,7 @@ async fn the_independence_rule_refuses_a_jev_pick_that_is_the_builders_model() {
     crate::tests_job_ask::pick(&jev, "sonnet", 0.95);
     let r = rig_jev(&jev, None);
     let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "refused".to_string())]);
     let v = &r.rows("self.review.verdict")[0];
     assert!(
@@ -1147,7 +1148,7 @@ async fn the_independence_rule_holds_when_both_sides_are_jevs_picks() {
     crate::tests_job_ask::pick(&jev, "opus", 0.95);
     let r = rig_jev(&jev, None);
     let (branch, _) = r.seed("trim-the-sails", PROVED, "claude-opus-5-5");
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "refused".to_string())]);
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["model"], "claude-opus-5-5", "{v}");
@@ -1176,7 +1177,7 @@ async fn a_slow_jev_does_not_hold_the_review() {
     // Built on Fable: the live profile (Sonnet) is another model, so it reviews.
     r.seed("trim-the-sails", PROVED, "claude-fable-5-2");
     let t0 = std::time::Instant::now();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed[0].1, "accept", "{pass:?}");
     assert_eq!(
         reviewer_asks(&jev).len(),
@@ -1198,7 +1199,7 @@ async fn a_slow_jev_and_a_live_profile_that_built_the_branch_is_refused_not_hung
     jev.set_mode(theseus_judge::fake::FakeMode::Held);
     let r = rig_jev(&jev, None);
     r.seed("mend-the-nets", PROVED, SONNET);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
     assert_eq!(reviewer_asks(&jev).len(), 1, "Jev was asked");
     jev.release();
@@ -1250,7 +1251,7 @@ async fn the_verdict_records_the_model_that_answered() {
         reviewer: stray.clone(),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "accept".to_string())], "{pass:?}");
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["model"], "claude-opus-5-5", "{v}");
@@ -1271,7 +1272,7 @@ async fn a_review_that_ran_on_the_builders_model_does_not_accept() {
         reviewer: stray.clone(),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "refused".to_string())], "{pass:?}");
     assert!(pass.joined.is_empty(), "{pass:?}");
     assert_eq!(r.upstream_main(), main, "main did not move");
@@ -1284,7 +1285,7 @@ async fn a_review_that_ran_on_the_builders_model_does_not_accept() {
         why.contains("the model that built the branch") && why.contains("does not count"),
         "{why}"
     );
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(r.rows("self.review.verdict").len(), 1, "refused once");
     assert_eq!(stray.asks.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
@@ -1298,7 +1299,7 @@ async fn a_dated_snapshot_of_the_builders_model_does_not_accept_either() {
         reviewer: Strays::on("claude-sonnet-5-5-20261101"),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
     assert!(pass.joined.is_empty(), "{pass:?}");
 }
@@ -1312,7 +1313,7 @@ async fn a_review_that_does_not_say_what_ran_does_not_accept() {
         reviewer: Strays::on(""),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
     assert!(pass.joined.is_empty(), "{pass:?}");
     let v = &r.rows("self.review.verdict")[0];
@@ -1339,7 +1340,7 @@ async fn the_reviewer_profile_is_a_pin_the_router_does_not_move() {
         reviewer: Arc::new(super::review::CheckTurn),
         ..r.seams()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.reviewed[0].1, "accept", "{pass:?}");
     let reqs = r.says.requests.lock().unwrap().clone();
     let models: Vec<&str> = reqs.iter().map(|q| q.model.as_str()).collect();
@@ -1379,7 +1380,7 @@ async fn a_head_with_only_a_legacy_accept_is_reviewed_again_and_joins_on_the_new
     let r = rig(SelfMode::Act);
     let (branch, head) = r.seed("trim-the-sails", PROVED, SONNET);
     legacy_row(&r, &branch, &head, "accept");
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(
         r.stand.asks.lock().unwrap().len(),
         1,
@@ -1406,7 +1407,7 @@ async fn a_legacy_accept_does_not_join_a_head_the_new_review_refuses() {
         ..r.seams()
     };
     for _ in 0..3 {
-        let pass = r.core.self_join_pass(&seams).await.unwrap();
+        let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
         assert!(pass.joined.is_empty(), "{pass:?}");
     }
     assert_eq!(r.upstream_main(), main, "main did not move");
@@ -1427,7 +1428,7 @@ async fn a_legacy_reject_or_refusal_is_still_seen() {
         legacy_row(&r, &branch, &head, verdict);
         let main = r.upstream_main();
         for _ in 0..2 {
-            let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+            let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
             assert!(
                 pass.reviewed.is_empty() && pass.joined.is_empty(),
                 "{verdict}: {pass:?}"
@@ -1466,7 +1467,7 @@ async fn an_accept_that_says_what_was_asked_is_trusted() {
             reasons: vec![],
             cost_usd: 0.25,
         });
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert!(r.stand.asks.lock().unwrap().is_empty(), "{pass:?}");
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
 }

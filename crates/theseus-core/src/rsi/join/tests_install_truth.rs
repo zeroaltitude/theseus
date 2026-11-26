@@ -4,6 +4,7 @@
 //! nothing, restarts nothing, and tells the owner once, with the one step. The pipeline's words
 //! follow.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -150,7 +151,7 @@ fn seams_with(r: &Rig, installer: std::sync::Arc<dyn Installer>) -> Seams {
 async fn join_with(r: &Rig, installer: std::sync::Arc<dyn Installer>) -> String {
     r.seed("trim-the-sails", PROVED, SONNET);
     let seams = seams_with(r, installer);
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     r.upstream_main()
 }
@@ -321,7 +322,7 @@ async fn a_root_owned_layout_installs_nothing_restarts_nothing_and_tells_once() 
     );
     // Another pass, and the same merge asked about again, say nothing more.
     let seams = seams_with(&r, on.clone());
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     let n = install::NotInstalled {
         why: "x".into(),
         target,

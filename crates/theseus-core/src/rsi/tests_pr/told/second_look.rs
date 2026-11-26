@@ -167,7 +167,10 @@ async fn a_failure_outside_what_the_change_reaches_is_run_once_more_and_clears()
     let report = std::fs::read_to_string(row["report"].as_str().unwrap()).unwrap();
     assert!(report.contains("passed when run again alone"), "{report}");
     assert!(report.contains("b job::tests::flaky"), "{report}");
-    assert!(upstream_refs(&r.f).contains("refs/heads/self/"), "pushed");
+    assert!(
+        !upstream_refs(&r.f).contains("refs/heads/self/"),
+        "kept here (issue 53)"
+    );
     assert!(attempts::tries(&task_of(&r), 0).is_empty());
 }
 

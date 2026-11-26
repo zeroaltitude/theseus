@@ -118,7 +118,7 @@ mod tests_planted_real;
 #[cfg(test)]
 mod tests_proof_kind;
 #[cfg(test)]
-mod tests_publish;
+pub(crate) mod tests_publish;
 #[cfg(test)]
 mod tests_reap;
 #[cfg(test)]

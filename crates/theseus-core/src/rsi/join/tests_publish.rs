@@ -65,6 +65,41 @@ impl Watched {
     }
 }
 
+/// The owner's yes to every publish card waiting on `core`, as the CLI answers: what a test that is about something
+/// else does where the join now waits for him. How many it answered.
+pub(crate) fn owner_says_yes(core: &Core) -> usize {
+    let waiting = cards(core);
+    for c in &waiting {
+        core.confirm_action(&c.correlation_id, true, None, "cli")
+            .unwrap();
+    }
+    waiting.len()
+}
+
+/// A join pass as a test about something else needs it: when the pass parks on the owner's card, the owner says
+/// yes and the pass runs once more. What the two did, as one pass: the reviews of both, the second's joins and parks,
+/// and the stops of both but the first's wait for the card.
+pub(crate) trait PassYes {
+    async fn self_join_pass_yes(&self, seams: &Seams) -> anyhow::Result<super::Pass>;
+}
+
+impl PassYes for Arc<Core> {
+    async fn self_join_pass_yes(&self, seams: &Seams) -> anyhow::Result<super::Pass> {
+        let mut first = self.self_join_pass(seams).await?;
+        if first.parked.is_empty() {
+            return Ok(first);
+        }
+        owner_says_yes(self);
+        let second = self.self_join_pass(seams).await?;
+        first.reviewed.extend(second.reviewed);
+        first.joined = second.joined;
+        first.stopped.retain(|(_, phase)| phase != publish::PHASE);
+        first.stopped.extend(second.stopped);
+        first.parked = second.parked;
+        Ok(first)
+    }
+}
+
 fn seams(r: &Rig) -> Seams {
     Seams {
         reviewer: Arc::new(super::review::CheckTurn),

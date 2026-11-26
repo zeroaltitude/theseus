@@ -4,6 +4,7 @@
 //! lint repaired, approved by the other model, reviewed and joined; and each refusal, rejection and
 //! red that ends as a failed try, one try and no more, with a fix's words.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -241,7 +242,7 @@ async fn a_red_lint_is_fixed_approved_by_the_other_model_reviewed_and_joined() {
         lock_wait: std::time::Duration::from_secs(60),
         ..crate::rsi::join::Seams::default()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     let branch = b["branch"].as_str().unwrap().to_string();
     assert_eq!(pass.reviewed, [(branch, "accept".to_string())], "{pass:?}");
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
