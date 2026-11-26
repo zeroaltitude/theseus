@@ -35,6 +35,16 @@ pub enum Needs {
 }
 
 impl Needs {
+    /// What a change asks when nothing in it is read as needing the code (a plain use of a
+    /// vault secret, `config_change::sensitive_of`): fresh when any setting needs a fresh code,
+    /// else the card alone, as main has it.
+    pub fn plain(settings: &[Setting]) -> Self {
+        match needs_fresh(settings) {
+            true => Self::Fresh,
+            false => Self::Card,
+        }
+    }
+
     /// What a change of `settings` asks: fresh when any needs a fresh code, the
     /// proof when any needs the code (`sensitivity::proof_reason`), else the
     /// card alone.

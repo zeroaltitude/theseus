@@ -53,6 +53,7 @@ fn longest() -> (ConfirmRequest, Vec<String>) {
         reason: &"because ".repeat(40),
         wait_secs: 120,
         sources: &[],
+        used: None,
     });
     (request(&q, &words::change(&settings, None)), values)
 }
@@ -125,6 +126,7 @@ fn a_plain_change_is_one_message_that_settles_into_words() {
         reason: "you said so",
         wait_secs: 120,
         sources: &[],
+        used: None,
     });
     let mut req = request(&q, &words::change(&s, None));
     req.needs_proof = false;
@@ -172,6 +174,7 @@ fn a_view_that_cannot_hold_the_words_does_not_take_a_yes_on_part_of_them() {
         reason: "",
         wait_secs: 120,
         sources: &[],
+        used: None,
     });
     let short = request(&q, &words::change(&s, None));
     assert!(words_here(&short).unwrap().starts_with("Change 1 setting?"));
@@ -203,6 +206,7 @@ fn markdown_in_a_value_is_drawn_as_the_characters_it_is() {
         reason: "turn *this* on",
         wait_secs: 120,
         sources: &[],
+        used: None,
     });
     let req = request(&q, &words::change(&s, None));
     let all = unmarked(&drawn(&req));
@@ -259,6 +263,7 @@ fn a_cut_never_splits_an_escape_and_each_message_says_its_place() {
         reason: "",
         wait_secs: 120,
         sources: &[],
+        used: None,
     });
     let mut req = request(&q, &words::change(&settings, None));
     req.needs_proof = false;
@@ -342,6 +347,7 @@ fn a_source_is_drawn_literally_under_its_setting() {
         reason: "the owner asked",
         wait_secs: 120,
         sources: std::slice::from_ref(&said),
+        used: None,
     });
     let req = request(&q, &words::change(&settings, None));
     let all = unmarked(&drawn(&req));

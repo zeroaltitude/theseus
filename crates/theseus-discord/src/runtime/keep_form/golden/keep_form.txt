@@ -4,7 +4,6 @@ A value typed in the form goes through Discord's servers on its way to Theseus, 
 Keep a secret in the vault?
 In the vault "Harbor": item "Lantern new", field "credential" \(a new item\).
 You give the value yourself, where only you see it; it never goes to the model, to this card or to a record. Do not paste it into chat: a value typed in chat is already with the model's provider and in Theseus's record, and Theseus cannot take it back \(rotate it at its provider, then give the new one where it is typed\).
-It needs your second proof \(a code from your authenticator app, unless one given here earlier still covers this place\).
 Theseus's reason, in its own words: "the lantern provider's key"
 
 -# expires <t:0:R>
@@ -17,7 +16,6 @@ Type the value in your own terminal: run \`theseus vault keep\` \(nothing is sho
 Keep a secret in the vault?
 In the vault "Harbor": item "Lantern new", field "credential" \(a new item\).
 You give the value yourself, where only you see it; it never goes to the model, to this card or to a record. Do not paste it into chat: a value typed in chat is already with the model's provider and in Theseus's record, and Theseus cannot take it back \(rotate it at its provider, then give the new one where it is typed\).
-It needs your second proof \(a code from your authenticator app, unless one given here earlier still covers this place\).
 Theseus's reason, in its own words: "the lantern provider's key"
 
 -# expires <t:0:R>

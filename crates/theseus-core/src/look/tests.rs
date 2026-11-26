@@ -19,22 +19,18 @@ fn plan() -> Plan {
 }
 
 /// A clean turn is told and not asked; one that read text from outside, or was
-/// steered, is asked; and only the two looks are touched.
+/// steered, is asked, each in its own words; and only the looks are touched.
 #[test]
 fn a_look_is_free_when_clean_and_asked_after_outside_text() {
+    use crate::config_change::tests_hold::{each_cause_is_said, ways};
     for tool in NAMES {
-        assert!(
-            held(tool, false, false, plan()).authority.is_none(),
-            "{tool}"
-        );
-        for (outside, steered) in [(true, false), (false, true), (true, true)] {
-            let said = held(tool, outside, steered, plan()).authority.unwrap();
-            assert!(said.contains("read text from outside"), "{said}");
-        }
+        each_cause_is_said(tool, |o, s, way| held(tool, o, s, way, plan()).authority);
     }
     for other in ["config.show", "proc.run", "look.other", "fs.read"] {
         assert!(
-            held(other, true, true, plan()).authority.is_none(),
+            held(other, true, true, &ways()[1], plan())
+                .authority
+                .is_none(),
             "{other}"
         );
     }

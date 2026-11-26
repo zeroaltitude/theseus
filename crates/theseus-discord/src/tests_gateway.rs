@@ -1106,6 +1106,7 @@ mod calendar;
 mod card_question;
 mod cards;
 mod content;
+mod content_fyi;
 mod horizon;
 mod keep_form;
 mod notify;

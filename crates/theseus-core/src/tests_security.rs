@@ -777,7 +777,7 @@ fn spans<'a>(s: &'a Value, kind: &str) -> Vec<&'a Value> {
 
 /// An exchange of `place` in session `sid`, its ask by `person` (marked) and its reply, its touch written: for
 /// [`a_history_read_of_another_persons_words_is_outside_text_and_holds_nothing`].
-fn history_exchange(
+pub(crate) fn history_exchange(
     core: &Core,
     sid: &str,
     turn: &str,
