@@ -1073,7 +1073,7 @@ impl Lane {
             | "self_keel" | "seal_card" | "self_join" | "self_narrow" | "self_narrow_red"
             | "initiative" | "standing_card" | "digest" | "privacy_warning" | "onto_card"
             | "home_size" | "link_card" | "persona_soul" | "card_question" | "told"
-            | "mcp_sign_in" => self.jev_post(a, &body).await,
+            | "mcp_sign_in" | "google_sign_in" => self.jev_post(a, &body).await,
             // The self-build halt's note, to the owner's DM alone, pinging (theseus-6s7ll).
             "self_halt" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
@@ -1756,6 +1756,12 @@ impl Lane {
                 format!("mcpin:{}", a.correlation_id),
                 Buttons::McpSignIn(crate::runtime::mcp_sign_in::server_of(body)),
             ),
+            // A Connect Google button a turn offered (issue 59).
+            "google_sign_in" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("gsi:{}", a.correlation_id),
+                Buttons::GoogleSignIn,
+            ),
             // A persona added without a soul asks for it (theseus-utfnl).
             "persona_soul" => (
                 body["text"].as_str().unwrap_or("").to_string(),
@@ -2079,6 +2085,7 @@ impl Lane {
             Buttons::Told(post) => crate::runtime::told_buttons(post),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::McpSignIn(server) => crate::runtime::mcp_sign_in::buttons(server),
+            Buttons::GoogleSignIn => crate::runtime::google_sign_in::buttons(),
             Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
             Buttons::SelfResume => crate::runtime::self_note::resume_buttons(),
             Buttons::ContentRemove(s, f) => crate::runtime::content::buttons(s, f),
@@ -2159,6 +2166,7 @@ impl Lane {
             Buttons::Told(post) => Some(crate::runtime::told_buttons(post)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::McpSignIn(server) => Some(crate::runtime::mcp_sign_in::buttons(server)),
+            Buttons::GoogleSignIn => Some(crate::runtime::google_sign_in::buttons()),
             Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),
             Buttons::SelfResume => Some(crate::runtime::self_note::resume_buttons()),
             Buttons::ContentRemove(s, f) => Some(crate::runtime::content::buttons(s, f)),

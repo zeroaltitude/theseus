@@ -1,7 +1,9 @@
 //! `google.auth.begin`, `google.auth.finish`, `google.revoke` and
 //! `google.status` (the Google design §2.2): the operator's, from the CLI on
-//! this machine. Refused from Discord, from the web UI and from an MCP client,
-//! as `aws.bootstrap` is. The CLI refuses them inside a Theseus job
+//! this machine; and (issue 59) `auth.*` and `revoke` also from the owner's own
+//! press of a control in a private place on Discord (`owner_press`). Refused
+//! from Discord otherwise, from the web UI and from an MCP client, as
+//! `aws.bootstrap` is. The CLI refuses them inside a Theseus job
 //! (theseus-zmgb), a speed bump; L1 is the boundary. The paste, when there is
 //! one, is read from the terminal and travels here in a param, never an
 //! argument; none of these answers holds a token, a code or a secret.
@@ -18,6 +20,11 @@ use super::server::{Conn, RpcFailure};
 use crate::approval::Surface;
 use crate::google::Google;
 
+/// What a press from Discord is told when it is not the owner's own, in a private place: fixed
+/// words, with the place rule's own reason after them.
+pub const NOT_YOURS: &str = "Google's consent from Discord is the owner's own press, in a private \
+                             place (a direct message with Theseus, or a channel bound private)";
+
 fn cli_only(conn: &Conn<'_>, method: &str, verb: &str) -> Result<(), RpcFailure> {
     if conn.surface != Surface::Cli {
         return Err(RpcFailure::new(
@@ -31,6 +38,25 @@ fn cli_only(conn: &Conn<'_>, method: &str, verb: &str) -> Result<(), RpcFailure>
 }
 
 impl crate::Core {
+    /// The CLI; or the owner's own press in a private place on Discord; else `cli_only`'s refusal.
+    fn google_admitted(
+        &self,
+        conn: &Conn<'_>,
+        method: &str,
+        verb: &str,
+        author: Option<String>,
+        discord: Option<theseus_protocol::DiscordOrigin>,
+    ) -> Result<(), RpcFailure> {
+        match self.owner_press(conn, author, discord) {
+            Some(Ok(())) => Ok(()),
+            Some(Err(why)) => Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!("{NOT_YOURS}: {why}"),
+            )),
+            None => cli_only(conn, method, verb),
+        }
+    }
+
     /// The four methods, from `rpc_prefixed`'s one arm.
     pub(super) async fn rpc_google(
         self: &Arc<Self>,
@@ -69,7 +95,13 @@ impl crate::Core {
         p: GoogleAuthBeginParams,
         conn: Conn<'_>,
     ) -> Result<GoogleAuthBeginResult, RpcFailure> {
-        cli_only(&conn, "google.auth.begin", "auth")?;
+        self.google_admitted(
+            &conn,
+            "google.auth.begin",
+            "auth",
+            p.author.clone(),
+            p.discord.clone(),
+        )?;
         self.google()?
             .auth_begin(p.manual)
             .await
@@ -81,7 +113,13 @@ impl crate::Core {
         p: GoogleAuthFinishParams,
         conn: Conn<'_>,
     ) -> Result<GoogleAuthFinishResult, RpcFailure> {
-        cli_only(&conn, "google.auth.finish", "auth")?;
+        self.google_admitted(
+            &conn,
+            "google.auth.finish",
+            "auth",
+            p.author.clone(),
+            p.discord.clone(),
+        )?;
         let g = self.google()?;
         let r = g
             .auth_finish(&p, self.cfg.op_token_file.as_deref())
@@ -97,10 +135,10 @@ impl crate::Core {
 
     pub(super) async fn google_revoke(
         &self,
-        _p: GoogleRevokeParams,
+        p: GoogleRevokeParams,
         conn: Conn<'_>,
     ) -> Result<GoogleRevokeResult, RpcFailure> {
-        cli_only(&conn, "google.revoke", "revoke")?;
+        self.google_admitted(&conn, "google.revoke", "revoke", p.author, p.discord)?;
         let g = self.google()?;
         let r = g.revoke(self.cfg.op_token_file.as_deref()).await;
         self.google_revoked(g.account(), r.revoked_at_google, r.cleared);

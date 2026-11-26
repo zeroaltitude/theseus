@@ -186,7 +186,7 @@ pub fn of_wire(wire: &str) -> String {
         "config_propose_file" | "config_read_file" => "prompt-files",
         // The owner's Sign in button for an MCP server (issue 59): its own
         // family, for the same bound.
-        "mcp_sign_in_offer" => "sign-in",
+        "mcp_sign_in_offer" | "google_sign_in_offer" => "sign-in",
         "task_wait" | "task_fan_out" => HELPERS,
         _ => match wire.split('_').next().unwrap_or("") {
             "fs" | "git" | "text" => "files",
@@ -433,6 +433,7 @@ mod tests {
             ("config_propose_file", "prompt-files"),
             ("config_read_file", "prompt-files"),
             ("mcp_sign_in_offer", "sign-in"),
+            ("google_sign_in_offer", "sign-in"),
             ("daemon_restart", "settings"),
             ("mcp_attach", "settings"),
             ("mcp_detach", "settings"),

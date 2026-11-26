@@ -1838,6 +1838,11 @@ impl ToolRuntime {
             }
             // A Sign in button offered to the owner; it begins nothing (issue 59).
             crate::mcp::offer::OFFER => crate::mcp::offer::run(self, tc, &call.input),
+            // A Connect Google button offered to the owner; it begins nothing (issue 59).
+            crate::google::offer::OFFER => match &self.google {
+                Some(g) => crate::google::offer::run(g.account(), tc),
+                None => Err("no Google account is bound".into()),
+            },
             crate::config_change::undo::UNDO => {
                 crate::config_change::undo::run(self, tc, &call.input, correlation_id)
             }

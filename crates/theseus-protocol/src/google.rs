@@ -13,6 +13,14 @@ use serde::{Deserialize, Serialize};
 pub struct GoogleAuthBeginParams {
     #[serde(default)]
     pub manual: bool,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// The consent URL, which holds no secret (the client id, the PKCE challenge, a
@@ -35,7 +43,7 @@ pub struct GoogleAuthBeginResult {
 
 /// `google.auth.finish`: wait for the redirect (`pasted` empty), or redeem the
 /// address bar the owner pasted.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct GoogleAuthFinishParams {
     pub auth_id: String,
@@ -47,6 +55,25 @@ pub struct GoogleAuthFinishParams {
     /// `waiting` so the CLI can ask for the paste.
     #[serde(default)]
     pub wait_secs: u64,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+/// The pasted address carries the code: never printed.
+impl std::fmt::Debug for GoogleAuthFinishParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GoogleAuthFinishParams")
+            .field("auth_id", &self.auth_id)
+            .field("pasted", &self.pasted.as_ref().map(|_| "(given)"))
+            .field("wait_secs", &self.wait_secs)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What the consent came to.
@@ -71,7 +98,16 @@ pub struct GoogleAuthFinishResult {
 /// `google.revoke`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct GoogleRevokeParams {}
+pub struct GoogleRevokeParams {
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

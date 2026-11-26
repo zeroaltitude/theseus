@@ -66,7 +66,13 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: GoogleCmd) -> Result<()> {
 
 async fn auth(conn: &mut Conn, json: bool, manual: bool) -> Result<()> {
     let v = conn
-        .request(method::GOOGLE_AUTH_BEGIN, GoogleAuthBeginParams { manual })
+        .request(
+            method::GOOGLE_AUTH_BEGIN,
+            GoogleAuthBeginParams {
+                manual,
+                ..Default::default()
+            },
+        )
         .await?;
     let begun: GoogleAuthBeginResult = serde_json::from_value(v)?;
     for l in begin_lines(&begun) {
@@ -79,6 +85,7 @@ async fn auth(conn: &mut Conn, json: bool, manual: bool) -> Result<()> {
             auth_id: begun.auth_id.clone(),
             pasted: pasted.take(),
             wait_secs: wait,
+            ..Default::default()
         };
         let r: GoogleAuthFinishResult =
             serde_json::from_value(conn.request(method::GOOGLE_AUTH_FINISH, params).await?)?;

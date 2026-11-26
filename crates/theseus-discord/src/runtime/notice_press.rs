@@ -46,6 +46,8 @@ impl Shared {
             self.persona_soul_press(i, press, who).await;
         } else if let Some(press) = super::mcp_sign_in::parse(custom_id) {
             self.mcp_sign_in_press(i, press, who).await;
+        } else if let Some(press) = super::google_sign_in::parse(custom_id) {
+            self.google_sign_in_press(i, press, who).await;
         } else if let Some(press) = super::content::parse(custom_id) {
             self.content_press(i, press, who, discord).await;
         } else if let Some(press) = super::self_note::parse(custom_id) {

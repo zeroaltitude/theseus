@@ -112,6 +112,8 @@ pub const OPERATOR_KINDS: &[&str] = &[
     "told",
     // The owner's Sign in button for an MCP server, which a turn offers (issue 59).
     "mcp_sign_in",
+    // The owner's Connect Google button, which a turn offers (issue 59).
+    "google_sign_in",
 ];
 /// The downstream key of a post that creates messages: Discord's nonce.
 pub const NONCE_KEY: &str = "discord.nonce";

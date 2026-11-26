@@ -42,6 +42,7 @@ pub mod drive;
 pub mod external;
 pub mod mail;
 pub mod mime;
+pub mod offer;
 pub mod private;
 pub mod send_cap;
 pub mod sheets;
@@ -62,6 +63,8 @@ mod tests_call_asks;
 mod tests_config;
 #[cfg(test)]
 mod tests_cut;
+#[cfg(test)]
+mod tests_discord;
 #[cfg(test)]
 mod tests_drive;
 #[cfg(test)]
@@ -262,6 +265,8 @@ impl Google {
         all.extend(calendar::tools(self));
         //
         all.extend([call::tool(self)]);
+        // The owner's Connect Google button, offered (issue 59).
+        all.push(offer::tool(self));
         all
     }
 

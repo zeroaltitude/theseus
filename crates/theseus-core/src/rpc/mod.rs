@@ -60,6 +60,7 @@ mod methods;
 mod modes;
 pub(crate) mod own_file;
 mod owner_input;
+mod owner_press;
 mod owner_proof;
 mod proof_gate;
 pub(crate) mod vault_keep;
