@@ -18,19 +18,13 @@ use super::server::{parse, reply, Conn, RpcFailure};
 use crate::approval::Surface;
 
 impl crate::Core {
-    /// The three methods, from the dispatch's one arm, which `mcp.restart`
-    /// shares so the dispatch stays within clippy's complexity (the shape
-    /// budget). A restart is admitted as on main: this surface check is the
-    /// sign-in's alone.
+    /// The three methods, from the dispatch's one arm.
     pub(super) async fn rpc_mcp_login(
         self: &Arc<Self>,
         name: &str,
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        if name == method::MCP_RESTART {
-            return reply(self.mcp_restart(parse(params)?)?);
-        }
         if conn.surface != Surface::Cli {
             let verb = if name == method::MCP_LOGOUT {
                 "logout"
