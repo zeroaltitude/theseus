@@ -857,8 +857,9 @@ async fn an_open_note_whose_settle_failed_is_still_open_after_its_retry() {
 
 /// A rig over a store in which `words`' FYI was dispatched five minutes
 /// before this process started and never settled: the lane sends it again
-/// as a possible copy (`render::RESENT`). Its correlation id too.
-async fn resent_rig(dm: &str, words: &str) -> (Rig, String) {
+/// as a possible copy (`render::RESENT`); with `fail_once`, its first
+/// settle fails. Its correlation id too.
+async fn resent_rig(dm: &str, words: &str, fail_once: bool) -> (Rig, String) {
     let fake = theseus_sim::fake_discord::FakeDiscord::start_with_gateway();
     fake.set_guild(guild());
     let post = std::sync::Mutex::new(String::new());
@@ -875,6 +876,9 @@ async fn resent_rig(dm: &str, words: &str) -> (Rig, String) {
             core.store.append(&frame).unwrap();
             core.outbox.dispatch(&a.correlation_id).unwrap();
             theseus_protocol::time::reset_clock();
+            if fail_once {
+                crate::courier::fold_note::fail_settle_once(&a.correlation_id);
+            }
             *post.lock().unwrap() = a.correlation_id;
         },
     )
@@ -889,14 +893,14 @@ async fn resent_rig(dm: &str, words: &str) -> (Rig, String) {
 #[tokio::test]
 async fn a_resent_note_keeps_its_copy_mark_open_and_closed() {
     let words = "sent-again-after-an-outage";
-    let (r, _) = resent_rig(OPEN, words).await;
+    let (r, _) = resent_rig(OPEN, words, false).await;
     r.until("the open note", || first_with(&r, ANA_DM, words).is_some())
         .await;
     let open = first_with(&r, ANA_DM, words).unwrap().content;
     assert!(open.ends_with(crate::render::RESENT), "{open:?}");
     r.stop();
 
-    let (r, post) = resent_rig("", words).await;
+    let (r, post) = resent_rig("", words, false).await;
     let line = format!("{LINE}\n{}", crate::render::RESENT);
     let m = folded(&r, ANA_DM, &post).await;
     assert_eq!(m.content, line);
@@ -945,4 +949,119 @@ async fn a_recovered_disk_note_folds_at_the_default_and_opens_to_the_open_dms_wo
         "closed, its words were never shown"
     );
     open_and_close(&r, ANA_DM, &m, &open, "-# ℹ️ FYI: the disk").await;
+}
+
+/// An operator post as the core stages one, every settle of which fails
+/// until the test releases it: its correlation id.
+fn stage_held(r: &Rig, body: Value) -> String {
+    let (a, frame) = r.core.outbox.stage_to_operator(None, body).unwrap();
+    crate::courier::fold_note::hold_settle(&a.correlation_id);
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+    a.correlation_id
+}
+
+/// Bind the file `file` and wait until the binding has taken it.
+async fn rebind(r: &Rig, file: &str) {
+    let revision = crate::bindings::Bindings::parse(file).unwrap().revision;
+    std::fs::write(r.dir.path().join("bindings.toml"), file).unwrap();
+    r.until("the change is bound", || {
+        r.core.bindings.all().first().and_then(|b| b.revision.clone()) == Some(revision.clone())
+    })
+    .await;
+}
+
+/// Review round 3, the first edge: a note written folded whose settle
+/// failed, its DM bound open before the retry: the retry writes it as it
+/// was written, the closed line with its button, its pair recorded, and
+/// Show and Hide work.
+#[tokio::test]
+async fn a_folded_note_whose_settle_failed_stays_folded_when_its_dm_is_bound_open() {
+    let r = rig("", None, vec![]).await;
+    let post = stage_held(&r, fyi("folded-then-bound-open"));
+    let m = folded(&r, ANA_DM, &post).await;
+    r.until("a settle failed", || crate::courier::fold_note::settle_failures(&post) > 0)
+        .await;
+    rebind(&r, &file(OPEN, None)).await;
+    crate::courier::fold_note::release_settle(&post);
+    r.until("the post settled on its retry", || succeeded(&r, &post))
+        .await;
+    let ms = note_messages(&r, &post);
+    assert_eq!(ms.len(), 1, "{ms:#?}");
+    assert!(ms[0].versions.iter().all(|v| v == LINE), "closed throughout: {:#?}", ms[0]);
+    assert_eq!(labels(&ms[0]), ["Show note"]);
+    assert_eq!(stored(&r, &post), (ANA_DM.to_string(), m.id.clone(), false));
+    open_and_close(&r, ANA_DM, &m, &fyi_text("folded-then-bound-open"), LINE).await;
+}
+
+/// Its reverse: a note written open whose settle failed, its DM bound
+/// folded before the retry: still open, its words, no button, no pair.
+#[tokio::test]
+async fn an_open_note_whose_settle_failed_stays_open_when_its_dm_is_bound_folded() {
+    let words = "open-then-bound-folded";
+    let r = rig(OPEN, None, vec![]).await;
+    let post = stage_held(&r, fyi(words));
+    r.until("the open note", || first_with(&r, ANA_DM, words).is_some())
+        .await;
+    r.until("a settle failed", || crate::courier::fold_note::settle_failures(&post) > 0)
+        .await;
+    rebind(&r, &file("", None)).await;
+    crate::courier::fold_note::release_settle(&post);
+    r.until("the post settled on its retry", || succeeded(&r, &post))
+        .await;
+    let ms: Vec<Msg> = r.posted(ANA_DM).into_iter().filter(|m| m.versions[0].contains(words)).collect();
+    assert_eq!(ms.len(), 1, "{ms:#?}");
+    assert!(ms[0].versions.iter().all(|v| *v == fyi_text(words)), "open throughout: {:#?}", ms[0]);
+    assert!(ms[0].buttons.is_empty(), "{:#?}", ms[0]);
+    let a = r.core.kernel.outbox_action(&post).unwrap().unwrap();
+    assert!(a.detail.unwrap()["note_fold"].is_null(), "no pair for an open note");
+}
+
+/// The copy's mark is the delivery's fact, never the words': a note sent
+/// for the first time whose own words end with the mark's text is no copy.
+/// Folded, its line has no mark and its record says `resent` false; opened,
+/// it is the open DM's message byte for byte.
+#[tokio::test]
+async fn a_first_note_whose_words_end_with_the_copy_marks_text_is_no_copy() {
+    let words = format!("ends-with-the-mark\n{}", crate::render::RESENT);
+    let r = rig(OPEN, None, vec![]).await;
+    stage(&r, fyi(&words));
+    r.until("the open note", || first_with(&r, ANA_DM, "ends-with-the-mark").is_some())
+        .await;
+    let open = first_with(&r, ANA_DM, "ends-with-the-mark").unwrap().content;
+    assert_eq!(open, fyi_text(&words), "delivered once, as its words");
+    r.stop();
+
+    let r = rig("", None, vec![]).await;
+    let post = stage(&r, fyi(&words));
+    let m = folded(&r, ANA_DM, &post).await;
+    assert_eq!(m.content, LINE);
+    r.until("settled", || succeeded(&r, &post)).await;
+    assert_eq!(stored(&r, &post), (ANA_DM.to_string(), m.id.clone(), false));
+    open_and_close(&r, ANA_DM, &m, &open, LINE).await;
+}
+
+/// A folded note genuinely sent again as a possible copy, whose settle
+/// fails once: after the retry its closed line still bears the mark, its
+/// record says `resent`, and Show and Hide keep the mark.
+#[tokio::test]
+async fn a_resent_folded_note_whose_settle_failed_keeps_its_mark_after_the_retry() {
+    let words = "resent-and-retried";
+    let (r, _) = resent_rig(OPEN, words, false).await;
+    r.until("the open note", || first_with(&r, ANA_DM, words).is_some())
+        .await;
+    let open = first_with(&r, ANA_DM, words).unwrap().content;
+    assert!(open.ends_with(crate::render::RESENT), "{open:?}");
+    r.stop();
+
+    let (r, post) = resent_rig("", words, true).await;
+    let line = format!("{LINE}\n{}", crate::render::RESENT);
+    r.until("the post settled on its retry", || succeeded(&r, &post))
+        .await;
+    assert_eq!(crate::courier::fold_note::settle_failures(&post), 1, "it failed once");
+    let ms = note_messages(&r, &post);
+    assert_eq!(ms.len(), 1, "{ms:#?}");
+    assert!(ms[0].versions.iter().all(|v| *v == line), "the mark kept: {:#?}", ms[0]);
+    assert_eq!(stored(&r, &post), (ANA_DM.to_string(), ms[0].id.clone(), true));
+    open_and_close(&r, ANA_DM, &ms[0], &open, &line).await;
 }
