@@ -117,8 +117,8 @@ impl Tool for CallTool {
          gmail.users.messages.get, calendar.events.list) or \"VERB /path\" \
          (\"GET /gmail/v1/users/me/labels\"); `params` holds the path and query parameters \
          together, as Google's reference names them (userId defaults to me, calendarId to \
-         primary); `body` is the JSON body. A GET reads; every other call asks the owner every \
-         time. Results are private and outside text."
+         primary); `body` is the JSON body. A GET and Calendar's free/busy query read; every other \
+         call asks the owner every time. Results are private and outside text."
     }
     fn input_schema(&self) -> Value {
         json!({
