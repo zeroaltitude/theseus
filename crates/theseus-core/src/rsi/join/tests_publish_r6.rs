@@ -3,6 +3,7 @@
 //! hook of its own.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use theseus_protocol::rsi::SelfMode;
 
@@ -541,4 +542,69 @@ fn untrusted_text_is_one_escaped_bounded_line() {
         long.ends_with(" [cut]") && long.chars().filter(|c| *c == 'x').count() == 120,
         "{long}"
     );
+}
+
+/// What a reviewer saw of the daemon's checkout while it ran: whether `<scratch>/tree` was there, and its head.
+#[derive(Default)]
+struct Looks {
+    seen: std::sync::Mutex<Vec<(PathBuf, bool, String)>>,
+}
+
+impl super::review::Reviewer for Looks {
+    fn review<'a>(
+        &'a self,
+        _core: &'a Arc<Core>,
+        ask: &'a super::review::Ask,
+    ) -> super::review::Fut<'a> {
+        let tree = Path::new(&ask.scratch).join("tree");
+        let head = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&tree)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        self.seen
+            .lock()
+            .unwrap()
+            .push((tree.clone(), tree.exists(), head));
+        let (profile, model) = (ask.target.profile.clone(), ask.target.model.clone());
+        Box::pin(async move {
+            Ok(super::review::Review {
+                accept: true,
+                fix: false,
+                reasons: vec!["it reads the daemon's checkout".into()],
+                cost_usd: 0.0,
+                session: None,
+                profile,
+                model,
+            })
+        })
+    }
+}
+
+/// STOP 1 (issue 53): the daemon checks out the reviewed head in the review's scratch before the review, and it is
+/// gone (the directory and its worktree entry) when the review has answered.
+#[tokio::test]
+async fn the_daemons_checkout_is_there_during_the_review_and_gone_after() {
+    let r = rig(SelfMode::Act);
+    let (_, head) = r.seed("trim-the-sails", PROVED, SONNET);
+    let looks = Arc::new(Looks::default());
+    let s = super::Seams {
+        reviewer: looks.clone(),
+        ..r.seams()
+    };
+    r.core.self_join_pass(&s).await.unwrap();
+    let seen = looks.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    let (tree, there, at) = &seen[0];
+    assert!(
+        *there,
+        "the checkout was there during the review: {}",
+        tree.display()
+    );
+    assert_eq!(at, &head, "at the reviewed head");
+    assert!(!tree.exists(), "and gone after");
+    let listed = repo_git(&r, &["worktree", "list", "--porcelain"]);
+    assert!(!listed.contains(&tree.display().to_string()), "{listed}");
 }

@@ -268,3 +268,28 @@ fn a_self_sessions_shell_in_l1_reaches_nothing_of_the_daemons() {
         "the builder's removal in its build folder persisted"
     );
 }
+
+/// STOP 1 (issue 53): a reviewer's L1 view binds the daemon's checkout of the reviewed head read-only, as
+/// `toolrun::job` adds it: the reviewer reads it, and a write there fails and leaves nothing on the host.
+#[test]
+fn a_reviewers_view_reads_the_daemons_checkout_and_cannot_write_it() {
+    if root() {
+        assert!(theseus_sandbox::refused_here().is_some());
+        return;
+    }
+    let r = Rig::new();
+    let tree = r.path("state/self/review/br-one/tree");
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join("seen.txt"), "the reviewed head\n").unwrap();
+    let mut view = r.sandbox.job_view();
+    view.hidden.retain(|h| !(tree != *h && tree.starts_with(h)));
+    view.ro_paths.push(tree.clone());
+    let script = format!(
+        "echo ran=yes\necho read=$(cat '{t}/seen.txt')\nif echo x > '{t}/new' 2>/dev/null; then echo write=ok; else echo write=no; fi\n",
+        t = tree.display()
+    );
+    let text = r.run("reviewer-checkout", view, &script);
+    assert_eq!(said(&text, "read"), "the reviewed head", "{text}");
+    assert_eq!(said(&text, "write"), "no", "{text}");
+    assert!(!tree.join("new").exists(), "nothing written on the host");
+}

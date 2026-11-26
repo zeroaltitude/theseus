@@ -488,6 +488,12 @@ impl ToolRuntime {
             }
             _ => None,
         };
+        // A self review's L1 command sees the daemon's checkout of the reviewed head, read-only (issue 53).
+        let review_tree = class
+            .l1()
+            .then(|| self.self_pr.review_scratch(tc.session_id))
+            .flatten()
+            .map(|s| crate::rsi::join::scratch::tree_of(&s));
         // A self review's command outside the sandbox keeps its temporary files under its own
         // scratch, not in the machine's shared one (`rsi::own_removals::review_tmp`).
         if !class.l1() {
@@ -513,6 +519,14 @@ impl ToolRuntime {
         let sandbox = match (&build, sandbox) {
             (Some(dir), Some(view)) => {
                 Some(crate::sandbox::Sandbox::with_builder_folder(view, dir))
+            }
+            (_, view) => view,
+        };
+        let sandbox = match (review_tree, sandbox) {
+            (Some(t), Some(mut view)) => {
+                view.hidden.retain(|h| !(t != *h && t.starts_with(h)));
+                view.ro_paths.push(t);
+                Some(view)
             }
             (_, view) => view,
         };

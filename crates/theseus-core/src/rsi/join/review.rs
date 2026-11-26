@@ -99,11 +99,10 @@ pub fn prompt(a: &Ask) -> String {
          whether the diff does what the report claims, fixes what the evidence shows, and breaks \
          nothing else; a test that would pass without the fix proves nothing. Then end your reply \
          with one line, {verdicts}, and after it one line per reason.{offer}\n\n\
-         If you need a checkout or a build to check this, make them under `{scratch}`. That \
-         directory is yours for this review and is removed when you have answered, so there is \
-         nothing to clean up. Take the checkout from the self repository (`git -C {repo} worktree \
-         add --detach {scratch}/tree {head}`) and point any build at `{scratch}/target`. Your commands' `TMPDIR` is `{scratch}/tmp`. Add no \
-         worktree to any other checkout, and write nothing under the self trees directory.",
+         The change's head ({head}) is checked out for you, read-only, at `{scratch}/tree`; the \
+         daemon made it and removes it when you have answered. Read it there; make and remove no \
+         checkout of your own, add no worktree to any checkout, and write nothing under the self \
+         trees directory. Your commands run in the sandbox, where nothing you write persists.",
         crate::check::render(&[], Some(&claim)),
         proof = a.proof,
         verdicts = match a.offer_fix {
@@ -112,7 +111,6 @@ pub fn prompt(a: &Ask) -> String {
         },
         offer = offer(a),
         scratch = a.scratch,
-        repo = a.repo,
         head = a.head,
     )
 }

@@ -191,6 +191,11 @@ impl Run<'_> {
         // a tree it left under the self trees held the pipeline's slot for good (`scratch`).
         let (p, b) = (self.place.clone(), self.b.branch.clone());
         let own = blocking(move || Ok(scratch::open(&p, &b))).await?;
+        // The reviewed head, checked out by the daemon in the scratch, read-only to the reviewer (issue 53).
+        let (p, s, h) = (self.place.clone(), own.clone(), self.b.head.clone());
+        if let Err(e) = blocking(move || scratch::checkout(&p, &s, &h)).await {
+            tracing::warn!(branch = %self.b.branch, "self-review: its checkout was not made: {e:#}");
+        }
         let place = self.place.clone();
         let closed = |own: scratch::Scratch| {
             let p = place.clone();

@@ -87,6 +87,31 @@ pub fn open(p: &Place, branch: &str) -> Scratch {
     s
 }
 
+/// The reviewed head, checked out by the daemon at `<scratch>/tree` (issue 53): a detached worktree of the self
+/// repository, which the reviewer's L1 view binds read-only (`toolrun::job`) and which [`close`] removes with the
+/// scratch (its directory, then `git worktree prune`). The reviewer neither makes nor removes a checkout. Its path.
+pub fn checkout(p: &Place, s: &Scratch, head: &str) -> anyhow::Result<PathBuf> {
+    let at = s.dir.join("tree");
+    let _one = tree::repo_lock();
+    p.git_ok(
+        &p.repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &at.to_string_lossy(),
+            head,
+        ],
+    )?;
+    Ok(at)
+}
+
+/// The tree [`checkout`] makes in the scratch `dir`.
+pub fn tree_of(dir: &Path) -> PathBuf {
+    dir.join("tree")
+}
+
 /// The reviews whose mark is still there: each opened and never closed.
 fn unclosed(p: &Place) -> Vec<Scratch> {
     let Ok(d) = std::fs::read_dir(root(p)) else {
