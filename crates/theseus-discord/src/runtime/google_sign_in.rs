@@ -108,12 +108,16 @@ pub(crate) fn failure(e: &CallError) -> &'static str {
     if e.code == error_code::REFUSED {
         return NOT_HERE;
     }
+    // By how the daemon's words begin: what follows may hold what was pasted.
     let m = e.message.as_str();
-    if m.starts_with("no sign-in is open") || m.contains("the redirect was taken") {
+    if m.starts_with("no sign-in is open") || m.starts_with("the redirect was taken") {
         EXPIRED
-    } else if m.contains("state") || m.contains("redirect") || m.contains("the address") {
+    } else if m.starts_with("the redirect's state") || m.starts_with("the address holds no code") {
         NOT_THIS
-    } else if m.contains("nothing was stored") {
+    } else if m.starts_with("that sign-in was for a different account")
+        || m.starts_with("Google named no account")
+        || m.starts_with("Google granted none")
+    {
         REFUSED
     } else {
         GOOGLE_NO

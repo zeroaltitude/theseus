@@ -58,7 +58,7 @@ fn a_failure_is_fixed_words_and_holds_nothing_said() {
         ),
         (
             -32603,
-            format!("the state does not match: {pasted}"),
+            format!("the redirect's state is not this consent's: nothing was stored: {pasted}"),
             NOT_THIS,
         ),
         (

@@ -266,7 +266,7 @@ impl Google {
         //
         all.extend([call::tool(self)]);
         // The owner's Connect Google button, offered (issue 59).
-        all.push(offer::tool(self));
+        all.push(offer::tool());
         all
     }
 

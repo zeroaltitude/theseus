@@ -29,16 +29,12 @@ pub const OFFERED: &str = "Offered the owner a Connect Google button in their di
      Nothing has started: no consent began and no address was made. Only the owner's own press \
      of the button begins one.";
 
-/// `google.sign_in_offer`.
-pub struct Offer {
-    account: String,
-}
+/// `google.sign_in_offer`: the account is the bound one's, read when it runs.
+pub struct Offer;
 
-/// The tool, for the bound account.
-pub fn tool(g: &Arc<super::Google>) -> Arc<dyn Tool> {
-    Arc::new(Offer {
-        account: g.account().to_string(),
-    })
+/// The tool.
+pub fn tool() -> Arc<dyn Tool> {
+    Arc::new(Offer)
 }
 
 impl Tool for Offer {
