@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use super::*;
 use crate::config_change::tests::{rig, Rig};
 use crate::config_change::tests_look::everything;
-use crate::node::ResultStatus;
+use crate::node::{Body, ResultStatus};
 use crate::secrets::look::tests::{logged, stub};
 use crate::secrets::OpReader;
 
@@ -1111,14 +1111,32 @@ async fn a_told_use_keeps_the_wall_for_each_producer() {
     sessions.push(("shared".into(), r.session_at("channel:2")));
     for (who, sid) in sessions {
         r.turn_with("vault_use", &sid, call(json!([]))).await;
-        let (status, text) = r.result(&sid);
-        assert_ne!(status, ResultStatus::Ok, "{who}: {text}");
-        // In a shared place the tool may not be offered at all; elsewhere the wall says why.
-        if who != "shared" {
-            assert!(
-                text.contains("vault.use is "),
-                "{who}: the wall's words: {text}"
-            );
+        // The call's result, when the turn got as far as the call: refused, in the wall's words.
+        // A turn its producer may not run at all leaves none, and that refuses it too.
+        let result = r
+            .core
+            .store
+            .session_nodes(&sid)
+            .unwrap()
+            .into_iter()
+            .find_map(|(_, n)| match n.body {
+                Body::ToolResult {
+                    tool,
+                    status,
+                    content,
+                    ..
+                } if tool == USE => Some((status, content)),
+                _ => None,
+            });
+        if let Some((status, text)) = result {
+            assert_ne!(status, ResultStatus::Ok, "{who}: {text}");
+            // In a shared place the tool may not be offered at all; elsewhere the wall says why.
+            if who != "shared" {
+                assert!(
+                    text.contains("vault.use is "),
+                    "{who}: the wall's words: {text}"
+                );
+            }
         }
     }
     assert_eq!(r.file_text(), crate::config_change::tests::FILE);
