@@ -251,7 +251,10 @@ async fn a_forged_note_press_never_folds_a_note_with_a_button_or_one_written_ope
         r.until(words, || first_with(&r, ANA_DM, words).is_some())
             .await;
         let before = first_with(&r, ANA_DM, words).unwrap();
-        assert!(!before.buttons.is_empty() && !note_fold(&before), "{before:#?}");
+        assert!(
+            !before.buttons.is_empty() && !note_fold(&before),
+            "{before:#?}"
+        );
         let presses = [
             (format!("fold:no:{post}"), (ANA, "ana"), None),
             (format!("fold:nc:{post}"), (ANA, "ana"), None),
@@ -281,8 +284,10 @@ async fn a_forged_note_press_never_folds_a_note_with_a_button_or_one_written_ope
     // A note written open (the DM says open): a forged press changes nothing.
     let r = rig(OPEN, None, vec![]).await;
     let post = stage(&r, fyi("written-open"));
-    r.until("the open note", || first_with(&r, ANA_DM, "written-open").is_some())
-        .await;
+    r.until("the open note", || {
+        first_with(&r, ANA_DM, "written-open").is_some()
+    })
+    .await;
     let before = first_with(&r, ANA_DM, "written-open").unwrap();
     for id in [format!("fold:nc:{post}"), format!("fold:no:{post}")] {
         let pressed = forge(&r, &before.id, &id, (ANA, "ana"), None);
@@ -314,10 +319,18 @@ async fn a_note_press_from_another_channel_or_on_another_message_changes_nothing
         assert_eq!((m.content.as_str(), m.edits), (LINE, f.edits), "{m:#?}");
     }
     r.say((ANA, "ana"), None, "Hello?");
-    r.until("the answer", || first_with(&r, ANA_DM, "An answer.").is_some())
-        .await;
+    r.until("the answer", || {
+        first_with(&r, ANA_DM, "An answer.").is_some()
+    })
+    .await;
     let other = first_with(&r, ANA_DM, "An answer.").unwrap();
-    let pressed = forge(&r, &other.id, &format!("fold:no:{post}"), (ANA, "ana"), None);
+    let pressed = forge(
+        &r,
+        &other.id,
+        &format!("fold:no:{post}"),
+        (ANA, "ana"),
+        None,
+    );
     r.until("the presser told", || told(&r, &pressed, NOT_HERE))
         .await;
     let m = message(&r, ANA_DM, &other.id);
@@ -368,9 +381,17 @@ async fn a_note_the_notices_place_refuses_is_folded_in_the_dm_by_the_dms_own_wor
     let f = folded(&r, ANA_DM, &post).await;
     assert_eq!(f.content, LINE);
     assert!(tried(&r) >= 1, "tried in the notices place first");
-    assert!(r.posted(NOTICES).iter().all(|m| !m.content.contains("refused")));
+    assert!(r
+        .posted(NOTICES)
+        .iter()
+        .all(|m| !m.content.contains("refused")));
     r.until("settled", || {
-        r.core.kernel.outbox_action(&post).ok().flatten().map(|a| a.state)
+        r.core
+            .kernel
+            .outbox_action(&post)
+            .ok()
+            .flatten()
+            .map(|a| a.state)
             == Some(ActionState::Succeeded)
     })
     .await;
@@ -380,8 +401,10 @@ async fn a_note_the_notices_place_refuses_is_folded_in_the_dm_by_the_dms_own_wor
     let r = rig(OPEN, Some(""), vec![]).await;
     r.fake.fail_creates_in(NOTICES, Some(403));
     stage(&r, fyi("refused-open"));
-    r.until("the open note", || first_with(&r, ANA_DM, "refused-open").is_some())
-        .await;
+    r.until("the open note", || {
+        first_with(&r, ANA_DM, "refused-open").is_some()
+    })
+    .await;
     let m = first_with(&r, ANA_DM, "refused-open").unwrap();
     assert_eq!(m.content, fyi_text("refused-open"));
     assert!(m.buttons.is_empty(), "{m:#?}");
@@ -464,20 +487,29 @@ async fn what_needs_the_owner_and_what_has_a_button_is_never_folded() {
     for w in open_words {
         r.until(w, || first_with(&r, ANA_DM, w).is_some()).await;
     }
-    for w in ["never-question", "never-mint", "never-self-join", "never-told"] {
+    for w in [
+        "never-question",
+        "never-mint",
+        "never-self-join",
+        "never-told",
+    ] {
         let m = first_with(&r, ANA_DM, w).unwrap();
         assert!(!m.buttons.is_empty(), "{w} keeps its buttons: {m:#?}");
     }
 
     r.say((ANA, "ana"), None, "Write the proof.");
-    r.until("the card", || first_with(&r, ANA_DM, "**Approve?**").is_some())
-        .await;
+    r.until("the card", || {
+        first_with(&r, ANA_DM, "**Approve?**").is_some()
+    })
+    .await;
     let card = first_with(&r, ANA_DM, "**Approve?**").unwrap();
     assert!(labels(&card).contains(&"Approve".to_string()), "{card:#?}");
     r.press(&card.id, "Decline", (ANA, "ana"));
     r.until("the card settled and the turn failed", || {
         message(&r, ANA_DM, &card.id).edits > card.edits
-            && r.posted(ANA_DM).iter().any(|m| m.content.contains("Turn failed"))
+            && r.posted(ANA_DM)
+                .iter()
+                .any(|m| m.content.contains("Turn failed"))
     })
     .await;
 
@@ -500,12 +532,21 @@ async fn a_note_press_waits_on_its_places_lane() {
     let r = rig(
         "",
         None,
-        vec![Scripted::text("First answer."), Scripted::text("Second answer.")],
+        vec![
+            Scripted::text("First answer."),
+            Scripted::text("Second answer."),
+        ],
     )
     .await;
     let post = stage(&r, fyi("lane-waits"));
     let f = folded(&r, ANA_DM, &post).await;
-    let failed = || r.fake.seen().iter().filter(|s| s.outcome == "failed").count();
+    let failed = || {
+        r.fake
+            .seen()
+            .iter()
+            .filter(|s| s.outcome == "failed")
+            .count()
+    };
     r.fake.fail_creates_in(ANA_DM, Some(503));
     r.say((ANA, "ana"), None, "Hello?");
     r.until("the DM's lane refused by Discord", || failed() > 0)

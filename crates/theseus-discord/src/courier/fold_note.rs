@@ -142,7 +142,14 @@ impl Lane {
         take: impl FnOnce() -> bool,
     ) -> Result<(), super::Told> {
         use super::Told;
-        let Some(a) = self.shared.core.kernel.outbox_action(&n.post).ok().flatten() else {
+        let Some(a) = self
+            .shared
+            .core
+            .kernel
+            .outbox_action(&n.post)
+            .ok()
+            .flatten()
+        else {
             return Err(Told::NoteGone);
         };
         if !folded_at(&a, n.at) {
