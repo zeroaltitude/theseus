@@ -249,7 +249,6 @@ mod tests {
             "[self]\nmode = \"act\"\n",
             "[self_issues]\nmax = 3\n",
             "[self_fix]\nlines = 50\n",
-            "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n",
             "[google]\nmax_sends_per_day = 5\n",
             "[vault]\nkeep_by_discord = true\n",
             "[tools]\nroots = [\"/x\"]\n",
@@ -263,6 +262,18 @@ mod tests {
                 "{c}"
             );
         }
+        // An AWS account names the secrets it reads (which (K) keeps); its own settings are
+        // the account group's.
+        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\
+                    aws_access_key_id = \"op://v/i/a\"\naws_secret_access_key = \"op://v/i/b\"\n";
+        let aws = format!("{base}\n[aws.accounts.111122223333]\nregion = \"us-west-2\"\n");
+        real(&[&aws]);
+        let s = between(base, &aws);
+        assert!(!s.is_empty() && s.iter().all(|s| s.path[0] == "aws"), "{s:?}");
+        assert!(s
+            .iter()
+            .any(|s| group(&s.path) == Some(Group::SelfAndAccounts)));
+        assert_eq!(Needs::of(&s), Needs::Proof);
     }
 
     /// (D) Dropped tonight: prompt text, a long prompt value included, takes the card alone;
