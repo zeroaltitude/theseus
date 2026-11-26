@@ -156,8 +156,18 @@ async fn a_token_equal_to_a_rendered_description_is_refused() {
 /// listener and by a paste: the finish fails at the door, and no token
 /// request carries it (the fake issuer's received requests).
 #[tokio::test]
-async fn a_code_equal_to_the_servers_name_is_not_redeemed() {
-    for paste in [false, true] {
+async fn a_code_by_the_listener_equal_to_the_servers_name_is_not_redeemed() {
+    code_equal_to_the_name(false).await;
+}
+
+/// The same code, by a paste.
+#[tokio::test]
+async fn a_code_by_a_paste_equal_to_the_servers_name_is_not_redeemed() {
+    code_equal_to_the_name(true).await;
+}
+
+async fn code_equal_to_the_name(paste: bool) {
+    {
         let (buf, _guard) = capture();
         let (r, _plain) = rig_doors(AuthConfig {
             code_is: Some(NAME.into()),
