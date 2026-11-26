@@ -249,13 +249,19 @@ async fn a_moved_head_voids_the_yes() {
         repo,
         &["worktree", "remove", "--force", wt.to_str().unwrap()],
     );
+    let report =
+        (r.f.place
+            .reports()
+            .join(format!("{}.md", branch.replace('/', "-"))))
+        .to_string_lossy()
+        .into_owned();
     r.core.rec(None).record(&SelfBranchBuilt {
         item: "trim-the-sails",
         issue: "theseus-sail1",
         branch: &branch,
         head: Some(&moved),
         gate: "green",
-        report: None,
+        report: Some(&report),
         cost_usd: 1.0,
         stopped_at: None,
         why: "Trim the sails before the wind.",

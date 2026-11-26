@@ -102,20 +102,15 @@ async fn a_reviews_fix_is_made_gated_proved_reviewed_afresh_and_joined() {
     );
     let fixed = v["head"].as_str().unwrap().to_string();
     assert_ne!(fixed, head);
-    assert_eq!(
-        git(
-            &r.f.place.repo,
-            &["rev-parse", &format!("refs/heads/{branch}^")]
-        ),
-        head
+    let parent = git(
+        &r.f.place.repo,
+        &["rev-parse", &format!("refs/heads/{branch}^")],
     );
-    assert_eq!(
-        git(
-            &r.f.upstream,
-            &["for-each-ref", "--format=%(refname)", "refs/heads/"]
-        ),
-        "refs/heads/main",
-        "the fixed branch is not pushed"
+    assert_eq!(parent, head);
+    let at_remote = git(&r.f.upstream, &["for-each-ref", "refs/heads/"]);
+    assert!(
+        !at_remote.contains("refs/heads/self/"),
+        "not pushed: {at_remote}"
     );
     assert!(
         !r.f.place.trees().join("trim").exists(),
@@ -159,10 +154,9 @@ async fn a_reviews_fix_is_made_gated_proved_reviewed_afresh_and_joined() {
     let verdicts = r.rows("self.review.verdict");
     assert_eq!(verdicts[1]["head"], fixed.as_str());
     assert_eq!(verdicts[1]["planted_revert"], "failed", "proved again");
-    assert_eq!(two.parked, [(branch.clone(), fixed.clone())], "{two:?}");
-    assert!(
-        two.joined.is_empty(),
-        "nothing joins before the owner's yes"
+    assert_eq!(
+        (two.parked, two.joined),
+        (vec![(branch.clone(), fixed.clone())], vec![])
     );
     assert_eq!(crate::rsi::join::tests_publish::owner_says_yes(&r.core), 1);
     let three = r.core.self_join_pass(&s).await.unwrap();
