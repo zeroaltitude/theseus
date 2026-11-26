@@ -244,6 +244,7 @@ async fn a_blank_an_over_long_or_unproved_value_is_refused_by_the_form_as_by_the
     let (r, dir) = rig_form(true);
     let secret = secret_of(&r);
     let q = ask(&r, input("Lantern new", "credential")).await;
+    super::old_card(&r, &q, false);
     let long = "x".repeat(4097);
     let tries = [
         ("blank", "   ".to_string(), Some(code(&secret, 0))),
@@ -284,16 +285,24 @@ async fn a_blank_an_over_long_or_unproved_value_is_refused_by_the_form_as_by_the
     assert!(checks(&r) > spent);
 }
 
-/// An overwrite asks for the fresh code the terminal asks for: a window of the place does not
-/// cover it, and a replace is shown to say so.
+/// An overwrite by the form takes the value with no code (issue 54: "the form to ask for it, yes,
+/// the 2fa, no"); a card asked before that, which carried the fresh mark, still needs the fresh code
+/// the terminal asks for, which a window of the place does not cover.
 #[tokio::test]
-async fn a_replace_by_the_form_needs_a_fresh_code_as_by_the_terminal() {
+async fn a_replace_by_the_form_takes_the_value_and_an_old_card_its_fresh_code() {
+    let (r, dir) = rig_form(true);
+    let q = ask(&r, input("Lantern key", "credential")).await;
+    let card = r.asked().pop().unwrap();
+    assert!(!card.needs_proof && !card.needs_fresh_proof, "{card:?}");
+    let kept = submit(&r, &q, VALUE, None, dm()).await;
+    assert!(kept.is_ok(), "{kept:?}");
+    assert!(wrote(dir.path()));
+
     let (r, dir) = rig_form(true);
     // The pairing, and a window of the place the form is typed in, which does not cover a replace.
     let secret = r.core.proofs.open_stand_in_window("discord:dm");
     let q = ask(&r, input("Lantern key", "credential")).await;
-    let card = r.asked().pop().unwrap();
-    assert!(card.needs_fresh_proof, "{card:?}");
+    super::old_card(&r, &q, true);
     let e = submit(&r, &q, VALUE, None, dm()).await.unwrap_err();
     assert_eq!(e.code, error_code::REFUSED, "{e:?}");
     assert!(!wrote(dir.path()));
@@ -310,6 +319,7 @@ async fn a_missing_code_is_told_in_the_keep_cards_own_words() {
     let (r, dir) = rig_form(true);
     let _secret = secret_of(&r);
     let q = ask(&r, input("Lantern new", "credential")).await;
+    super::old_card(&r, &q, false);
     let by_form = submit(&r, &q, VALUE, None, dm()).await.unwrap_err();
     let said = format!("{by_form:?}");
     assert!(

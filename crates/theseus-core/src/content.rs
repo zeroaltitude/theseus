@@ -541,6 +541,33 @@ impl InjectionMode {
     }
 }
 
+/// `[content_based_security] outside`: what the looks, the settings read and the profile tools do
+/// when the conversation has read text from outside since the owner's last message, or carries
+/// the `injection` flag (`config_change::hold`).
+///
+/// **`Notify` is the default** (the owner, 2026-11-25: "I want way fewer of these"): the call runs
+/// and the owner is told once, in an FYI note. `Ask` puts the call to him first, as every such
+/// call was before, with a third answer that approves it and clears the hold. The vault's two
+/// tools ask first at both: they read the vault before their own card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutsideMode {
+    /// **The default.** The call runs and the owner is told, once a span.
+    #[default]
+    Notify,
+    /// The call waits for the owner's answer.
+    Ask,
+}
+
+impl OutsideMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OutsideMode::Notify => "notify",
+            OutsideMode::Ask => "ask",
+        }
+    }
+}
+
 /// The tools a frozen session may still call: reads that do not leave this
 /// machine. **An allowlist, deliberately**, as `open_public` was: a tool added
 /// later is refused in a frozen session until someone has judged it here.

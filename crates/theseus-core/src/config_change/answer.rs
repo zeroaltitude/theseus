@@ -18,7 +18,7 @@ use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
 use super::restart::{self, Pending, Stage};
-use super::{diff, proof_seam, sensitive, write};
+use super::{diff, proof_seam, write};
 use crate::config_copy::sha256;
 use crate::fact::answer::CallAnswered;
 use crate::ledger::LedgerRow;
@@ -98,6 +98,26 @@ fn undone_row(
     Ok(Some(NewRecord::json(kinds::LEDGER, None, &row)?))
 }
 
+/// The settings' one writer: held across a write's re-read, keep and write, so two writes never
+/// both pass the digest check before either writes; and none while a change is still being
+/// applied.
+pub(crate) fn one_write(w: &super::Where) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+    let one = w
+        .writes
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(p) = restart::load(&restart::marker_path(&w.state)) {
+        if matches!(p.stage, Stage::Restarting | Stage::Started) {
+            return Err(
+                "another change is still being applied (Theseus restarts first): ask again once \
+                 it is back"
+                    .into(),
+            );
+        }
+    }
+    Ok(one)
+}
+
 impl Core {
     /// The yes to a restart the owner asked for in words: nothing is written,
     /// but the marker is, so the start that follows says it is back, and goes
@@ -159,20 +179,7 @@ impl Core {
         via: &str,
     ) -> Result<Applied, String> {
         let w = &self.tools.config_change;
-        // One yes at a time, and none while a change is still being applied.
-        let _one = w
-            .writes
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(p) = restart::load(&restart::marker_path(&w.state)) {
-            if matches!(p.stage, Stage::Restarting | Stage::Started) {
-                return Err(
-                    "another change is still being applied (Theseus restarts first): \
-                            ask again once it is back"
-                        .into(),
-                );
-            }
-        }
+        let _one = one_write(w)?;
         // A prompt file is changed in its own way: no restart, its own copies.
         if super::prompt_file::write::is_card(args) {
             let (previous, before, after) = self.write_prompt_file(a, args, by, via)?;
@@ -207,7 +214,11 @@ impl Core {
             .map(drop)
             .map_err(|e| format!("the candidate no longer loads: {e:#}"))?;
         let settings = diff::between(&now, &candidate)?;
-        let sens = sensitive(&[], &settings);
+        let was = crate::Config::parse(&now)
+            .map(|(c, _)| c)
+            .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?;
+        let used = args["secret"]["name"].as_str().map(|n| (&was, n));
+        let sens = super::sensitive_of(&[], &settings, used);
         // An attached or removed MCP server is always sensitive, whatever the
         // table says (`mcp_attach`), and only its own table may change.
         let server = super::mcp_attach::at_yes(args, &settings)?;

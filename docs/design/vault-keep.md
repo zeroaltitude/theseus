@@ -1,5 +1,13 @@
 # Keeping a new secret in the vault, without it passing through a turn (issue 26)
 
+**Since issue 54 (the owner, 2026-11-25: "Keeping a secret -- the form to ask for it, yes, the 2fa, no"):** the card a turn's
+`vault.keep` puts is still the form where the value is given, and it takes **no second proof**, for a new item, an added field
+or a replaced value alike. A card asked before that change keeps the mark it was asked with. Everything else below stands:
+the value is typed only where the owner alone sees it, an item Theseus's own settings read is never replaced by a turn, an
+agent's process is refused (`keep_wall`), and the owner's terminal `vault.keep` with no card still takes a fresh code. Where
+the text below speaks of the card's code, it describes cards asked before issue 54. The terminal and the Discord form read the card's own mark: a card
+asked with none asks no code at either, and needs no authenticator app paired (`rpc/vault_keep_waiting.rs`).
+
 The owner asks Theseus to keep a secret (a provider's key, say). Its value must reach the vault without passing through a
 turn, a card, a record or a log: a value typed in chat goes to the model's provider and into the store, where it cannot be
 taken back. So the value is given **in a surface's own form**, as a request of its own to the daemon, which writes it with

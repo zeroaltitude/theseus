@@ -329,17 +329,17 @@ pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
         return plan;
     }
     let (outside, steered) = super::outside_text(tc);
-    held(name, outside, steered, plan)
+    held(name, outside, steered, &super::flag_way(tc), plan)
 }
 
-/// [`ask_if_outside`], on the facts it reads.
-fn held(name: &str, outside: bool, steered: bool, mut plan: Plan) -> Plan {
-    if name == SHOW && (outside || steered) {
-        plan.authority = Some(
-            "read Theseus's own settings: this conversation has read text from outside since \
-             your last message, so the request may not be only yours"
-                .into(),
-        );
+/// [`ask_if_outside`], on the facts it reads: each cause in its own words, with `way` to clear
+/// the session's flag.
+fn held(name: &str, outside: bool, steered: bool, way: &str, mut plan: Plan) -> Plan {
+    if name == SHOW {
+        if let Some(said) = super::hold_words("read Theseus's own settings", outside, steered, way)
+        {
+            plan.authority = Some(said);
+        }
     }
     plan
 }

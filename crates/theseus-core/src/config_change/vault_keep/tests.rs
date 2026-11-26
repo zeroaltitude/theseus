@@ -94,7 +94,13 @@ fn wrote(dir: &Path) -> bool {
 /// The settings rig with one `[secrets]` entry that reads "Settings key", and
 /// the stub as the daemon's vault.
 fn rig_vault(mode: &str) -> (Rig, tempfile::TempDir) {
-    let r = rig_with(|cfg, _| {
+    rig_vault_at(mode, crate::content::OutsideMode::default())
+}
+
+/// [`rig_vault`] at `[content_based_security] outside = outside`.
+fn rig_vault_at(mode: &str, outside: crate::content::OutsideMode) -> (Rig, tempfile::TempDir) {
+    let r = rig_with(move |cfg, _| {
+        cfg.content_based_security.outside = outside;
         cfg.secrets.insert(
             "settings_key".into(),
             "op://Harbor/Settings key/credential".into(),
@@ -106,6 +112,15 @@ fn rig_vault(mode: &str) -> (Rig, tempfile::TempDir) {
         .look
         .set_vault(Arc::new(stub(dir.path(), mode)));
     (r, dir)
+}
+
+/// A keep card asked before issue 54, which carried the second proof's mark: its answer still
+/// needs the code it was asked with.
+fn old_card(r: &Rig, q: &str, fresh: bool) {
+    r.core
+        .store
+        .append(&[crate::owner_proof::mark(q, fresh).unwrap()])
+        .unwrap();
 }
 
 fn owner(label: &str, s: Surface) -> Client {
@@ -299,13 +314,14 @@ async fn a_new_secret_is_one_card_that_says_where_the_value_is_typed() {
         "run `theseus vault keep`",
         "the cockpit",
         "Do not paste it into chat",
-        "needs your second proof",
         "Theseus's reason, in its own words",
     ] {
         assert!(c.reason.contains(part), "{part} in {}", c.reason);
     }
     assert!(!c.reason.contains("REPLACES"));
-    assert!(c.needs_proof && !c.needs_fresh_proof, "{c:?}");
+    // The card is the form; it takes no second proof (issue 54).
+    assert!(!c.reason.contains("second proof"), "{}", c.reason);
+    assert!(!c.needs_proof && !c.needs_fresh_proof, "{c:?}");
     let plain = c.plain.as_ref().unwrap();
     assert!(
         plain
@@ -413,12 +429,12 @@ async fn the_value_goes_from_the_form_to_the_vault_and_nowhere_else() {
     assert!(rec.contains("Lantern new"));
 }
 
-/// Replacing a value is shown in bold words, needs a fresh code every time even
-/// inside a window, and edits the item the vault listed by its id.
+/// Replacing a value is shown in bold words, takes the value with no second
+/// proof (issue 54: "the form to ask for it, yes, the 2fa, no"), and edits the
+/// item the vault listed by its id.
 #[tokio::test]
-async fn a_replace_says_so_and_needs_a_fresh_code_every_time() {
+async fn a_replace_says_so_and_takes_the_value_with_no_code() {
     let (r, dir) = rig_vault("ok");
-    let secret = r.core.proofs.open_stand_in_window("cli");
     let q = ask(&r, input("Lantern key", "credential")).await;
     let c = r.asked().pop().unwrap();
     assert!(
@@ -426,17 +442,9 @@ async fn a_replace_says_so_and_needs_a_fresh_code_every_time() {
         "{}",
         c.reason
     );
-    assert!(c
-        .reason
-        .contains("a fresh code from your authenticator app, every time"));
-    assert!(c.needs_proof && c.needs_fresh_proof);
-    // A window of this place does not cover it, and a missing code spends nothing.
-    let none = give(&r, cli(), &q, VALUE, None).await.unwrap_err();
-    assert_eq!(none.code, error_code::REFUSED, "{none:?}");
-    assert!(!wrote(dir.path()));
-    let said = give(&r, cli(), &q, VALUE, Some(&code(&secret, 1)))
-        .await
-        .unwrap();
+    assert!(!c.reason.contains("code"), "{}", c.reason);
+    assert!(!c.needs_proof && !c.needs_fresh_proof);
+    let said = give(&r, cli(), &q, VALUE, None).await.unwrap();
     assert_eq!(said["replaced"], true);
     assert!(said["words"]
         .as_str()
@@ -469,6 +477,29 @@ async fn an_item_the_settings_read_is_not_replaced_by_a_turn() {
             && text.contains("theseus vault keep --vault \"Harbor\" --item \"Settings key\" --field \"credential\""),
         "{text}"
     );
+    assert!(r.asked().is_empty());
+    assert!(!wrote(dir.path()));
+}
+
+/// An item a use wrote into the settings file, not yet live until the next start, is read by
+/// Theseus's own settings too: a turn may not replace it either (issue 54).
+#[tokio::test]
+async fn an_item_a_written_use_reads_is_not_replaced_by_a_turn() {
+    let (r, dir) = rig_vault("ok");
+    let mut file = std::fs::read_to_string(&r.file).unwrap();
+    file = file.replacen(
+        "[secrets]\n",
+        "[secrets]\nwritten_key = \"op://Harbor/Lantern key/credential\"\n",
+        1,
+    );
+    std::fs::write(&r.file, &file).unwrap();
+    assert!(!r.core.cfg.secrets.contains_key("written_key"), "not live");
+    let sid = r.session();
+    r.turn_with("vault_keep", &sid, input("Lantern key", "credential"))
+        .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("one Theseus's own settings read"), "{text}");
     assert!(r.asked().is_empty());
     assert!(!wrote(dir.path()));
 }
@@ -726,12 +757,13 @@ async fn a_bad_value_is_refused_before_anything_is_spent_or_written() {
 }
 
 /// A turn that read text from outside is asked first, before the vault is
-/// listed; a task's session is refused in the tool's words.
+/// listed, at `[content_based_security] outside = "ask"`; a task's session is
+/// refused in the tool's words.
 #[tokio::test]
 async fn a_steered_turn_is_asked_first_and_a_task_is_refused() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
     use theseus_judge::band::Band;
-    let (r, dir) = rig_vault("ok");
+    let (r, dir) = rig_vault_at("ok", crate::content::OutsideMode::Ask);
     let sid = r.session();
     let mut rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     let mut flags = ContentFlags::default();
@@ -753,8 +785,9 @@ async fn a_steered_turn_is_asked_first_and_a_task_is_refused() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(asks[0].tool, "vault.keep");
     assert!(
-        asks[0].reason.contains("read text from outside"),
-        "{}",
+        asks[0].reason.contains(crate::config_change::FLAG_HOLD)
+            && !asks[0].reason.contains("read text from outside"),
+        "the flag, not outside text: {}",
         asks[0].reason
     );
     assert!(argv(dir.path()).is_empty(), "the vault was not listed yet");
@@ -1036,6 +1069,7 @@ async fn every_attempt_that_stops_leaves_a_row_with_its_class() {
     let (r, dir) = rig_vault("ok");
     let secret = secret_of(&r);
     let q = ask(&r, input("Lantern new", "credential")).await;
+    old_card(&r, &q, false);
     // A blank value, a wrong code, an agent's process, and a request that does not parse.
     let blank = rpc_as(
         &r.core,
@@ -1161,3 +1195,14 @@ async fn the_look_says_for_each_vault_whether_theseus_may_write_there() {
 
 mod tests_form;
 mod tests_told;
+
+/// A new secret's card is answered with the value alone: no code, no window (issue 54).
+#[tokio::test]
+async fn a_new_secret_is_kept_with_the_value_and_no_code() {
+    let (r, dir) = rig_vault("ok");
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    assert!(crate::owner_proof::marked(&r.core.store, &q).is_none());
+    give(&r, cli(), &q, VALUE, None).await.unwrap();
+    assert!(wrote(dir.path()));
+    assert!(!waiting(&r, &q));
+}

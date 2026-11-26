@@ -76,6 +76,28 @@ pub(crate) fn plan_offer(
         .then(GrantOffer::mode_edits)
 }
 
+/// A held look's question offers its other yes, "Approve and clear" (issue
+/// 54): a call of the seven `[content_based_security] outside` decides, held
+/// at layer 1 in the hold's own words (never the floor), in the owner's private
+/// place. The flag's words offer to clear the flag, outside text's to clear it.
+/// The vault's tools are never offered it.
+pub(crate) fn hold_offer(
+    tool: &str,
+    class: PlaceClass,
+    approve: bool,
+    floor: bool,
+    reason: &str,
+) -> Option<GrantOffer> {
+    let clause = reason.rsplit_once("— approve (layer 1: ")?.1;
+    let held = crate::config_change::is_hold_words(clause);
+    (crate::config_change::hold::CLEARS.contains(&tool)
+        && approve
+        && !floor
+        && held
+        && class == PlaceClass::Private)
+        .then(|| GrantOffer::clear(clause.contains(crate::config_change::FLAG_HOLD)))
+}
+
 pub(crate) fn has_env(input: &Value) -> bool {
     input
         .get("env")

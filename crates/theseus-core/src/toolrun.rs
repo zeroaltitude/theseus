@@ -277,6 +277,8 @@ pub struct ToolRuntime {
     pub tightened: crate::tighten::Tightenings,
     /// The conversations' modes and plans (theseus-lyxy), read per call.
     pub modes: crate::policy::modes::Modes,
+    /// The outside-text hold's cleared calls and told spans (issue 54).
+    pub holds: crate::config_change::hold::Holds,
     /// The daemon's cores (theseus-a60): every in-process toollet runs under
     /// one of its permits.
     pub cpu: Arc<crate::cpu::CpuPool>,
@@ -581,6 +583,7 @@ impl ToolRuntime {
             fit_notes: Default::default(),
             tightened: Default::default(),
             modes: Default::default(),
+            holds: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
@@ -732,6 +735,23 @@ impl ToolRuntime {
     /// Whether abandoning a task follows `task.close`'s posture: the operator
     /// set that line in `[policy.tools]` to `notify` and it is still notify
     /// now (a tightening to approve ends it). Unset, or `open`, keeps the ask.
+    /// `[content_based_security] outside`, as the daemon's settings say it now; the default when
+    /// the runtime has no core.
+    pub(crate) fn outside_mode(&self) -> crate::content::OutsideMode {
+        self.jobs
+            .core()
+            .map(|c| c.cfg.content_based_security.outside)
+            .unwrap_or_default()
+    }
+
+    /// Whether `[content_based_security] injection = "refuse"`: a flagged session's calls that act
+    /// are refused.
+    pub(crate) fn frozen_refuses(&self) -> bool {
+        self.jobs.core().is_some_and(|c| {
+            c.cfg.content_based_security.injection == crate::content::InjectionMode::Refuse
+        })
+    }
+
     pub fn abandon_follows_posture(&self) -> bool {
         let name = crate::task_graph::tools::CLOSE;
         self.policy.tools.contains_key(name)
@@ -870,7 +890,11 @@ impl ToolRuntime {
         loop_index: Option<u32>,
         r: ResultNode<'_>,
     ) -> Node {
-        let r = self.fit_noted(r);
+        let mut r = self.fit_noted(r);
+        // The owner's "Approve and clear" ran this call: the hold counts from here (issue 54).
+        if r.correlation_id.is_some_and(|c| self.holds.take_cleared(c)) {
+            crate::config_change::hold::mark_cleared(&mut r.meta);
+        }
         // A job of the daemon's own CLI names the native call that does it,
         // after the cap so no cut takes it (theseus-8c8s); and a call that
         // ran in a group says so, so the model learns what one response may
@@ -1240,21 +1264,15 @@ impl ToolRuntime {
                 self.abandon_follows_posture(),
             )
         });
-        // A read of Theseus's own settings is asked when the turn read outside text.
+        // The settings read, the looks, the profile tools and the vault's two, after outside text
+        // or with the flag: asked or told, as `[content_based_security] outside` says (issue 54).
         let planned =
-            planned.map(|p| crate::config_change::show::ask_if_outside(tc, tool.name(), p));
-        // So is a look at Theseus itself or at the vault's names (issue 26).
-        let planned = planned.map(|p| crate::look::ask_if_outside(tc, tool.name(), p));
-        // And so is asking a profile, or putting the conversation on one (issue 28).
-        let planned = planned.map(|p| crate::profile_tool::ask_if_outside(tc, tool.name(), p));
+            planned.map(|p| crate::config_change::hold::ask_or_tell(self, tc, tool.name(), p));
         // Handing work to a profile starts a task, so it asks where starting one asks.
         let task_asks =
             self.posture_now(crate::task::CREATE).posture == crate::policy::Posture::Approve;
         let planned =
             planned.map(|p| crate::profile_tool::ask_if_task_asks(tool.name(), task_asks, p));
-        // So is a use of a vault item, before the daemon reads anything from it (issue 26).
-        let planned =
-            planned.map(|p| crate::config_change::vault_use::ask_if_outside(tc, tool.name(), p));
         // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
         let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
         // A glide's places (38b): the one it names must be bound here.
@@ -1578,7 +1596,16 @@ impl ToolRuntime {
         // `confirm.list`, the watch's snapshot, and the board say.
         let approve = g.decision.posture == crate::policy::Posture::Approve;
         let mut req = crate::rpc::offer(ConfirmRequest {
-            grant_offer: crate::policy::grants::plan_offer(tool, tc.class, approve, g.class.l1()),
+            grant_offer: crate::policy::grants::plan_offer(tool, tc.class, approve, g.class.l1())
+                .or_else(|| {
+                    crate::policy::grants::hold_offer(
+                        tool,
+                        tc.class,
+                        approve,
+                        g.decision.floor,
+                        &g.decision.reason,
+                    )
+                }),
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
             execution_id: tc.execution_id.into(),
@@ -2186,6 +2213,7 @@ pub fn build_runtime(
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
         modes: Default::default(),
+        holds: Default::default(),
         cpu,
         broker: Arc::new(broker),
         output_max_bytes: t.job_output_max_bytes,

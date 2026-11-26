@@ -40,12 +40,24 @@ for `config.propose`) the other settings that should read that name: a provider'
 4. **reads the reference once, as a start will, and keeps nothing**: the proof that the item and field are there, that the
    account can read them, and that the field holds something. A failure is told by class (`Failed`), never in the program's
    words, and makes no card.
-5. puts the whole change to the owner as **one card** (`config_change::put_using`, the path every settings change takes):
-   the item and field as the owner would say them, that the daemon read it just now, the name it is kept under, **what
-   is given it** (every setting in the loaded settings that reads that name: "the provider `lantern` (its key)", "the
-   program `deployer` (its variable `DEPLOY_KEY`)"), then each setting before and after, the restart, and the second proof
-   (a secret's source is on the sensitive list). After the yes the card's own restart applies it; the new secret resolves
-   at that start.
+5. **puts the whole change to the owner as ONE card** (`config_change::put_using`, the path every settings change
+   takes). There is no use without a card (issue 54, round 4): a new name may be read by a setting that names it by
+   default (the voice's key is read by an audition even with voice off), so nothing is written before the owner's yes.
+   `vault_use::classify` decides, by a positive list and nothing else, which proof the card asks:
+   - **a pure use** (the secret's own entry, new or re-pointed, and only readers on the list, each set to exactly the
+     name: the main model's key, an existing provider's key, an existing URL server's `auth_secret`): no second proof
+     ("using a secret must not ask for 2fa", the owner, 2026-11-25);
+   - **anything else** (an address, a new server or provider, an MCP `env`, any other setting): `config.propose`'s proof
+     for the whole change, at the card and at its yes (`config_change::sensitive_of`).
+
+   The card says the item and field as the owner would say them, that the daemon read it just now, the name it is kept
+   under, and **what is given it**: every setting set to that name, and every reader whose field names it by default
+   (the main model, GitHub, Discord, the web search, the judge, the voice, Theseus's own MCP server, Google, each AWS
+   account), each with where it sends the key when the daemon knows (an existing provider's or the main model's address,
+   an MCP server's URL, as a scheme and host). When none is found it says a setting that reads this name by default may
+   use it, never that nothing does. A new name's card begins "This gives a secret from the vault a name in the
+   settings."; a re-point's says what the name was read from until now and which settings already read it. After the yes
+   the card's own restart applies it; the new secret resolves at that start.
 
 **A vault reference is never written by a turn.** `config.propose` (and `also`) refuse a change that writes a `[secrets]`
 entry that is not `env:` or `file:`, in words that point to `vault.use`. Before this, a proposal could write any string
@@ -56,10 +68,11 @@ earlier card showed. `also` may not write `[secrets]`: the tool writes that entr
 ## Who may, and what an injected turn can do
 
 The wall is the settings tools' (`wall.rs`): the owner's own turn in a private place, never a job, a task, the self loop, an
-MCP client's session or a shared place. **When the turn has read text from outside since the owner's last message, the call
-is asked at the gate before the daemon reads anything from the vault** (`vault_use::ask_if_outside`): a tricked turn must
-not use the call to learn which items or fields exist or can be read. The tool is in `routine::grant::NEVER`. It changes
-nothing by itself: the owner's yes, with the second proof, does.
+MCP client's session or a shared place. **When the turn has read text from outside since the owner's last message, or
+carries the `injection` flag**, `[content_based_security] outside` decides (issue 54): at `"notify"`, the default, the call
+goes on and the owner is told once in an FYI note; at `"ask"` it is asked at the gate before the daemon reads anything from
+the vault (`vault_use::ask_if_outside`), with Approve and Decline only. The tool is in `routine::grant::NEVER`. At either
+setting the use itself is then a card: nothing is written before the owner's yes.
 
 The tool has no field that carries a value, and its description and the family's always-seen summary say that a secret is
 used by its name, that its value is never asked for, and that the vault's program in a shell has no session by design.
