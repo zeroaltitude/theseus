@@ -2,10 +2,10 @@
 //! granted services, the long tail the typed tools do not cover. The method is
 //! an id the method table knows (`drive.files.list`) or `"VERB /path"`; it is
 //! classified by its verb and path (`theseus_google::classify`): a GET is a
-//! read, another verb a write, and a send, a delete or trash, a permission or
-//! ACL change and an invitation are **authority**: `Plan.authority` makes the
-//! gate ask at every posture, so no `[policy.tools]` line, grant, trust or
-//! judgment loosens them (the owner: every send asks, deterministically).
+//! read, as is Calendar's free/busy query, and every other call is
+//! **authority**: `Plan.authority` makes the gate ask at every posture, so no
+//! `[policy.tools]` line, grant, trust or judgment loosens it (the owner:
+//! every send asks, deterministically).
 //! Its results are always private and outside text.
 
 use std::sync::Arc;
@@ -117,9 +117,8 @@ impl Tool for CallTool {
          gmail.users.messages.get, calendar.events.list) or \"VERB /path\" \
          (\"GET /gmail/v1/users/me/labels\"); `params` holds the path and query parameters \
          together, as Google's reference names them (userId defaults to me, calendarId to \
-         primary); `body` is the JSON body. A GET reads; another verb writes. A send, a delete \
-         or trash, a permission or ACL change, and an invitation ask the owner every time. \
-         Results are private and outside text."
+         primary); `body` is the JSON body. A GET reads; every other call asks the owner every \
+         time. Results are private and outside text."
     }
     fn input_schema(&self) -> Value {
         json!({
