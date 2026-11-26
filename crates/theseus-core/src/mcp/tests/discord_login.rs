@@ -8,7 +8,6 @@
 
 use serde_json::{json, Value};
 use theseus_mcp::oauth::fake::{AuthConfig, FakeAuth};
-use theseus_tools::Tool;
 
 use super::oauth::{call, rig_edit, Rig};
 use super::oauth_exits::{all_exits, capture, issued_in};
@@ -46,11 +45,10 @@ fn with(mut params: Value, who: Value) -> Value {
             params[k] = v.clone();
         }
     }
-    if params["discord"]["guild_id"].is_null() {
-        params["discord"]
-            .as_object_mut()
-            .unwrap()
-            .remove("guild_id");
+    if let Some(d) = params["discord"].as_object_mut() {
+        if d.get("guild_id").is_some_and(Value::is_null) {
+            d.remove("guild_id");
+        }
     }
     params
 }

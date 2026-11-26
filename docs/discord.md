@@ -69,6 +69,15 @@ These the core judges as the owner's, from a private place.
 | `/publish` | Publish a node, a file, or a message into a place (only you, from a private place) |
 | `/prompt` | Run an MCP server's prompt as this conversation's next turn (you, from a private place) |
 
+**Signing in to an MCP server, with no one at the machine** (issue 59). Ask in words to sign in to a server that
+signs in (`oauth`): the turn can only offer a card, to your direct messages, with **Sign in** and **Sign out**. Your
+own press of **Sign in**, in a private place, shows you alone the host you sign in at, every other place the sign-in
+goes through (with **I agree** first when there is one), then the address to open and **Paste the address**. The
+form takes the whole address your browser ended on and hands it to the daemon's own finish (`theseus mcp login
+--manual`'s); it is in no message, log line, row or reply. The answer is fixed words: signed in and the tools found,
+or why not (it ran out, not this sign-in's address, refused, the server said no). **Sign out** forgets the sign-in.
+Anyone else's press, or a press in a shared channel, is refused and shows no address.
+
 `/project trust <path>` lets a repository's own `AGENTS.md` and `CLAUDE.md` join the system block;
 `/project untrust <path>` takes that back, naming the files without reading them; `/project trusted`
 lists what you have granted, with who granted each and by what route. The CLI's

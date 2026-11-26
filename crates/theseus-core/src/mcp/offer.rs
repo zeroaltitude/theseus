@@ -119,7 +119,7 @@ pub fn run(rt: &ToolRuntime, tc: &TurnCtx<'_>, input: &Value) -> Result<(String,
             i.server
         ));
     }
-    let body = json!({"kind": KIND, "server": i.server, "text": card_text(&i.server)});
+    let body = json!({"kind": "mcp_sign_in", "server": i.server, "text": card_text(&i.server)});
     let (post, frame) = tc
         .outbox
         .stage_to_operator(None, body)

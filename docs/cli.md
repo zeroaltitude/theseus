@@ -180,9 +180,10 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   the browser was sent to, pasted), and ends with the tools found. The daemon keeps the sign-in in a private file
   inside its store and renews it; `mcp logout NAME` forgets it, revoked at the server when it offers that, and says
   so when the file could not be removed. A server whose sign-in is refused for good shows `needs sign-in` and is not
-  retried until you sign in again. `login` and `logout` are admitted from the CLI's surface alone, as `google auth`
-  is; the CLI refuses them inside a Theseus job, and L1 hides the socket from a sandboxed job, but a process at L0
-  that reaches the socket is not stopped.
+  retried until you sign in again. `login` and `logout` are admitted from the CLI's surface and from your own press
+  of a Sign in or Sign out button in a private place on Discord (issue 59; `docs/discord.md`), and from nowhere else;
+  the CLI refuses them inside a Theseus job, and L1 hides the socket from a sandboxed job, but a process at L0 that
+  reaches the socket is not stopped.
 - **`extend`**: extensions: proposals with their state and frozen digest, and the loaded ones. `theseus extend list`;
   `extend revoke NAME`.
 - **`aws`**: Theseus's AWS account: `bootstrap` plans its first stacks read-only and applies them on your yes.
