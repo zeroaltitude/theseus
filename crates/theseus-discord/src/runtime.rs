@@ -73,6 +73,7 @@ pub(crate) use source::source_buttons;
 mod bound_before;
 pub(crate) mod default_forum;
 mod extensions;
+pub(crate) mod fold;
 pub(crate) mod forum;
 mod guild_thread;
 mod guilds;
@@ -128,6 +129,8 @@ pub(crate) mod emoji;
 mod tests_command_reply;
 #[cfg(test)]
 mod tests_held;
+#[cfg(test)]
+mod tests_lane_back;
 #[cfg(test)]
 mod tests_steer;
 #[cfg(test)]
@@ -757,6 +760,12 @@ enum PlaceMsg {
     /// Someone is typing here: the core is told, with this session's id
     /// (theseus-tnky).
     Typing(DiscordOrigin),
+    /// A press on a turn's fold (issue 56, `runtime/fold.rs`), for its lane
+    /// to check; then, checked, for the place to show.
+    Fold(Box<fold::Ask>),
+    FoldShow(Box<fold::Ask>),
+    /// Its lane is back from an outage: the place writes its folds again.
+    LaneBack,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1284,7 +1293,8 @@ impl Shared {
             .as_ref()
             .map(|(_, n)| format!("discord:{n}"))
             .unwrap_or_else(|| "discord".into());
-        if !allowed {
+        // A fold's press shows only what was shown openly: anyone here may.
+        if !allowed && !fold::is_press(&i) {
             self.respond(
                 &i,
                 InteractionResponseType::ChannelMessageWithSource,
@@ -1294,9 +1304,11 @@ impl Shared {
             .await;
             return;
         }
-        // `/prompt`: its autocomplete, its modal, and the modal's submit, which
-        // answer in their own ways (`runtime/prompt.rs`).
-        if self.prompt_interaction(&i, &tx, &who).await
+        // A fold's press (`runtime/fold.rs`); `/prompt`: its autocomplete, its
+        // modal, and the modal's submit, which answer in their own ways
+        // (`runtime/prompt.rs`).
+        if fold::pressed(&self, &i, &tx)
+            || self.prompt_interaction(&i, &tx, &who).await
             || self.remind_interaction(&i, &who).await
             || live_board::work_interaction(&i, &tx, &who)
         {
@@ -2064,7 +2076,7 @@ impl Place {
                 self.task_msg(m).await
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind => {}
+            PlaceMsg::Unbind | PlaceMsg::Fold(_) | PlaceMsg::FoldShow(_) | PlaceMsg::LaneBack => {}
             PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
@@ -2377,7 +2389,7 @@ impl Place {
 
     /// Live progress to the place's lane: best-effort, never replayed.
     fn apply(&mut self, ops: Vec<crate::render::Op>) {
-        for op in ops {
+        for op in self.view.out(ops, &self.renderer) {
             let _ = self.lane.send(LaneMsg::Live(op));
         }
     }

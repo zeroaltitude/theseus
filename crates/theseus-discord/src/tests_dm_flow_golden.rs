@@ -264,7 +264,10 @@ async fn the_dm_task_flow_is_as_the_owner_approved_it() {
         guild(false),
         vec![start(&[REEF]), Scripted::text("Started.")],
         |dir| vec![(REEF, asks_to_write(dir))],
-        &bindings(true, ""),
+        // The flow the owner locked shows a turn's steps open, a message a
+        // loop: its DM says so, and its task's post takes the DM's word
+        // (issue 56: a place folds them unless it says `steps = "open"`).
+        &bindings(true, "").replace("name = \"ana\"\n", "name = \"ana\"\nsteps = \"open\"\n"),
         |_| {},
         |c| {
             c.discord.task_home = "theseus-tasks".into();

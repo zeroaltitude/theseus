@@ -723,6 +723,33 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   alone, and a message with neither half is never made; the turn, its cards and its reply are unchanged. There is
   no thinking message of its own (an earlier cut's `:think`), and the binding showed no thinking before
   theseus-l1y1.
+- **A place folds a turn's steps unless its binding says `steps = "open"`** (issue 56, `render/fold.rs`,
+  `runtime/fold.rs`; the owner: tool calls and notifications "inside a collapsible widget that defaults to being
+  collapsed"). `steps` on a `[[channel]]` or a `[[dm]]`, `folded` by default, any other word refused, read live, a
+  task's thread taking its parent's. Folded, the place's process messages (`<turn>:L<n>:tools`, as `show_tools` and
+  `show_thinking` make them) are ONE message, `<turn>:fold` (`View::out`, last in `Place::apply`), written where the
+  turn's first one was: one `-#` line from the renderer's typed calls (`Renderer::tally`: steps by tool family, and
+  the states worth a word, `1 failed`, `1 waiting for approval`, …) and the thinking's time, never a call's argument
+  or result, with **Show steps**; open, the very lines the process messages would show, cut whole-line into pages
+  of `PART_LIMIT - 60` bytes (`… and N more · page 1 of 3`, `◀ Earlier`, `Later ▶`), and **Hide steps**. The turn's
+  "Should I have asked?" choices stay on it, open or closed. Its create pings as the first process message would
+  (`-# 💭` at its top when it holds thinking: silent); later loops add no create. A press (`fold:o:<page>:<turn>`,
+  `fold:c:<turn>`) is read before `allowed`, since it shows only what the place showed openly. The place's lane is
+  the ONE writer of a fold's message (`courier/press.rs`): the press is acknowledged, the place asks its lane, which
+  honours it only on the message it wrote that turn's `<turn>:fold` to (its map, or its durable rows) and never while
+  it waits out Discord; only then does the place make the fold's state (reading the turn back from the session's
+  nodes once when it does not hold it: a restart) and send it to the lane as any live state, after whatever the lane
+  holds of it, so presses and the turn's updates land in the place's order. A press not taken within `fold::WAIT` is
+  cancelled (it can never apply after) and its presser told so. A fold update the lane cannot write in an outage is
+  dropped, as live progress always was; once the lane is back and every post that waited has gone, it tells its place
+  (`Shared::lane_back`), which writes each fold it still holds once more, as it shows now (`View::resend`). What
+  refuses a press is told to the presser alone, in one line (`fold::AWAY`, `NOT_HERE`, `TOO_OLD`, `HIDDEN`,
+  `CANCELLED`). A fold never shows what its place hides NOW: a live change of
+  `show_tools`/`show_thinking` remakes every fold it holds from both halves (`View::set`), open pages and choices too;
+  a fold made folded keeps working as a fold for its message after the place says `open`. Never folded:
+  the reply's text, a card, a question, a settle, a failed turn, every post (a standalone note too). `open` writes
+  what it wrote before, op for op. Tests: `tests_fold.rs`, `tests_fold_press.rs`, `tests_fold_default.rs`,
+  `render/fold.rs`, `runtime/fold.rs`, `runtime/show.rs`, `courier/press.rs`.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).

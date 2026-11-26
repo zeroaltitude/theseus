@@ -15,6 +15,13 @@ impl Place {
         if matches!(e, CoreEvent::TurnStarted(_)) || !self.renderer.needs_rebuild(e) {
             return;
         }
+        self.read_back();
+    }
+
+    /// Read the held turns back from the session's nodes, once (a press on
+    /// a fold of a turn this place has not seen since it started asks too,
+    /// `runtime/fold.rs`), and tell the lane which turns it keeps whole.
+    pub(super) fn read_back(&mut self) {
         let nodes = match self.shared.core.store.session_nodes(&self.session_id) {
             Ok(nodes) => nodes,
             Err(err) => {
