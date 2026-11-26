@@ -981,7 +981,17 @@ fn the_list_is_decided_by_the_paths_shape_and_the_value() {
 #[tokio::test]
 async fn a_told_use_keeps_the_wall_for_each_producer() {
     use theseus_kernel::Authority;
-    let (r, dir, _d) = rig_vault("ok");
+    // The loop's turn is refused its budget while self-improvement is off: it is on, so that the
+    // refusal is the wall's.
+    let r = crate::config_change::tests::rig_with(|c, _| {
+        c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+    });
+    let d = tempfile::tempdir().unwrap();
+    r.core
+        .tools
+        .look
+        .set_vault(Arc::new(stub(d.path(), "ok")));
+    let dir = d.path().to_path_buf();
     let mut sessions = Vec::new();
     for principal in ["job", crate::rsi::backlog::PRINCIPAL, crate::mcp_server::PRINCIPAL] {
         let sid = r.session();
@@ -1054,7 +1064,8 @@ async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
 }
 
 /// Two sessions writing at once: the settings' one writer lets each in turn, so no use is lost to
-/// another's write; each that says it was written is in the file.
+/// another's write. Each that says it was written is in the file, with its own row; one that lost
+/// the race says nothing was written.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_sessions_writing_at_once_lose_nothing() {
     let (r, _dir, _d) = rig_vault("ok");
@@ -1068,18 +1079,22 @@ async fn two_sessions_writing_at_once_lose_nothing() {
         r.turn_with("vault_use", &b, cb)
     );
     let file = r.file_text();
-    for (sid, name) in [(&a, "first_key"), (&b, "second_key")] {
-        let (status, text) = r.result(sid);
-        match status {
-            ResultStatus::Ok => assert!(file.contains(&format!("{name} = ")), "{name}: {file}"),
-            _ => assert!(!file.contains(&format!("{name} = ")), "{name}: {text}"),
+    let results = [r.result(&a), r.result(&b)];
+    let ok = results
+        .iter()
+        .filter(|(s, _)| *s == ResultStatus::Ok)
+        .count();
+    assert!(ok >= 1, "{results:?}");
+    for (status, text) in &results {
+        if *status != ResultStatus::Ok {
+            assert!(text.contains("nothing was written"), "{text}");
         }
     }
-    let ok = [&a, &b]
+    let written = ["first_key = ", "second_key = "]
         .iter()
-        .filter(|s| r.result(s).0 == ResultStatus::Ok)
+        .filter(|k| file.contains(*k))
         .count();
-    assert!(ok >= 1, "{file}");
+    assert_eq!(written, ok, "every use said written is in the file: {file}");
     assert_eq!(r.rows("config.changed").len(), ok);
 }
 
@@ -1187,13 +1202,18 @@ async fn the_notes_undo_no_longer_applies_when_the_settings_changed_since() {
     r.turn_with("vault_use", &sid, c).await;
     assert_eq!(r.rows("config.changed").len(), 2);
     let later = r.file_text();
-    let moved = r.core.told_undo(&first, &owner_in_dm()).await.unwrap();
+    let moved = r
+        .core
+        .told_undo(&first, &owner_in_dm())
+        .await
+        .expect_err("the use moved on");
+    assert_eq!(moved.data["moved_on"], true, "{moved:?}");
     assert!(
-        moved
-            .text
+        moved.data["text"]
+            .as_str()
+            .unwrap_or("")
             .contains("This Undo no longer applies: the settings changed after change #"),
-        "{}",
-        moved.text
+        "{moved:?}"
     );
     assert_eq!(r.file_text(), later);
     assert!(r.rows("config.undone").is_empty());

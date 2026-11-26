@@ -93,7 +93,8 @@ impl Lane {
     /// the post stays `here`.
     pub(super) fn notices_private(&self, here: u64, target: &str) -> bool {
         let to = self.notices_place((here, target.to_string()));
-        to.0 == here || self.shared.is_private(&to.1)
+        // The place's own target, by its channel: the second half is a label for some sources.
+        to.0 == here || self.shared.is_private(&format!("discord:channel:{}", to.0))
     }
 
     /// Where an operator post whose words are `content` goes: the notices
