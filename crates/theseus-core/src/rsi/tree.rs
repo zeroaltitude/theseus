@@ -1348,20 +1348,34 @@ pub fn push(
     branch: &str,
     scrub: &dyn Fn(&str) -> u32,
 ) -> Result<String, Refused> {
-    let r = cleared(p, tree, branch, scrub)?;
+    if !is_self_branch(branch) {
+        return Err(Refused::NotSelf(branch.into()));
+    }
+    let git = |e: anyhow::Error| Refused::Git(format!("{e:#}"));
+    let at = |r: &str| {
+        p.git_ok(&tree.dir, &["rev-parse", "--verify", r])
+            .map_err(git)
+    };
+    let (base, head) = (
+        at("origin/main^{commit}")?,
+        at(&format!("refs/heads/{branch}^{{commit}}"))?,
+    );
+    let r = cleared(p, tree, branch, (&base, &head), scrub)?;
     let spec = format!("{r}:{r}");
     p.git_ok(&tree.dir, &["push", "-q", "--no-verify", remote, &spec])
         .map_err(|e| Refused::Git(format!("{e:#}")))?;
     Ok(spec)
 }
 
-/// Whether the tree's `branch` may leave this machine: a self branch, no exam's file, nothing
-/// `scrub` counts in its commit messages and added lines, main's `scripts/scrub.sh` passing.
-/// Its ref, `refs/heads/<branch>`.
+/// Whether the commits `base..head` of the tree's `branch` may leave this machine: a self branch,
+/// no exam's file, nothing `scrub` counts in their commit messages and added lines, main's
+/// `scripts/scrub.sh` passing. The exact shas are read, never a ref that may move. Its ref,
+/// `refs/heads/<branch>`.
 pub fn cleared(
     p: &Place,
     tree: &Tree,
     branch: &str,
+    (base, head): (&str, &str),
     scrub: &dyn Fn(&str) -> u32,
 ) -> Result<String, Refused> {
     let git = |e: anyhow::Error| Refused::Git(format!("{e:#}"));
@@ -1380,7 +1394,7 @@ pub fn cleared(
     let changed = p
         .git_ok(
             &tree.dir,
-            &["diff", "--name-only", &format!("origin/main...{r}")],
+            &["diff", "--name-only", &format!("{base}...{head}")],
         )
         .map_err(git)?;
     if let Some(f) = changed
@@ -1389,7 +1403,7 @@ pub fn cleared(
     {
         return Err(Refused::Exams(f.into()));
     }
-    let hits = scrub(&outgoing(p, tree, branch).map_err(git)?);
+    let hits = scrub(&outgoing(p, tree, base, head).map_err(git)?);
     if hits > 0 {
         return Err(Refused::Scrub {
             hits,
@@ -1417,17 +1431,16 @@ pub fn cleared(
     Ok(r)
 }
 
-/// What a push of `branch` would send: every commit message, and every line
-/// the branch adds against main.
-fn outgoing(p: &Place, tree: &Tree, branch: &str) -> Result<String> {
-    let b = format!("refs/heads/{branch}");
+/// What a push of `head` onto `base` would send: every commit message, and every line `head` adds
+/// against `base`.
+fn outgoing(p: &Place, tree: &Tree, base: &str, head: &str) -> Result<String> {
     let mut out = p.git_ok(
         &tree.dir,
-        &["log", "--format=%B", &format!("origin/main..{b}")],
+        &["log", "--format=%B", &format!("{base}..{head}")],
     )?;
     let diff = p.git_ok(
         &tree.dir,
-        &["diff", "--no-color", "-U0", &format!("origin/main...{b}")],
+        &["diff", "--no-color", "-U0", &format!("{base}...{head}")],
     )?;
     for l in diff.lines() {
         if let Some(added) = l.strip_prefix('+').filter(|_| !l.starts_with("+++")) {

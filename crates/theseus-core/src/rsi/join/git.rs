@@ -129,6 +129,41 @@ pub fn main_of(p: &Place, remote: &str) -> Result<String> {
     )
 }
 
+/// The commit `refs/heads/<branch>` names in `[self] repo` now.
+pub fn at(p: &Place, branch: &str) -> Result<String> {
+    p.git_ok(
+        &p.repo,
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{branch}^{{commit}}"),
+        ],
+    )
+}
+
+/// Whether `a` is `b` or an ancestor of it.
+pub fn is_ancestor(p: &Place, a: &str, b: &str) -> Result<bool> {
+    let o = p.git(&p.repo, &["merge-base", "--is-ancestor", a, b])?;
+    match o.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => bail!(
+            "git merge-base --is-ancestor failed: {}",
+            String::from_utf8_lossy(&o.stderr).trim()
+        ),
+    }
+}
+
+/// The commits of `range` (`a..b`).
+pub fn commits(p: &Place, range: &str) -> Result<Vec<String>> {
+    Ok(p.git_ok(&p.repo, &["rev-list", range])?
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 /// Where `head` left `main`: the commit both hold.
 pub fn merge_base(p: &Place, main: &str, head: &str) -> Result<String> {
     p.git_ok(&p.repo, &["merge-base", main, head])
@@ -370,9 +405,129 @@ pub enum Pushed {
     Moved(String),
 }
 
-/// Push the signed `merge` to `remote`'s main, never forced, after checking
-/// that main is still `base`. An unsigned commit never goes.
-pub fn push_main(p: &Place, t: &Tree, remote: &str, base: &str, merge: &str) -> Result<Pushed> {
+/// Where a push of main goes, read from git's configuration in one go: the URL to push to as the remote names it,
+/// the URL git turns that into (the destination), and a digest of every setting that can change where a push goes,
+/// what it sends or what it runs. A credential's value is never read into it: credential helpers count by name.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Dest {
+    /// The push URL as configured (`remote.<name>.pushurl`, else `.url`); git rewrites it as the remote's would be.
+    pub raw: String,
+    /// The destination: `git remote get-url --push`, the one URL a push of the remote goes to.
+    pub url: String,
+    /// SHA-256 of the settings that bear on a push (`push_settings`), sorted.
+    pub digest: String,
+}
+
+impl Dest {
+    /// The destination as the owner is shown it: any user and password part of the URL removed.
+    pub fn shown(&self) -> String {
+        shown_url(&self.url)
+    }
+}
+
+/// `url` without its `user[:password]@` part (a `scheme://` URL; any other form is shown as it is).
+pub fn shown_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let (auth, tail) = rest.find('/').map_or((rest, ""), |i| rest.split_at(i));
+    let host = auth.rsplit_once('@').map_or(auth, |(_, h)| h);
+    format!("{scheme}://{host}{tail}")
+}
+
+/// Why a remote has no single destination, in fixed words.
+pub const NO_DEST: &str = "the remote names no push destination";
+pub const TWO_DESTS: &str = "the remote names more than one push destination";
+pub const SPLIT_DEST: &str = "the remote fetches from one place and pushes to another";
+
+/// Whether a configuration key bears on where a push goes, what it sends or what it runs.
+fn push_setting(key: &str) -> bool {
+    let k = key.to_ascii_lowercase();
+    k.starts_with("remote.")
+        || (k.starts_with("url.") && (k.ends_with(".insteadof") || k.ends_with(".pushinsteadof")))
+        || k.starts_with("push.")
+        || k == "core.sshcommand"
+        || k.starts_with("include.")
+        || k.starts_with("includeif.")
+        || (k.starts_with("credential.") && k.ends_with(".helper"))
+        || k == "credential.helper"
+}
+
+/// The settings that bear on a push (`push_setting`), as git reads them with includes followed, `key=value` sorted;
+/// a credential helper's value is its name.
+fn push_settings(p: &Place) -> Result<Vec<String>> {
+    let o = p.git(&p.repo, &["config", "--list", "-z"])?;
+    if !o.status.success() {
+        bail!(
+            "git config --list failed: {}",
+            String::from_utf8_lossy(&o.stderr).trim()
+        );
+    }
+    let mut out: Vec<String> = (o.stdout.split(|b| *b == 0))
+        .filter(|e| !e.is_empty())
+        .map(|e| String::from_utf8_lossy(e).into_owned())
+        .filter_map(|e| {
+            let (k, v) = e.split_once('\n').unwrap_or((e.as_str(), ""));
+            push_setting(k).then(|| format!("{}={v}", k.to_ascii_lowercase()))
+        })
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
+/// The remote's one push destination, or why there is none, in fixed words: no push URL, more than one, or a fetch
+/// URL that is not the push URL (the fetch the card and the merge read must read where the push goes).
+pub fn dest(p: &Place, remote: &str) -> Result<std::result::Result<Dest, &'static str>> {
+    let urls = |args: &[&str]| -> Result<Vec<String>> {
+        let o = p.git(&p.repo, args)?;
+        Ok(String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect())
+    };
+    let push = urls(&["remote", "get-url", "--push", "--all", remote])?;
+    let fetch = urls(&["remote", "get-url", "--all", remote])?;
+    let url = match push.as_slice() {
+        [] => return Ok(Err(NO_DEST)),
+        [one] => one.clone(),
+        _ => return Ok(Err(TWO_DESTS)),
+    };
+    if fetch != vec![url.clone()] {
+        return Ok(Err(SPLIT_DEST));
+    }
+    let configured = |key: &str| -> Result<Vec<String>> {
+        urls(&["config", "--get-all", &format!("remote.{remote}.{key}")])
+    };
+    let raw = match configured("pushurl")?.as_slice() {
+        [one] => one.clone(),
+        [] => match configured("url")?.as_slice() {
+            [one] => one.clone(),
+            [] => return Ok(Err(NO_DEST)),
+            _ => return Ok(Err(TWO_DESTS)),
+        },
+        _ => return Ok(Err(TWO_DESTS)),
+    };
+    use sha2::Digest;
+    let digest = hex::encode(sha2::Sha256::digest(
+        push_settings(p)?.join("\0").as_bytes(),
+    ));
+    Ok(Ok(Dest { raw, url, digest }))
+}
+
+/// Push the signed `merge` to main at `dest`, never forced, after checking that main is still `base`: one ref, to
+/// one destination, with no tags followed and no submodule pushed, whatever git's configuration says. The remote's
+/// configured URL is pushed to rather than its name, so no `remote.<name>.push` refspec or mirror setting applies.
+/// An unsigned commit never goes.
+pub fn push_main(
+    p: &Place,
+    t: &Tree,
+    remote: &str,
+    dest: &Dest,
+    base: &str,
+    merge: &str,
+) -> Result<Pushed> {
     if !signed(p, merge)? {
         bail!("refused: {merge} is not signed, and an unsigned merge never reaches main");
     }
@@ -382,7 +537,9 @@ pub fn push_main(p: &Place, t: &Tree, remote: &str, base: &str, merge: &str) -> 
         return Ok(Pushed::Moved(now));
     }
     let spec = format!("{merge}:refs/heads/main");
-    let o = p.git(&t.dir, &["push", "-q", "--no-verify", remote, &spec])?;
+    let args = push_args(&dest.raw, &spec);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let o = p.git(&t.dir, &args)?;
     if o.status.success() {
         return Ok(Pushed::Done);
     }
@@ -395,4 +552,23 @@ pub fn push_main(p: &Place, t: &Tree, remote: &str, base: &str, merge: &str) -> 
         "git refused the push of main: {}",
         String::from_utf8_lossy(&o.stderr).trim()
     )
+}
+
+/// The push's argv: one refspec to one URL, tags and submodules off by flag and by setting.
+pub fn push_args(url: &str, spec: &str) -> Vec<String> {
+    [
+        "-c",
+        "push.followTags=false",
+        "-c",
+        "push.recurseSubmodules=no",
+        "push",
+        "-q",
+        "--no-verify",
+        "--no-follow-tags",
+        "--recurse-submodules=no",
+        url,
+        spec,
+    ]
+    .map(str::to_string)
+    .to_vec()
 }

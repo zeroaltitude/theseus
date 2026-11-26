@@ -10,11 +10,21 @@ use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
 use super::install::Started;
 use super::{
-    blocking, dependencies, git, keel, lock, lock_dir, moved, publish, refused, stats, Run, TRIES,
+    blocking, dependencies, git, keel, lock, lock_dir, moved, publish, refused, review_file, stats,
+    Run, TRIES,
 };
 use crate::fact::rsi_join::{SelfJoinAgain, SelfJoined};
 use crate::rsi::rerun;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
+
+/// What the join can offer the owner for a head.
+enum Offer {
+    Ready(Box<publish::Leaving>),
+    /// The branch's ref is not the head its row names.
+    Moved,
+    /// Not offered, in fixed words: no single destination, main's scrub, or what the review file cannot show.
+    Held(String),
+}
 
 /// How a try ended.
 enum Try {
@@ -171,9 +181,10 @@ impl Run<'_> {
         Ok(false)
     }
 
-    /// The owner's yes to publishing this head (`publish`): true when he said yes to it. Else the join parks: the
-    /// card is asked, once for the head, and the pass records it as parked. His no is held by its own row; after his
-    /// retry lifts it, the head is asked again.
+    /// The owner's yes to publishing this head (`publish`): true when he said yes to it (checked again under the join
+    /// lock: `still_approved`). Else the join parks: the review file is written, main's scrub reads the card's two
+    /// shas, and one card is asked for the head. His no is held by its own row; after his retry lifts it, the head is
+    /// asked again. A range the review file cannot show is held with one notice and asked nothing.
     async fn owner_yes(&mut self, remote: &str) -> Result<bool> {
         let core = self.core.clone();
         let here = (self.b.branch.clone(), self.b.head.clone());
@@ -194,31 +205,54 @@ impl Run<'_> {
         }
         let (p, r, h) = (self.place.clone(), remote.to_string(), self.b.head.clone());
         let title = self.b.why.lines().next().unwrap_or("").trim().to_string();
-        let names = (self.b.branch.clone(), self.b.item.clone(), title);
+        let (branch, item) = (self.b.branch.clone(), self.b.item.clone());
         let scrubber = core.tools.scrubber.clone();
-        let read = blocking(move || {
+        let offer = blocking(move || {
             git::fetch(&p, &r)?;
             let main = git::main_of(&p, &r)?;
-            // Main's scrub of what would leave (`tree::cleared`), on the head itself: the branch is
-            // no longer pushed, so this is where it runs before anything is offered.
-            let t = git::detached(&p, "publish", &names.0, &h)?;
-            let cleared = tree::cleared(&p, &t, &names.0, &|s| scrubber.scrub(s).1);
+            if git::at(&p, &branch)? != h {
+                return Ok(Offer::Moved);
+            }
+            let dest = match git::dest(&p, &r)? {
+                Ok(d) => d,
+                Err(why) => return Ok(Offer::Held(why.to_string())),
+            };
+            // Main's scrub of what would leave (`tree::cleared`), on the card's own two shas.
+            let t = git::detached(&p, "publish", &branch, &h)?;
+            let cleared = tree::cleared(&p, &t, &branch, (&main, &h), &|s| scrubber.scrub(s).1);
             let _ = tree::close(&p, &t);
             if let Err(e) = cleared {
-                return Ok(Err(e.to_string()));
+                return Ok(Offer::Held(e.to_string()));
             }
-            let names = (names.0.as_str(), names.1.as_str(), names.2.as_str());
-            publish::Leaving::read(&p, publish::Kind::Join, names, &r, &main, &h).map(Ok)
+            Ok(match review_file::write(&p, &main, &h, &dest.shown())? {
+                Err(u) => Offer::Held(u.words().to_string()),
+                Ok(review) => Offer::Ready(Box::new(publish::Leaving {
+                    branch,
+                    item,
+                    title,
+                    head: h,
+                    main,
+                    remote: r,
+                    dest,
+                    review,
+                })),
+            })
         })
         .await?;
-        let l = match read {
-            Ok(l) => l,
-            Err(why) => {
+        let l = match offer {
+            Offer::Ready(l) => l,
+            Offer::Moved => {
+                let why = "the branch moved past the head its row names";
+                self.stop(publish::PHASE, why, json!({"moved": true}));
+                return Ok(false);
+            }
+            Offer::Held(why) => {
                 self.card(format!(
-                    "Self branch {} ({}) may not leave this machine: {why}. Nothing was sent, and its head is held.",
-                    self.b.branch, self.b.item
+                    "Self branch {} was not offered for publishing: {why}. Nothing was published; its head {} is held.",
+                    publish::untrusted(&self.b.branch, 120),
+                    self.b.head
                 ));
-                self.hold(publish::PHASE, &why, json!({"scrub": true}));
+                self.hold(publish::PHASE, &why, json!({"not_offered": true}));
                 return Ok(false);
             }
         };
@@ -227,6 +261,47 @@ impl Run<'_> {
         self.stop(publish::PHASE, why, publish::parked(&question, &l));
         self.pass.parked.push(here);
         Ok(false)
+    }
+
+    /// Whether the owner's yes still covers this push onto `base`, checked under the join lock just before it: the
+    /// head is the card's, the branch's latest built head and its ref; the destination and git's push settings are
+    /// the card's (`git::Dest`); and `base` is the card's main or a fast-forward of it that sends only commits of the
+    /// review file (`publish::covered`). The destination to push to, or why the yes is void, in fixed words.
+    async fn still_approved(
+        &self,
+        remote: &str,
+        base: &str,
+    ) -> Result<std::result::Result<git::Dest, &'static str>> {
+        let Some(asked) = self.core.publish_asked(&self.b.branch)? else {
+            return Ok(Err("no card stands for this head"));
+        };
+        if asked.head != self.b.head || self.latest != self.b.head {
+            return Ok(Err(
+                "the branch has a newer head than the one the owner said yes to",
+            ));
+        }
+        let (p, r) = (self.place.clone(), remote.to_string());
+        let (branch, base) = (self.b.branch.clone(), base.to_string());
+        blocking(move || {
+            if git::at(&p, &branch)? != asked.head {
+                return Ok(Err("the branch moved after the owner's yes"));
+            }
+            match git::dest(&p, &r)? {
+                Ok(d) if d == asked.dest => {}
+                _ => {
+                    return Ok(Err(
+                        "the destination or git's push settings changed after the owner's yes",
+                    ))
+                }
+            }
+            if !publish::covered(&p, &asked.main, &base, &asked.head)? {
+                return Ok(Err(
+                    "main at the remote was rewritten, or moved in a way the review file does not cover",
+                ));
+            }
+            Ok(Ok(asked.dest))
+        })
+        .await
     }
 
     /// Hand the install to its unit, or, where the service runs a build the loop cannot replace,
@@ -345,6 +420,16 @@ impl Run<'_> {
         if let Some(f) = &self.seams.before_push {
             f(attempt);
         }
+        // Under the join lock, just before the push: the owner's yes still covers what this push sends.
+        let dest = match self.still_approved(remote, &m.base).await? {
+            Ok(dest) => dest,
+            Err(why) => {
+                close(self);
+                self.core.publish_end(&self.b.branch, why)?;
+                self.stop(publish::PHASE, why, json!({"void": true}));
+                return Ok(Try::Stopped);
+            }
+        };
         let (p, t, r, base, s) = (
             self.place.clone(),
             m.t.clone(),
@@ -352,7 +437,7 @@ impl Run<'_> {
             m.base.clone(),
             signed.clone(),
         );
-        let pushed = blocking(move || git::push_main(&p, &t, &r, &base, &s)).await;
+        let pushed = blocking(move || git::push_main(&p, &t, &r, &dest, &base, &s)).await;
         close(self);
         match pushed {
             Ok(git::Pushed::Done) => {

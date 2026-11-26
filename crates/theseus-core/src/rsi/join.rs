@@ -87,6 +87,7 @@ pub mod planted;
 mod proof_check;
 pub mod publish;
 pub mod review;
+pub mod review_file;
 mod reviewing;
 pub mod root_install;
 pub mod scratch;
@@ -479,6 +480,8 @@ struct Run<'a> {
     earlier: Vec<unreviewable::Stop>,
     /// What a review that answered `fix` asked to repair (`fix::at_review`).
     asked: Vec<String>,
+    /// The branch's latest green built head (`seen`'s newest row for it): a yes counts only for it.
+    latest: String,
     pass: &'a mut Pass,
 }
 
@@ -580,6 +583,14 @@ impl Core {
             {
                 continue;
             }
+            // A head the branch has moved past is never joined, and a card asked for it ends.
+            let latest = (seen.built.iter().rev())
+                .find(|n| n.branch == b.branch)
+                .map_or_else(|| b.head.clone(), |n| n.head.clone());
+            if latest != b.head {
+                self.publish_end_for_head(&b.branch, &b.head)?;
+                continue;
+            }
             let theirs = |v: &&Prior| v.branch == b.branch && v.head == b.head;
             let mine = seen
                 .verdicts
@@ -606,6 +617,7 @@ impl Core {
                     .map(|(_, _, st)| st.clone())
                     .collect(),
                 asked: vec![],
+                latest: latest.clone(),
                 pass: &mut pass,
             };
             let (verdict, asked) = match mine {

@@ -1,6 +1,10 @@
-//! The owner's yes before the self loop sends anything to the remote (issue 53). A self branch and a fix made at
-//! review stay on this machine; the join and the revert are the only pushes, and each waits for the owner's answer to
-//! one card that names what would leave and the command that shows all of it.
+//! The owner's yes before the self loop publishes a change to its repository's remote (issue 53). A self branch and
+//! a fix made at review are not pushed; the join is the one publication of a self change, and it waits for the owner's
+//! answer to one card. The card names the review file (`review_file`): everything the join of the head onto the
+//! remote's main would send, made from the objects; a yes is bound to the head, that main, the file's SHA-256, the
+//! destination and the configuration digest (`git::Dest`), and is checked again under the join lock before the push
+//! (`joining::still_approved`). The revert's push asks no card: it publishes main with an already approved merge undone
+//! and no session's text (the conductor's ruling, 2026-11-26); its push shares the join's pin (`git::push_main`).
 //!
 //! The card is a question planned on its own session, as the install's is (`root_install::offer`): the kernel keeps
 //! it across a restart, `confirm.list` and the DM show it, and the owner answers it with `action.confirm`. It never
@@ -39,130 +43,119 @@ const ASKED: &str = "self.publish.asked.";
 /// Who settles a question that was asked for a head the branch no longer has.
 const SUPERSEDED: &str = "superseded";
 
-/// What would be sent: a join of a branch, or a revert of a joined change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    Join,
-    Revert,
-}
-
-/// What the card names: the change, and how much of it would leave.
+/// What a join would publish, as the card names it.
 #[derive(Debug, Clone)]
 pub struct Leaving {
-    pub kind: Kind,
-    /// The branch, or for a revert the name its stop rows use.
     pub branch: String,
     pub item: String,
     pub title: String,
-    /// The commit that would be sent (the branch's head, or the signed revert).
+    /// The branch's head the card asks about.
     pub head: String,
-    /// The remote's main the content is read against.
+    /// The remote's main the review file was made against.
     pub main: String,
-    /// The remote.
+    /// The remote's name.
     pub remote: String,
-    /// `(commit, subject)` of every commit `main..head`, oldest first.
-    pub commits: Vec<(String, String)>,
-    pub files: usize,
-    /// `git diff --shortstat main...head`.
-    pub size: String,
-    /// The self repository.
-    pub repo: std::path::PathBuf,
+    /// Where the push would go (`git::dest`).
+    pub dest: super::git::Dest,
+    /// The review file (`review_file`).
+    pub review: super::review_file::Review,
+}
+
+/// The longest title, item or subject a card shows, in characters.
+const UNTRUSTED_CHARS: usize = 120;
+/// The most commit subjects a card lists; the review file holds them all.
+const SUBJECTS: usize = 20;
+
+/// A string a model or a commit wrote, as one line of a card: control characters removed, white space made single
+/// spaces, cut to `max` characters, and every character Markdown or a link could use escaped.
+pub fn untrusted(s: &str, max: usize) -> String {
+    let flat: String = s
+        .chars()
+        .map(|c| if c.is_control() || c.is_whitespace() { ' ' } else { c })
+        .filter(|c| !matches!(*c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+        .collect();
+    let flat = flat.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cut: String = flat.chars().take(max).collect();
+    let mut out = String::with_capacity(cut.len());
+    for c in cut.chars() {
+        if "\\`*_[]()<>#|~!:@".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    if flat.chars().count() > max {
+        out.push_str(" [cut]");
+    }
+    out
+}
+
+/// `s` in single quotes, as a shell reads it.
+fn quoted(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 impl Leaving {
-    /// What `head` would send against `main`, read from the self repository.
-    pub fn read(
-        p: &Place,
-        kind: Kind,
-        (branch, item, title): (&str, &str, &str),
-        remote: &str,
-        main: &str,
-        head: &str,
-    ) -> Result<Self> {
-        let range = format!("{main}..{head}");
-        let log = p.git_ok(&p.repo, &["log", "--reverse", "--format=%H%x09%s", &range])?;
-        let commits = log
-            .lines()
-            .filter_map(|l| l.split_once('\t'))
-            .map(|(c, s)| (c.to_string(), s.to_string()))
-            .collect();
-        let three = format!("{main}...{head}");
-        let names = p.git_ok(&p.repo, &["diff", "--name-only", "--no-renames", &three])?;
-        let size = p.git_ok(&p.repo, &["diff", "--shortstat", "--no-renames", &three])?;
-        Ok(Self {
-            kind,
-            branch: branch.into(),
-            item: item.into(),
-            title: title.into(),
-            head: head.into(),
-            main: main.into(),
-            remote: remote.into(),
-            commits,
-            files: names.lines().filter(|l| !l.trim().is_empty()).count(),
-            size: size.trim().to_string(),
-            repo: p.repo.clone(),
-        })
-    }
-
-    /// The command that prints everything that would leave: every commit message, whole, and the full diff of each
-    /// against the remote's main as it was when the card was asked.
+    /// The fixed command that prints the review file.
     pub fn command(&self) -> String {
-        format!(
-            "git -C {} log --reverse --format=fuller --patch --stat {}..{}",
-            self.repo.display(),
-            self.main,
-            self.head
-        )
+        format!("cat -- {}", quoted(&self.review.path.display().to_string()))
     }
 
-    /// The card's words.
+    /// The card's words: the untrusted strings each on a labelled line of their own, escaped; the shas, the
+    /// destination, the review file and the decision on fixed lines.
     pub fn question(&self) -> String {
-        let first = match self.kind {
-            Kind::Join => format!(
-                "Publish this self change to {}'s main: {}?",
-                self.remote, self.title
-            ),
-            Kind::Revert => format!(
-                "A revert of {} is ready to publish to {}'s main. Publish it?",
-                self.title, self.remote
-            ),
-        };
-        let subjects: String = self
-            .commits
-            .iter()
-            .map(|(c, s)| format!("- {} {s}\n", short(c)))
+        let r = &self.review;
+        let mut subjects: String = (r.commits.iter().take(SUBJECTS))
+            .map(|(c, s)| format!("Commit {}: {}\n", short(c), untrusted(s, UNTRUSTED_CHARS)))
             .collect();
-        let size = if self.size.is_empty() {
-            "no change to any file".to_string()
-        } else {
-            self.size.clone()
+        if r.commits.len() > SUBJECTS {
+            subjects.push_str(&format!(
+                "({} more commits are in the review file)\n",
+                r.commits.len() - SUBJECTS
+            ));
+        }
+        let size = match r.size.is_empty() {
+            true => "no change to any file".to_string(),
+            false => r.size.clone(),
         };
         format!(
-            "{first}\n\nItem: {item}\nBranch: {branch}\nCommit: {head}\n{n} commit(s), {files} file(s): {size}\n\n\
-             {subjects}\nNothing of it has left this machine. Before you answer, read all of it (every commit message \
-             and the full diff against the remote's main {main8}):\n\n{cmd}\n\n\
-             Yes: Theseus merges it into main, runs main's gate on the merge as it always does, signs it and pushes \
-             main; that merge, and main's count folded into it, are all that is added. No: nothing is sent, the \
-             branch is held and you are not asked again. If the branch changes before the push, this answer no \
-             longer counts and a new card asks for the new content. Nothing answers this card but you.",
-            item = self.item,
-            branch = self.branch,
+            "Publish a self change to the remote's main?\n\n\
+             Title: {title}\nItem: {item}\nBranch: {branch}\n{subjects}\n\
+             HEAD: {head}\nREMOTE MAIN: {main}\nDESTINATION: {dest}\nCOMMITS: {n}\nFILES: {files} ({size})\n\
+             REVIEW FILE: {path}\nREVIEW FILE SIZE: {bytes} bytes\nREVIEW FILE SHA-256: {sha}\nPRINT IT: {cmd}\n\n\
+             The review file holds every commit the join of HEAD onto REMOTE MAIN would send: each commit's raw object \
+             and its change against each of its parents, made from git's objects with text conversion, external diff \
+             and renames off. The join adds its merge commit and main's count to them.\n\n\
+             YES: the join merges HEAD into main, runs main's gate on the merge, signs it and pushes main, one ref, to \
+             DESTINATION. Your yes counts only for this HEAD, this review file and this DESTINATION, while the remote's \
+             main is REMOTE MAIN or has only moved forward with none of HEAD's commits sent; anything else asks a new \
+             card.\nNO: nothing is published, the branch's HEAD is held, and you are not asked about it again.",
+            title = untrusted(&self.title, UNTRUSTED_CHARS),
+            item = untrusted(&self.item, UNTRUSTED_CHARS),
+            branch = untrusted(&self.branch, UNTRUSTED_CHARS),
             head = self.head,
-            n = self.commits.len(),
-            files = self.files,
-            main8 = short(&self.main),
+            main = self.main,
+            dest = self.dest.shown(),
+            n = r.commits.len(),
+            files = r.files,
+            path = r.path.display(),
+            bytes = r.bytes,
+            sha = r.sha256,
             cmd = self.command(),
         )
     }
 }
 
-/// The question asked for a branch: its id and the head it asks about.
+/// The question asked for a branch, and what a yes to it is bound to.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Asked {
     pub question: String,
     pub head: String,
-    pub kind: Kind,
+    /// The remote's main the review file was made against.
+    pub main: String,
+    /// The review file's SHA-256.
+    pub file_sha256: String,
+    /// The destination and the configuration digest (`git::Dest`).
+    pub dest: super::git::Dest,
 }
 
 /// The owner's answer to a question, as the question stands.
@@ -175,6 +168,28 @@ pub enum Answer {
     No,
     /// It ended with no answer of the owner's (its session retired, or it was superseded): ask again.
     Ended,
+}
+
+/// Whether a yes given against `card_main` still covers a join of `head` onto `now`: `now` is `card_main`, or a
+/// fast-forward of it (`card_main` an ancestor of `now`) after which every commit the push would send of `head`'s,
+/// `now..head`, is one of `card_main..head`, the review file's.
+pub fn covered(
+    p: &crate::rsi::tree::Place,
+    card_main: &str,
+    now: &str,
+    head: &str,
+) -> anyhow::Result<bool> {
+    use super::git;
+    if now == card_main {
+        return Ok(true);
+    }
+    if !git::is_ancestor(p, card_main, now)? {
+        return Ok(false);
+    }
+    let shown = git::commits(p, &format!("{card_main}..{head}"))?;
+    Ok(git::commits(p, &format!("{now}..{head}"))?
+        .iter()
+        .all(|c| shown.contains(c)))
 }
 
 /// A commit's first twelve characters.
@@ -218,11 +233,39 @@ impl Core {
         }))
     }
 
+    /// End the question asked for `branch`, if any: a card still waiting is settled as superseded, and what was
+    /// asked is forgotten, so a yes to it counts for nothing and the next pass asks one new card for what is there
+    /// then. `why` is the settled card's note.
+    pub(crate) fn publish_end(&self, branch: &str, why: &str) -> Result<()> {
+        let Some(old) = self.publish_asked(branch)? else {
+            return Ok(());
+        };
+        if self.publish_answer(&old.question)? == Answer::Waiting {
+            if let Some(a) = self.kernel.action(&old.question)? {
+                self.publish_settle(&a, false, Some(why), (SUPERSEDED, SUPERSEDED))?;
+            }
+        }
+        self.store.delete_meta(&asked_key(branch))
+    }
+
+    /// End the question asked for `branch` when it was asked for `head`: that head is superseded.
+    pub(crate) fn publish_end_for_head(&self, branch: &str, head: &str) -> Result<()> {
+        match self.publish_asked(branch)? {
+            Some(a) if a.head == head => self.publish_end(
+                branch,
+                "the branch has a newer head; a new card asks for it",
+            ),
+            _ => Ok(()),
+        }
+    }
+
     /// Ask the owner one card for `l`. A question still waiting for an earlier head of the branch is settled as
     /// superseded first: an answer to it would be about content that no longer leaves. Returns the question's id.
     pub(crate) fn ask_publish(&self, l: &Leaving) -> Result<String> {
         if let Some(old) = self.publish_asked(&l.branch)? {
-            if old.head != l.head && self.publish_answer(&old.question)? == Answer::Waiting {
+            if (old.head, &old.main) != (l.head.clone(), &l.main)
+                && self.publish_answer(&old.question)? == Answer::Waiting
+            {
                 if let Some(a) = self.kernel.action(&old.question)? {
                     let note = "the branch moved after this was asked; a new card asks for its new content";
                     self.publish_settle(&a, false, Some(note), (SUPERSEDED, SUPERSEDED))?;
@@ -238,15 +281,23 @@ impl Core {
         let proposal = Proposal {
             tool: ACK.into(),
             args: json!({
-                "question": question, "kind": l.kind, "branch": l.branch, "item": l.item, "title": l.title,
-                "head": l.head, "main": l.main, "remote": l.remote, "command": l.command(),
+                "question": question, "branch": l.branch, "item": l.item, "title": l.title,
+                "head": l.head, "main": l.main, "remote": l.remote, "destination": l.dest.shown(),
+                "review_file": l.review.path, "review_sha256": l.review.sha256, "command": l.command(),
             }),
             resource: Some(format!("self-publish:{}", short(&l.head))),
             policy_context: json!({}),
         };
         let guard = self.kernel.admit_input(&exec)?;
         let key = asked_key(&l.branch);
-        let (branch, head, kind) = (l.branch.clone(), l.head.clone(), l.kind);
+        let branch = l.branch.clone();
+        let bound = Asked {
+            question: String::new(),
+            head: l.head.clone(),
+            main: l.main.clone(),
+            file_sha256: l.review.sha256.clone(),
+            dest: l.dest.clone(),
+        };
         let planned = self.kernel.plan_confirm_with(
             &guard,
             &proposal,
@@ -255,8 +306,7 @@ impl Core {
             |a| {
                 let asked = Asked {
                     question: a.correlation_id.clone(),
-                    head: head.clone(),
-                    kind,
+                    ..bound.clone()
                 };
                 Ok(vec![NewRecord::json(kinds::META, Some(&key), &asked)?])
             },
@@ -352,7 +402,7 @@ impl Core {
                     "the owner said no to publishing it{}",
                     note.map(|n| format!(": {n}")).unwrap_or_default()
                 ),
-                numbers: json!({"held": true, "question": corr, "kind": args["kind"]}),
+                numbers: json!({"held": true, "question": corr}),
             };
             rows.push(crate::fact::row(&stop, None, None)?);
         }
@@ -394,15 +444,17 @@ pub fn confirm_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Conf
     let text = |k: &str| args[k].as_str().unwrap_or_default().to_string();
     let plain = PlainWords {
         who: "Theseus".into(),
-        what: match args["kind"].as_str() {
-            Some("revert") => format!("publish a revert of {}", text("title")),
-            _ => format!("publish {}", text("title")),
-        },
+        what: format!("publish {}", untrusted(&text("title"), UNTRUSTED_CHARS)),
         why: String::new(),
-        held: "it sends a change of Theseus to the remote, so only you may allow it".into(),
+        held:
+            "it publishes a change of Theseus to its repository's remote, so only you may allow it"
+                .into(),
         risk: "network".into(),
-        yes: format!("merges it into main and pushes main to {}.", text("remote")),
-        no: "sends nothing; the change is held and you are not asked again.".into(),
+        yes: format!(
+            "merges it into main and pushes main to {}.",
+            text("destination")
+        ),
+        no: "publishes nothing; the head is held and you are not asked about it again.".into(),
         detail: text("question"),
     };
     crate::rpc::offer(ConfirmRequest {
@@ -434,5 +486,6 @@ pub fn confirm_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Conf
 
 /// The stop row's numbers while `l` waits for the answer to `question`.
 pub fn parked(question: &str, l: &Leaving) -> Value {
-    json!({"parked": true, "question": question, "main": l.main, "commits": l.commits.len(), "files": l.files})
+    json!({"parked": true, "question": question, "main": l.main, "commits": l.review.commits.len(),
+           "files": l.review.files, "review_sha256": l.review.sha256})
 }

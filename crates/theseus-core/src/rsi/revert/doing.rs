@@ -201,6 +201,19 @@ impl Core {
                 closing(&made.t);
                 return Ok(held);
             }
+            // The push's one destination, as the join's is pinned (`git::dest`); the revert asks no card.
+            let (p, r) = (place.clone(), remote.to_string());
+            let dest = match blocking(move || git::dest(&p, &r)).await {
+                Ok(Ok(d)) => d,
+                Ok(Err(why)) => {
+                    closing(&made.t);
+                    return Ok(self.revert_held(j, "push", why, true));
+                }
+                Err(e) => {
+                    closing(&made.t);
+                    return Ok(self.revert_held(j, "push", &format!("{e:#}"), true));
+                }
+            };
             let (p, t, r, base, s) = (
                 place.clone(),
                 made.t.clone(),
@@ -208,7 +221,7 @@ impl Core {
                 made.base.clone(),
                 signed.clone(),
             );
-            let pushed = blocking(move || git::push_main(&p, &t, &r, &base, &s)).await;
+            let pushed = blocking(move || git::push_main(&p, &t, &r, &dest, &base, &s)).await;
             closing(&made.t);
             match pushed {
                 Ok(git::Pushed::Done) => {

@@ -776,14 +776,20 @@ async fn attempt(
         "The branch stays on this machine: nothing of it is pushed until the owner reads it and says yes at the \
          join. ",
     );
-    if core.cfg.self_improve.remote.is_some() {
+    if let (Some(remote), Some(head)) = (core.cfg.self_improve.remote.clone(), a.head.clone()) {
         let (p, t, b) = (place.clone(), a.tree.clone(), a.tree.branch.clone());
         let scrubber = core.tools.scrubber.clone();
-        let cleared =
-            blocking(move || Ok(tree::cleared(&p, &t, &b, &|s| scrubber.scrub(s).1))).await?;
+        // The scrub reads the attempt's own head against the configured remote's main, never a moving ref.
+        let cleared = blocking(move || {
+            let base = super::join::git::main_of(&p, &remote)?;
+            Ok(tree::cleared(&p, &t, &b, (&base, &head), &|s| {
+                scrubber.scrub(s).1
+            }))
+        })
+        .await?;
         if let Err(e) = cleared {
             a.stopped_at = Some(PUSH);
-            after = format!("It may not leave this machine: {e}. ");
+            after = format!("Main's scrub stopped it: {e}. ");
         }
     }
     // The item's other sessions are ended before the tree goes; this one is making the call.

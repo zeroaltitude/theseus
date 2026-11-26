@@ -168,16 +168,37 @@ async fn the_join_parks_on_one_card_and_sends_nothing_before_the_yes() {
     );
     assert_eq!(publish_stops(&r).len(), 1, "asked once");
     let card = &cards(&r.core)[0];
+    let file = card.input["review_file"]
+        .as_str()
+        .expect("the review file's path")
+        .to_string();
+    let text = std::fs::read_to_string(&file).unwrap();
+    let sha = card.input["review_sha256"].as_str().unwrap().to_string();
+    assert_eq!(
+        super::review_file::sha256_of(std::path::Path::new(&file)),
+        Some(sha.clone())
+    );
+    assert!(
+        file.starts_with(&r.f.place.reports().display().to_string()),
+        "{file}"
+    );
     for want in [
-        "Trim the sails before the wind.",
-        branch.as_str(),
-        head.as_str(),
-        "1 commit(s), 2 file(s)",
-        &format!("log --reverse --format=fuller --patch --stat {base}..{head}"),
-        "Nothing of it has left this machine",
+        "Title: Trim the sails before the wind.".to_string(),
+        format!("Branch: {branch}"),
+        format!("HEAD: {head}"),
+        format!("REMOTE MAIN: {base}"),
+        "COMMITS: 1".into(),
+        "FILES: 2 (".into(),
+        format!("REVIEW FILE: {file}"),
+        format!("REVIEW FILE SIZE: {} bytes", text.len()),
+        format!("REVIEW FILE SHA-256: {sha}"),
+        format!("PRINT IT: cat -- '{file}'"),
     ] {
-        assert!(card.reason.contains(want), "{want}: {}", card.reason);
+        assert!(card.reason.contains(&want), "{want}: {}", card.reason);
     }
+    let raw = git(&r.f.place.repo, &["cat-file", "commit", &head]);
+    assert!(text.contains(&raw), "the raw commit object: {text}");
+    assert!(text.contains("+test -f fix.txt"), "the change: {text}");
     assert!(!card.needs_proof, "the card alone: no authenticator code");
 }
 
@@ -222,9 +243,8 @@ async fn a_yes_publishes_that_head_and_only_that_head() {
     assert!(cards(&r.core).is_empty(), "the card is answered");
 }
 
-/// A yes is for the head it was asked about. Here the join meets a new head of the branch (the old one held, so
-/// the join cannot take it; in the loop today a head with a card is never replaced on its branch, since a fix comes
-/// before the card): the old yes does not count, a new card asks for the new head, and nothing is sent.
+/// A yes is for the head it was asked about. The branch is rebuilt after the yes: the old head is superseded (its row
+/// cannot join and its card ends), the new head is reviewed and asked one new card, and nothing is sent.
 #[tokio::test]
 async fn a_moved_head_voids_the_yes() {
     let r = rig(SelfMode::Act);
@@ -282,15 +302,6 @@ async fn a_moved_head_voids_the_yes() {
             numbers: Value::Null,
         });
     assert_ne!(moved, head);
-    r.core
-        .rec(None)
-        .record(&crate::fact::rsi_join::SelfJoinStopped {
-            branch: branch.clone(),
-            head: head.clone(),
-            phase: "keel".into(),
-            why: "the old head is held".into(),
-            numbers: serde_json::json!({"held": true}),
-        });
     let pass = r.core.self_join_pass(&seams).await.unwrap();
     assert!(pass.joined.is_empty(), "{pass:?}");
     assert_eq!(pass.parked, [(branch.clone(), moved.clone())], "{pass:?}");
