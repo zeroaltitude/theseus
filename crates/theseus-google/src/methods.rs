@@ -532,7 +532,8 @@ pub fn resolve(
     .iter()
     .find_map(|k| params.get(*k).and_then(Value::as_str))
     .map(str::to_string);
-    let path = fill(&template, &mut params)?;
+    // One normal form for the path: what is judged is what is sent.
+    let path = crate::classify::normal(&fill(&template, &mut params)?).to_string();
     let query: Vec<(String, String)> = params
         .iter()
         .flat_map(|(k, v)| query_value(v).into_iter().map(move |s| (k.clone(), s)))

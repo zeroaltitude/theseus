@@ -399,6 +399,9 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
         ),
         ("DELETE /calendar/v3/calendars/team@example.test", json!({})),
         ("POST /calendar/v3/calendars/primary/acl", json!({})),
+        // An event made through `google.call` asks.
+        ("calendar.events.insert", json!({})),
+        ("calendar.events.insert", json!({"sendUpdates": "none"})),
     ] {
         assert!(authority(m, p), "{m} is authority");
     }
@@ -406,8 +409,6 @@ async fn calendar_acl_and_calendar_delete_are_authority() {
         ("calendar.acl.list", json!({})),
         ("calendar.calendars.get", json!({})),
         ("calendar.events.list", json!({})),
-        ("calendar.events.insert", json!({})),
-        ("calendar.events.insert", json!({"sendUpdates": "none"})),
     ] {
         assert!(!authority(m, p), "{m} is not authority");
     }

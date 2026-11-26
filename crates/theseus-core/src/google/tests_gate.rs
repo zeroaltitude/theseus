@@ -123,19 +123,20 @@ async fn google_call_classifies_delete_permissions_and_acl_as_authority_in_its_p
         ("calendar.events.insert", json!({"sendUpdates": "all"})),
         ("DELETE /drive/v3/files/abc", json!({})),
         ("POST /drive/v3/files/abc/permissions", json!({})),
+        // Every write asks.
+        ("gmail.users.drafts.create", json!({})),
+        ("calendar.events.insert", json!({"sendUpdates": "none"})),
+        ("POST /gmail/v1/users/me/labels", json!({})),
     ] {
         assert!(authority(m, params), "{m} is authority");
     }
     for (m, params) in [
         ("drive.files.list", json!({})),
         ("drive.permissions.list", json!({"fileId": "f1"})),
-        ("gmail.users.drafts.create", json!({})),
-        ("calendar.events.insert", json!({"sendUpdates": "none"})),
         (
             "sheets.spreadsheets.values.get",
             json!({"spreadsheetId": "s", "range": "A1"}),
         ),
-        ("POST /gmail/v1/users/me/labels", json!({})),
     ] {
         assert!(!authority(m, params), "{m} is not authority");
     }
