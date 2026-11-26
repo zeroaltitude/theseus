@@ -1367,16 +1367,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   deadline, and neither a stop nor a halt lands until the wait ends, `theseus-rexxp`; a stop that lands in the wait ends the
   gate as `Gated::Stopped`, a value and not an error (a rewrap such as `anyhow!("{e:#}")` loses an error's type, theseus-tsfkm), and each
   caller of `tree::gate` says what a stop means to it (`pr.rs`'s `gate_ran`: a halt; a revert or a join: a stop with no card; a probe: `.ran()`, an error); a gate stopped at `GATE_SILENCE`
-  names the phase it was in, its log's last `gate: ` line, at L0 and in a daemon's jail alike), `push` (`refs/heads/self/*` only, never forced, after the
-  daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one), `close`.
+  names the phase it was in, its log's last `gate: ` line, at L0 and in a daemon's jail alike), `cleared` (a `self/*` branch, no exam's file, the
+  daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one; `push` is
+  `cleared` and the push, which the loop no longer calls, issue 53), `close`.
   `self.propose_change { item, issue, why }` is registered only under `[self] mode = "act"`, runs only for an
   execution whose principal is `"self"`, and asks `rsi::gate` between phases: the first call opens the tree (which
   joins the workspace roots while `[self]` builds: `toolrun/guarded.rs`; the state dir's approve-list hold does not reach it for
   the self session that owns it, theseus-pw1q.21.9: `rsi/own_tree.rs` names the one tree of the session's task, `toolrun/order.rs` passes it to
   `ToolPolicy::decide_in` for the `fs.*` tools that write, and for the read-only `fs.*` and `git.*` tools of any self session
   it passes the trees root instead (`own_tree::open_to`, theseus-qh2tt: reading every tree, writing only its own), and every other path, the floor and the sealed sets ask as before; the edit hook's server start is the same case, theseus-kq4z4: a self session's `fs.write|edit|patch` in its own tree starts no language server, so `lsp::edits::gate` judges no start as `proc.run` and the result's `meta.lsp.not_started` says `self tree`, since rust-analyzer runs a tree's build scripts and proc macros outside L1; a server already up still answers, and an `lsp.*` call's own start is judged as before), the next commits, gates, writes the frozen
-  report (`<state>/self/reports/<branch, / as ->.md`, 0444, ending `<!-- REPORT COMPLETE -->`), pushes a green branch
-  when `[self] remote` is set and closes the tree. Each attempt is one `self.branch.built` row; a keel finding posts
+  report (`<state>/self/reports/<branch, / as ->.md`, 0444, ending `<!-- REPORT COMPLETE -->`), runs `tree::cleared` on a
+  green branch when `[self] remote` is set (a hit stops it at `push`) and closes the tree; nothing pushes the branch. Each attempt is one `self.branch.built` row; a keel finding posts
   a `self_keel` card to the owner's DM and marks the item (`<trees>/<slug>.keel`) so it is never retried around.
   **A gate that never started halts the builds** (`rsi/infra.rs`, theseus-otkwu): the second infrastructure failure in a
   row (`gate: failed`, a `red` at exit 127 or at 0 seconds) halts self builds and tells the owner in the DM, who releases it
@@ -1418,7 +1419,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   held on the self budget's day line) calls it fair; then `self.exam.counted`, else
   `self.exam.rejected` with the reason (a sealed item's reason names the failed questions only). `[self]
   exams_day_max` (10) caps reviews a local day. The proposer rule: `Writer::SelfBranch` is refused by every
-  `Shelf` write, and `exams::touches_exams` names the paths a self branch's push refuses (`rsi::tree::push`: `self/exams/`,
+  `Shelf` write, and `exams::touches_exams` names the paths a self branch's push refuses (`rsi::tree::cleared`: `self/exams/`,
   `crates/theseus-exam/exam/`). `self.exams` / `theseus self exams` show counts by family and half and today's
   reviews, never a sealed item's text. Tests: `rsi/exams/tests.rs`, `rpc/tests_self_exams.rs`.
   **The self-join** (theseus-pw1q.9; `rsi/join.rs` and `rsi/join/`, `fact/rsi_join.rs`): `Core::self_join_pass(&Seams)`,
@@ -1433,7 +1434,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   builder's transcript), its verdict the reply's last `VERDICT:` line. One `self.review.verdict` row; a reject puts
   the backlog item back to `proposed` with the reasons in its evidence, in the row's frame. An accepted head is
   classified (`join/keel.rs`: `CLASSES`, one test a class, plus main's keel guard, a `MANIFEST_FORMAT` line and a
-  spend key) and a hit posts a `self_join` card to the owner's DM and holds the head (`numbers.held`). Then, one a
+  spend key) and a hit posts a `self_join` card to the owner's DM and holds the head (`numbers.held`). **Nothing is
+  published without the owner's yes** (`join/publish.rs`, issue 53): `tree::cleared` on the head (a hit holds it with
+  a card), then one `self.publish.ack` confirm card on its own session (commits, files, size, and the `git log --patch`
+  command that prints all of it; no authenticator code; an agent's yes refused), a `self.join.stopped {phase:
+  "publish", numbers.parked}` row, and the join parks (`Pass::parked`: the pass's one join, reviews go on). The yes is
+  read from the question's binding, for that head only (a new head asks a new card); a no writes the held row; the card
+  never expires (`rpc::confirms::expire_questions`). Then, one a
   pass, under the mkdir lock (`join/lock.rs`, `[self] join_lock`, its `owner` file ending `done:`): fetch, the dry
   run (`merge-tree`), a `--no-ff` merge in a detached tree, main's gate through the door with the benches
   (`tree::gate_with_benches`), the signature with `[self] repo`'s `user.signingkey` (none: a card, nothing pushed),

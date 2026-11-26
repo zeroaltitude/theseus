@@ -32,7 +32,7 @@
 //!    (`self.join.reopened`, [`joining`]): then the pass runs it as any
 //!    accepted branch, every check from this one on, and a head still in the
 //!    keel is held again with a new card. Nothing is remembered from the hold.
-//! 2b. **The owner's yes** ([`publish`], issue 53): the join asks one card
+//!    Then **the owner's yes** ([`publish`], issue 53): the join asks one card
 //!    for the branch's head, naming its commits, files and size and the
 //!    command that prints all of it, and parks (a `self.join.stopped` row,
 //!    phase `publish`, not held) until he answers. While it waits it is this
