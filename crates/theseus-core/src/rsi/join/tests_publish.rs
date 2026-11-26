@@ -256,18 +256,31 @@ async fn a_moved_head_voids_the_yes() {
             .join(format!("{}.md", branch.replace('/', "-"))))
         .to_string_lossy()
         .into_owned();
-    r.core.rec(None).record(&SelfBranchBuilt {
-        item: "trim-the-sails",
-        issue: "theseus-sail1",
-        branch: &branch,
-        head: Some(&moved),
-        gate: "green",
-        report: Some(&report),
-        cost_usd: 1.0,
-        stopped_at: None,
-        why: "Trim the sails before the wind.",
-        numbers: Value::Null,
+    let mut builder =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    builder.last_target = Some(crate::session::TargetRef {
+        profile: "builder".into(),
+        provider: "anthropic".into(),
+        model: SONNET.into(),
     });
+    r.core
+        .store
+        .put_session(&builder.session_id, &builder)
+        .unwrap();
+    r.core
+        .rec(Some(&builder.session_id))
+        .record(&SelfBranchBuilt {
+            item: "trim-the-sails",
+            issue: "theseus-sail1",
+            branch: &branch,
+            head: Some(&moved),
+            gate: "green",
+            report: Some(&report),
+            cost_usd: 1.0,
+            stopped_at: None,
+            why: "Trim the sails before the wind.",
+            numbers: Value::Null,
+        });
     assert_ne!(moved, head);
     r.core
         .rec(None)
