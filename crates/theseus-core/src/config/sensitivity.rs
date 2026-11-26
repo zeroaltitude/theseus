@@ -344,6 +344,16 @@ pub const ACCOUNT_TABLES: [&str; 6] = ["self", "self_issues", "self_fix", "aws",
 /// of [`TIGHTENS`].
 pub const DROPPED_KEYS: [&str; 1] = [PROMPT_REASON];
 
+/// (D) Whether `path` is prompt TEXT: a key of [`DROPPED_KEYS`]'s kind that holds the text
+/// itself (`system`, `end_note`, a persona's `card`, an instruction), not one that chooses a
+/// persona or sizes one (`default_persona`, `persona_max_tokens`), which keep what main does.
+pub fn prompt_text(path: &[String]) -> bool {
+    let persona = path
+        .last()
+        .is_some_and(|k| k.to_ascii_lowercase().contains("persona"));
+    !persona && reason(path).is_some_and(|r| DROPPED_KEYS.contains(&r.as_str()))
+}
+
 /// The group a setting is in, when it is in one ([`Group`]).
 pub fn group(path: &[String]) -> Option<Group> {
     let first = path.first()?.as_str();
@@ -411,10 +421,9 @@ pub fn proof_reason(
     if group(path).is_some_and(|g| PENDING.contains(&g)) {
         return reason(path).or_else(|| Some(format!("{:?}", group(path))));
     }
-    let why = reason(path)?;
-    match DROPPED_KEYS.contains(&why.as_str()) {
+    match prompt_text(path) {
         true => None,
-        false => Some(why),
+        false => reason(path),
     }
 }
 

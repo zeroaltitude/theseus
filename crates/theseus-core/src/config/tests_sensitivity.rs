@@ -187,12 +187,73 @@ fn valued(v: &Value, at: &mut Vec<String>, out: &mut Vec<(Vec<String>, Value)>) 
 }
 
 /// (G1) The addresses the configuration holds today, by the walk of the uncommented template.
-const ADDRESSES: &[&str] = &[];
+const ADDRESSES: &[&str] = &[
+    "aws.accounts.<account>.endpoint",
+    "catalog.some-new-model.provider",
+    "cockpit.public_url",
+    "discord.gateway_proxy",
+    "discord.rest_proxy",
+    "google.endpoint",
+    "judge.api_base",
+    "mcp.servers.docs.url",
+    "model.api_base",
+    "model.provider",
+    "profiles.dsflash.provider",
+    "profiles.dspro.provider",
+    "profiles.fable.provider",
+    "profiles.fable51.provider",
+    "profiles.fable52.provider",
+    "profiles.glm.provider",
+    "profiles.glm53.provider",
+    "profiles.haiku.provider",
+    "profiles.kimi.provider",
+    "profiles.kimimax.provider",
+    "profiles.mythos.provider",
+    "profiles.opus.provider",
+    "profiles.sonnet.provider",
+    "providers.deepseek.api_base",
+    "providers.deepseek.origin",
+    "providers.moonshot.api_base",
+    "providers.moonshot.origin",
+    "providers.openai.api_base",
+    "providers.openai.origin",
+    "providers.zai.api_base",
+    "providers.zai.origin",
+    "telemetry.otlp_endpoint",
+    "voice.api_base",
+    "web.bind",
+    "web.dev_origin",
+    "web.port",
+];
 /// (G3) The folders, files and agent lists the configuration holds today outside the account
 /// tables.
-const FOLDERS_AND_AGENTS: &[&str] = &[];
+const FOLDERS_AND_AGENTS: &[&str] = &[
+    "import.openclaw.state_dir",
+    "index.weights_dir",
+    "mcp.servers.github.read",
+    "personas.theseus.files",
+    "tools.projects_dir",
+    "tools.roots",
+];
 /// (D) The prompt-text keys the configuration holds today.
-const PROMPT_TEXT: &[&str] = &[];
+const PROMPT_TEXT: &[&str] = &[
+    "model.end_note",
+    "model.system",
+    "personas.theseus.card",
+    "profiles.dsflash.system",
+    "profiles.dspro.system",
+    "profiles.fable.system",
+    "profiles.fable51.system",
+    "profiles.fable52.system",
+    "profiles.glm.system",
+    "profiles.glm53.system",
+    "profiles.haiku.system",
+    "profiles.kimi.system",
+    "profiles.kimimax.system",
+    "profiles.mythos.system",
+    "profiles.opus.system",
+    "profiles.sonnet.system",
+];
 
 /// Issue 57, the second reason table by groups: the walk of every setting the configuration
 /// accepts (the uncommented template, parsed) names each key of the groups found by kind, and
@@ -201,7 +262,7 @@ const PROMPT_TEXT: &[&str] = &[];
 /// code.
 #[test]
 fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
-    use super::sensitivity::{group, proof_reason, reason, Group, DROPPED_KEYS};
+    use super::sensitivity::{group, proof_reason, prompt_text, reason, Group};
     let text = super::tests::uncommented(Config::EXAMPLE_TOML);
     let cfg = Config::from_toml(&text).expect("the uncommented template parses");
     let mut all = Vec::new();
@@ -229,7 +290,7 @@ fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
     let got = (
         named(&|p| group(p) == Some(Group::Addresses) && !kept(p)),
         named(&|p| group(p) == Some(Group::SelfAndAccounts) && !accounts(p) && !kept(p)),
-        named(&|p| reason(p).is_some_and(|r| DROPPED_KEYS.contains(&r.as_str()))),
+        named(&prompt_text),
     );
     assert_eq!(
         got,
@@ -250,8 +311,7 @@ fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
     let weaker: Vec<String> = all
         .iter()
         .filter(|(p, v)| {
-            let dropped = reason(p).is_some_and(|r| DROPPED_KEYS.contains(&r.as_str()));
-            reason(p).is_some() && !dropped && proof_reason(p, None, Some(v)).is_none()
+            reason(p).is_some() && !prompt_text(p) && proof_reason(p, None, Some(v)).is_none()
         })
         .map(|(p, _)| p.join("."))
         .collect();
