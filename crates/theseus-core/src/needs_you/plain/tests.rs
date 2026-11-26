@@ -170,3 +170,56 @@ fn an_approve_list_card_says_why() {
     assert_eq!(p.why, "");
     assert_eq!(p.held, "`proc.run` is set to ask before it runs");
 }
+
+/// A hold on a look, a profile tool, a settings read or a vault call prints its
+/// cause whole, with no "layer 1:" (the gate's name for it, not the owner's), in
+/// `why` and `held`; a task's own layer 1 keeps the policy's words.
+#[test]
+fn a_holds_words_are_printed_whole_without_layer_one() {
+    use crate::config_change::{hold_words, tests_hold::ways};
+    let state = Path::new("/var/lib/theseus/state");
+    let what = "hand another model profile a piece of work";
+    for way in ways() {
+        for (o, s) in [(true, false), (false, true)] {
+            let said = hold_words(what, o, s, &way).unwrap();
+            let req = ConfirmRequest {
+                tool: "profile.run".into(),
+                input: json!({"profile": "glm", "work": "say hello"}),
+                reason: format!("hand over: profile.run — approve (layer 1: {said})"),
+                ..Default::default()
+            };
+            let p = plain(&req, &gloss(state, None));
+            assert_eq!(
+                (p.why.as_str(), p.held.as_str()),
+                (said.as_str(), said.as_str())
+            );
+        }
+    }
+    let task = "change task: task.update — approve (layer 1: the task's objective is yours)";
+    assert_eq!(
+        rule_clause(task).as_deref(),
+        Some("layer 1: the task's objective is yours")
+    );
+}
+
+/// A call that only reads is not said to write: the looks and the settings read
+/// are read-only, and `profile.ask`, one priced model call, spends; the calls
+/// that change something keep "writes" (a profile hold, a task started, a
+/// setting that uses a secret, a secret kept).
+#[test]
+fn a_reading_look_is_not_said_to_write() {
+    let risk = |tool: &str| {
+        risk_of(&ConfirmRequest {
+            tool: tool.into(),
+            input: json!({}),
+            ..Default::default()
+        })
+    };
+    for tool in ["config.show", "look.theseus", "look.vault", "look.work"] {
+        assert_eq!(risk(tool), "read-only", "{tool}");
+    }
+    assert_eq!(risk("profile.ask"), "spends");
+    for tool in ["profile.hold", "profile.run", "vault.use", "vault.keep"] {
+        assert_eq!(risk(tool), "writes", "{tool}");
+    }
+}

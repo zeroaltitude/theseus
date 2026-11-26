@@ -17,6 +17,11 @@
 //!   WARNS rather than latching the session. `refuse` is what the specialised security use writes, the one L1 is
 //!   kept for, and the bench daemon's config writes it no longer — it gets the default. The design document calls
 //!   that one `freeze`; the spelling in an owner's config is `refuse`, and stays.
+//! - `outside`: what the looks, the settings read and the profile tools do when the conversation has
+//!   read text from outside since the owner's last message, or carries the `injection` flag —
+//!   `notify` (**the default**, the owner's word of 2026-11-25) or `ask`. Under `notify` the call
+//!   runs and the owner is told once, in an FYI note; under `ask` it waits for his answer, which may
+//!   also clear the hold. The vault's two tools ask first at both (`config_change::hold`).
 //! - `max_pieces`: the bound on how many pieces one long item is split into (`content::split`). Set so the largest
 //!   item that can exist — an `fs.read` at `FS_READ_MAX_CHARS`, 100,000 characters, which is 17 pieces of the pack's
 //!   6,000-character cap — fits whole, with room to spare. Past the bound an item is read from the start and its row
@@ -30,7 +35,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::content::InjectionMode;
+use crate::content::{InjectionMode, OutsideMode};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,6 +48,8 @@ pub struct ContentBasedSecurityConfig {
     cn_models: Option<toml::Value>,
     #[serde(default)]
     pub injection: InjectionMode,
+    #[serde(default)]
+    pub outside: OutsideMode,
     /// Retired with `cn_models`: read, warned of, ignored and never written
     /// back.
     #[serde(default, skip_serializing)]
@@ -80,6 +87,7 @@ impl Default for ContentBasedSecurityConfig {
             session_flags: on(),
             cn_models: None,
             injection: InjectionMode::default(),
+            outside: OutsideMode::default(),
             wait_ms: None,
             max_pieces: default_max_pieces(),
             context: String::new(),
@@ -153,6 +161,18 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("allow"), "{e}");
+        // Outside text tells by default (2026-11-25); `ask` is written out, and no third word loads.
+        assert_eq!(d.outside, OutsideMode::Notify);
+        let c: ContentBasedSecurityConfig = toml::from_str("outside = \"notify\"").unwrap();
+        assert!(c.is_default());
+        let c: ContentBasedSecurityConfig = toml::from_str("outside = \"ask\"").unwrap();
+        assert_eq!(c.outside, OutsideMode::Ask);
+        assert!(!c.is_default());
+        let e = toml::from_str::<ContentBasedSecurityConfig>("outside = \"refuse\"")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("refuse"), "{e}");
+
         let e = toml::from_str::<ContentBasedSecurityConfig>("enabled = true")
             .unwrap_err()
             .to_string();

@@ -457,7 +457,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `content_label` post in the session's place; the courier renders it with one **Remove** button, `content:remove:<session>:<flag>` (`runtime/content.rs`:
   `parse`, `buttons`, `content_press`). A press is `content.unlabel` as the presser, judged by `judge_act`, which `/trust` also goes through (it is this press for `injection`, typed); a counted press settles the
   message, a guest's is refused and told alone. The DM golden gets one section at its end for it (recorded apart, so every locked line is as it was);
-  `tests_gateway/content.rs` drives the press.
+  `tests_gateway/content.rs` drives the press. Under notify: `content_flag` (issue 54).
 - **Every reply's footer lists the session's labels** (theseus-emqbm; `render::labels_bit`): after the stop words and before
   `[inspect]`, `labels: injection ([remove](<url>)), personal ([remove](<url>))`, one entry per label the session carries **now**
   and a masked link each, in angle brackets as `[inspect]`'s is, on the footer's one line. The Remove button above is reachable

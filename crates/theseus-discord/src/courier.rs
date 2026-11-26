@@ -893,23 +893,42 @@ impl Lane {
     }
 
     /// A content label's message (theseus-9ymz0): its words as the core wrote
-    /// them, in the session's place, with the one Remove button.
-    async fn content_label_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
-        let channel = self.place_channel().await?;
+    /// them, in the session's place, with the one Remove button. The injection
+    /// flag's FYI under `notify` (`content_flag`, issue 54) goes to the notices
+    /// place when one is bound, its button the same.
+    async fn content_label_post(
+        &mut self,
+        kind: &str,
+        body: &Value,
+        corr: &str,
+    ) -> Result<Plan, SendErr> {
+        let here = self.place_channel().await?;
+        let text = body["text"].as_str().unwrap_or("").to_string();
+        let (channel, extra) = match kind {
+            // Only to an owner-private notices place, where his Remove press counts; a shared one
+            // leaves it in his DM (issue 54).
+            "content_flag" if !self.notices_private(here, &self.target) => (here, json!({})),
+            "content_flag" => {
+                let (channel, place) =
+                    self.informed(kind, body, &text, (here, self.target.clone()));
+                (channel, json!({"place": place}))
+            }
+            _ => (here, json!({})),
+        };
         let session = body["session_id"].as_str().unwrap_or("").to_string();
         let flag = body["flag"].as_str().unwrap_or("").to_string();
         Ok(Plan {
             writes: vec![Write {
                 key: format!("content:{corr}"),
                 channel,
-                content: body["text"].as_str().unwrap_or("").to_string(),
+                content: text,
                 buttons: Buttons::ContentRemove(session, flag),
                 reply_to: None,
                 message: None,
                 mentions: vec![],
                 ping: self.pings(Event::Note),
             }],
-            extra: json!({}),
+            extra,
         })
     }
 
@@ -982,7 +1001,7 @@ impl Lane {
             }
             "failed" => self.failed_post(&body, corr).await,
             // A content label (theseus-9ymz0): the one message the locked DM flow gains.
-            "content_label" => self.content_label_post(&body, corr).await,
+            k @ ("content_label" | "content_flag") => self.content_label_post(k, &body, corr).await,
             "report" => self.report_post(&body, corr).await,
             // Another profile's answer to a call of the turn (issue 28), before its reply.
             "subagent" => self.subagent_post(&body).await,

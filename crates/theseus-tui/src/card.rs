@@ -127,6 +127,10 @@ pub fn lines(
             out.push((
                 Tag::Plain,
                 match &c.grant_offer {
+                    Some(o) if o.kind == theseus_protocol::grants::KIND_CLEAR => format!(
+                        "  [y] approve  [{}] approve and clear  [n] decline",
+                        o.key()
+                    ),
                     Some(o) => format!(
                         "  [y] approve  [{}] approve + don't ask again  [n] decline",
                         o.key()
@@ -183,6 +187,14 @@ const PREVIEW_ROWS: usize = 12;
 /// `  [e] approve the plan, and accept edits: file edits here run with a notice`:
 /// a plan question's other yes is a mode (theseus-lyxy).
 pub fn offer_line(o: &theseus_protocol::grants::GrantOffer) -> String {
+    if o.kind == theseus_protocol::grants::KIND_CLEAR {
+        // A held look's other yes (issue 54): what clearing does, in its own words.
+        return format!(
+            "  [{}] approve, and {}",
+            o.key(),
+            o.words.trim_start_matches("yes, and ")
+        );
+    }
     format!(
         "  [{}] approve the plan, and accept edits: file edits here run with a notice",
         o.key()
