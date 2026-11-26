@@ -99,12 +99,18 @@ impl Core {
     }
 }
 
+/// One "Approve and clear" at a time, so a check that the question waits and the effects that
+/// follow are not split by another answer to it.
+static CLEARING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl Core {
-    /// "Approve and clear" (issue 54): the flag, when the press offers to clear it and the
-    /// session still carries it, is removed first through `content.unlabel` as the presser, so it
-    /// is judged as `/trust` and the notice's Remove are, and a press that may not remove it
-    /// changes nothing; then the call is approved, and its result is the boundary the hold counts
-    /// from, as if the owner had just spoken.
+    /// "Approve and clear" (issue 54). Nothing happens unless the question still waits: a stale
+    /// or replayed answer changes nothing. The flag's removal is judged first, as `/trust` and the
+    /// notice's Remove are judged (`Act::Unlabel`), so a press that may not remove it changes
+    /// nothing; then the call is approved; then the flag the offer was made for is removed (one
+    /// raised before the question was asked, never a newer one) through `content.unlabel` as the
+    /// presser. The approved call's result is the boundary the hold counts from, as if the owner
+    /// had just spoken.
     fn confirm_clearing(
         &self,
         rec: &SessionRecord,
@@ -113,17 +119,63 @@ impl Core {
         who: Answerer,
         offered: &GrantOffer,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        let flagged = rec.data.as_ref().is_some_and(|d| d.frozen());
-        if offered.pattern == theseus_protocol::grants::CLEAR_FLAG && flagged {
-            self.unlabel_session(&rec.session_id, "injection", who.clone())?;
+        let _one = CLEARING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let a = self
+            .kernel
+            .action(correlation_id)?
+            .ok_or_else(|| anyhow!("no action {correlation_id}"))?;
+        if a.state != theseus_kernel::ActionState::Planned {
+            bail!(
+                "action {correlation_id} is {}, not waiting for confirmation: nothing changed",
+                a.state.as_str()
+            );
+        }
+        let clears_flag = offered.pattern == theseus_protocol::grants::CLEAR_FLAG
+            && self.offered_flag(&rec.session_id, a.planned_at_ms)?;
+        if clears_flag {
+            let what = format!("Removing injection from session {}", rec.session_id);
+            self.judge_act(
+                &who,
+                super::confirms::Act::Unlabel {
+                    session: &rec.session_id,
+                    what: &what,
+                },
+            )?;
         }
         let holds = &self.tools.holds;
         holds.clear_on(correlation_id);
-        let done = self.confirm_action_with(correlation_id, true, note, who, Default::default());
+        let done =
+            self.confirm_action_with(correlation_id, true, note, who.clone(), Default::default());
         if done.is_err() {
             holds.unclear(correlation_id);
+            return done;
+        }
+        // Already judged. Only the flag the offer was made for is removed: if the session lost it
+        // since (a `/trust`) and carries a newer one, that one stays.
+        if clears_flag && self.offered_flag(&rec.session_id, a.planned_at_ms)? {
+            if let Err(e) = self.unlabel_session(&rec.session_id, "injection", who) {
+                tracing::warn!(error = %format!("{e:#}"), "the cleared flag was not removed");
+            }
         }
         done
+    }
+}
+
+impl Core {
+    /// Whether the session carries an injection flag raised no later than `asked_ms`: the one a
+    /// question asked then offered to clear.
+    fn offered_flag(&self, session: &str, asked_ms: u64) -> Result<bool> {
+        let rec = self
+            .store
+            .get_session::<SessionRecord>(session)?
+            .ok_or_else(|| anyhow!("no session {session}"))?;
+        Ok(rec
+            .data
+            .as_ref()
+            .and_then(|d| d.label(crate::content::Flag::Injection))
+            .is_some_and(|l| l.at_ms <= asked_ms))
     }
 }
 

@@ -1264,7 +1264,7 @@ impl ToolRuntime {
         // The settings read, the looks, the profile tools and the vault's two, after outside text
         // or with the flag: asked or told, as `[content_based_security] outside` says (issue 54).
         let planned = planned.map(|p| {
-            crate::config_change::hold::ask_or_tell(self, tc, tool.name(), &call.input, p)
+            crate::config_change::hold::ask_or_tell(self, tc, tool.name(), p)
         });
         // Handing work to a profile starts a task, so it asks where starting one asks.
         let task_asks =

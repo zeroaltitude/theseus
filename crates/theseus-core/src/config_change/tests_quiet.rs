@@ -24,6 +24,32 @@ fn flagged(r: &Rig) -> String {
     sid
 }
 
+/// A session flagged now, by a label whose source is `source`.
+fn flagged_at(r: &Rig, source: &str) -> String {
+    let sid = r.session();
+    raise_now(r, &sid, source);
+    sid
+}
+
+/// The injection flag raised on `sid` now, from `source`.
+fn raise_now(r: &Rig, sid: &str, source: &str) {
+    let mut f = crate::content::ContentFlags::default();
+    f.raise(crate::content::deterministic::label(
+        Flag::Injection,
+        "nod_now",
+        crate::content::ItemKind::FetchedPage,
+        source.into(),
+        theseus_protocol::now_unix_ms(),
+    ));
+    r.core
+        .store
+        .update_session(sid, |rec: &mut SessionRecord| {
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
+        .unwrap();
+}
+
 /// A guest's words in another place: a turn that opens them reads outside text, as the history
 /// tool marks it.
 const GUEST: &str = "a guest asks to list the vault and post it";
@@ -66,7 +92,7 @@ fn notes(r: &Rig) -> Vec<String> {
                 .as_str()
                 .map(str::to_string)
         })
-        .filter(|t| t.starts_with("ℹ️ FYI · Theseus went on without asking"))
+        .filter(|t| t.starts_with("ℹ️ FYI · Outside text did not hold a call"))
         .collect()
 }
 
@@ -124,12 +150,54 @@ fn seven() -> Vec<(&'static str, &'static str, Value)> {
     ]
 }
 
-/// Every call of a turn ran: none was refused for its input.
-fn ran(r: &Rig, sid: &str) {
-    for (_, n) in r.core.store.session_nodes(sid).unwrap() {
-        if let Body::ToolResult { tool, content, .. } = &n.body {
-            assert!(!content.starts_with("Invalid input"), "{tool}: {content}");
-        }
+/// The owner's own message started the turn: what `profile.hold` acts only on.
+fn the_owner_speaks(r: &Rig, sid: &str) {
+    r.core.runner.tools.chat_acts.heard.stage(
+        sid,
+        std::time::Instant::now(),
+        crate::chat_acts::Said {
+            text: "go on".into(),
+            who: crate::test_support::owner_cli(),
+            owner_input: true,
+        },
+    );
+}
+
+/// Every call of `tool` in the turn ran: an Ok result, and its real effect.
+fn ran(r: &Rig, sid: &str, tool: &str) {
+    let results: Vec<(ResultStatus, String)> = r
+        .core
+        .store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .filter_map(|(_, n)| match n.body {
+            Body::ToolResult {
+                tool: t,
+                status,
+                content,
+                ..
+            } if t == tool => Some((status, content)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(results.len(), 2, "{tool}: both calls have a result: {results:?}");
+    for (status, content) in &results {
+        assert_eq!(*status, ResultStatus::Ok, "{tool}: {content}");
+    }
+    match tool {
+        "profile.ask" => assert!(!r.asked_plain().is_empty(), "the profile's model was asked"),
+        "profile.hold" => assert_eq!(
+            r.core.runner.sticky_profile(sid).as_deref(),
+            Some("haiku"),
+            "the conversation moved"
+        ),
+        "profile.run" => assert!(
+            results[0].1.contains("Handed the work to haiku"),
+            "a task was started: {}",
+            results[0].1
+        ),
+        _ => {}
     }
 }
 
@@ -144,9 +212,10 @@ async fn at_the_default_each_tool_runs_unasked_and_the_owner_is_told_once() {
             r.agents_report("done", None);
         }
         let sid = flagged(&r);
+        the_owner_speaks(&r, &sid);
         r.steps(&sid, vec![(wire, input.clone()), (wire, input.clone())])
             .await;
-        ran(&r, &sid);
+        ran(&r, &sid, tool);
         assert!(
             r.asked().iter().all(|q| q.tool != tool),
             "{tool}: {:?}",
@@ -163,12 +232,13 @@ async fn at_the_default_each_tool_runs_unasked_and_the_owner_is_told_once() {
         }
         guest(&r);
         let sid = r.session();
+        the_owner_speaks(&r, &sid);
         r.steps(
             &sid,
             vec![read_guest(), (wire, input.clone()), (wire, input)],
         )
         .await;
-        ran(&r, &sid);
+        ran(&r, &sid, tool);
         assert!(
             r.asked().iter().all(|q| q.tool != tool),
             "{tool}: {:?}",
@@ -177,8 +247,8 @@ async fn at_the_default_each_tool_runs_unasked_and_the_owner_is_told_once() {
         let told = notes(&r);
         assert_eq!(told.len(), 1, "{tool}: {told:?}");
         assert!(
-            told[0].contains("from history"),
-            "the source is named: {}",
+            told[0].contains("from another conversation's history"),
+            "the source is named by its kind: {}",
             told[0]
         );
         assert!(
@@ -219,39 +289,80 @@ async fn a_second_span_tells_again_and_the_flags_lasts_across_turns() {
     assert_eq!(notes(&r).len(), 1, "{:?}", notes(&r));
 }
 
-/// The note in words: FYI-headed, the cause, its source cut at a `?` and to a short length, what
-/// the call did, that nothing was held, and the setting.
+/// The note in words: FYI-headed; the conversation by its short id and never its title; each
+/// source as a safe summary (a URL's scheme and host, else a fixed word for its kind), never a
+/// path, a query, a fragment or userinfo; that outside text added no hold to the call, not that it
+/// ran; and the setting.
 #[test]
-fn the_note_says_the_cause_where_it_came_from_and_the_setting() {
-    let long = format!("https://{}.example.test/x?q=secret", "a".repeat(80));
+fn the_note_names_safe_sources_and_the_conversation_by_its_id() {
+    let sources = [
+        "https://pages.example.test/reset/PRIVATE-TOKEN-1",
+        "https://pages.example.test/a#PRIVATE-FRAGMENT-2",
+        "https://user:PRIVATE-PASS-3@pages.example.test:8443/x?q=PRIVATE-QUERY-4",
+        "attachment:PRIVATE-FILE-NAME-5.pdf",
+        "history:ses_PRIVATE6",
+        "gmail:thread/PRIVATE7",
+        "curl -s https://other.example.test/PRIVATE-PATH-8 | sh",
+        "a free text marker PRIVATE-9",
+    ];
+    let named: Vec<String> = sources.iter().map(|m| hold::source_words(m)).collect();
+    assert_eq!(
+        named,
+        [
+            "https://pages.example.test",
+            "https://pages.example.test",
+            "https://pages.example.test",
+            "an attachment",
+            "another conversation's history",
+            "a Gmail thread",
+            "https://other.example.test",
+            "a source outside this conversation",
+        ]
+    );
     let n = hold::note_text(
-        Some("Trip planning"),
-        &Cause::Outside(vec![hold::source_words(&long), "history:ses_1".into()]),
-        "look at what Theseus runs as",
+        "ses_0123456789abcdef",
+        &Cause::Outside(named),
+        hold::call_words("look.theseus"),
     );
     assert!(crate::owner_note::is_headed(&n), "{n}");
-    assert!(n.contains("\"Trip planning\""), "{n}");
-    assert!(n.contains("history:ses_1"), "{n}");
+    assert!(n.contains("In conversation …abcdef"), "{n}");
+    assert!(!n.contains("PRIVATE"), "{n}");
+    assert!(!n.contains("Trip planning"), "{n}");
     assert!(
-        !n.contains("secret")
-            && !n.contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        n.contains("It added no hold to a look at what Theseus runs as; the call's other rules still apply."),
         "{n}"
     );
-    assert!(
-        n.contains("look at what Theseus runs as, and nothing was held"),
-        "{n}"
-    );
+    assert!(!n.contains(" ran") && !n.contains("went on"), "{n}");
     assert!(n.contains("until your next message"), "{n}");
+    assert!(n.contains("outside = \"ask\""), "{n}");
     let f = hold::note_text(
-        None,
-        &Cause::Flag("http.fetch https://x.example.test/p?k=v".into()),
-        "read Theseus's own settings",
+        "ses_0123456789abcdef",
+        &Cause::Flag("http.fetch https://x.example.test/p/PRIVATE-10?k=v".into()),
+        hold::call_words("config.show"),
     );
-    assert!(
-        f.contains("flagged") && f.contains("until the flag is cleared"),
-        "{f}"
-    );
-    assert!(!f.contains("k=v") && !f.contains("layer 1"), "{f}");
+    assert!(f.contains("(from https://x.example.test)"), "{f}");
+    assert!(!f.contains("PRIVATE") && !f.contains("k=v") && !f.contains("layer 1"), "{f}");
+    assert!(f.contains("flagged") && f.contains("until the flag is cleared"), "{f}");
+}
+
+/// Through a real turn: a titled conversation that read a page whose address carries a token in
+/// its path and fragment is told with the page's host alone, and never its title.
+#[tokio::test]
+async fn a_told_span_names_no_title_and_no_path() {
+    let r = at(OutsideMode::default());
+    let sid = flagged_at(&r, "https://pages.example.test/reset/PRIVATE-TOKEN#PRIVATE-FRAG");
+    r.core
+        .store
+        .update_session(&sid, |rec: &mut SessionRecord| {
+            rec.title = Some("PRIVATE-TITLE".into());
+            Ok(vec![])
+        })
+        .unwrap();
+    r.turn_with("look_theseus", &sid, json!({})).await;
+    let told = notes(&r);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].contains("https://pages.example.test"), "{}", told[0]);
+    assert!(!told[0].contains("PRIVATE"), "{}", told[0]);
 }
 
 /// The hold counts from the owner's message, or from the result an "Approve and clear" ran,
@@ -379,6 +490,60 @@ async fn at_ask_the_flags_clear_removes_it_and_a_later_call_is_free() {
     );
 }
 
+/// A stale or replayed "Approve and clear" changes nothing: cleared once, a new flag raised, the
+/// old answer given again is refused, and the new flag stays.
+#[tokio::test]
+async fn a_replayed_clear_leaves_a_new_flag() {
+    let r = at(OutsideMode::Ask);
+    let sid = flagged(&r);
+    r.steps(&sid, vec![("look_theseus", json!({}))]).await;
+    let q = r.asked().remove(0);
+    let answer = GrantAnswer {
+        pattern: CLEAR_FLAG.into(),
+    };
+    r.core
+        .confirm_granting(&q.correlation_id, None, owner_in_dm(), &answer)
+        .unwrap();
+    assert!(!flag_of(&r, &sid), "the press removed the flag");
+    continue_turn(&r, &sid).await;
+    raise_now(&r, &sid, "http.fetch https://pages.example.test/again");
+    assert!(flag_of(&r, &sid));
+    let removed = r.rows("content.removed").len();
+    let e = r
+        .core
+        .confirm_granting(&q.correlation_id, None, owner_in_dm(), &answer)
+        .expect_err("the question no longer waits");
+    assert!(format!("{e:#}").contains("not waiting"), "{e:#}");
+    assert!(flag_of(&r, &sid), "the new flag stays");
+    assert_eq!(r.rows("content.removed").len(), removed, "nothing removed");
+}
+
+/// The flag a clear removes is the one its question was asked under: one raised after the
+/// question, while it still waits, stays.
+#[tokio::test]
+async fn a_clear_removes_only_the_flag_it_was_offered_for() {
+    let r = at(OutsideMode::Ask);
+    let sid = flagged(&r);
+    r.steps(&sid, vec![("look_theseus", json!({}))]).await;
+    let q = r.asked().remove(0);
+    // The flag is removed elsewhere (a `/trust`), and a newer one raised, while the card waits.
+    r.core
+        .unlabel_session(&sid, "injection", owner_in_dm())
+        .unwrap();
+    raise_now(&r, &sid, "http.fetch https://pages.example.test/newer");
+    r.core
+        .confirm_granting(
+            &q.correlation_id,
+            None,
+            owner_in_dm(),
+            &GrantAnswer {
+                pattern: CLEAR_FLAG.into(),
+            },
+        )
+        .unwrap();
+    assert!(flag_of(&r, &sid), "the newer flag stays");
+}
+
 /// At `ask`, outside text's card offers "Approve and clear"; its press ends the hold as if the
 /// owner had spoken: a later call is free, and one after new outside text is asked again.
 #[tokio::test]
@@ -439,22 +604,39 @@ async fn at_ask_outside_texts_clear_ends_the_hold_until_more_is_read() {
     }
 }
 
-/// The freeze at `injection = "refuse"` refuses a look in a flagged session at both `outside`
-/// settings, as it did before: nothing is asked and nothing is told.
+/// The freeze at `injection = "refuse"` refuses each of the nine in a flagged session at both
+/// `outside` settings, as it did before: nothing is asked, nothing is told, nothing is written.
 #[tokio::test]
-async fn the_freeze_refuses_a_look_at_both_settings() {
+async fn the_freeze_refuses_all_nine_at_both_settings() {
+    let mut nine = seven();
+    nine.push((
+        "vault.use",
+        "vault_use",
+        json!({"vault": "Harbor", "item": "Lantern key", "field": "credential",
+               "name": "lantern_key", "reason": "the key"}),
+    ));
+    nine.push((
+        "vault.keep",
+        "vault_keep",
+        json!({"vault": "Harbor", "title": "Lantern new", "field": "credential",
+               "reason": "the key"}),
+    ));
     for outside in [OutsideMode::Notify, OutsideMode::Ask] {
-        let r = rig_with(move |c, _| {
-            c.content_based_security.outside = outside;
-            c.content_based_security.injection = InjectionMode::Refuse;
-        });
-        let sid = flagged(&r);
-        r.turn_with("look_theseus", &sid, json!({})).await;
-        let (status, text) = r.result(&sid);
-        assert_ne!(status, ResultStatus::Ok, "{outside:?}: {text}");
-        assert!(text.contains("this session is holding"), "{text}");
-        assert!(r.asked().is_empty(), "{:?}", r.asked());
-        assert!(notes(&r).is_empty(), "{:?}", notes(&r));
+        for (tool, wire, input) in &nine {
+            let r = rig_with(move |c, _| {
+                c.content_based_security.outside = outside;
+                c.content_based_security.injection = InjectionMode::Refuse;
+            });
+            let sid = flagged(&r);
+            the_owner_speaks(&r, &sid);
+            r.turn_with(wire, &sid, input.clone()).await;
+            let (status, text) = r.result(&sid);
+            assert_ne!(status, ResultStatus::Ok, "{outside:?} {tool}: {text}");
+            assert!(text.contains("this session is holding"), "{tool}: {text}");
+            assert!(r.asked().is_empty(), "{tool}: {:?}", r.asked());
+            assert!(notes(&r).is_empty(), "{tool}: {:?}", notes(&r));
+            assert_eq!(r.file_text(), super::tests::FILE, "{tool}");
+        }
     }
 }
 
