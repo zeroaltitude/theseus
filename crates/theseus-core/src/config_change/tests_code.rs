@@ -548,6 +548,8 @@ fn with_account_secrets(extra: &str) -> String {
 }
 
 const ACCOUNT: &str = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
+/// The role the durability tender signs in with, which durability needs.
+const OWNER_ROLE: &str = "owner_role = \"theseus-owner\"\n";
 
 /// Of the eight, an AWS account's allowed regions and the Google account take the card alone
 /// through a real proposal, and the yes alone writes them.
@@ -602,15 +604,17 @@ async fn the_five_cut_from_g3_keep_mains_code() {
             change("google.services", json!(["calendar", "gmail"])),
         ),
         (
-            with_account_secrets(ACCOUNT),
+            with_account_secrets(&format!("{ACCOUNT}{OWNER_ROLE}")),
             change("aws.accounts.111122223333.durability", json!(true)),
         ),
         (
-            with_account_secrets(&format!("{ACCOUNT}durability = true\n")),
+            with_account_secrets(&format!("{ACCOUNT}{OWNER_ROLE}durability = true\n")),
             change("aws.accounts.111122223333.durability", json!(false)),
         ),
         (
-            with_account_secrets(&format!("{ACCOUNT}deployment = \"a\"\n")),
+            with_account_secrets(&format!(
+                "{ACCOUNT}{OWNER_ROLE}durability = true\ndeployment = \"a\"\n"
+            )),
             change("aws.accounts.111122223333.deployment", json!("b")),
         ),
         (

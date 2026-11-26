@@ -343,11 +343,20 @@ mod tests {
         );
         let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
         assert_eq!(with_secrets(account), Needs::Proof, "an AWS account");
+        let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n\
+                       owner_role = \"theseus-owner\"\n";
         for (from, to) in [
             ("", "durability = true\n"),
             ("durability = true\n", "durability = false\n"),
-            ("deployment = \"a\"\n", "deployment = \"b\"\n"),
+            (
+                "durability = true\ndeployment = \"a\"\n",
+                "durability = true\ndeployment = \"b\"\n",
+            ),
         ] {
+            real(&[
+                &format!("{SECRETS}\n{account}{from}"),
+                &format!("{SECRETS}\n{account}{to}"),
+            ]);
             assert_eq!(
                 Needs::of(&between(
                     &format!("{SECRETS}\n{account}{from}"),
