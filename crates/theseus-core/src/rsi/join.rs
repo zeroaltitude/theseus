@@ -442,6 +442,17 @@ pub fn lock_dir(cfg: &crate::Config) -> std::path::PathBuf {
     )
 }
 
+impl Core {
+    /// Whether the branch has moved past `b`'s head: such a head is never joined, and a card asked for it ends.
+    fn superseded(&self, built: &[Built], b: &Built) -> Result<bool> {
+        if latest_head(built, b) == b.head {
+            return Ok(false);
+        }
+        self.publish_end_for_head(&b.branch, &b.head)?;
+        Ok(true)
+    }
+}
+
 /// The branch of `b`'s latest green built head.
 fn latest_head(built: &[Built], b: &Built) -> String {
     (built.iter().rev())
@@ -592,10 +603,7 @@ impl Core {
             {
                 continue;
             }
-            // A head the branch has moved past is never joined, and a card asked for it ends.
-            let latest = latest_head(&seen.built, b);
-            if latest != b.head {
-                self.publish_end_for_head(&b.branch, &b.head)?;
+            if self.superseded(&seen.built, b)? {
                 continue;
             }
             let theirs = |v: &&Prior| v.branch == b.branch && v.head == b.head;
@@ -624,7 +632,7 @@ impl Core {
                     .map(|(_, _, st)| st.clone())
                     .collect(),
                 asked: vec![],
-                latest: latest.clone(),
+                latest: latest_head(&seen.built, b),
                 pass: &mut pass,
             };
             let (verdict, asked) = match mine {

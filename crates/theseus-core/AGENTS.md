@@ -1447,13 +1447,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   builder's transcript), its verdict the reply's last `VERDICT:` line. One `self.review.verdict` row; a reject puts
   the backlog item back to `proposed` with the reasons in its evidence, in the row's frame. An accepted head is
   classified (`join/keel.rs`: `CLASSES`, one test a class, plus main's keel guard, a `MANIFEST_FORMAT` line and a
-  spend key) and a hit posts a `self_join` card to the owner's DM and holds the head (`numbers.held`). **Nothing is
-  published without the owner's yes** (`join/publish.rs`, issue 53): `tree::cleared` on the head (a hit holds it with
-  a card), then one `self.publish.ack` confirm card on its own session (commits, files, size, and the `git log --patch`
-  command that prints all of it; no authenticator code; an agent's yes refused), a `self.join.stopped {phase:
-  "publish", numbers.parked}` row, and the join parks (`Pass::parked`: the pass's one join, reviews go on). The yes is
-  read from the question's binding, for that head only (a new head asks a new card); a no writes the held row; the card
-  never expires (`rpc::confirms::expire_questions`). Then, one a
+  spend key) and a hit posts a `self_join` card to the owner's DM and holds the head (`numbers.held`). **The self loop
+  publishes nothing without the owner's yes** (`join/publish.rs`, issue 53): `git::dest` (one push URL, the fetch
+  URL's; else a held notice), `tree::cleared` on the card's base and head, `review_file::write` (`<state>/self/reports/
+  publish-<head>-onto-<main>.txt`: every commit of `main..head` raw and against every parent, presentation off; a
+  binary or NUL file, one over 4 MiB, or a tag or note on the range is held with one notice), then one
+  `self.publish.ack` confirm card on its own session (escaped title and subjects; HEAD, REMOTE MAIN, DESTINATION and
+  the review file's path, size and SHA-256 on fixed lines; no authenticator code; an agent's yes refused), a
+  `self.join.stopped {phase: "publish", numbers.parked}` row, and the join parks (`Pass::parked`). `Asked` binds head,
+  main, file SHA-256 and `Dest` (URL and push-settings digest); `joining::still_approved` checks them under the lock
+  before the push (`publish::covered`: the card's main, or a fast-forward sending only the file's commits); a void
+  ends the card and asks one new one. A head the branch has moved past is skipped and its card ended. A no writes the
+  held row; the card never expires. `git::push_main` (the join's and the revert's) pushes one refspec to the
+  configured URL with `--no-follow-tags --recurse-submodules=no`. The revert asks no card. Every `proc.run`/`job` of
+  a self-principal session runs in L1 (`own_tree::l1_of`), and its credentialed `git`/`gh` is refused
+  (`own_tree::credential_refusal`). Then, one a
   pass, under the mkdir lock (`join/lock.rs`, `[self] join_lock`, its `owner` file ending `done:`): fetch, the dry
   run (`merge-tree`), a `--no-ff` merge in a detached tree, main's gate through the door with the benches
   (`tree::gate_with_benches`), the signature with `[self] repo`'s `user.signingkey` (none: a card, nothing pushed),
