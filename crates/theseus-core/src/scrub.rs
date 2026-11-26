@@ -85,7 +85,8 @@ impl Scrubber {
         }
     }
 
-    #[cfg(test)]
+    /// Scrub exactly `values` (value, name), and nothing the board holds:
+    /// a sign-in's door asks whether a new value is already shown (issue 55).
     pub fn with_values(values: Vec<(String, String)>) -> Self {
         Self {
             exact: values,

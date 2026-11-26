@@ -120,6 +120,27 @@ fn result_strings(r: &McpLoginBeginResult, client_id: &str) -> Vec<String> {
     v
 }
 
+/// What a sign-in shows of its server and issuer, in the clear: the
+/// server's address and host, the issuer, every endpoint and its host, the
+/// places agreed to, and the client id. A value it is given must equal none
+/// of them (`doors.rs`).
+fn found_public(url: &reqwest::Url, server: &discover::AuthServer, client_id: &str) -> Vec<String> {
+    let mut v = super::doors::address(url.as_str());
+    v.extend(super::doors::address(&server.issuer));
+    let endpoints = [
+        Some(&server.authorization_endpoint),
+        Some(&server.token_endpoint),
+        server.registration_endpoint.as_ref(),
+        server.revocation_endpoint.as_ref(),
+    ];
+    for e in endpoints.into_iter().flatten() {
+        v.extend(super::doors::address(e.as_str()));
+    }
+    v.extend(server.elsewhere.iter().cloned());
+    v.push(client_id.to_string());
+    v
+}
+
 fn place(u: &reqwest::Url) -> String {
     let host = u.host_str().unwrap_or("?");
     match u.port() {
@@ -191,6 +212,15 @@ impl McpBoard {
             )
         })??;
         let (found, client) = found;
+        // A door (`doors.rs`): a client secret the registration gave that
+        // Theseus already shows is not kept, and the sign-in does not begin.
+        if let Some(secret) = client.secret.as_deref() {
+            let mut texts = self.shown();
+            texts.extend(found_public(&url, &found.server, &client.id));
+            if super::doors::already_shown(&[secret], &texts) {
+                return Err(super::doors::SHOWN_WORDS.into());
+            }
+        }
         let pkce = Pkce::new();
         signed.hold_value("verifier", pkce.verifier());
         let scope = match settings.scopes.is_empty() {
@@ -316,11 +346,35 @@ impl McpBoard {
         )
         .await
         .map_err(|e| format!("the sign-in was not completed: {e}"))?;
+        // A door (`doors.rs`): a value the redemption gave that Theseus
+        // already shows is not kept; nothing is written, and the exchange
+        // held it on the board, so the scrubber masks it where it shows.
+        let kept = kept_of(&url, &pending, &tokens);
+        {
+            let mut texts = self.shown();
+            texts.extend(found_public(
+                &url,
+                &pending.found.server,
+                &pending.client.id,
+            ));
+            texts.extend(kept.public());
+            let values: Vec<&str> = [
+                Some(kept.access_token.as_str()),
+                kept.refresh_token.as_deref(),
+                kept.client_secret.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if super::doors::already_shown(&values, &texts) {
+                return Err(super::doors::SHOWN_WORDS.into());
+            }
+        }
         // A token issued just now may equal a label that was public before:
         // each is checked here, at the finish's own exit.
         let (name, host) = (self.label(&s.name), self.label(&pending.host));
         let cmd = name.as_deref().unwrap_or("NAME");
-        if let Err(e) = signed.put(kept_of(&url, &pending, &tokens)).await {
+        if let Err(e) = signed.put(kept).await {
             return Err(match super::oauth::may_be_written(&e) {
                 // Past the rename: the file may already hold it.
                 true => format!(

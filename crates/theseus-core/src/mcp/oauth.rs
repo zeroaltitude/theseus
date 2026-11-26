@@ -209,6 +209,30 @@ impl Kept {
             .is_some_and(|at| at <= now_ms.saturating_add(RENEW_BEFORE.as_millis() as u64))
     }
 
+    /// What it shows, in the clear, of its sign-in: the address and host,
+    /// the issuer, every endpoint and its host, the places agreed to, and
+    /// the client id. A value it holds must equal none of them (`doors.rs`).
+    pub fn public(&self) -> Vec<String> {
+        let mut v = super::doors::address(&self.url);
+        v.extend(super::doors::address(&self.issuer));
+        v.extend(super::doors::address(&self.token_endpoint));
+        if let Some(r) = &self.revocation_endpoint {
+            v.extend(super::doors::address(r));
+        }
+        v.extend(self.elsewhere.iter().cloned());
+        v.push(self.client_id.clone());
+        v
+    }
+
+    /// Whether a value it holds is already shown: by the board (`shown`), or
+    /// by its own sign-in (`public`).
+    fn shows_a_value(&self, shown: &super::doors::Shown) -> bool {
+        let values: Vec<&str> = self.values().into_iter().map(|(_, v)| v).collect();
+        let mut texts = shown();
+        texts.extend(self.public());
+        super::doors::already_shown(&values, &texts)
+    }
+
     /// Every value in it, by what it is.
     fn values(&self) -> Vec<(&'static str, &str)> {
         let mut v = vec![("access", self.access_token.as_str())];
@@ -448,40 +472,63 @@ pub struct Signed {
     slot: tokio::sync::Mutex<Slot>,
     /// The loss, for the board to wake on.
     lost: watch::Sender<Option<String>>,
+    /// What the board shows, read at each door a value enters by
+    /// (`doors.rs`): the kept file at start, and every renewal.
+    shown: super::doors::Shown,
+}
+
+/// The sign-in kept at `path` for `server` at `url`, if it may be used: its
+/// values held on the board first, whatever follows; not used when it is not
+/// valid for this address, or when a value it holds is already shown
+/// (`doors.rs`, the kept file being a door a value enters by at start).
+fn kept_at(
+    server: &str,
+    url: &str,
+    path: Option<&Path>,
+    reach: Option<&Reach>,
+    held: &Held,
+    shown: &super::doors::Shown,
+) -> Option<Kept> {
+    let (k, reach) = match (read(path?), reach) {
+        (Ok(Some(k)), Some(reach)) => (k, reach),
+        (Err(why), _) => {
+            tracing::warn!(server, why = %why, "an MCP server's kept sign-in was not used");
+            return None;
+        }
+        _ => return None,
+    };
+    for (what, v) in k.values() {
+        held.hold(what, v);
+    }
+    let why = match k.check(url, reach, now_ms()) {
+        Ok(()) if k.shows_a_value(shown) => super::doors::SHOWN_WORDS,
+        Ok(()) => return Some(k),
+        Err(why) => why,
+    };
+    tracing::warn!(server, why, "an MCP server's kept sign-in was not used");
+    None
 }
 
 impl Signed {
     /// The sign-in of `server` at `url`, read from `path` (none: in memory
     /// only), its calls by `rule`. A kept sign-in that is not valid for this
-    /// address is not used, and none of it is shown.
+    /// address, or that holds a value the board already shows (`shown`), is
+    /// not used, and none of it is shown.
     pub fn load(
         server: &str,
         url: &str,
         path: Option<PathBuf>,
         secrets: Arc<SecretBoard>,
         rule: Rule,
+        shown: super::doors::Shown,
     ) -> Arc<Self> {
         let held = Held::new(server, secrets);
         let h = held.clone();
         let reach = Reach::new(rule.clone(), Arc::new(move |what, v| h.hold(what, v))).ok();
-        let mut slot = Slot::default();
-        match (path.as_deref().map(read), &reach) {
-            (Some(Ok(Some(k))), Some(reach)) => {
-                for (what, v) in k.values() {
-                    held.hold(what, v);
-                }
-                match k.check(url, reach, now_ms()) {
-                    Ok(()) => slot.kept = Some(k),
-                    Err(why) => {
-                        tracing::warn!(server, why, "an MCP server's kept sign-in was not used")
-                    }
-                }
-            }
-            (Some(Err(why)), _) => {
-                tracing::warn!(server, why = %why, "an MCP server's kept sign-in was not used");
-            }
-            _ => {}
-        }
+        let mut slot = Slot {
+            kept: kept_at(server, url, path.as_deref(), reach.as_ref(), &held, &shown),
+            ..Slot::default()
+        };
         if reach.is_none() {
             slot.lost = Some("its sign-in's HTTP client could not start".into());
         }
@@ -495,6 +542,7 @@ impl Signed {
             rule,
             slot: tokio::sync::Mutex::new(slot),
             lost,
+            shown,
         })
     }
 
@@ -593,6 +641,13 @@ impl Signed {
             Renewal::Renewed(t) => {
                 let mut next = k.clone();
                 next.renewed(&t, now_ms());
+                // A door (`doors.rs`): a renewed value already shown is not
+                // kept, and the sign-in is lost for good. The exchange held
+                // it on the board, so the scrubber masks it where it shows.
+                if next.shows_a_value(&self.shown) {
+                    self.lose(slot, super::doors::RENEWAL_SHOWN);
+                    return false;
+                }
                 if let Some(p) = &self.path {
                     if let Err(e) = write(p, &next) {
                         tracing::warn!(server = %self.server, error = %e,

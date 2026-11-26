@@ -34,6 +34,7 @@
 //! Each start, ready, exit, failure, and change is a fact (`fact::mcp`).
 
 pub mod attached;
+pub mod doors;
 pub mod ext;
 pub mod l1;
 pub mod oauth;
@@ -322,8 +323,10 @@ struct Live {
     /// Whether `tools` is the stored list.
     stored: bool,
     digest: String,
-    /// The digest of the tools a server that signs in is not offered,
-    /// for saying a change once (`offered.rs`).
+    /// The names of the tools of a server that signs in that its last list
+    /// offered but `offered` dropped, and the identity of the dropped set
+    /// last said (`offered.rs`).
+    dropped: std::collections::BTreeSet<String>,
     withheld: String,
     prompts: u64,
     /// The prompts listed, or the stored ones (36c, `prompts.rs`).
@@ -377,7 +380,10 @@ impl Server {
             }),
             ..Default::default()
         };
-        if let Some(s) = stored {
+        // A server that signs in is not seeded (issue 55, round 5): its
+        // catalog starts empty, and its first list comes after its sign-in
+        // is loaded, through `apply` and `offered` as any list.
+        if let Some(s) = stored.filter(|_| cfg.oauth.is_none()) {
             live.digest = s.digest;
             live.tools = s.tools;
             live.stored = true;
@@ -561,6 +567,8 @@ pub struct McpBoard {
     listed: Mutex<BTreeMap<String, StoredList>>,
     /// Where sign-ins are kept (`oauth::dir` of the store), once known.
     oauth_dir: OnceLock<PathBuf>,
+    /// Itself, for a sign-in to read what the board shows (`doors.rs`).
+    me: Weak<McpBoard>,
     /// Each server's sign-in that signs in, loaded at its first start.
     signed: Mutex<BTreeMap<String, Arc<oauth::Signed>>>,
     /// The sign-in waiting for its redirect (`sign_in.rs`), one at a time.
@@ -583,7 +591,8 @@ impl McpBoard {
             .iter()
             .map(|(n, c)| (n.clone(), Arc::new(Server::new(n, c, stored(n)))))
             .collect();
-        let board = Arc::new(Self {
+        let board = Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             servers,
             catalog,
             broker,
@@ -627,7 +636,14 @@ impl McpBoard {
         let mut all = self.signed.lock().unwrap_or_else(PoisonError::into_inner);
         let found = all.entry(s.name.clone()).or_insert_with(|| {
             let path = self.oauth_dir.get().map(|d| oauth::file(d, &s.name));
-            oauth::Signed::load(&s.name, url, path, self.secrets.clone(), oauth::rule())
+            oauth::Signed::load(
+                &s.name,
+                url,
+                path,
+                self.secrets.clone(),
+                oauth::rule(),
+                self.shown_by(),
+            )
         });
         Some(found.clone())
     }
@@ -779,10 +795,22 @@ impl McpBoard {
             .map(|(s, t)| (s.name.as_str(), t.name.as_str()))
             .collect();
         let wires = theseus_mcp::names::wire_names(&names);
+        // The last check, where a unique wire name is known: a tool it
+        // drops is counted with the rest of its server's (`offered.rs`).
+        let mut at_wire: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
         let tools: Vec<Arc<McpTool>> = pairs
             .iter()
             .zip(wires)
-            .filter(|((s, t), wire)| self.may_offer(s, t, wire))
+            .filter(|((s, t), wire)| {
+                let ok = self.may_offer(s, t, wire);
+                if !ok {
+                    at_wire
+                        .entry(s.name.clone())
+                        .or_default()
+                        .insert(t.name.clone());
+                }
+                ok
+            })
             .map(|((s, t), wire)| {
                 Arc::new(McpTool::new(
                     s.clone(),
@@ -798,6 +826,10 @@ impl McpBoard {
             }
         }
         self.catalog.set(tools);
+        let none = std::collections::BTreeSet::new();
+        for s in self.servers.values().cloned().chain(self.loaded_servers()) {
+            self.tell_withheld(&s, at_wire.get(&s.name).unwrap_or(&none));
+        }
     }
 
     /// A stdio server's environment from `[secrets]`, and an HTTP server's
@@ -1095,13 +1127,16 @@ impl McpBoard {
         };
         if new != old {
             if !old.is_empty() || !before.is_empty() {
-                // A server chooses its tools' names: each is scrubbed before
-                // it is logged, ledgered or noticed (issue 55); the list
-                // itself, which calls use, is kept as it came.
+                // A server that signs in chooses its tools' names: each is
+                // scrubbed before it is logged, ledgered or noticed (issue
+                // 55). A server with no sign-in says them as main does.
                 let (added, removed, changed) = diff(&before, &tools);
                 let scrubber = crate::scrub::Scrubber::from_board(self.secrets.clone());
                 let scrub = |names: Vec<String>| -> Vec<String> {
-                    names.into_iter().map(|n| scrubber.scrub(&n).0).collect()
+                    match s.cfg.oauth.is_some() {
+                        true => names.into_iter().map(|n| scrubber.scrub(&n).0).collect(),
+                        false => names,
+                    }
                 };
                 let (added, removed, changed) = (scrub(added), scrub(removed), scrub(changed));
                 tracing::warn!(server = %s.name, ?added, ?removed, ?changed,

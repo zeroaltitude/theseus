@@ -10,13 +10,13 @@
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_client::mcp_lines::{address_lines, finish_lines, host_lines, logout_lines};
+use theseus_client::mcp_lines::{address_lines, host_lines, logout_lines};
 use theseus_mcp::fake::{self, Fake};
 use theseus_mcp::oauth::fake::{AuthConfig, FakeAuth};
-use theseus_protocol::mcp::{McpLoginFinishResult, McpLogoutResult, McpPromptRef};
+use theseus_protocol::mcp::{McpLogoutResult, McpPromptRef};
 
 use super::oauth::{call, login, rig_edit, Rig};
-use super::oauth_exits::{capture, leaked};
+use super::oauth_exits::{all_exits, capture, issued_in};
 use super::{ledgered, session, turn, until};
 use crate::approval::Surface;
 use crate::config::mcp::McpOauth;
@@ -173,11 +173,25 @@ async fn a_tool_that_says_a_kept_value_is_not_offered() {
     }
     let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
     assert!(log.contains(&words), "the count is said in the log");
-    let found = leaked(&r, &sid, &log);
-    assert!(found.is_empty(), "{} values leaked", found.len());
+    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
+    keyless_says_as_main(&r, &plain, &buf, &token).await;
+}
+
+/// The control of `a_tool_that_says_a_kept_value_is_not_offered`: a server
+/// with no sign-in that says `token` offers all four tools, as on main, and
+/// says its changed names as main does (round 5): the log line, the row and
+/// the notice hold them as they came.
+async fn keyless_says_as_main(
+    r: &Rig,
+    plain: &Fake,
+    buf: &Arc<std::sync::Mutex<Vec<u8>>>,
+    token: &str,
+) {
     // The control: a server with no sign-in that says the same value offers
-    // all four, as on main.
-    plain.set_says(Some(token.clone()));
+    // all four, as on main, and says its changed names as main does: the
+    // log line, the row and the notice hold them as they came (round 5).
+    plain.set_says(Some(token.to_string()));
     call(
         &r.core,
         Surface::Cli,
@@ -197,10 +211,44 @@ async fn a_tool_that_says_a_kept_value_is_not_offered() {
     })
     .await;
     assert!(
-        offered.contains(&token),
+        offered.iter().any(|o| o == token),
         "the tool named after it: {offered:?}"
     );
     assert_eq!(ledgered(&r.core, "mcp.tools_withheld").len(), 1);
+    let mut row = Value::Null;
+    until("plain's change row", || {
+        row = ledgered(&r.core, "mcp.tools_changed")
+            .into_iter()
+            .find(|row| row["server"] == "plain")
+            .unwrap_or(Value::Null);
+        !row.is_null()
+    })
+    .await;
+    let names: Vec<String> = serde_json::from_value(row["added"].clone()).unwrap();
+    let mut sorted = names.clone();
+    sorted.sort();
+    let mut said = vec![token.to_string()];
+    said.extend(SAYS.iter().map(|t| t.to_string()));
+    said.sort();
+    assert_eq!(sorted, said, "main's row: the names as they came");
+    let summary = format!("added {}", names.join(", "));
+    until("plain's notice", || {
+        r.core
+            .outbox
+            .open_for(crate::outbox::OPERATOR_TARGET)
+            .iter()
+            .any(|a| format!("{a:?}").contains(&summary))
+    })
+    .await;
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    let line = log
+        .lines()
+        .find(|l| l.contains("an MCP server's tools changed") && l.contains("server=plain"))
+        .unwrap_or_else(|| panic!("no change line for plain: {log}"));
+    assert!(
+        line.contains(&format!("added={names:?}")),
+        "main's line: {line}"
+    );
 }
 
 /// A server that signs in offers no prompts: its prompt whose name, whose
@@ -266,8 +314,8 @@ async fn prompts_of_a_server_that_signs_in_are_cut() {
     assert!(asked.is_empty(), "the server was asked {asked:?}");
     assert!(ledgered(&r.core, "mcp.prompt_changed").is_empty());
     let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
-    let found = leaked(&r, &sid, &log);
-    assert!(found.is_empty(), "{} values leaked", found.len());
+    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
     // The control: a server with no sign-in lists and resolves its prompts,
     // its `says` included, as on main.
     plain.set_says(Some(token.clone()));
@@ -335,9 +383,12 @@ async fn begin(r: &Rig) -> Value {
     .await
 }
 
-/// The begin checks its whole result, the server's name included: a
-/// registration whose client secret is the server's name is refused, and
-/// neither the answer, the CLI's lines nor the log holds it.
+/// A registration whose client secret is the server's configured name: since
+/// round 5 the begin is refused at its door (`doors.rs`), before the label
+/// check of round 4 (which stays as a second line). Nothing is shown, the
+/// log holds no "began", and no other value the issuer gave is in any exit.
+/// The control: with an ordinary secret the begin is shown, the CLI's lines
+/// naming the server.
 #[tokio::test]
 async fn a_begin_whose_name_is_a_kept_value_is_refused() {
     let r = rig_named(AuthConfig {
@@ -345,18 +396,19 @@ async fn a_begin_whose_name_is_a_kept_value_is_refused() {
         ..AuthConfig::default()
     })
     .await;
+    let sid = session(&r.core, None);
     r.core.mcp.start();
     let (buf, _guard) = capture();
     let begun = begin(&r).await;
     assert_eq!(
         begun["error"]["message"],
-        "the sign-in would show a value Theseus keeps secret, so it is refused: nothing is shown",
+        crate::mcp::doors::SHOWN_WORDS,
         "{begun}"
     );
-    assert!(!begun.to_string().contains(NAME), "{begun}");
     let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
     assert!(!log.contains("an MCP sign-in began"), "{log}");
-    assert!(!log.contains(NAME), "{log}");
+    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[NAME]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
     // With a secret that is not the name, the same begin is shown, and the
     // CLI prints the name: the refusal above is the name's alone.
     let r = rig_named(AuthConfig {
@@ -373,23 +425,26 @@ async fn a_begin_whose_name_is_a_kept_value_is_refused() {
 }
 
 /// A token issued by the redemption that equals a label public before it
-/// (the server's name, the sign-in's host): the finish still signs in and
-/// the logout still signs out, but neither their results, the CLI's lines
-/// nor their own log lines hold it; they say why in fixed words.
+/// (the server's name, the sign-in's host): since round 5 it is not kept at
+/// the door (`doors.rs`): the finish fails in fixed words, nothing is
+/// written, and a logout after it says nothing was kept; no other value the
+/// issuer gave is in any exit of the whole test, the CLI's lines included.
+/// Round 4's "(not shown)" at the finish and the logout stays as a second
+/// line, which a value refused at the door never reaches.
 #[tokio::test]
 async fn a_label_a_new_token_equals_is_not_shown_at_finish_or_logout() {
-    for (label, is_host) in [(NAME.to_string(), false), ("127.0.0.1".to_string(), true)] {
+    for label in [NAME.to_string(), "127.0.0.1".to_string()] {
+        let (buf, _guard) = capture();
         let r = rig_named(AuthConfig {
             access_token_is: Some(label.clone()),
             ..AuthConfig::default()
         })
         .await;
+        let sid = session(&r.core, None);
         r.core.mcp.start();
         let begun = begin(&r).await;
         let url = begun["url"].as_str().unwrap_or_else(|| panic!("{begun}"));
-        assert_eq!(begun["host"] == label, is_host, "{begun}");
         r.auth.browse(url, true).await;
-        let (buf, guard) = capture();
         let done = call(
             &r.core,
             Surface::Cli,
@@ -397,45 +452,26 @@ async fn a_label_a_new_token_equals_is_not_shown_at_finish_or_logout() {
             json!({"login_id": begun["login_id"], "wait_secs": 10}),
         )
         .await;
-        let finished: McpLoginFinishResult =
-            serde_json::from_value(done.clone()).unwrap_or_else(|e| panic!("{e}: {done}"));
-        assert_eq!(finished.state, "done", "{done}");
-        let shown = [finish_lines(&finished).join("\n"), done.to_string()].join("\n");
-        assert!(!shown.contains(&label), "{label}: {shown}");
-        assert!(
-            shown.contains("The sign-in succeeded and is kept"),
-            "{shown}"
+        assert_eq!(
+            done["error"]["message"],
+            crate::mcp::doors::SHOWN_WORDS,
+            "{done}"
         );
-        assert!(shown.contains(crate::mcp::sign_in::HIDDEN), "{shown}");
-        let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
-        drop(guard);
-        let line = log
-            .lines()
-            .find(|l| l.contains("an MCP server was signed in"))
-            .unwrap_or_else(|| panic!("no signed-in line: {log}"));
-        assert!(!line.contains(&label), "{line}");
-        assert!(line.contains("is not shown"), "{line}");
-        // The logout: done, and said without the label.
-        let (buf, _guard) = capture();
+        let path =
+            crate::mcp::oauth::file(&crate::mcp::oauth::dir(&r.dir.path().join("store")), NAME);
+        assert!(!path.exists(), "nothing is written");
         let out = call(&r.core, Surface::Cli, "mcp.logout", json!({"name": NAME})).await;
         let logged_out: McpLogoutResult =
             serde_json::from_value(out.clone()).unwrap_or_else(|e| panic!("{e}: {out}"));
-        assert!(logged_out.forgot, "{out}");
-        assert!(!crate::mcp::oauth::file(
-            &crate::mcp::oauth::dir(&r.dir.path().join("store")),
-            NAME
-        )
-        .exists());
-        let shown = [logout_lines(&logged_out).join("\n"), out.to_string()].join("\n");
-        if !is_host {
-            assert!(!shown.contains(&label), "{shown}");
-            assert!(shown.contains("The sign-out happened"), "{shown}");
-        }
+        assert!(!logged_out.forgot, "nothing was kept: {out}");
+        let lines = logout_lines(&logged_out).join("\n");
         let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
-        let line = log
-            .lines()
-            .find(|l| l.contains("an MCP server was signed out"))
-            .unwrap_or_else(|| panic!("no signed-out line: {log}"));
-        assert!(!line.contains(&label), "{line}");
+        let exits = [all_exits(&r, &sid, &log).await, lines, out.to_string()].join("\n");
+        let found = issued_in(&r, &exits, &[&label]);
+        assert!(
+            found.is_empty(),
+            "{label}: {} values in the exits",
+            found.len()
+        );
     }
 }

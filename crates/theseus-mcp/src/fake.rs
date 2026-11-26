@@ -116,6 +116,9 @@ pub struct Config {
     /// text hold it, with a prompt named after it. A server that signs in
     /// with `says_token` says the token it was last sent instead.
     pub says: Option<String>,
+    /// A string only one tool's schema holds (round 5): a property's
+    /// description of the tool `holds_in_schema`.
+    pub schema_holds: Option<String>,
 }
 
 impl Default for Config {
@@ -136,6 +139,7 @@ impl Default for Config {
             exit_on_crash: false,
             name: "fake".into(),
             says: None,
+            schema_holds: None,
         }
     }
 }
@@ -235,6 +239,11 @@ impl Fake {
     /// What its tools and prompts say from now on (`Config::says`).
     pub fn set_says(&self, says: Option<String>) {
         lock(&self.cfg).says = says;
+    }
+
+    /// What one tool's schema holds from now on (`Config::schema_holds`).
+    pub fn set_schema_holds(&self, holds: Option<String>) {
+        lock(&self.cfg).schema_holds = holds;
     }
 
     /// The value its tools and prompts say, if any: the token last sent to
@@ -513,6 +522,10 @@ impl Fake {
         {
             tools.push(json!({"name": t, "description": format!("about {t}"),
                 "inputSchema": {"type": "object"}}));
+        }
+        if let Some(v) = self.config().schema_holds {
+            tools.push(json!({"name": "holds_in_schema", "description": "a schema holds a string",
+                "inputSchema": {"type": "object", "properties": {"x": {"type": "string", "description": v}}}}));
         }
         if let Some(v) = self.said() {
             let object = |props: Value| json!({"type": "object", "properties": props});

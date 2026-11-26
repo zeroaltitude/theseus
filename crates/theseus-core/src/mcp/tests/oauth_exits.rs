@@ -177,6 +177,74 @@ pub(super) fn leaked(r: &Rig, sid: &str, log: &str) -> Vec<String> {
         .collect()
 }
 
+/// Every exit of a whole test, as one text (round 5): every captured log
+/// line, every ledger row, every notice, every node and note of `sid`,
+/// `mcp.list`'s result over the RPC, the board's status, and every
+/// definition and message the provider was sent.
+pub(super) async fn all_exits(r: &Rig, sid: &str, log: &str) -> String {
+    let list = super::oauth::call(&r.core, Surface::Cli, "mcp.list", json!({})).await;
+    let status = serde_json::to_string(&r.core.mcp.status()).unwrap_or_default();
+    let sent: Vec<String> = r
+        .model
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|q| {
+            format!(
+                "{}\n{}",
+                serde_json::to_string(&q.tools).unwrap(),
+                serde_json::to_string(&q.messages).unwrap()
+            )
+        })
+        .collect();
+    let nodes: Vec<String> = r
+        .core
+        .store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| format!("{n:?}"))
+        .collect();
+    let rows: Vec<String> = r
+        .core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .map(|(_, row)| format!("{row:?}"))
+        .collect();
+    let notices: Vec<String> = r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .map(|a| format!("{a:?}"))
+        .collect();
+    [
+        nodes,
+        rows,
+        notices,
+        notes(r, sid),
+        sent,
+        vec![list.to_string(), status, log.to_string()],
+    ]
+    .concat()
+    .join("\n")
+}
+
+/// Every value the fake issued that `text` holds, but those in `except`:
+/// a value refused at a door because it equals a string Theseus already
+/// shows is, by that, in what it shows.
+pub(super) fn issued_in(r: &Rig, text: &str, except: &[&str]) -> Vec<String> {
+    r.auth
+        .seen()
+        .secrets
+        .into_iter()
+        .filter(|v| !except.contains(&v.as_str()) && text.contains(v.as_str()))
+        .collect()
+}
+
 /// A call answered with `isError = true` and the very token it was sent in
 /// its content and structured content: the model reads the server's words
 /// with the token masked; no node, row, note or log line holds it; a result
@@ -290,7 +358,13 @@ async fn a_begin_that_would_show_a_kept_value_is_refused() {
         json!({"name": "docs"}),
     )
     .await;
-    assert!(refused(&begun), "{begun}");
+    // Since round 5 the registration's secret is refused at its door
+    // (`doors.rs`): it equals the client id, which the begin shows.
+    assert_eq!(
+        begun["error"]["message"],
+        crate::mcp::doors::SHOWN_WORDS,
+        "{begun}"
+    );
     let secret = r
         .auth
         .seen()

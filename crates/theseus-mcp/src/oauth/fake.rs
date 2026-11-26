@@ -99,6 +99,9 @@ pub struct AuthConfig {
     /// The token endpoint issues this as the access token (an alias of a
     /// label that was public before the redemption).
     pub access_token_is: Option<String>,
+    /// A renewal (the refresh grant) issues this as the access token: a
+    /// value acquired after a list was accepted (round 5).
+    pub renewed_access_is: Option<String>,
     /// Registration gives its client secret as the client id too.
     pub client_id_is_secret: bool,
     /// Registration gives this as the client id (an old value, aliased).
@@ -136,6 +139,7 @@ impl Default for AuthConfig {
             says_token: false,
             client_secret_is: None,
             access_token_is: None,
+            renewed_access_is: None,
             client_id_is_secret: false,
             client_id_alias: None,
             endpoints_at: None,
@@ -587,7 +591,7 @@ impl FakeAuth {
                 lock(&self.tokens)
                     .refresh
                     .insert(refresh.clone(), g.client_id);
-                (200, vec![], Some(self.issue(Some(&refresh))))
+                (200, vec![], Some(self.issue(Some(&refresh), false)))
             }
             "refresh_token" => {
                 let old = get("refresh_token");
@@ -604,17 +608,19 @@ impl FakeAuth {
                     let c = t.refresh.remove(&old).unwrap_or_default();
                     t.refresh.insert(new.clone(), c);
                     drop(t);
-                    (200, vec![], Some(self.issue(Some(&new))))
+                    (200, vec![], Some(self.issue(Some(&new), true)))
                 } else {
-                    (200, vec![], Some(self.issue(None)))
+                    (200, vec![], Some(self.issue(None, true)))
                 }
             }
             _ => refused("unsupported_grant_type"),
         }
     }
 
-    fn issue(&self, refresh: Option<&str>) -> Value {
+    fn issue(&self, refresh: Option<&str>, renewal: bool) -> Value {
+        let renewed_is = self.config().renewed_access_is.filter(|_| renewal);
         let access = match (self.config().short_access, self.config().access_token_is) {
+            _ if renewed_is.is_some() => self.seen_value(&renewed_is.unwrap_or_default()),
             (_, Some(v)) => self.seen_value(&v),
             // Eight bytes, one of them a character: the scrubber reads it as one.
             (true, None) => "t       ".to_string(),

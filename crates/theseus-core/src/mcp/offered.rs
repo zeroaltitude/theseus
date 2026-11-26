@@ -6,10 +6,15 @@
 //! any of them, the tool is dropped before the list is stored, published,
 //! listed or sent. It is not masked and kept: a masked name cannot be
 //! called, and a masked schema is not the server's. The owner is told a
-//! count and the server's name, in fixed words, once per change. A server
-//! with no sign-in offers its list as it came.
+//! count and the server's name, in fixed words, once per change of the
+//! dropped set (its sorted names, hashed, never said), the tools dropped at
+//! the last wire-name check counted with the rest. A server with no sign-in
+//! offers its list as it came.
+
+use std::collections::BTreeSet;
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use theseus_mcp::names;
 
 use super::{Listed, McpBoard, Server};
@@ -33,6 +38,15 @@ pub fn withheld_words(server: &str, count: usize) -> String {
 /// Whether anything `t` says of itself, or a name it would be offered
 /// under, holds a value the scrubber knows.
 pub(super) fn says_a_kept_value(scrubber: &Scrubber, server: &str, t: &Listed) -> bool {
+    tool_texts(server, t)
+        .iter()
+        .any(|text| scrubber.scrub(text).1 > 0)
+}
+
+/// Everything `t` of `server` says of itself, and the names it would be
+/// offered under, as text: what is checked for a kept value here, and what
+/// a new value is checked against at a sign-in's doors (`doors.rs`).
+pub(super) fn tool_texts(server: &str, t: &Listed) -> Vec<String> {
     let whole = serde_json::to_value(t).unwrap_or(Value::Null);
     let mut texts = vec![
         names::canonical(server, &t.name),
@@ -40,7 +54,20 @@ pub(super) fn says_a_kept_value(scrubber: &Scrubber, server: &str, t: &Listed) -
         whole.to_string(),
     ];
     strings_of(&whole, &mut texts);
-    texts.iter().any(|text| scrubber.scrub(text).1 > 0)
+    texts
+}
+
+/// The identity of a dropped set: its sorted names, hashed. Empty for none.
+fn identity(names: &BTreeSet<String>) -> String {
+    if names.is_empty() {
+        return String::new();
+    }
+    let mut h = Sha256::new();
+    for n in names {
+        h.update(n.as_bytes());
+        h.update(b"\n");
+    }
+    hex::encode(&h.finalize()[..8])
 }
 
 /// Every key and every scalar of `v`, as text: a value is found whether
@@ -63,8 +90,8 @@ fn strings_of(v: &Value, out: &mut Vec<String>) {
 impl McpBoard {
     /// The tools of `tools` that `s` may offer: all of them for a server
     /// with no sign-in; for one that signs in, those that say no kept
-    /// value. A change in what is dropped is said once: a count and the
-    /// server's name, in the log, a fact and a notice.
+    /// value. The names dropped are kept (`Live::dropped`) for `rebuild`,
+    /// which says the count.
     pub(super) fn offered(&self, s: &Server, tools: Vec<Listed>) -> Vec<Listed> {
         if s.cfg.oauth.is_none() {
             return tools;
@@ -73,22 +100,34 @@ impl McpBoard {
         let (dropped, kept): (Vec<Listed>, Vec<Listed>) = tools
             .into_iter()
             .partition(|t| says_a_kept_value(&scrubber, &s.name, t));
-        let now = match dropped.is_empty() {
-            true => String::new(),
-            false => super::digest(&dropped),
-        };
-        let was = std::mem::replace(&mut s.live().withheld, now.clone());
-        if now != was && !dropped.is_empty() {
-            let words = withheld_words(&s.name, dropped.len());
-            tracing::warn!(server = %s.name, count = dropped.len(), "{words}");
-            self.notice(serde_json::json!({"kind": "mcp_changed", "server": s.name,
-                "summary": words}));
-            self.record(McpToolsWithheld {
-                server: s.name.clone(),
-                count: dropped.len() as u64,
-            });
-        }
+        s.live().dropped = dropped.into_iter().map(|t| t.name).collect();
         kept
+    }
+
+    /// Say `s`'s dropped set once per change: those `offered` dropped and
+    /// those the last wire-name check did (`at_wire`), as one set. A change
+    /// to an empty set says nothing.
+    pub(super) fn tell_withheld(&self, s: &Server, at_wire: &BTreeSet<String>) {
+        if s.cfg.oauth.is_none() {
+            return;
+        }
+        let all: BTreeSet<String> = {
+            let l = s.live();
+            l.dropped.union(at_wire).cloned().collect()
+        };
+        let now = identity(&all);
+        let was = std::mem::replace(&mut s.live().withheld, now.clone());
+        if now == was || all.is_empty() {
+            return;
+        }
+        let words = withheld_words(&s.name, all.len());
+        tracing::warn!(server = %s.name, count = all.len(), "{words}");
+        self.notice(serde_json::json!({"kind": "mcp_changed", "server": s.name,
+            "summary": words}));
+        self.record(McpToolsWithheld {
+            server: s.name.clone(),
+            count: all.len() as u64,
+        });
     }
 
     /// Whether the catalog may offer `t` of `s` under `wire`: the last

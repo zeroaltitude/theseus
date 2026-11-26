@@ -236,6 +236,7 @@ async fn a_kept_sign_in_is_read_held_and_bound_to_its_address() {
         Some(p.clone()),
         board.clone(),
         daemon_rule(),
+        crate::mcp::doors::nothing_shown(),
     );
     assert!(s.signed_in().await);
     assert!(known(&board, "refresh-value-0001"));
@@ -245,6 +246,7 @@ async fn a_kept_sign_in_is_read_held_and_bound_to_its_address() {
         Some(p.clone()),
         SecretBoard::empty(),
         daemon_rule(),
+        crate::mcp::doors::nothing_shown(),
     );
     assert!(!other.signed_in().await);
     let mut bad = kept();
@@ -257,6 +259,7 @@ async fn a_kept_sign_in_is_read_held_and_bound_to_its_address() {
         Some(p),
         board.clone(),
         daemon_rule(),
+        crate::mcp::doors::nothing_shown(),
     );
     assert!(!s.signed_in().await);
     assert!(known(&board, "access-value-0001"));
@@ -275,6 +278,7 @@ async fn every_value_held_stays_known_for_the_daemons_life() {
         Some(p.clone()),
         board.clone(),
         daemon_rule(),
+        crate::mcp::doors::nothing_shown(),
     );
     let values: Vec<String> = (0..12).map(|i| format!("access-value-{i:04}")).collect();
     for v in &values {
@@ -287,6 +291,7 @@ async fn every_value_held_stays_known_for_the_daemons_life() {
         Some(p),
         board.clone(),
         daemon_rule(),
+        crate::mcp::doors::nothing_shown(),
     );
     again.hold_value("access", "access-value-late");
     let _ = again.forget().await;
@@ -313,6 +318,7 @@ async fn a_lost_sign_in_gives_no_token_until_a_new_one() {
         Some(p.clone()),
         SecretBoard::empty(),
         daemon_rule(),
+        crate::mcp::doors::nothing_shown(),
     );
     let mut k = kept();
     k.refresh_token = None;
@@ -419,6 +425,7 @@ async fn a_write_that_fails_past_its_rename_is_said_as_such() {
         Some(p.clone()),
         SecretBoard::empty(),
         daemon_rule(),
+        crate::mcp::doors::nothing_shown(),
     );
     s.put(kept()).await.unwrap();
     let mut next = kept();
