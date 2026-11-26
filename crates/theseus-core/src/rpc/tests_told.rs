@@ -232,24 +232,129 @@ async fn a_method_less_notes_undo_line_names_the_verb_with_its_own_post_id() {
 }
 
 /// `theseus told undo` from a terminal: `told.undo` on a CLI connection,
-/// naming the note by the end of its post id, undoes once; a second is
-/// refused by the core and runs nothing.
+/// naming the note by its full post id, undoes once; a second is refused by
+/// the core and runs nothing.
 #[tokio::test]
 async fn told_undo_from_the_cli_surface_undoes_once() {
     let dir = tempfile::tempdir().unwrap();
     let core = crate::tests_unlabel::core_in(dir.path());
     let post = probe_note(&core);
-    let end = json!({"post": &post[post.len() - 6..]});
+    let full = json!({"post": &post});
     let cli = || Client::new("test", Surface::Cli);
-    let r = call(&core, cli(), method::TOLD_UNDO, end.clone()).await;
+    let r = call(&core, cli(), method::TOLD_UNDO, full.clone()).await;
     assert!(r.error.is_none(), "{:?}", r.error);
     let done: ToldUndoResult = serde_json::from_value(r.result.unwrap()).unwrap();
     assert!(done.text.contains("\n↩️ Undone by "), "{}", done.text);
     assert!(!done.text.contains("Undo: `"), "{}", done.text);
     assert_eq!(PROBED.load(Ordering::SeqCst), 1);
     assert!(marked(&core, &post));
-    let r = call(&core, cli(), method::TOLD_UNDO, end).await;
+    let r = call(&core, cli(), method::TOLD_UNDO, full).await;
     let e = r.error.expect("a second undo is refused");
     assert!(e.data.get("undone_by").is_some(), "{e:?}");
     assert_eq!(PROBED.load(Ordering::SeqCst), 1, "it ran once");
+}
+
+/// Only the note's full post id names it: the end of one is not found, and
+/// runs nothing.
+#[tokio::test]
+async fn only_the_full_post_id_names_a_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::tests_unlabel::core_in(dir.path());
+    let post = probe_note(&core);
+    for name in [&post[post.len() - 6..], &post[..post.len() - 1], ""] {
+        let e = core.told_undo(name, &owner()).await.unwrap_err();
+        assert_eq!(
+            e.code,
+            theseus_protocol::error_code::NOT_FOUND,
+            "{name}: {e:?}"
+        );
+    }
+    assert_eq!(PROBED.load(Ordering::SeqCst), 0);
+    assert!(!marked(&core, &post));
+}
+
+/// A connection whose own peer reading names an agent, a process with no
+/// terminal, or a job the daemon started, on the CLI or the web socket, is
+/// refused before any note is read, with a non-owner's words, whether the
+/// note exists or not; nothing runs. The owner's own terminal passes.
+#[tokio::test]
+async fn an_agent_or_a_jobs_connection_is_refused_and_the_owners_terminal_passes() {
+    use crate::peer_proc::{Behind, JOB, NO_TERMINAL};
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::tests_unlabel::core_in(dir.path());
+    let post = probe_note(&core);
+    for (surface, name) in [
+        (Surface::Cli, "claude"),
+        (Surface::Web, "claude"),
+        (Surface::Cli, JOB),
+        (Surface::Web, JOB),
+        (Surface::Cli, NO_TERMINAL),
+    ] {
+        for asked in [post.as_str(), "out_no_such_note"] {
+            let peer = Client::new("test", surface).behind(Behind::Agent(name.into()));
+            let r = call(&core, peer, method::TOLD_UNDO, json!({"post": asked})).await;
+            let e = r.error.expect("refused");
+            assert_eq!(
+                e.code,
+                theseus_protocol::error_code::REFUSED,
+                "{name}: {e:?}"
+            );
+            assert!(e.message.contains("is not an owner"), "{e:?}");
+            assert!(e.message.contains("Nothing was undone"), "{e:?}");
+            assert!(!e.message.contains(asked), "no word of the note: {e:?}");
+        }
+    }
+    assert_eq!(PROBED.load(Ordering::SeqCst), 0, "nothing ran");
+    assert!(!marked(&core, &post));
+    let own = Client::new("test", Surface::Cli).behind(Behind::Owner);
+    let r = call(&core, own, method::TOLD_UNDO, json!({"post": &post})).await;
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(PROBED.load(Ordering::SeqCst), 1);
+}
+
+/// Every copy `told.undo` returns over the RPC passes the exit's masking: a
+/// registered secret in the note's words and in the presser's label reaches
+/// neither the first answer nor a repeat's error; the stored note keeps it.
+#[tokio::test]
+async fn told_undos_copies_over_the_rpc_are_masked() {
+    const SECRET: &str = "told-test-secret-0123456789";
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::tests_unlabel::core_in(dir.path());
+    assert!(core.exits.on());
+    core.secrets.publish(
+        [(
+            "told_test_secret".to_string(),
+            Ok(crate::secrets::Secret::new(SECRET.into())),
+        )]
+        .into(),
+        "test",
+    );
+    let (a, frame) = told::stage(
+        &core.outbox,
+        None,
+        &format!("Took back {SECRET}"),
+        &format!("In “{SECRET}”, without asking you"),
+        &format!("It held {SECRET}."),
+        &Undo::Probe("thing_1".into()),
+    )
+    .unwrap();
+    core.store.append(&frame).unwrap();
+    core.outbox.posted(&a);
+    let post = a.correlation_id;
+    let cli = || Client::new(format!("ana {SECRET}"), Surface::Cli);
+    let r = call(&core, cli(), method::TOLD_UNDO, json!({"post": &post})).await;
+    assert!(r.error.is_none(), "{:?}", r.error);
+    let first = r.result.unwrap().to_string();
+    assert!(!first.contains(SECRET), "{first}");
+    assert!(first.contains("[redacted:"), "{first}");
+    let r = call(&core, cli(), method::TOLD_UNDO, json!({"post": &post})).await;
+    let e = r.error.expect("a repeat is refused");
+    let repeat = serde_json::to_string(&e).unwrap();
+    assert!(!repeat.contains(SECRET), "{repeat}");
+    assert!(
+        e.data["text"].as_str().unwrap().contains("[redacted:"),
+        "{repeat}"
+    );
+    let (text, _) = told::of(&core.kernel, &post).unwrap().unwrap();
+    assert!(text.contains(SECRET), "the stored note keeps its words");
 }
