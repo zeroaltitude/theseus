@@ -60,6 +60,7 @@ mod capture_card;
 pub(crate) mod card_question;
 pub(crate) mod content;
 pub(crate) mod grant;
+pub(crate) mod mcp_sign_in;
 mod notice_press;
 mod onto_card;
 pub(crate) mod persona_soul;

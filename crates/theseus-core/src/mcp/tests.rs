@@ -1190,6 +1190,7 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
 }
 
 mod ceilings;
+mod discord_login;
 mod oauth;
 mod oauth_doors;
 mod oauth_exits;

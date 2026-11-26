@@ -110,6 +110,8 @@ pub const OPERATOR_KINDS: &[&str] = &[
     "card_question",
     // An act done unasked, with its Undo (issue 57, `owner_note::told`).
     "told",
+    // The owner's Sign in button for an MCP server, which a turn offers (issue 59).
+    "mcp_sign_in",
 ];
 /// The downstream key of a post that creates messages: Discord's nonce.
 pub const NONCE_KEY: &str = "discord.nonce";

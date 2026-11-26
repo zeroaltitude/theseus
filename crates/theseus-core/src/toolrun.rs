@@ -1836,6 +1836,8 @@ impl ToolRuntime {
             crate::config_change::show::SHOW => {
                 crate::config_change::show::run(self, tc, &call.input)
             }
+            // A Sign in button offered to the owner; it begins nothing (issue 59).
+            crate::mcp::offer::OFFER => crate::mcp::offer::run(self, tc, &call.input),
             crate::config_change::undo::UNDO => {
                 crate::config_change::undo::run(self, tc, &call.input, correlation_id)
             }
@@ -2093,6 +2095,8 @@ pub fn build_runtime(
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         crate::config_change::register(cfg, &mut r);
+        // The owner's Sign in button for an MCP server, offered (issue 59).
+        r.register(Arc::new(crate::mcp::offer::Offer));
         // Theseus and its vault, looked at by name, with no shell (issue 26).
         crate::look::register(cfg, &mut r);
         // Asking a profile and holding a conversation to one, with no shell (issue 28).

@@ -38,6 +38,7 @@ pub mod doors;
 pub mod ext;
 pub mod l1;
 pub mod oauth;
+pub mod offer;
 pub mod offered;
 pub mod prompts;
 mod sign_in;

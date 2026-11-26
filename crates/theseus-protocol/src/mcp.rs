@@ -176,7 +176,8 @@ pub struct McpRestartResult {
 }
 
 /// `mcp.login.begin` (issue 55): start the sign-in of a server that signs in
-/// (`oauth`). Admitted from the CLI's surface alone. `manual` skips the wait
+/// (`oauth`). Admitted from the CLI's surface, and from the owner's own press
+/// in a private place on Discord (issue 59). `manual` skips the wait
 /// for the redirect and goes straight to the paste.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -184,6 +185,14 @@ pub struct McpLoginBeginParams {
     pub name: String,
     #[serde(default)]
     pub manual: bool,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// The address the owner opens, which holds no secret (a client id, a PKCE
@@ -240,6 +249,14 @@ pub struct McpLoginFinishParams {
     /// The owner agreed to the other hosts `elsewhere` named.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agreed: bool,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// The pasted address carries the code: never printed.
@@ -282,11 +299,19 @@ impl std::fmt::Debug for McpLoginFinishResult {
 }
 
 /// `mcp.logout`: forget a server's sign-in, revoked at its server when it
-/// offers that. Admitted from the CLI's surface alone.
+/// offers that. Admitted as `mcp.login.begin` is.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct McpLogoutParams {
     pub name: String,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

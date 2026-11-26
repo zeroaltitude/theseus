@@ -55,8 +55,14 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: Option<McpCmd>) -> Result<()>
         }
         Some(McpCmd::Login { name, manual }) => return login(conn, json, name, *manual).await,
         Some(McpCmd::Logout { name }) => {
-            conn.request(method::MCP_LOGOUT, McpLogoutParams { name: name.clone() })
-                .await?
+            conn.request(
+                method::MCP_LOGOUT,
+                McpLogoutParams {
+                    name: name.clone(),
+                    ..Default::default()
+                },
+            )
+            .await?
         }
     };
     if json {
@@ -92,6 +98,7 @@ async fn login(conn: &mut Conn, json: bool, name: &str, manual: bool) -> Result<
             McpLoginBeginParams {
                 name: name.to_string(),
                 manual,
+                ..Default::default()
             },
         )
         .await?;
@@ -120,6 +127,7 @@ async fn login(conn: &mut Conn, json: bool, name: &str, manual: bool) -> Result<
             pasted: pasted.take(),
             wait_secs: wait,
             agreed,
+            ..Default::default()
         };
         let r: McpLoginFinishResult =
             serde_json::from_value(conn.request(method::MCP_LOGIN_FINISH, params).await?)?;
