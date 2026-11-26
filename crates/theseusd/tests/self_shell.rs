@@ -14,7 +14,6 @@
 //!
 //! As root L1 refuses every job; run as an ordinary user.
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
