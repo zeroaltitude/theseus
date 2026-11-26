@@ -2,9 +2,10 @@
 //! a real `config.propose` on a real settings file (the rig of `tests.rs`), and
 //! the yes judged by the same rule the card was asked by.
 //!
-//! Every sensitive setting keeps its card. The code is dropped only for prompt
-//! text and for tightening one of the five listed kernel limits, compared in the
-//! kernel's own units; groups G1 to G3 keep it pending the owner's word.
+//! Every sensitive setting keeps its card. The code is dropped for prompt text,
+//! for tightening one of the five listed kernel limits (compared in the kernel's
+//! own units) and, by the owner's word, for group G3 (self-improvement, the
+//! accounts, the vault, folders, agents); groups G1 and G2 keep it by his word.
 
 use serde_json::{json, Value};
 
@@ -55,17 +56,16 @@ async fn prompt_text_takes_the_card_alone_and_the_yes_alone_writes_it() {
     assert!(r.file_text().contains("be brief"), "{}", r.file_text());
 }
 
-/// (G1, G2, G3) An address, a provider, a gate and a folder keep the code
-/// pending the owner's word: the card is marked, and the yes alone (no app
-/// paired) is refused, so nothing is written.
+/// (G1, G2) An address, a provider and a gate keep the code by the owner's
+/// word: the card is marked, and the yes alone (no app paired) is refused, so
+/// nothing is written.
 #[tokio::test]
-async fn the_pending_groups_keep_the_code_at_the_card_and_at_the_yes() {
+async fn the_kept_groups_keep_the_code_at_the_card_and_at_the_yes() {
     let r = rig();
     for call in [
         change("discord.rest_proxy", json!("proxy.example:80")),
         change("model.provider", json!("anthropic")),
         change("judge.enabled", json!(false)),
-        change("tools.roots", json!(["/tmp/elsewhere"])),
     ] {
         let q = card_of(&r, call.clone()).await;
         assert!(q.needs_proof, "{call}: {}", q.reason);
@@ -80,6 +80,20 @@ async fn the_pending_groups_keep_the_code_at_the_card_and_at_the_yes() {
         decline(&r, &q);
     }
     assert_eq!(r.file_text(), FILE);
+}
+
+/// (G3) A folder takes the card alone by the owner's word, and the owner's yes
+/// alone writes it: the card's mark and the yes's check agree.
+#[tokio::test]
+async fn a_folder_takes_the_card_alone_and_the_yes_alone_writes_it() {
+    let r = rig();
+    let q = card_of(&r, change("tools.roots", json!(["/tmp/elsewhere"]))).await;
+    assert!(!q.needs_proof && !q.needs_fresh_proof, "{q:?}");
+    assert!(!q.reason.contains("second proof"), "{}", q.reason);
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    assert!(r.file_text().contains("/tmp/elsewhere"), "{}", r.file_text());
 }
 
 /// Finding 1: each of the four dollar limits, from a stop of $50, to a positive

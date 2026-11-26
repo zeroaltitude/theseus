@@ -186,7 +186,8 @@ fn valued(v: &Value, at: &mut Vec<String>, out: &mut Vec<(Vec<String>, Value)>) 
     }
 }
 
-/// (G1) The addresses the configuration holds today, by the walk of the uncommented template.
+/// (G1) The addresses the configuration holds today, by the walk of the uncommented template:
+/// KEPT by the owner's word.
 const ADDRESSES: &[&str] = &[
     "aws.accounts.111122223333.endpoint",
     "catalog.some-new-model.provider",
@@ -226,7 +227,7 @@ const ADDRESSES: &[&str] = &[
     "web.port",
 ];
 /// (G3) The folders, files and agent lists the configuration holds today outside the account
-/// tables.
+/// tables: DROPPED by the owner's word, with the global exceptions still winning.
 const FOLDERS_AND_AGENTS: &[&str] = &[
     "import.openclaw.state_dir",
     "index.weights_dir",
@@ -256,13 +257,18 @@ const PROMPT_TEXT: &[&str] = &[
 ];
 
 /// Issue 57, the second reason table by groups: the walk of every setting the configuration
-/// accepts (the uncommented template, parsed) names each key of the groups found by kind, and
-/// no setting needs less than main asked of it (main: every sensitive setting needs the code)
-/// except prompt text (D). A spending limit is set where there was none here, which keeps the
-/// code.
+/// accepts (the uncommented template, parsed) names each key of the groups found by kind; no
+/// setting needs less than main asked of it (main: every sensitive setting needs the code)
+/// except prompt text (D) and the group the owner's word dropped (G3); and inside that group
+/// every global exception (a key that reads a secret, the owner, a sandbox-like key, a
+/// spending key) still needs the code. A spending limit is set where there was none here,
+/// which keeps the code.
 #[test]
-fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
-    use super::sensitivity::{group, prompt_text, proof_reason, reason, Group};
+fn each_group_names_its_keys_and_only_the_dropped_ones_are_weaker_than_main() {
+    use super::sensitivity::{
+        group, key_reason, prompt_text, proof_reason, reason, Group, KEEPS, KEPT_KEYS,
+        SPEND_REASON,
+    };
     let text = super::tests::uncommented(Config::EXAMPLE_TOML);
     let cfg = Config::from_toml(&text).expect("the uncommented template parses");
     let mut all = Vec::new();
@@ -308,12 +314,31 @@ fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
         "the groups as the configuration holds them now: (addresses, folders and agents, prompt \
          text)\n{got:#?}"
     );
+    let dropped = |p: &[String]| group(p).is_some_and(|g| !KEEPS.contains(&g));
     let weaker: Vec<String> = all
         .iter()
         .filter(|(p, v)| {
-            reason(p).is_some() && !prompt_text(p) && proof_reason(p, None, Some(v)).is_none()
+            reason(p).is_some()
+                && !prompt_text(p)
+                && !dropped(p)
+                && proof_reason(p, None, Some(v)).is_none()
         })
         .map(|(p, _)| p.join("."))
         .collect();
     assert!(weaker.is_empty(), "weaker than main: {weaker:#?}");
+    let exception = |p: &[String]| {
+        p.iter().skip(1).any(|k| {
+            key_reason(k).is_some_and(|w| KEPT_KEYS.contains(&w) || w == SPEND_REASON)
+        })
+    };
+    let lost: Vec<String> = all
+        .iter()
+        .filter(|(p, v)| dropped(p) && exception(p) && proof_reason(p, None, Some(v)).is_none())
+        .map(|(p, _)| p.join("."))
+        .collect();
+    assert!(lost.is_empty(), "an exception inside the dropped group lost its code: {lost:#?}");
+    assert!(
+        all.iter().any(|(p, v)| dropped(p) && proof_reason(p, None, Some(v)).is_none()),
+        "the dropped group takes the card alone somewhere"
+    );
 }

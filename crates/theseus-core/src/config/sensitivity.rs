@@ -312,32 +312,38 @@ pub const KEPT_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
 /// either direction, since a lower price lets more calls through the same dollar limits.
 pub const PRICE_KEYS: [&str; 3] = ["long_prompt", "off_peak", "bytes_per_token"];
 
-/// A group whose code waits on the owner's word ([`PENDING`]).
+/// A group the owner decided by his word (2026-11-25, "I'll take your recommendation"): each
+/// keeps the code while it is in [`KEEPS`], and takes the card's yes alone when it is not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
-    /// (G1) Every key whose value is an address that conversations, messages or a credential
-    /// are sent to ([`ADDRESS_REASON`]), and which provider a model uses (`provider`,
-    /// `*_provider`).
+    /// (G1) KEPT by the owner's word: every key whose value is an address that conversations,
+    /// messages or a credential are sent to ([`ADDRESS_REASON`]), and which provider a model
+    /// uses (`provider`, `*_provider`).
     Addresses,
-    /// (G2) The tables that decide or guard later gates ([`GATE_TABLES`]).
+    /// (G2) KEPT by the owner's word: the tables that decide or guard later gates
+    /// ([`GATE_TABLES`]).
     Gates,
-    /// (G3) Self-improvement, the AWS and Google accounts, the vault ([`ACCOUNT_TABLES`]),
-    /// the folders and files Theseus may touch ([`FOLDER_REASON`]), and which processes count
-    /// as agents.
+    /// (G3) DROPPED by the owner's word: self-improvement, the AWS and Google accounts, the
+    /// vault ([`ACCOUNT_TABLES`]), the folders and files Theseus may touch ([`FOLDER_REASON`]),
+    /// and which processes count as agents. The global exceptions still win inside it: a key
+    /// that reads a secret, who the owner is, a sandbox-like key, any spending key, and
+    /// `self.install = "auto"`.
     SelfAndAccounts,
 }
 
-/// The groups whose code is KEPT PENDING the owner's word. Taking a group out of this list
-/// drops its code, with nothing else to change.
-pub const PENDING: [Group; 3] = [Group::Addresses, Group::Gates, Group::SelfAndAccounts];
+/// The groups whose code is KEPT, by the owner's word: G1 and G2. A group not in this list
+/// (G3) takes the card's yes alone; each is one entry to flip.
+pub const KEEPS: [Group; 2] = [Group::Addresses, Group::Gates];
 
-/// (G2) The tables that decide or guard later gates.
+/// (G2) The tables that decide or guard later gates: KEPT by the owner's word.
 pub const GATE_TABLES: [&str; 3] = ["judge", "privacy", "content_based_security"];
 
-/// (G3) Self-improvement, the AWS and Google accounts, and the vault.
+/// (G3) Self-improvement, the AWS and Google accounts, and the vault: DROPPED by the owner's
+/// word.
 pub const ACCOUNT_TABLES: [&str; 6] = ["self", "self_issues", "self_fix", "aws", "google", "vault"];
 
 /// (D) The code is DROPPED (the card's yes is enough) for prompt text ([`PROMPT_REASON`]),
+/// as the owner's yes named it,
 /// including a long prompt value. Prompt files, removing an MCP server and attaching one with
 /// no secret, env, address or egress take their own cards with no code
 /// (`config_change::prompt_file`, `config_change::mcp_attach::needs`); so does tightening one
@@ -391,7 +397,7 @@ fn price(path: &[String]) -> bool {
 /// Why a change of `path` from `before` to `after` needs the owner's authenticator code on
 /// top of the card's yes (issue 57), or `None` when the card alone is enough. In order, the
 /// strictest first: the fresh proof ([`needs_fresh_proof`]); (K) [`KEPT_TABLES`], a price,
-/// [`KEPT_KEYS`], a spending limit not made tighter ([`tightened`]); a group in [`PENDING`];
+/// [`KEPT_KEYS`], a spending limit not made tighter ([`tightened`]); a group, by [`KEEPS`];
 /// (D) [`DROPPED_KEYS`]; and else what main does ([`reason`]).
 pub fn proof_reason(
     path: &[String],
@@ -418,9 +424,9 @@ pub fn proof_reason(
             false => Some(format!("{SPEND_REASON}, not made tighter")),
         };
     }
-    // A group keeps the code while it is in PENDING, and drops it when taken out.
+    // A group keeps the code while it is in KEEPS, and takes the card alone when it is not.
     if let Some(g) = group(path) {
-        return match PENDING.contains(&g) {
+        return match KEEPS.contains(&g) {
             true => reason(path).or_else(|| Some(format!("{g:?}"))),
             false => None,
         };

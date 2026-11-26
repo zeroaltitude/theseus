@@ -12,9 +12,9 @@
 //!
 //! An ordinary change needs the card alone, and so does a sensitive one whose
 //! settings `config::sensitivity::proof_reason` does not name (issue 57: by its
-//! groups, the code is dropped only for prompt text and for tightening one of
-//! the listed kernel limits; every other sensitive setting keeps it, some
-//! pending the owner's word). A change to who the owner is, to the proof itself, or turning
+//! groups, the code is dropped for prompt text, tightening one of the listed
+//! kernel limits, and, by the owner's word, self-improvement, the accounts, the
+//! vault, folders and agents; every other sensitive setting keeps it). A change to who the owner is, to the proof itself, or turning
 //! `[self] install` to `"auto"` is marked fresh: a code typed for that change,
 //! covered by no window.
 
@@ -221,10 +221,10 @@ mod tests {
         }
     }
 
-    /// (G1) Kept pending the owner's word: an address conversations or messages are sent to,
-    /// and which provider a model uses.
+    /// (G1) Kept by the owner's word: an address conversations or messages are sent to, and
+    /// which provider a model uses.
     #[test]
-    fn group_g1_addresses_keep_the_code_pending_his_word() {
+    fn group_g1_addresses_keep_the_code_by_his_word() {
         use crate::config::sensitivity::{group, Group};
         for (c, n) in of_each(&[
             "[model]\nprovider = \"anthropic\"\n",
@@ -236,9 +236,9 @@ mod tests {
         }
     }
 
-    /// (G2) Kept pending the owner's word: the tables that decide or guard later gates.
+    /// (G2) Kept by the owner's word: the tables that decide or guard later gates.
     #[test]
-    fn group_g2_gates_keep_the_code_pending_his_word() {
+    fn group_g2_gates_keep_the_code_by_his_word() {
         use crate::config::sensitivity::{group, Group};
         for (c, n) in of_each(&[
             "[judge]\nenabled = false\n",
@@ -250,10 +250,32 @@ mod tests {
         }
     }
 
-    /// (G3) Kept pending the owner's word: self-improvement, the accounts, the vault, the
-    /// folders Theseus may touch and which agents are read.
+    /// The secrets every account case below names, so each case parses alone.
+    const SECRETS: &str = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\
+                           aws_access_key_id = \"op://v/i/a\"\n\
+                           aws_secret_access_key = \"op://v/i/b\"\n\
+                           google_client = \"op://v/i/c\"\ngoogle_refresh_token = \"op://v/i/d\"\n";
+
+    /// What a change of `extra`, after [`SECRETS`], asks: only `extra`'s own settings change.
+    fn with_secrets(extra: &str) -> Needs {
+        let text = format!("{SECRETS}\n{extra}");
+        real(&[&text]);
+        let s = between(SECRETS, &text);
+        assert!(
+            !s.is_empty() && s.iter().all(|s| s.path[0] != "secrets"),
+            "{s:?}"
+        );
+        Needs::of(&s)
+    }
+
+    /// (G3) Dropped by the owner's word ("I'll take your recommendation"): self-improvement, the
+    /// AWS and Google accounts, the vault, the folders Theseus may touch and which agents are
+    /// read take the card alone. The global exceptions inside those sections still need the
+    /// code: a spending key under `self` or `aws`, a key that reads a secret
+    /// (`google.credentials`), and `self.install = "auto"` (a fresh code). Mixed with a G1, G2
+    /// or K setting, the stricter rule wins.
     #[test]
-    fn group_g3_self_and_accounts_keep_the_code_pending_his_word() {
+    fn group_g3_self_and_accounts_take_the_card_alone_by_his_word() {
         use crate::config::sensitivity::{group, Group};
         for (c, n) in of_each(&[
             "[self]\nmode = \"act\"\n",
@@ -264,7 +286,7 @@ mod tests {
             "[tools]\nroots = [\"/x\"]\n",
             "[import.openclaw]\nagents = [\"main\"]\n",
         ]) {
-            assert_eq!(n, Needs::Proof, "{c}");
+            assert_eq!(n, Needs::Card, "{c}");
             let s = between("", &c);
             assert!(
                 s.iter()
@@ -272,25 +294,41 @@ mod tests {
                 "{c}"
             );
         }
-        // An AWS account names the secrets it reads (which (K) keeps); its own settings are
-        // the account group's.
-        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\
-                    aws_access_key_id = \"op://v/i/a\"\naws_secret_access_key = \"op://v/i/b\"\n";
-        let aws = format!("{base}\n[aws.accounts.111122223333]\nregion = \"us-west-2\"\n");
-        real(&[&aws]);
-        let s = between(base, &aws);
-        assert!(
-            !s.is_empty() && s.iter().all(|s| s.path[0] == "aws"),
-            "{s:?}"
+        let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
+        assert_eq!(with_secrets(account), Needs::Card, "an AWS account's region");
+        // The exceptions win inside the dropped group.
+        for (c, n) in of_each(&["[self.budget]\nday_usd = 3.0\n"]) {
+            assert_eq!(n, Needs::Proof, "a spending key under self: {c}");
+        }
+        assert_eq!(
+            with_secrets(&format!("{account}daily_budget_usd = 20\n")),
+            Needs::Proof,
+            "a spending key under aws"
         );
-        assert!(s
-            .iter()
-            .any(|s| group(&s.path) == Some(Group::SelfAndAccounts)));
-        assert_eq!(Needs::of(&s), Needs::Proof);
+        assert_eq!(
+            with_secrets("[google.credentials]\nclient = \"google_client\"\n"),
+            Needs::Proof,
+            "a key that reads a secret"
+        );
+        assert_eq!(
+            Needs::of(&between("", "[self]\ninstall = \"auto\"\n")),
+            Needs::Fresh,
+            "self.install = auto"
+        );
+        // Mixed with a G1, a G2 or a K setting, the code.
+        for other in [
+            "[model]\nprovider = \"anthropic\"\n",
+            "[judge]\nenabled = false\n",
+            "[policy.tools]\n\"proc.run\" = \"open\"\n",
+        ] {
+            let mixed = format!("[tools]\nroots = [\"/x\"]\n\n{other}");
+            real(&[&mixed]);
+            assert_eq!(Needs::of(&between("", &mixed)), Needs::Proof, "{mixed}");
+        }
     }
 
     /// (D) Dropped tonight: prompt text, a long prompt value included, takes the card alone;
-    /// mixed with a kept or pending setting, the stricter rule wins.
+    /// mixed with a setting that keeps the code, the stricter rule wins.
     #[test]
     fn group_d_prompt_text_takes_the_card_alone() {
         let long = format!("[model]\nsystem = \"{}\"\n", "be brief. ".repeat(80));
