@@ -12,8 +12,15 @@
 //! rule, never inside the fold, which takes only the turn's process
 //! messages (`render/fold.rs`).
 //!
+//! The channel is the write's EFFECTIVE destination: the message this
+//! post's key already has (`msgs`), when it has one, else the planned
+//! channel. So a post sent again after its settle failed edits the message
+//! it already wrote, and keeps it folded, or open, as it was written.
+//!
 //! A folded write's `(channel, message)` is kept with its post as an
-//! additive key of the post's detail, `note_fold`. A press names the post
+//! additive key of the post's detail, `note_fold`, with `resent` when the
+//! write bore the mark of a possible copy (`render::RESENT`): both forms
+//! are rebuilt with that mark from the record, never from the words. A press names the post
 //! (`runtime/fold.rs`) and is honoured only when that stored pair is the
 //! pressed channel and message: a note written open or with a button has no
 //! such pair, so no press can fold it or take its buttons away. The words
@@ -24,7 +31,7 @@ use serde_json::{json, Value};
 use theseus_core::outbox::{body_of, kind_of as post_kind};
 use theseus_kernel::{Action, ActionState};
 
-use super::{notices, Lane, SendErr, Write};
+use super::{notices, Lane, Outcome, Receipt, SendErr, Write};
 use crate::bindings::Steps;
 use crate::render::Buttons;
 
@@ -78,6 +85,39 @@ fn folded_at(a: &Action, at: (u64, u64)) -> bool {
         && d["id"].as_str() == Some(at.1.to_string().as_str())
 }
 
+/// Where post `post` was written folded, and whether that write bore the
+/// mark of a possible copy, until its settle records it.
+pub(super) struct Folded {
+    post: String,
+    at: (u64, u64),
+    resent: bool,
+}
+
+/// `s`, with the mark of a possible copy when `resent`.
+fn marked(s: String, resent: bool) -> String {
+    if resent {
+        format!("{s}\n{}", crate::render::RESENT)
+    } else {
+        s
+    }
+}
+
+/// The posts whose next settle a test makes fail once, as a full disk would.
+#[cfg(test)]
+static FAIL_SETTLE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Make post `post`'s next settle by a lane fail once (a test's fault).
+#[cfg(test)]
+pub(crate) fn fail_settle_once(post: &str) {
+    FAIL_SETTLE.lock().unwrap().push(post.to_string());
+}
+
+/// Whether post `post`'s settle fault is still to fire.
+#[cfg(test)]
+pub(crate) fn settle_fault_pending(post: &str) -> bool {
+    FAIL_SETTLE.lock().unwrap().iter().any(|p| p == post)
+}
+
 /// What a press on a folded note asks for: its post, open or closed, where.
 pub(crate) struct NoteAsk {
     pub post: String,
@@ -86,40 +126,50 @@ pub(crate) struct NoteAsk {
 }
 
 impl Lane {
-    /// Whether write `w` of post `a`, about to go to `w.channel`, is folded
-    /// there: an FYI of an informing kind with no button and no message of
-    /// its own to edit, not a met watch, in a place that folds its steps and
-    /// is not the notices place.
-    fn folds(&self, a: &Action, w: &Write) -> bool {
+    /// The channel write `w` will actually reach: the one its key's message
+    /// is in, when the lane wrote that message already (`write` edits it
+    /// there), else the planned one. A note's key is no turn's, so no
+    /// durable row recalls it (`recall.rs`): the lane's map is all there is.
+    fn effective(&self, w: &Write) -> u64 {
+        self.msgs.get(&w.key).map_or(w.channel, |(c, _)| *c)
+    }
+
+    /// Whether write `w` of post `a`, reaching `channel`, is folded there:
+    /// an FYI of an informing kind with no button and no message of its own
+    /// to edit, not a met watch, in a place that folds its steps and is not
+    /// the notices place.
+    fn folds(&self, a: &Action, w: &Write, channel: u64) -> bool {
         let notices = self.notices_place((0, String::new())).0;
         w.message.is_none()
             && w.buttons == Buttons::Keep
             && body_of(a)["purpose"].as_str() != Some("watch.met")
             && notices::informs(post_kind(a), &w.content)
-            && (notices == 0 || w.channel != notices)
-            && self.shared.steps_in(w.channel) == Steps::Folded
+            && (notices == 0 || channel != notices)
+            && self.shared.steps_in(channel) == Steps::Folded
     }
 
     /// Write `w` of post `a`, folded when it [`folds`](Self::folds) where it
-    /// lands; where a folded write landed is kept for the post's detail. A
-    /// copy's mark (`RESENT`) stays on the line.
+    /// actually lands ([`effective`](Self::effective)); where a folded write
+    /// landed, and whether it bore a copy's mark (`RESENT`, kept on the
+    /// line), is kept for the post's detail.
     pub(super) async fn note_write(
         &mut self,
         a: &Action,
         w: &Write,
     ) -> Result<Option<(u64, u64)>, SendErr> {
-        if !self.folds(a, w) {
+        let channel = self.effective(w);
+        if !self.folds(a, w, channel) {
             return self.write(w).await;
         }
+        let resent = w.content.ends_with(crate::render::RESENT);
         let mut f = w.clone();
-        f.content = line(post_kind(a));
-        if w.content.ends_with(crate::render::RESENT) {
-            f.content = format!("{}\n{}", f.content, crate::render::RESENT);
-        }
+        f.channel = channel;
+        f.content = marked(line(post_kind(a)), resent);
         f.buttons = Buttons::FoldNote(a.correlation_id.clone(), false);
         let wrote = self.write(&f).await;
         if let Ok(Some(at)) = wrote {
-            self.note_folded = Some((a.correlation_id.clone(), at));
+            let post = a.correlation_id.clone();
+            self.note_folded = Some(Folded { post, at, resent });
         }
         wrote
     }
@@ -127,12 +177,39 @@ impl Lane {
     /// Post `a`'s detail, with where it was written folded, if it was.
     pub(super) fn mark_folded(&mut self, a: &Action, mut detail: Value) -> Value {
         match self.note_folded.take() {
-            Some((post, (c, m))) if post == a.correlation_id => {
+            Some(f) if f.post == a.correlation_id => {
+                let (c, m) = f.at;
                 detail[MARK] = json!({"channel": c.to_string(), "id": m.to_string()});
+                if f.resent {
+                    detail[MARK]["resent"] = json!(true);
+                }
             }
             _ => {}
         }
         detail
+    }
+
+    /// The outbox's settle of post `a`, as the lane records every post; a
+    /// test may make it fail once ([`fail_settle_once`]).
+    pub(super) fn outbox_settle(
+        &self,
+        correlation_id: &str,
+        outcome: Outcome,
+        receipt: Receipt,
+        first: Option<String>,
+        detail: Value,
+        producer: &str,
+    ) -> anyhow::Result<Action> {
+        #[cfg(test)]
+        {
+            let mut f = FAIL_SETTLE.lock().unwrap();
+            if let Some(i) = f.iter().position(|p| p == correlation_id) {
+                f.remove(i);
+                anyhow::bail!("a test's settle failed, as on a full disk");
+            }
+        }
+        let outbox = &self.shared.core.outbox;
+        outbox.settle(correlation_id, outcome, receipt, first, detail, producer)
     }
 
     /// A folded note pressed: its words, or its line again, on the message
@@ -164,7 +241,9 @@ impl Lane {
         if !take() {
             return Err(Told::Cancelled);
         }
+        let resent = a.detail.as_ref().is_some_and(|d| d[MARK]["resent"] == true);
         let content = if n.open { text } else { line(post_kind(&a)) };
+        let content = marked(content, resent);
         // The vault's values never leave, as at every exit (`write`).
         let content = self.shared.core.exits.text(&content).0.into_owned();
         let buttons = Buttons::FoldNote(n.post.clone(), n.open);

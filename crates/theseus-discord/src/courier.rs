@@ -24,7 +24,7 @@
 pub(crate) mod ask;
 mod board;
 mod catchup;
-mod fold_note;
+pub(crate) mod fold_note;
 mod held;
 mod notices;
 mod offer;
@@ -385,7 +385,7 @@ pub(crate) struct Lane {
     /// live progress may go on, but the posts have not all gone.
     card_held: bool,
     /// Where the post being delivered was written folded (`fold_note.rs`).
-    note_folded: Option<(String, (u64, u64))>,
+    note_folded: Option<fold_note::Folded>,
 }
 
 impl Lane {
@@ -875,7 +875,7 @@ impl Lane {
             .iter()
             .map(|(k, c, m)| json!({"key": k, "channel": c.to_string(), "id": m.to_string()}))
             .collect();
-        match self.shared.core.outbox.settle(
+        match self.outbox_settle(
             &a.correlation_id,
             outcome,
             receipt,

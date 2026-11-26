@@ -748,3 +748,173 @@ async fn a_folded_note_opens_after_its_place_starts_again_or_says_it_is_too_old(
     assert_eq!((&m.content, m.edits), (&before.content, before.edits));
     assert_eq!(m.content, LINE);
 }
+
+/// An operator post as the core stages one, whose first settle by the lane
+/// fails, as on a full disk: its correlation id.
+fn stage_failing_settle(r: &Rig, body: Value) -> String {
+    let (a, frame) = r.core.outbox.stage_to_operator(None, body).unwrap();
+    crate::courier::fold_note::fail_settle_once(&a.correlation_id);
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+    a.correlation_id
+}
+
+/// Whether post `post` has settled as delivered.
+fn succeeded(r: &Rig, post: &str) -> bool {
+    r.core.kernel.outbox_action(post).ok().flatten().map(|a| a.state) == Some(ActionState::Succeeded)
+}
+
+/// The `(channel, message)` post `post`'s detail says it was written folded
+/// to, and whether that write bore a copy's mark.
+fn stored(r: &Rig, post: &str) -> (String, String, bool) {
+    let a = r.core.kernel.outbox_action(post).unwrap().unwrap();
+    let d = &a.detail.unwrap()["note_fold"];
+    let s = |k: &str| d[k].as_str().unwrap_or("").to_string();
+    (s("channel"), s("id"), d["resent"] == true)
+}
+
+/// The bot's DM messages that carry post `post`'s note button.
+fn note_messages(r: &Rig, post: &str) -> Vec<Msg> {
+    let id = format!("fold:no:{post}");
+    r.posted(ANA_DM)
+        .into_iter()
+        .filter(|m| m.buttons.iter().any(|b| b.custom_id == id))
+        .collect()
+}
+
+/// Review round 2, finding 1: the notices place refuses a note for good, its
+/// copy lands folded in the DM, and recording that fails once, so the lane
+/// sends the post again. The retry edits the DM message it already wrote,
+/// and keeps it folded: one DM message, the closed line, its stored pair,
+/// and Show and Hide work.
+#[tokio::test]
+async fn a_folded_fallback_whose_settle_failed_is_still_folded_after_its_retry() {
+    let r = rig("", Some(""), vec![]).await;
+    r.fake.fail_creates_in(NOTICES, Some(403));
+    let post = stage_failing_settle(&r, fyi("retried-after-a-failed-settle"));
+    r.until("the post settled on its retry", || succeeded(&r, &post))
+        .await;
+    assert!(!crate::courier::fold_note::settle_fault_pending(&post), "it failed once");
+    let ms = note_messages(&r, &post);
+    assert_eq!(ms.len(), 1, "one DM message: {ms:#?}");
+    let m = &ms[0];
+    assert!(m.edits >= 1, "the retry wrote it again: {m:#?}");
+    assert!(m.versions.iter().all(|v| v == LINE), "closed throughout: {m:#?}");
+    assert_eq!(labels(m), ["Show note"]);
+    assert_eq!(stored(&r, &post), (ANA_DM.to_string(), m.id.clone(), false));
+    assert!(r.posted(NOTICES).iter().all(|x| !x.content.contains("retried")));
+    open_and_close(&r, ANA_DM, m, &fyi_text("retried-after-a-failed-settle"), LINE).await;
+}
+
+/// Its mirror: a note written open (the DM bound open) whose settle fails
+/// once is still open after the retry, its words and no button.
+#[tokio::test]
+async fn an_open_note_whose_settle_failed_is_still_open_after_its_retry() {
+    let r = rig(OPEN, None, vec![]).await;
+    let post = stage_failing_settle(&r, fyi("open-after-a-failed-settle"));
+    r.until("the post settled on its retry", || succeeded(&r, &post))
+        .await;
+    assert!(!crate::courier::fold_note::settle_fault_pending(&post), "it failed once");
+    let ms: Vec<Msg> = r
+        .posted(ANA_DM)
+        .into_iter()
+        .filter(|m| m.versions[0].contains("open-after-a-failed-settle"))
+        .collect();
+    assert_eq!(ms.len(), 1, "{ms:#?}");
+    assert_eq!(ms[0].content, fyi_text("open-after-a-failed-settle"));
+    assert!(ms[0].buttons.is_empty(), "{:#?}", ms[0]);
+    let a = r.core.kernel.outbox_action(&post).unwrap().unwrap();
+    assert!(a.detail.unwrap()["note_fold"].is_null(), "no pair for an open note");
+}
+
+/// A rig over a store in which `words`' FYI was dispatched five minutes
+/// before this process started and never settled: the lane sends it again
+/// as a possible copy (`render::RESENT`). Its correlation id too.
+async fn resent_rig(dm: &str, words: &str) -> (Rig, String) {
+    let fake = theseus_sim::fake_discord::FakeDiscord::start_with_gateway();
+    fake.set_guild(guild());
+    let post = std::sync::Mutex::new(String::new());
+    let r = Rig::start_seeded(
+        fake,
+        |_, _| Arc::new(FakeProvider::scripted(vec![])),
+        &file(dm, None),
+        &[],
+        |c| c.places.owner = Some(vec![format!("discord:{ANA}")]),
+        |core| {
+            let now = theseus_protocol::now_unix_ms();
+            theseus_protocol::time::move_clock_to(now - 300_000);
+            let (a, frame) = core.outbox.stage_to_operator(None, fyi(words)).unwrap();
+            core.store.append(&frame).unwrap();
+            core.outbox.dispatch(&a.correlation_id).unwrap();
+            theseus_protocol::time::reset_clock();
+            *post.lock().unwrap() = a.correlation_id;
+        },
+    )
+    .await;
+    (r, post.into_inner().unwrap())
+}
+
+/// Review round 2, finding 2: a note sent again as a possible copy bears the
+/// mark in both forms. Open, the folded DM's note is the open DM's message
+/// byte for byte, the mark included; closed again it still bears the mark;
+/// and so after its place starts again (the readback path).
+#[tokio::test]
+async fn a_resent_note_keeps_its_copy_mark_open_and_closed() {
+    let words = "sent-again-after-an-outage";
+    let (r, _) = resent_rig(OPEN, words).await;
+    r.until("the open note", || first_with(&r, ANA_DM, words).is_some())
+        .await;
+    let open = first_with(&r, ANA_DM, words).unwrap().content;
+    assert!(open.ends_with(crate::render::RESENT), "{open:?}");
+    r.stop();
+
+    let (r, post) = resent_rig("", words).await;
+    let line = format!("{LINE}\n{}", crate::render::RESENT);
+    let m = folded(&r, ANA_DM, &post).await;
+    assert_eq!(m.content, line);
+    r.until("settled", || succeeded(&r, &post)).await;
+    assert_eq!(stored(&r, &post), (ANA_DM.to_string(), m.id.clone(), true));
+    open_and_close(&r, ANA_DM, &m, &open, &line).await;
+    open_and_close(&r, ANA_DM, &m, &open, &line).await;
+    let places = || r.core.bindings.all().first().map_or(0, |b| b.places.len());
+    let without_dm = format!(
+        "guild_id = \"{DEFAULT_GUILD}\"\n\
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n"
+    );
+    let path = r.dir.path().join("bindings.toml");
+    std::fs::write(&path, without_dm).unwrap();
+    r.until("the DM dropped", || places() == 1).await;
+    std::fs::write(&path, file("", None)).unwrap();
+    r.until("the DM bound again", || places() == 2).await;
+    open_and_close(&r, ANA_DM, &m, &open, &line).await;
+}
+
+/// The disk back to normal, at the default: the DM folds it to its kind's
+/// line, and opened it reads as an open DM's message does.
+#[tokio::test]
+async fn a_recovered_disk_note_folds_at_the_default_and_opens_to_the_open_dms_words() {
+    let disk = || {
+        json!({"kind": "disk", "state": "ok", "free_mb": 90_000, "total_mb": 100_000,
+               "warn_mb": 5_120, "floor_mb": 1_024})
+    };
+    let r = rig(OPEN, None, vec![]).await;
+    stage(&r, disk());
+    r.until("the open disk note", || {
+        first_with(&r, ANA_DM, "back to normal").is_some()
+    })
+    .await;
+    let open = first_with(&r, ANA_DM, "back to normal").unwrap().content;
+    r.stop();
+
+    let r = rig("", None, vec![]).await;
+    let post = stage(&r, disk());
+    let m = folded(&r, ANA_DM, &post).await;
+    assert_eq!(m.content, "-# ℹ️ FYI: the disk");
+    assert!(
+        r.posted(ANA_DM)
+            .iter()
+            .all(|x| x.versions.iter().all(|v| !v.contains("back to normal"))),
+        "closed, its words were never shown"
+    );
+    open_and_close(&r, ANA_DM, &m, &open, "-# ℹ️ FYI: the disk").await;
+}
