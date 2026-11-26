@@ -629,8 +629,8 @@ pub async fn propose(
     };
     if keel_mark(&place, &t).exists() {
         return Err(format!(
-            "Not run: {} is held for the owner (a keel stop, or a push refused for what must not \
-             leave) and waits for the owner's answer; it is never retried around.",
+            "Not run: {} stopped at the keel and waits for the owner's answer; it is never \
+             retried around.",
             i.item
         ));
     }
@@ -769,22 +769,17 @@ async fn attempt(
     }
     let mut after = String::new();
     if let Some(remote) = core.cfg.self_improve.remote.clone() {
-        let (t, item) = (a.tree.clone(), a.i.item.trim().to_string());
-        match push_branch(core, place, t, (item, tc.session_id.to_string()), remote).await? {
+        let (p, t, b) = (place.clone(), a.tree.clone(), a.tree.branch.clone());
+        let scrubber = core.tools.scrubber.clone();
+        let pushed = blocking(move || {
+            Ok(tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1)
+                .map(|spec| format!("{remote} {spec}")))
+        })
+        .await?;
+        match pushed {
             Ok(to) => {
                 after = format!("Pushed to {to}. ");
                 a.pushed = Some(to);
-            }
-            // What must not leave holds the item for the owner, as a keel stop does: nothing goes on.
-            Err(e) if e.holds() => return withheld(core, place, tc, a, &e),
-            // Put off: no hold and no card. The branch is the join's to check again, as one never pushed.
-            Err(tree::Refused::Deferred(d)) => {
-                tracing::info!(branch = %a.tree.branch, "self.propose_change: the outgoing check is put off: {}", d.words());
-                a.stopped_at = Some(PUSH);
-                after = format!(
-                    "Not pushed: the outgoing check is put off ({}); the join checks it again. ",
-                    d.words()
-                );
             }
             Err(e) => {
                 a.stopped_at = Some(PUSH);
@@ -808,29 +803,6 @@ async fn attempt(
         Err(_) => "The tree could not be closed.",
     });
     Ok(said(a, &after))
-}
-
-/// Push tree `t`'s branch to `remote` (`tree::push`), with what the sessions working on `item` read, `session`
-/// among them, for the outgoing check: where it went, or why it was refused.
-async fn push_branch(
-    core: &Arc<Core>,
-    place: &Place,
-    t: Tree,
-    (item, session): (String, String),
-    remote: String,
-) -> Result<Result<String, tree::Refused>, String> {
-    let (p, b) = (place.clone(), t.branch.clone());
-    let (store, scrubber) = (core.store.clone(), core.tools.scrubber.clone());
-    blocking(move || {
-        let until = super::outgoing::clear::deadline();
-        let heard = super::outgoing::Heard::of(&store, &item, &[&session], until);
-        let heard = heard.as_ref().map_err(|u| *u);
-        Ok(
-            tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1, heard)
-                .map(|spec| format!("{remote} {spec}")),
-        )
-    })
-    .await
 }
 
 /// What the attempt's commit leaves: its head (none when nothing was left to commit), the
@@ -1175,155 +1147,6 @@ fn keel(
     tc: &TurnCtx<'_>,
     a: &mut Attempt<'_>,
 ) -> Result<(String, Value), String> {
-    let text = keel_text(
-        &a.tree.branch,
-        &a.i.item,
-        a.report.as_deref().unwrap_or("none"),
-    );
-    held_for_owner(core, place, tc, a, (text, "It stopped at the keel"))
-}
-
-/// A push refused for what must not leave (`tree::Refused::holds`): held for the owner as a keel stop is, by its
-/// mark (every later call is refused), its held stop row (the join and the pipeline skip the head:
-/// `join::Seen`), written before the attempt's own row, and one card. The card, the row and what the model is
-/// told name the refusal's fixed category and safe ids, never a word of what matched; when the branch's own name
-/// held the words, they name neither it nor the item.
-fn withheld(
-    core: &Core,
-    place: &Place,
-    tc: &TurnCtx<'_>,
-    a: &mut Attempt<'_>,
-    why: &tree::Refused,
-) -> Result<(String, Value), String> {
-    use super::outgoing::{Part, Refusal};
-    let head = a.head.clone().unwrap_or_default();
-    tc.record(&crate::fact::rsi_join::SelfJoinStopped {
-        branch: a.tree.branch.clone(),
-        head: head.clone(),
-        phase: "push".into(),
-        why: why.to_string(),
-        numbers: json!({"held": true, "outgoing": true, "at": "branch"}),
-    });
-    let named = !matches!(
-        why,
-        tree::Refused::Outgoing(Refusal::Words {
-            part: Part::Branch,
-            ..
-        })
-    );
-    let words = matches!(why, tree::Refused::Outgoing(Refusal::Words { .. }));
-    let lift = match named {
-        true => format!("remove its hold, {}.keel among the self trees", a.tree.slug),
-        false => format!(
-            "remove its hold, the `.keel` mark beside the self tree whose branch holds commit {}",
-            super::outgoing::short(&head)
-        ),
-    };
-    let names = named.then_some((a.tree.branch.as_str(), a.i.item.as_str()));
-    let held = Held {
-        exit: Exit::Branch,
-        names,
-        head: &head,
-        repo: &place.repo,
-        words,
-    };
-    let text = withheld_text(&held, why, &lift);
-    let stopped = format!("It was not pushed ({why}); it is held");
-    let (mut said, mut meta) = held_for_owner(core, place, tc, a, (text, &stopped))?;
-    // The branch's own name held the words: what the model is told names neither it nor its tree's slug.
-    if !named {
-        for name in [a.tree.branch.as_str(), a.tree.slug.as_str()] {
-            said = said.replace(name, "[a name withheld]");
-        }
-        meta = json!({"head": a.head, "gate": a.verdict, "withheld": true});
-    }
-    Ok((said, meta))
-}
-
-/// Where a self push was stopped, for the owner's card.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Exit {
-    /// The builder's branch, from its tree (the tree stays).
-    Branch,
-    /// A fix made at review (its temporary tree is closed).
-    Review,
-    /// The join to main (the merge's tree is closed).
-    Join,
-}
-
-/// A held push, as its card names it: never a word of what matched.
-pub(crate) struct Held<'a> {
-    pub exit: Exit,
-    /// The branch and the item, unless the branch's own name held the words.
-    pub names: Option<(&'a str, &'a str)>,
-    /// The commit that was not sent.
-    pub head: &'a str,
-    /// The self repository.
-    pub repo: &'a std::path::Path,
-    /// It was refused for words of a conversation (else: it could not be checked).
-    pub words: bool,
-}
-
-/// The owner's card for a push refused for what must not leave, true at the exit it was refused at; `lift` says
-/// how its hold is lifted.
-pub(crate) fn withheld_text(h: &Held<'_>, why: &dyn std::fmt::Display, lift: &str) -> String {
-    let what = match h.words {
-        true => "a commit holds words from one of your conversations, which a session working on it read",
-        false => "what it would send could not be checked",
-    };
-    let head = super::outgoing::short(h.head);
-    let (title, item) = match (h.names, h.exit) {
-        (Some((b, _)), Exit::Branch) => (format!("Self branch {b} was not pushed"), true),
-        (Some((b, _)), Exit::Review) => (format!("A fix of self branch {b} was not pushed"), true),
-        (Some((b, _)), Exit::Join) => (format!("Self branch {b} was not joined to main"), true),
-        (None, _) => (
-            format!("A self branch at commit {head} was not pushed"),
-            false,
-        ),
-    };
-    let item = match (item, h.names) {
-        (true, Some((_, i))) => format!(" ({i})"),
-        _ => String::new(),
-    };
-    let on = match h.names {
-        Some((b, _)) => format!("commit {head} on {b}"),
-        None => format!("commit {head}"),
-    };
-    let repo = h.repo.display();
-    let then = match h.exit {
-        Exit::Branch => format!(
-            "Nothing of it left this machine, and it is never retried around. The held head is {on}, in its \
-             tree among the self trees: drop the item, or take the words out of its commits, then {lift}."
-        ),
-        Exit::Review => format!(
-            "This push was stopped: the new fix was not sent (the branch as it stood before the fix may \
-             already be at the remote). The fix is {on} in the self repository; its tree is closed. See it with \
-             `git -C {repo} show {head}`, drop the item or change the branch there, then {lift}."
-        ),
-        Exit::Join => format!(
-            "This push was stopped: the merge was not sent, and main at the remote is as it was (the branch \
-             itself may already be at the remote). The held head is {on} in the self repository; the merge's \
-             tree is closed. See it with `git -C {repo} log -p main..{head}`, drop the item or change the \
-             branch there, then {lift}."
-        ),
-    };
-    crate::owner_note::note(
-        crate::owner_note::Kind::Decision,
-        &title,
-        &format!("{what}{item}: {why}"),
-        &then,
-    )
-}
-
-/// Hold the attempt for the owner: the mark that stops every later attempt, and the owner's card `text`;
-/// `stopped` begins what the model is told.
-fn held_for_owner(
-    core: &Core,
-    place: &Place,
-    tc: &TurnCtx<'_>,
-    a: &mut Attempt<'_>,
-    (text, stopped): (String, &str),
-) -> Result<(String, Value), String> {
     a.stopped_at = Some(PUSH);
     let mut notice = String::new();
     if let Err(e) = std::fs::write(keel_mark(place, &a.tree), &a.tree.branch) {
@@ -1344,12 +1167,16 @@ fn held_for_owner(
         return Ok(said(
             a,
             &format!(
-                "{stopped} and waits for the owner's word; no DM is bound, so no card was \
-                 posted.{notice}"
+                "It stopped at the keel and waits for the owner's word; no DM is \
+             bound, so no card was posted.{notice}"
             ),
         ));
     }
-    let mut text = text;
+    let mut text = keel_text(
+        &a.tree.branch,
+        &a.i.item,
+        a.report.as_deref().unwrap_or("none"),
+    );
     text.push_str(&notice);
     let card = (|| -> anyhow::Result<()> {
         let body = json!({"kind": "self_keel", "text": text});
@@ -1363,7 +1190,7 @@ fn held_for_owner(
     }
     Ok(said(
         a,
-        &format!("{stopped}: the owner's card asks for an answer.{notice}"),
+        &format!("It stopped at the keel: the owner's card asks for an answer.{notice}"),
     ))
 }
 

@@ -20,20 +20,6 @@ use crate::fact::rsi_fix::{Moved, NoFix};
 use crate::rsi::join::{blocking, git, remote_of, Run};
 use crate::rsi::tree;
 
-/// Why a fix at review is not on the remote.
-enum NotPushed {
-    /// It did not hold, in these words: the item returns, as a reject does.
-    Returned(String),
-    /// Its push was refused for what must not leave: the fixed head, this one, is held for the owner.
-    Held(crate::rsi::outgoing::Stop, String),
-}
-
-impl From<String> for NotPushed {
-    fn from(why: String) -> Self {
-        NotPushed::Returned(why)
-    }
-}
-
 impl Run<'_> {
     /// What the review just asked a fix to repair.
     pub(in crate::rsi::join) fn asked_fix(&mut self) -> Vec<String> {
@@ -105,11 +91,6 @@ impl Run<'_> {
                 return Ok(true);
             }
         };
-        // What the item's sessions read, gathered once this pass, for the fixed branch's push.
-        let heard = match self.core.cfg.self_improve.remote.is_some() {
-            true => Some(self.heard().await),
-            false => None,
-        };
         let core: &Arc<crate::rpc::Core> = self.core;
         let _live = core.tools.self_pr.live_fix(&t.branch);
         let job = Job {
@@ -125,71 +106,43 @@ impl Run<'_> {
             main,
             fixer: self.seams.fixer.clone(),
         };
-        let out = self.fixed_at_review(&job, &remote, heard).await;
+        let out = self.fixed_at_review(&job, &remote).await;
         let (p, tr) = (self.place.clone(), t.clone());
         if let Err(e) = blocking(move || tree::close(&p, &tr)).await {
             tracing::warn!(error = %format!("{e:#}"), branch = %t.branch, "self fix: the tree was not closed");
         }
-        match out {
-            Ok(_) => {}
-            // What must not leave holds the head for the owner, as an unsigned join does: the fixed head,
-            // which the next pass would take as the branch's.
-            Err(NotPushed::Held(stop, head)) => {
-                self.b.head = head;
-                self.stopped_outgoing(stop, crate::rsi::pr::Exit::Review);
-            }
-            Err(NotPushed::Returned(why)) => self.fix_returned(&why)?,
+        if let Err(why) = out {
+            self.fix_returned(&why)?;
         }
         Ok(true)
     }
 
-    /// Make, gate, approve and push: the approver once the fix is on the remote; else why it is not.
-    async fn fixed_at_review(
-        &self,
-        job: &Job<'_>,
-        remote: &str,
-        heard: Option<Result<crate::rsi::outgoing::Heard, crate::rsi::outgoing::Unread>>,
-    ) -> Result<String, NotPushed> {
+    /// Make, gate, approve and push: the approver, or the words of why the fix did not hold.
+    async fn fixed_at_review(&self, job: &Job<'_>, remote: &str) -> Result<String, String> {
         let made = job.make().await?;
         let (p, t) = (self.place.clone(), job.tree.clone());
         let gated = tree::gate(&p, &t).await.and_then(tree::Gated::ran);
         match gated {
             Ok(run) if run.verdict == tree::Verdict::Green => {}
-            Ok(run) => return Err(job.red_again(&made, &run.tail).into()),
-            Err(e) => {
-                let why = job.red_again(&made, &format!("the gate did not run: {e:#}"));
-                return Err(why.into());
-            }
+            Ok(run) => return Err(job.red_again(&made, &run.tail)),
+            Err(e) => return Err(job.red_again(&made, &format!("the gate did not run: {e:#}"))),
         }
         let approver = job.approve(&made).await?;
         if let Err(e) = self.fix_report(job, &made, &approver) {
             tracing::warn!(error = %format!("{e:#}"), branch = %job.tree.branch, "self fix: its report was not written");
         }
-        if let Some(heard) = heard {
-            use crate::rsi::outgoing::Stop;
+        if self.core.cfg.self_improve.remote.is_some() {
             let (p, t, r) = (self.place.clone(), job.tree.clone(), remote.to_string());
             let b = t.branch.clone();
             let scrubber = self.core.tools.scrubber.clone();
             let pushed = blocking(move || {
-                let heard = heard.as_ref().map_err(|u| *u);
-                Ok(tree::push(&p, &t, &r, &b, &|s| scrubber.scrub(s).1, heard))
+                Ok(tree::push(&p, &t, &r, &b, &|s| scrubber.scrub(s).1).map_err(|e| e.to_string()))
             })
             .await
-            .map_err(|e| NotPushed::Returned(format!("the fixed branch was not pushed: {e:#}")))?;
-            let held = |stop| Err(NotPushed::Held(stop, made.head.clone()));
-            match pushed {
-                Ok(_) => {}
-                Err(tree::Refused::Scrub { hits, .. }) => return held(Stop::Scrub(hits)),
-                Err(tree::Refused::Outgoing(r)) => return held(Stop::Refused(r)),
-                // Put off: the fixed head is the branch's, unpushed; the join checks it again.
-                Err(tree::Refused::Deferred(d)) => {
-                    tracing::info!(branch = %job.tree.branch, "self fix: the outgoing check is put off: {}", d.words());
-                }
-                Err(e) => {
-                    return Err(NotPushed::Returned(format!(
-                        "the fixed branch was not pushed: {e}"
-                    )))
-                }
+            .map_err(|e| format!("{e:#}"))
+            .and_then(|r| r);
+            if let Err(e) = pushed {
+                tracing::warn!(branch = %job.tree.branch, "self fix: the fixed branch was not pushed: {e}");
             }
         }
         Ok(approver)

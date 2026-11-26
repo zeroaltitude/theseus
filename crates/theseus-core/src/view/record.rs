@@ -265,53 +265,6 @@ pub fn of_turn_unread(store: &Store, turn: &str) -> anyhow::Result<(Vec<ViewReco
     Ok((out, unread))
 }
 
-/// Why a turn's views cannot all be read ([`every_of_turn`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Every {
-    /// The turn's index of views cannot be read.
-    Index,
-    /// A view the index lists is not there.
-    Missing,
-    /// A view the index lists cannot be read.
-    Unreadable,
-}
-
-/// How many of a turn's index entries [`every_of_turn`] reads at a time.
-const EVERY_PAGE: usize = 64;
-
-/// Every view of `turn`, newest first: the whole of its index, page by page to its end, each record read
-/// strictly. Unlike [`of_turn`], which shows the newest few, nothing is left out without an error: an index
-/// entry that cannot be read, a view it lists that is not there and one that does not read are each an error.
-pub fn every_of_turn(store: &Store, turn: &str) -> Result<Vec<ViewRecord>, Every> {
-    let prefix = format!("{VIEW_TURN_PREFIX}{turn}{SEP}");
-    let mut from = prefix.clone();
-    let mut out = Vec::new();
-    loop {
-        let page = store
-            .inner()
-            .first_with_prefix_from_strict(kinds::META, &prefix, &from, EVERY_PAGE)
-            .map_err(|_| Every::Index)?;
-        for r in &page {
-            let of = r.decode::<ViewOfTurn>().map_err(|_| Every::Index)?;
-            match read(store, &of.compilation) {
-                Ok(Some(v)) => out.push(v),
-                Ok(None) => return Err(Every::Missing),
-                Err(_) => return Err(Every::Unreadable),
-            }
-        }
-        // A short page is the index's end.
-        if page.len() < EVERY_PAGE {
-            return Ok(out);
-        }
-        let last = page
-            .last()
-            .and_then(|r| r.key.clone())
-            .ok_or(Every::Index)?;
-        // The least key after the last one read.
-        from = format!("{last}\u{0}");
-    }
-}
-
 /// A view's counts.
 pub fn tally(store: &Store, compilation: &str) -> anyhow::Result<Option<Tally>> {
     store.get_meta(&format!("{VIEW_TALLY_PREFIX}{compilation}"))

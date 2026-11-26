@@ -8,7 +8,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::outgoing::Heard;
 use super::tree::{self, Place, Refused, Verdict};
 use crate::scrub::Scrubber;
 
@@ -291,7 +290,7 @@ fn a_push_goes_to_self_only_and_main_is_refused() {
     ] {
         assert!(
             matches!(
-                tree::push(&f.place, &t, "origin", bad, &scrub, Ok(&Heard::default())),
+                tree::push(&f.place, &t, "origin", bad, &scrub),
                 Err(Refused::NotSelf(_))
             ),
             "{bad}"
@@ -301,15 +300,7 @@ fn a_push_goes_to_self_only_and_main_is_refused() {
         git(&f.upstream, &["rev-parse", "refs/heads/main"]),
         main_before
     );
-    let spec = tree::push(
-        &f.place,
-        &t,
-        "origin",
-        &t.branch,
-        &scrub,
-        Ok(&Heard::default()),
-    )
-    .unwrap();
+    let spec = tree::push(&f.place, &t, "origin", &t.branch, &scrub).unwrap();
     assert_eq!(spec, format!("refs/heads/{0}:refs/heads/{0}", t.branch));
     assert_eq!(
         git(
@@ -365,14 +356,7 @@ fn a_vault_value_in_the_tree_stops_the_push() {
         let t = tree::open(&f.place, slug, NOW).unwrap();
         std::fs::write(t.dir.join("cfg.txt"), file).unwrap();
         tree::commit(&f.place, &t, &msg, "body").unwrap().unwrap();
-        let r = tree::push(
-            &f.place,
-            &t,
-            "origin",
-            &t.branch,
-            &scrub,
-            Ok(&Heard::default()),
-        );
+        let r = tree::push(&f.place, &t, "origin", &t.branch, &scrub);
         assert!(matches!(r, Err(Refused::Scrub { .. })), "{slug}: {r:?}");
         let up = git(&f.upstream, &["for-each-ref", "--format=%(refname)"]);
         assert_eq!(up, "refs/heads/main", "{slug}");
@@ -392,15 +376,7 @@ fn a_token_the_scrubber_was_never_given_is_not_guessed() {
     tree::commit(&f.place, &t, "self: add (x)", "body")
         .unwrap()
         .unwrap();
-    assert!(tree::push(
-        &f.place,
-        &t,
-        "origin",
-        &t.branch,
-        &scrub,
-        Ok(&Heard::default())
-    )
-    .is_ok());
+    assert!(tree::push(&f.place, &t, "origin", &t.branch, &scrub).is_ok());
 }
 
 /// Main's own scrub check, when main has one, stops a push too.
@@ -421,14 +397,7 @@ fn mains_scrub_script_stops_the_push() {
     std::fs::write(t.dir.join("crew.txt"), "Captain Invented\n").unwrap();
     tree::commit(&f.place, &t, "self: crew (a-name)", "body").unwrap();
     let none = |_: &str| 0;
-    let r = tree::push(
-        &f.place,
-        &t,
-        "origin",
-        &t.branch,
-        &none,
-        Ok(&Heard::default()),
-    );
+    let r = tree::push(&f.place, &t, "origin", &t.branch, &none);
     assert!(
         matches!(&r, Err(Refused::Scrub { by, .. }) if by.contains("scrub.sh")),
         "{r:?}"
@@ -472,14 +441,7 @@ fn a_push_that_touches_the_exams_is_refused() {
     tree::commit(&f.place, &t, "self: loosen (x)", "body")
         .unwrap()
         .unwrap();
-    let r = tree::push(
-        &f.place,
-        &t,
-        "origin",
-        &t.branch,
-        &scrub,
-        Ok(&Heard::default()),
-    );
+    let r = tree::push(&f.place, &t, "origin", &t.branch, &scrub);
     assert!(matches!(r, Err(Refused::Exams(_))), "{r:?}");
     let up = git(&f.upstream, &["for-each-ref", "--format=%(refname)"]);
     assert_eq!(up, "refs/heads/main");
@@ -981,32 +943,4 @@ async fn the_frozen_script_mode_is_repaired_on_a_copy_frozen_before_the_fix() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-}
-
-/// What a push would send that cannot be read (here, a branch with no commit) is refused as unresolved, which
-/// holds for the owner: never the old git refusal that is passed over (round 4 of issue 53).
-#[test]
-fn a_graph_that_cannot_be_read_is_unresolved_and_holds() {
-    let f = fixture();
-    let t = tree::open(&f.place, "trim the sails", NOW).unwrap();
-    let clean = Scrubber::default();
-    let scrub = |s: &str| clean.scrub(s).1;
-    let r = tree::push(
-        &f.place,
-        &t,
-        "origin",
-        "self/never-made",
-        &scrub,
-        Ok(&Heard::default()),
-    );
-    let Err(e) = r else {
-        panic!("pushed: {r:?}");
-    };
-    assert_eq!(
-        e,
-        Refused::Outgoing(super::outgoing::Refusal::Unresolved(
-            super::outgoing::Why::Commits
-        ))
-    );
-    assert!(e.holds(), "{e}");
 }

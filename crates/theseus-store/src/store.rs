@@ -1309,25 +1309,6 @@ impl WalStore {
         self.inner.read_many_strict(&positions)
     }
 
-    /// [`Store::first_with_prefix_from`], strictly: a page of a long run of keys, each record read or the
-    /// whole page refused, as [`WalStore::first_with_prefix_strict`].
-    pub fn first_with_prefix_from_strict(
-        &self,
-        kind: RecordKind,
-        prefix: &str,
-        from: &str,
-        limit: usize,
-    ) -> Result<Vec<Record>> {
-        let positions: Vec<u64> = self
-            .inner
-            .index
-            .first_keys_with_prefix(kind, prefix, from, limit)?
-            .into_iter()
-            .map(|(_, p)| p)
-            .collect();
-        self.inner.read_many_strict(&positions)
-    }
-
     /// The full check the open leaves out (theseus-8ni): every frame before
     /// where open began checking, read-only. `pace` is called after each
     /// stretch with the time it took, for a tender that keeps to its share

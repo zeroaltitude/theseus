@@ -290,17 +290,6 @@ impl Rig {
         files: &[(&str, &str)],
         builder: &str,
     ) -> (String, String) {
-        self.seed_why(name, files, builder, "Trim the sails before the wind.")
-    }
-
-    /// [`Self::seed`], its built row's why `why`.
-    pub(crate) fn seed_why(
-        &self,
-        name: &str,
-        files: &[(&str, &str)],
-        builder: &str,
-        why: &str,
-    ) -> (String, String) {
         let branch = format!("self/20261014-{name}");
         let wt = self
             .f
@@ -365,7 +354,7 @@ impl Rig {
             report: Some(&report.to_string_lossy()),
             cost_usd: 1.5,
             stopped_at: None,
-            why,
+            why: "Trim the sails before the wind.",
             numbers: Value::Null,
         });
         (branch, head)

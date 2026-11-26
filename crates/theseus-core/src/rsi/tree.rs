@@ -23,16 +23,11 @@
 //!   build tree, reaches no network, and sees nothing of Theseus's floor or
 //!   the sealed sets. A place with no jail (a test's stand-in gate) runs at L0.
 //! - [`push`] pushes only to `refs/heads/self/*` on the named remote, never
-//!   main and never forced, the exact commit it read, after two checks of
-//!   every commit it sends (each commit's message, names, paths and the whole
-//!   new text of each file it changes, and the branch's name;
-//!   `super::outgoing::leave`): the scrub (the daemon's scrubber, each secret
-//!   it holds and the shapes of secrets, and main's `scripts/scrub.sh` when
-//!   main has one) and the outgoing check (`super::outgoing`: no run of words a
-//!   session working on the item read from another conversation). A hit, a
-//!   file that cannot be inspected and a graph or a read that cannot be read
-//!   stop the push. It uses the credential git already has for that remote;
-//!   this code reads none.
+//!   main and never forced, after the scrub: every line the branch adds and
+//!   every commit message is read by the daemon's scrubber (each secret it
+//!   holds, and the shapes of secrets), and by main's `scripts/scrub.sh`
+//!   when main has one; a hit stops the push. It uses the credential git
+//!   already has for that remote; this code reads none.
 //! - [`close`] removes the worktree and its build tree (build caches are
 //!   regenerable), and the builder's own build folder
 //!   ([`super::builder_dir`]); the branch stays in the repo.
@@ -1308,19 +1303,6 @@ pub enum Refused {
     /// The branch changes an exam item or the exam crate's data
     /// (`rsi::exams::PROTECTED`, the proposer rule of theseus-pw1q.11).
     Exams(String),
-    /// The outgoing check refused it (`super::outgoing`), or what it would send or what was read cannot be read;
-    /// its words name no word of what matched.
-    Outgoing(super::outgoing::Refusal),
-    /// The outgoing check is put off to a later pass (`super::outgoing::Deferral`): no hold.
-    Deferred(super::outgoing::Deferral),
-}
-
-impl Refused {
-    /// Whether what it refused must wait for the owner: words or a secret that must not leave, or a read that
-    /// could not be cleared. A git failure or a name is not one.
-    pub fn holds(&self) -> bool {
-        matches!(self, Refused::Scrub { .. } | Refused::Outgoing(_))
-    }
 }
 
 impl std::fmt::Display for Refused {
@@ -1341,8 +1323,6 @@ impl std::fmt::Display for Refused {
                 f,
                 "{p} is an exam's: a self branch never changes the exams that judge it"
             ),
-            Refused::Outgoing(r) => write!(f, "{r}"),
-            Refused::Deferred(d) => write!(f, "the outgoing check is put off: {}", d.words()),
         }
     }
 }
@@ -1359,24 +1339,16 @@ pub fn is_self_branch(branch: &str) -> bool {
         && !branch.ends_with(".lock")
 }
 
-/// Push the tree's `branch` to `remote`, at `refs/heads/<branch>` only, the
-/// commit it names now, after the scrub (`scrub` counts what must not leave
-/// in a text) and the outgoing check against what `heard` holds, each over
-/// every commit it sends and the branch's name (`super::outgoing::leave`).
-/// What was read that cannot be gathered, and what would leave that cannot be
-/// read, refuse it as unresolved; a check put off is [`Refused::Deferred`].
-/// Only the push itself failing is [`Refused::Git`].
+/// Push the tree's `branch` to `remote`, at `refs/heads/<branch>` only,
+/// after the scrub; `scrub` counts what must not leave in a text.
 pub fn push(
     p: &Place,
     tree: &Tree,
     remote: &str,
     branch: &str,
     scrub: &dyn Fn(&str) -> u32,
-    heard: Result<&super::outgoing::Heard, super::outgoing::Unread>,
 ) -> Result<String, Refused> {
-    use super::outgoing::{leave, Refusal, Unread, Why};
     let git = |e: anyhow::Error| Refused::Git(format!("{e:#}"));
-    let unread = |why: Why| move |_: anyhow::Error| Refused::Outgoing(Refusal::Unresolved(why));
     if !is_self_branch(branch) {
         return Err(Refused::NotSelf(branch.into()));
     }
@@ -1389,27 +1361,19 @@ pub fn push(
     {
         return Err(Refused::NotSelf(branch.into()));
     }
-    // The one commit this push sends, read once: every check below is of its graph.
-    let sha = p
-        .git_ok(&tree.dir, &["rev-parse", &r])
-        .map_err(unread(Why::Commits))?;
     let changed = p
         .git_ok(
             &tree.dir,
-            &["diff", "--name-only", &format!("origin/main...{sha}")],
+            &["diff", "--name-only", &format!("origin/main...{r}")],
         )
-        .map_err(unread(Why::Commits))?;
+        .map_err(git)?;
     if let Some(f) = changed
         .lines()
         .find(|f| crate::rsi::exams::touches_exams(f))
     {
         return Err(Refused::Exams(f.into()));
     }
-    let base = p
-        .git_ok(&tree.dir, &["merge-base", "origin/main", &sha])
-        .map_err(unread(Why::Base))?;
-    let out = leave::leaving(p, &tree.dir, &base, &sha, branch).map_err(Refused::Outgoing)?;
-    let hits = scrub(&out.scrub_text());
+    let hits = scrub(&outgoing(p, tree, branch).map_err(git)?);
     if hits > 0 {
         return Err(Refused::Scrub {
             hits,
@@ -1434,17 +1398,31 @@ pub fn push(
             });
         }
     }
-    let heard = heard.map_err(|u| match u {
-        Unread::Defer(d) => Refused::Deferred(d),
-        Unread::Unresolved(w) => Refused::Outgoing(Refusal::Unresolved(w)),
-    })?;
-    heard
-        .check(&out, |wanted| leave::base_runs(p, &tree.dir, &base, wanted))
-        .map_err(Refused::Outgoing)?;
-    let spec = format!("{sha}:{r}");
+    let spec = format!("{r}:{r}");
     p.git_ok(&tree.dir, &["push", "-q", "--no-verify", remote, &spec])
         .map_err(git)?;
-    Ok(format!("{r}:{r}"))
+    Ok(spec)
+}
+
+/// What a push of `branch` would send: every commit message, and every line
+/// the branch adds against main.
+fn outgoing(p: &Place, tree: &Tree, branch: &str) -> Result<String> {
+    let b = format!("refs/heads/{branch}");
+    let mut out = p.git_ok(
+        &tree.dir,
+        &["log", "--format=%B", &format!("origin/main..{b}")],
+    )?;
+    let diff = p.git_ok(
+        &tree.dir,
+        &["diff", "--no-color", "-U0", &format!("origin/main...{b}")],
+    )?;
+    for l in diff.lines() {
+        if let Some(added) = l.strip_prefix('+').filter(|_| !l.starts_with("+++")) {
+            out.push('\n');
+            out.push_str(added);
+        }
+    }
+    Ok(out)
 }
 
 /// Remove `path` and all it holds, though a build made part of it read-only.

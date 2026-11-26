@@ -28,7 +28,6 @@ use crate::store::Store;
 use crate::{Config, Core};
 
 mod fetch_retry;
-mod outgoing;
 mod unspent;
 
 const FAKE_GPG: &str = "#!/bin/bash\n\
