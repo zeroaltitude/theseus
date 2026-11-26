@@ -1,11 +1,11 @@
-//! Where a sign-in's values enter (issue 55, round 5), and the one check at
-//! each: a value that equals anything Theseus already shows of its servers
-//! is not kept. The doors: a sign-in's redemption (`sign_in.rs`), every
-//! renewal and the kept file read at start (`oauth.rs`), and a
-//! registration's client secret (`sign_in.rs`). What is shown: every
-//! configured server's name, URL and host; every tool of every list the
-//! board holds or the store keeps, read as `offered.rs` reads one; and the
-//! sign-in's own issuer, endpoints and client id. The daemon's scrubber
+//! Where a sign-in's values enter (issue 55, rounds 5 and 6), and the one
+//! check at each: a value that equals anything Theseus already shows of its
+//! servers is not kept. The doors: a registration's client secret, the
+//! authorization code (from the listener or a paste) and a sign-in's
+//! redemption (`sign_in.rs`); every renewal and the kept file read at start
+//! (`oauth.rs`); and the verifier the daemon makes, made again on a match.
+//! What is shown is read from the board's own producers (`McpBoard::shown`),
+//! with the sign-in's own issuer, endpoints and client id. The daemon's scrubber
 //! reads them with the new values alone as its values, so its encodings
 //! count. A list accepted is filtered against the values known when it came
 //! (`offered.rs`); a value that would make an accepted string a secret is
@@ -13,7 +13,8 @@
 
 use std::sync::Arc;
 
-use super::{offered, McpBoard};
+use super::offered::{self, tool_texts};
+use super::McpBoard;
 use crate::scrub::Scrubber;
 
 /// What a sign-in, or a registration, says when it returned a value
@@ -59,27 +60,75 @@ pub fn address(url: &str) -> Vec<String> {
 }
 
 impl McpBoard {
-    /// Everything the board shows of its servers: each one's name, URL and
-    /// host, and every tool of its live list, of the store's list, and of a
-    /// list asked for, as `offered.rs` reads a tool.
+    /// Everything the board shows of its servers, read from the producers
+    /// that make it (issue 55, round 6), so a field added later is read with
+    /// them: `mcp.list` as the RPC returns it now (every server's status with
+    /// all its fields, every tool as the catalog renders it, every prompt
+    /// listed), `mcp.prompt.list`'s; each server's stored tool, prompt and
+    /// used-prompt records; every list an attach asked for; every pending
+    /// attach card's proposal; and each server's name and address. Each is
+    /// read whole, serialized, and as its every key and scalar.
     pub(super) fn shown(&self) -> Vec<String> {
-        let store = self.core.get().and_then(std::sync::Weak::upgrade);
+        let core = self.core.get().and_then(std::sync::Weak::upgrade);
         let mut out = Vec::new();
-        for s in self.servers.values().cloned().chain(self.loaded_servers()) {
-            out.push(s.name.clone());
+        let mut add = |v: serde_json::Value| {
+            out.push(v.to_string());
+            offered::strings_of(&v, &mut out);
+        };
+        match &core {
+            Some(c) => add(json(&self.list(&c.tools))),
+            // A board outside a daemon (unit tests): its parts, as `list` reads them.
+            None => {
+                add(json(&self.status()));
+                add(json(&self.prompt_infos(None)));
+                for t in self.catalog.all().iter() {
+                    add(serde_json::json!([
+                        t.canonical,
+                        t.wire,
+                        t.description,
+                        t.listed
+                    ]));
+                }
+            }
+        }
+        add(json(&theseus_protocol::mcp::McpPromptListResult {
+            prompts: self.prompt_infos(None),
+        }));
+        let trials: Vec<Arc<super::Server>> = self
+            .trials
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect();
+        for s in self
+            .servers
+            .values()
+            .cloned()
+            .chain(self.loaded_servers())
+            .chain(trials)
+        {
+            add(serde_json::json!(s.name));
             if let Some(u) = &s.cfg.url {
-                out.extend(address(u));
+                address(u)
+                    .into_iter()
+                    .for_each(|a| add(serde_json::json!(a)));
             }
             for t in &s.live().tools {
-                out.extend(offered::tool_texts(&s.name, t));
+                tool_texts(&s.name, t)
+                    .into_iter()
+                    .for_each(|x| add(serde_json::json!(x)));
             }
-            if let Some(stored) = store
-                .as_ref()
-                .and_then(|c| super::read_stored(&c.store, &s.name))
-            {
-                for t in &stored.tools {
-                    out.extend(offered::tool_texts(&s.name, t));
+            if let Some(c) = &core {
+                if let Some(stored) = super::read_stored(&c.store, &s.name) {
+                    for t in &stored.tools {
+                        tool_texts(&s.name, t)
+                            .into_iter()
+                            .for_each(|x| add(serde_json::json!(x)));
+                    }
                 }
+                add(json(&super::prompts::read_stored(&c.store, &s.name)));
+                add(json(&super::prompts::read_used(&c.store, &s.name)));
             }
         }
         let listed = self
@@ -87,14 +136,20 @@ impl McpBoard {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for (name, list) in listed.iter() {
-            out.push(name.clone());
+            add(serde_json::json!(name));
             for t in &list.tools {
-                out.extend(offered::tool_texts(name, t));
+                tool_texts(name, t)
+                    .into_iter()
+                    .for_each(|x| add(serde_json::json!(x)));
             }
         }
-        for t in self.catalog.all().iter() {
-            out.push(t.canonical.clone());
-            out.push(t.wire.clone());
+        drop(listed);
+        if let Some(c) = &core {
+            for a in c.kernel.pending_confirms().unwrap_or_default() {
+                if crate::config_change::mcp_attach::is_card(&a) {
+                    add(json(&a.proposal));
+                }
+            }
         }
         out
     }
@@ -104,4 +159,9 @@ impl McpBoard {
         let me = self.me.clone();
         Arc::new(move || me.upgrade().map(|b| b.shown()).unwrap_or_default())
     }
+}
+
+/// A producer's answer, as JSON.
+fn json<T: serde::Serialize>(t: &T) -> serde_json::Value {
+    serde_json::to_value(t).unwrap_or(serde_json::Value::Null)
 }

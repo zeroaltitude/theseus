@@ -97,6 +97,10 @@ fn consent_places(server: &discover::AuthServer) -> Vec<String> {
 
 /// Where an address is, for the owner to read: its host, and its port when
 /// it is not the scheme's own.
+/// How many times a verifier Theseus already shows is made again before the
+/// begin gives up (a match is one in 2^256: this never loops in practice).
+const VERIFIER_TRIES: usize = 8;
+
 /// What a finish or a logout says in place of a label that would show a
 /// value Theseus keeps.
 pub const HIDDEN: &str = "(not shown)";
@@ -212,16 +216,7 @@ impl McpBoard {
             )
         })??;
         let (found, client) = found;
-        // A door (`doors.rs`): a client secret the registration gave that
-        // Theseus already shows is not kept, and the sign-in does not begin.
-        if let Some(secret) = client.secret.as_deref() {
-            let mut texts = self.shown();
-            texts.extend(found_public(&url, &found.server, &client.id));
-            if super::doors::already_shown(&[secret], &texts) {
-                return Err(super::doors::SHOWN_WORDS.into());
-            }
-        }
-        let pkce = Pkce::new();
+        let pkce = self.begin_doors(&url, &found.server, &client)?;
         signed.hold_value("verifier", pkce.verifier());
         let scope = match settings.scopes.is_empty() {
             true => found.scope.clone(),
@@ -286,6 +281,32 @@ impl McpBoard {
         });
         tracing::info!(server = name, "an MCP sign-in began");
         Ok(result)
+    }
+
+    /// The doors at a begin (`doors.rs`): a client secret the registration
+    /// gave that Theseus already shows is not kept, and the sign-in does not
+    /// begin; the verifier the daemon makes is a value it keeps too, made
+    /// again while it is one Theseus already shows. The verifier, checked.
+    fn begin_doors(
+        &self,
+        url: &reqwest::Url,
+        server: &discover::AuthServer,
+        client: &ClientId,
+    ) -> Result<Pkce, String> {
+        let mut texts = self.shown();
+        texts.extend(found_public(url, server, &client.id));
+        if let Some(secret) = client.secret.as_deref() {
+            if super::doors::already_shown(&[secret], &texts) {
+                return Err(super::doors::SHOWN_WORDS.into());
+            }
+        }
+        for _ in 0..VERIFIER_TRIES {
+            let pkce = Pkce::new();
+            if !super::doors::already_shown(&[pkce.verifier()], &texts) {
+                return Ok(pkce);
+            }
+        }
+        Err(super::doors::SHOWN_WORDS.into())
     }
 
     /// Nothing a begin shows holds a value the daemon keeps (a client id that
@@ -429,7 +450,7 @@ impl McpBoard {
                     .into(),
             );
         }
-        let (_, _, signed) = self.signing(&pending.server)?;
+        let (_, url, signed) = self.signing(&pending.server)?;
         let code = match p.pasted.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             Some(pasted) => {
                 let hold: theseus_mcp::oauth::Holder =
@@ -467,6 +488,18 @@ impl McpBoard {
         let pending = slot.take().expect("a pending sign-in");
         // The code is taken: its listener closes now, not when the finish ends.
         pending.listener.abort();
+        // A door (`doors.rs`): a code that Theseus already shows is not
+        // redeemed. The listener and the paste held it on the board, and this
+        // sign-in is over.
+        let mut texts = self.shown();
+        texts.extend(found_public(
+            &url,
+            &pending.found.server,
+            &pending.client.id,
+        ));
+        if super::doors::already_shown(&[code.expose()], &texts) {
+            return Err(super::doors::SHOWN_WORDS.into());
+        }
         Ok(Got::Code(code, Box::new(pending)))
     }
 

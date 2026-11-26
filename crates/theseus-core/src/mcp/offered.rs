@@ -72,7 +72,7 @@ fn identity(names: &BTreeSet<String>) -> String {
 
 /// Every key and every scalar of `v`, as text: a value is found whether
 /// the server put it in a key, a string, or a number.
-fn strings_of(v: &Value, out: &mut Vec<String>) {
+pub(super) fn strings_of(v: &Value, out: &mut Vec<String>) {
     match v {
         Value::String(s) => out.push(s.clone()),
         Value::Number(n) => out.push(n.to_string()),

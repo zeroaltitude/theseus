@@ -1194,6 +1194,7 @@ mod oauth;
 mod oauth_doors;
 mod oauth_exits;
 mod oauth_hostile;
+mod oauth_inventory;
 mod oauth_offered;
 
 #[tokio::test]

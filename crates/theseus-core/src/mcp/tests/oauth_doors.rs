@@ -20,7 +20,7 @@ use crate::mcp::doors::{RENEWAL_SHOWN, SHOWN_WORDS};
 use crate::mcp::State;
 
 /// A configured name long enough to be a value the scrubber keeps.
-const NAME: &str = "oauth_notes_1";
+pub(super) const NAME: &str = "oauth_notes_1";
 
 /// A server with no sign-in at `url`.
 fn plain_at(url: String) -> McpServerConfig {
@@ -43,7 +43,15 @@ fn plain_at(url: String) -> McpServerConfig {
 
 /// `docs` under `NAME`, which signs in at a fake issuer configured by
 /// `auth`, and `plain`, a server with no sign-in served by its own fake.
-async fn rig_doors(auth: AuthConfig) -> (Rig, std::sync::Arc<theseus_mcp::fake::Fake>) {
+pub(super) async fn rig_doors(auth: AuthConfig) -> (Rig, std::sync::Arc<theseus_mcp::fake::Fake>) {
+    rig_doors_with(auth, |_| {}).await
+}
+
+/// `rig_doors`, `edit` on `plain`'s settings first.
+pub(super) async fn rig_doors_with(
+    auth: AuthConfig,
+    edit: impl FnOnce(&mut McpServerConfig),
+) -> (Rig, std::sync::Arc<theseus_mcp::fake::Fake>) {
     let plain = theseus_mcp::fake::Fake::new(theseus_mcp::fake::Config {
         name: "plain".into(),
         ..Default::default()
@@ -56,16 +64,16 @@ async fn rig_doors(auth: AuthConfig) -> (Rig, std::sync::Arc<theseus_mcp::fake::
         |cfg| {
             let docs = cfg.mcp.servers.remove("docs").unwrap();
             cfg.mcp.servers.insert(NAME.into(), docs);
-            cfg.mcp
-                .servers
-                .insert("plain".into(), plain_at(format!("http://{addr}/mcp")));
+            let mut p = plain_at(format!("http://{addr}/mcp"));
+            edit(&mut p);
+            cfg.mcp.servers.insert("plain".into(), p);
         },
     )
     .await;
     (r, plain)
 }
 
-fn state(r: &Rig, name: &str) -> String {
+pub(super) fn state(r: &Rig, name: &str) -> String {
     r.core
         .mcp
         .status()
@@ -76,7 +84,7 @@ fn state(r: &Rig, name: &str) -> String {
 }
 
 /// The sign-in of `NAME`, as the CLI makes it: begin, the browser, finish.
-async fn sign_in(r: &Rig) -> Value {
+pub(super) async fn sign_in(r: &Rig) -> Value {
     let begun = call(
         &r.core,
         Surface::Cli,
@@ -96,7 +104,7 @@ async fn sign_in(r: &Rig) -> Value {
 }
 
 /// Until `plain`'s list holds `tool`.
-async fn plain_lists(r: &Rig, tool: &str) {
+pub(super) async fn plain_lists(r: &Rig, tool: &str) {
     until("plain's list", || {
         r.core
             .mcp
@@ -247,9 +255,10 @@ async fn a_renewal_that_returns_a_shown_value_is_refused() {
     ))
     .unwrap_or_default();
     assert!(!kept.contains(&candidate), "the candidate is not written");
+    turn(&r.core, &sid, "use the docs").await;
+    // The log of the whole test, read at its end (round 6).
     let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
     assert!(log.contains(RENEWAL_SHOWN), "the loss says why");
-    turn(&r.core, &sid, "use the docs").await;
     let exits = all_exits(&r, &sid, &log).await;
     let found = issued_in(&r, &exits, &[&candidate]);
     assert!(found.is_empty(), "{} values in the exits", found.len());
@@ -260,6 +269,7 @@ async fn a_renewal_that_returns_a_shown_value_is_refused() {
 /// definitions; a server with no sign-in seeds its stored list as on main.
 #[tokio::test]
 async fn a_signed_in_servers_stored_list_is_not_seeded() {
+    let (buf, _guard) = capture();
     let list = |name: &str| crate::mcp::StoredList {
         digest: "seeded".into(),
         tools: vec![
@@ -315,15 +325,47 @@ async fn a_signed_in_servers_stored_list_is_not_seeded() {
         assert!(!tools.contains("signed_seeded"), "{tools}");
         assert!(tools.contains("plain_seeded"), "{tools}");
     }
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
 }
 
 /// The count is said once per change of the dropped set's names: a list
 /// with the same dropped tools in another order says nothing more; a list
-/// with none dropped says nothing; a tool dropped only at the last
-/// wire-name check is counted with the rest.
+/// with none dropped says nothing; and a tool dropped only at the last
+/// wire-name check of `rebuild`, through a real collision, is counted with
+/// the rest. `docs`'s tool `_x` and `docs_`'s tool `x` both make
+/// `mcp__docs___x`, so `rebuild` gives each its own digest; the board holds
+/// `docs`'s, so that wire name says a kept value while nothing `offered`
+/// reads does. The whole-exit scan ends the test.
 #[tokio::test]
 async fn the_count_is_said_once_per_change_of_the_dropped_names() {
-    let r = super::oauth::rig().await;
+    let (buf, _guard) = capture();
+    let x: crate::mcp::Listed = serde_json::from_value(
+        json!({"name": "x", "description": "a tool", "inputSchema": {"type": "object"}}),
+    )
+    .unwrap();
+    let r = rig_edit(
+        FakeAuth::start(AuthConfig::default()).await,
+        McpOauth::default(),
+        |store_dir| {
+            let store = crate::store::Store::open(store_dir).unwrap();
+            let list = crate::mcp::StoredList {
+                digest: "seeded".into(),
+                tools: vec![x.clone()],
+            };
+            store
+                .put_meta(&format!("{}docs_", crate::mcp::STORED_PREFIX), &list)
+                .unwrap();
+        },
+        |cfg| {
+            cfg.mcp
+                .servers
+                .insert("docs_".into(), plain_at("http://127.0.0.1:9/mcp".into()));
+        },
+    )
+    .await;
+    let sid = session(&r.core, None);
     r.core.mcp.start();
     let (done, _) = login(&r).await;
     assert_eq!(done["connected"], true, "{done}");
@@ -356,23 +398,30 @@ async fn the_count_is_said_once_per_change_of_the_dropped_names() {
     settled(before + 1).await;
     r.core.mcp.apply(&s, vec![ok.clone()]);
     settled(before + 1).await;
-    r.core.mcp.apply(&s, vec![a, ok]);
+    r.core.mcp.apply(&s, vec![a.clone(), ok.clone()]);
     settled(before + 2).await;
     assert_eq!(rows().last().unwrap()["count"], 1);
-    let at_wire: std::collections::BTreeSet<String> = ["wire_only".to_string()].into();
-    r.core.mcp.tell_withheld(&s, &at_wire);
+    // The real collision: `docs`'s `_x` against `docs_`'s seeded `x`.
+    let wires = theseus_mcp::names::wire_names(&[("docs", "_x"), ("docs_", "x")]);
+    assert_eq!(theseus_mcp::names::wire_name("docs", "_x"), "mcp__docs___x");
+    assert_ne!(wires[0], wires[1]);
+    assert!(wires[0].starts_with("mcp__docs___x_"), "{wires:?}");
+    crate::mcp::oauth::Held::new("test", r.core.secrets.clone()).hold("wire", &wires[0]);
+    r.core.mcp.apply(&s, vec![a, ok, tool("_x", "collides")]);
     settled(before + 3).await;
     assert_eq!(
         rows().last().unwrap()["count"],
         2,
         "the wire's drop counted with the rest"
     );
-    let notices: Vec<String> = r
-        .core
-        .outbox
-        .open_for(crate::outbox::OPERATOR_TARGET)
+    let catalog = r.core.mcp.catalog.all();
+    assert!(!catalog
         .iter()
-        .map(|a| format!("{a:?}"))
-        .collect();
-    assert!(notices.iter().all(|n| !n.contains(&token)));
+        .any(|t| t.server.name == "docs" && t.listed.name == "_x"));
+    assert!(catalog
+        .iter()
+        .any(|t| t.server.name == "docs_" && t.wire == wires[1]));
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
 }

@@ -227,7 +227,43 @@ impl McpBoard {
     /// as a keep card's end is told (`vault_keep::told`), written off the
     /// runtime's workers. A server no conversation attached tells none.
     pub(super) fn tell_failed(&self, server: &str, why: &str) {
-        self.tell(server, failed_note(server, why));
+        if self.signs_in(server) {
+            return self.tell(server, failed_note(server, why));
+        }
+        // A server with no sign-in: stored and delivered exactly as on main.
+        let session = {
+            let set = self.attached.lock().unwrap_or_else(PoisonError::into_inner);
+            set.get(server).map(|a| a.session_id.clone())
+        };
+        let Some(session) = session.filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let Some(core) = self.core.get().and_then(Weak::upgrade) else {
+            return;
+        };
+        let text = failed_note(server, why);
+        let node = Node::relayed(&session, None, Origin::Harness, NOTE_AUTHOR, &text);
+        let write = move || {
+            if let Err(e) = node.record().and_then(|r| core.store.append(&[r])) {
+                tracing::warn!(error = %format!("{e:#}"), "the note of a failed MCP server was not written");
+            }
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn_blocking(write);
+            }
+            Err(_) => write(),
+        }
+    }
+
+    /// Whether the configured or loaded server `server` signs in (`oauth`):
+    /// its notes wait for a running turn of their conversation (`tell`).
+    fn signs_in(&self, server: &str) -> bool {
+        self.servers
+            .get(server)
+            .cloned()
+            .or_else(|| self.loaded_server(server))
+            .is_some_and(|s| s.cfg.oauth.is_some())
     }
 
     /// Tell the conversation that attached `server` that its sign-in is lost

@@ -102,6 +102,8 @@ pub struct AuthConfig {
     /// A renewal (the refresh grant) issues this as the access token: a
     /// value acquired after a list was accepted (round 5).
     pub renewed_access_is: Option<String>,
+    /// The authorization gives this as its code (an alias of a label, round 6).
+    pub code_is: Option<String>,
     /// Registration gives its client secret as the client id too.
     pub client_id_is_secret: bool,
     /// Registration gives this as the client id (an old value, aliased).
@@ -140,6 +142,7 @@ impl Default for AuthConfig {
             client_secret_is: None,
             access_token_is: None,
             renewed_access_is: None,
+            code_is: None,
             client_id_is_secret: false,
             client_id_alias: None,
             endpoints_at: None,
@@ -152,6 +155,8 @@ impl Default for AuthConfig {
 pub struct AuthSeen {
     pub registrations: u32,
     pub redeemed: u32,
+    /// Every code a token request carried, redeemed or not (round 6).
+    pub codes_sent: Vec<String>,
     pub refreshes: u32,
     pub refused_refreshes: u32,
     /// Code exchanges refused for a verifier that is not the challenge's.
@@ -532,7 +537,10 @@ impl FakeAuth {
             return (400, vec![], Some(json!({"error": "invalid_request"})));
         }
         lock(&self.seen).resources.push(get("resource"));
-        let code = self.mint("code");
+        let code = match self.config().code_is {
+            Some(v) => self.seen_value(&v),
+            None => self.mint("code"),
+        };
         lock(&self.tokens).codes.insert(
             code.clone(),
             Grant {
@@ -569,6 +577,7 @@ impl FakeAuth {
         lock(&self.seen).resources.push(get("resource"));
         match get("grant_type").as_str() {
             "authorization_code" => {
+                lock(&self.seen).codes_sent.push(get("code"));
                 let verifier = get("code_verifier");
                 lock(&self.seen).secrets.push(verifier.clone());
                 let Some(g) = lock(&self.tokens).codes.remove(&get("code")) else {

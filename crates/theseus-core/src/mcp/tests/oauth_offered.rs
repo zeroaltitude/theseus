@@ -176,6 +176,12 @@ async fn a_tool_that_says_a_kept_value_is_not_offered() {
     let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[]);
     assert!(found.is_empty(), "{} values in the exits", found.len());
     keyless_says_as_main(&r, &plain, &buf, &token).await;
+    // The whole test's exits, the log read at its end (round 6): the
+    // control gave `plain` the token on purpose, to show main's own words,
+    // so it alone is excepted.
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[&token]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
 }
 
 /// The control of `a_tool_that_says_a_kept_value_is_not_offered`: a server
@@ -354,6 +360,11 @@ async fn prompts_of_a_server_that_signs_in_are_cut() {
         })
         .await;
     assert!(got.is_ok(), "a plain server's prompt that says it resolves");
+    // The whole test's exits, the log read at its end (round 6): the
+    // control gave `plain` the token on purpose, so it alone is excepted.
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[&token]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
 }
 
 /// A server whose configured name is protectable, so a value can equal it.
@@ -405,12 +416,9 @@ async fn a_begin_whose_name_is_a_kept_value_is_refused() {
         crate::mcp::doors::SHOWN_WORDS,
         "{begun}"
     );
-    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
-    assert!(!log.contains("an MCP sign-in began"), "{log}");
-    let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[NAME]);
-    assert!(found.is_empty(), "{} values in the exits", found.len());
     // With a secret that is not the name, the same begin is shown, and the
     // CLI prints the name: the refusal above is the name's alone.
+    let refused = r;
     let r = rig_named(AuthConfig {
         client_secret: true,
         ..AuthConfig::default()
@@ -422,6 +430,15 @@ async fn a_begin_whose_name_is_a_kept_value_is_refused() {
         serde_json::from_value(begun.clone()).unwrap_or_else(|e| panic!("{e}: {begun}"));
     let lines = [host_lines(&b), address_lines(&b)].concat().join("\n");
     assert!(lines.contains(NAME), "{lines}");
+    // The refused begin's exits, the log read at the test's end (round 6).
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    assert_eq!(
+        log.matches("an MCP sign-in began").count(),
+        1,
+        "only the control began: the refused begin logged none"
+    );
+    let found = issued_in(&refused, &all_exits(&refused, &sid, &log).await, &[NAME]);
+    assert!(found.is_empty(), "{} values in the exits", found.len());
 }
 
 /// A token issued by the redemption that equals a label public before it

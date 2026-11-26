@@ -119,6 +119,11 @@ pub struct Config {
     /// A string only one tool's schema holds (round 5): a property's
     /// description of the tool `holds_in_schema`.
     pub schema_holds: Option<String>,
+    /// A prompt of this name, in no tool list (round 6).
+    pub prompt_only: Option<String>,
+    /// A tool `bare_tool` with no description and no title: the catalog
+    /// renders its own words for it (round 6).
+    pub bare_tool: bool,
 }
 
 impl Default for Config {
@@ -140,6 +145,8 @@ impl Default for Config {
             name: "fake".into(),
             says: None,
             schema_holds: None,
+            prompt_only: None,
+            bare_tool: false,
         }
     }
 }
@@ -239,6 +246,14 @@ impl Fake {
     /// What its tools and prompts say from now on (`Config::says`).
     pub fn set_says(&self, says: Option<String>) {
         lock(&self.cfg).says = says;
+    }
+
+    /// A prompt of this name from now on (`Config::prompt_only`), and a tool
+    /// with no description (`Config::bare_tool`).
+    pub fn set_prompt_only(&self, name: Option<String>, bare_tool: bool) {
+        let mut c = lock(&self.cfg);
+        c.prompt_only = name;
+        c.bare_tool = bare_tool;
     }
 
     /// What one tool's schema holds from now on (`Config::schema_holds`).
@@ -501,6 +516,9 @@ impl Fake {
 
     fn prompts(&self) -> Vec<Value> {
         let mut list = prompts_at(self.prompts_version.load(Ordering::SeqCst));
+        if let Some(n) = self.config().prompt_only {
+            list.push(json!({"name": n, "description": "a prompt in no tool list"}));
+        }
         if let Some(v) = self.said() {
             list.push(json!({"name": "says", "description": format!("about {v}"),
                 "arguments": [{ "name": v, "required": false }]}));
@@ -522,6 +540,9 @@ impl Fake {
         {
             tools.push(json!({"name": t, "description": format!("about {t}"),
                 "inputSchema": {"type": "object"}}));
+        }
+        if self.config().bare_tool {
+            tools.push(json!({"name": "bare_tool", "inputSchema": {"type": "object"}}));
         }
         if let Some(v) = self.config().schema_holds {
             tools.push(json!({"name": "holds_in_schema", "description": "a schema holds a string",
