@@ -165,6 +165,24 @@ pub(crate) async fn reviewer_for(
 
 impl Run<'_> {
     /// The review: the verdict written, or none when a halt stopped it.
+    /// The review's scratch, open, with the daemon's checkout of the reviewed head in it (issue 53): the reviewer's
+    /// L1 view binds it read-only, and the scratch's close removes it.
+    async fn scratch_with_checkout(&self) -> Result<scratch::Scratch> {
+        let (p, b, h) = (
+            self.place.clone(),
+            self.b.branch.clone(),
+            self.b.head.clone(),
+        );
+        blocking(move || {
+            let own = scratch::open(&p, &b);
+            if let Err(e) = scratch::checkout(&p, &own, &h) {
+                tracing::warn!(branch = %b, "self-review: its checkout was not made: {e:#}");
+            }
+            Ok(own)
+        })
+        .await
+    }
+
     pub(super) async fn review(&mut self) -> Result<Option<String>> {
         let who = self.reviewer().await;
         let said = |verdict, planted, reasons, cost_usd| {
@@ -189,13 +207,7 @@ impl Run<'_> {
         let remote = remote_of(&self.core.cfg);
         // The reviewer's own place to write, and what it leaves is removed whatever it says:
         // a tree it left under the self trees held the pipeline's slot for good (`scratch`).
-        let (p, b) = (self.place.clone(), self.b.branch.clone());
-        let own = blocking(move || Ok(scratch::open(&p, &b))).await?;
-        // The reviewed head, checked out by the daemon in the scratch, read-only to the reviewer (issue 53).
-        let (p, s, h) = (self.place.clone(), own.clone(), self.b.head.clone());
-        if let Err(e) = blocking(move || scratch::checkout(&p, &s, &h)).await {
-            tracing::warn!(branch = %self.b.branch, "self-review: its checkout was not made: {e:#}");
-        }
+        let own = self.scratch_with_checkout().await?;
         let place = self.place.clone();
         let closed = |own: scratch::Scratch| {
             let p = place.clone();
