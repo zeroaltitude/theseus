@@ -9,6 +9,17 @@ use crate::policy::Posture;
 use crate::provider::Scripted;
 use crate::test_support::turn;
 
+/// The owner's yes to the question `res` parked on, and the turn run on.
+async fn approved(
+    r: &Rig,
+    res: &theseus_protocol::TurnSubmitResult,
+) -> theseus_protocol::TurnSubmitResult {
+    let corr = res.awaiting_confirm.as_deref().expect("it asks");
+    r.core.confirm_action(corr, true, None, "test").unwrap();
+    let exec = res.execution_id.as_deref().unwrap();
+    r.core.continue_execution(exec).await.unwrap().unwrap()
+}
+
 fn open(c: &mut crate::Config) {
     c.policy.enforcement = Posture::Open;
     c.policy.tools.insert("google.call".into(), Posture::Open);
@@ -32,6 +43,8 @@ async fn a_created_drafts_result_is_not_marked_outside_text() {
     );
     let sid = session(&r.core);
     let res = turn(&r.core, &sid, "draft a note to myself").await;
+    // A draft made through `google.call` asks.
+    let res = approved(&r, &res).await;
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
     assert!(
         r.fake.log().iter().any(|l| l.path.ends_with("/drafts")),
@@ -59,7 +72,8 @@ async fn an_updates_echo_is_still_marked_outside_text() {
         json!({"id": "ev1", "description": "a stranger's agenda"}),
     );
     let sid = session(&r.core);
-    let _ = turn(&r.core, &sid, "color it").await;
+    let res = turn(&r.core, &sid, "color it").await;
+    approved(&r, &res).await;
     assert!(
         crate::external::read_any(&r.core.store, &sid),
         "an update's echo is someone's object"
