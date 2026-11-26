@@ -147,3 +147,41 @@ pub struct GoogleStatus {
     /// Where the refresh token is kept: `op`, `file`, `env`, or `memory`.
     pub store: String,
 }
+
+/// The presser's fields (issue 59) are absent when unset, so the CLI's requests are the bytes they
+/// were: `theseus google auth`, `revoke` and `aws confirm-alerts` send exactly what they sent.
+#[cfg(test)]
+mod tests_cli_bytes {
+    use super::*;
+
+    #[test]
+    fn the_clis_requests_are_the_bytes_they_were() {
+        let s = |v: serde_json::Value| v.to_string();
+        let begin = GoogleAuthBeginParams {
+            manual: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            s(serde_json::to_value(begin).unwrap()),
+            r#"{"manual":true}"#
+        );
+        let finish = GoogleAuthFinishParams {
+            auth_id: "a1".into(),
+            pasted: None,
+            wait_secs: 5,
+            ..Default::default()
+        };
+        assert_eq!(
+            s(serde_json::to_value(finish).unwrap()),
+            r#"{"auth_id":"a1","wait_secs":5}"#
+        );
+        let revoke = GoogleRevokeParams::default();
+        assert_eq!(s(serde_json::to_value(revoke).unwrap()), "{}");
+        let alerts = crate::AwsConfirmAlertsParams {
+            account: None,
+            token: "t".into(),
+            ..Default::default()
+        };
+        assert_eq!(s(serde_json::to_value(alerts).unwrap()), r#"{"token":"t"}"#);
+    }
+}
