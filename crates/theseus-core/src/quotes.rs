@@ -328,3 +328,5 @@ fn reply_text(blocks: &[serde_json::Value]) -> String {
 mod tests;
 #[cfg(test)]
 mod tests_oracle;
+#[cfg(test)]
+mod tests_writers;

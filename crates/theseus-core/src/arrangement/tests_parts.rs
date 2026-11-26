@@ -1,6 +1,7 @@
 //! A piece kept by reference (issue 49): a person's message or a reply is quoted by its record's position, cut
 //! where its text is cut, and the stored piece keeps none of its words but its first line; the child's compile
-//! reads them as first written, and an erased one shows the renderer's fixed line. All names and words invented.
+//! reads them as first written, and an erased one shows the renderer's fixed line. A piece of a look back kept by
+//! reference keeps the look back's own quotes (issue 52). All names and words invented.
 
 use serde_json::{json, Value};
 
@@ -106,9 +107,10 @@ fn node_of(pieces: &[Piece]) -> Node {
     )
 }
 
-/// The pieces of `n` as the child's compile lays them.
+/// The pieces of `n` as the child's compile lays them, nothing marked wrong.
 fn laid_pieces(s: &Store, n: &Node) -> Vec<Piece> {
-    match laid(s, n).body {
+    let none = BTreeSet::new();
+    match laid(s, n, &crate::copies::since::Since::new(s, &none)).body {
         Body::Arrangement { pieces, .. } => pieces,
         b => panic!("not an arrangement: {b:?}"),
     }
@@ -285,4 +287,118 @@ fn a_pieces_cut_never_begins_or_ends_inside_a_known_value() {
     let shown = crate::quotes::render_with(parts, read);
     assert!(shown.contains("not shown"), "cut");
     assert!(crate::quotes::no_part_of(&shown, VALUE));
+}
+
+/// What a look back's own words say before the lines it shows: the code's, never a message's.
+const LOOK_HEAD: &str = "context.history: session ses_northlight, 1 exchange\n";
+
+/// A look back kept by reference, as the runtime stores one: no words of its own, and `parts`.
+fn look_back(parts: Vec<Part>) -> Node {
+    let mut look = result("");
+    if let Body::ToolResult { tool, parts: p, .. } = &mut look.body {
+        *tool = crate::view::history::HISTORY_TOOL.into();
+        *p = parts;
+    }
+    look
+}
+
+/// A quote of the whole of `text`, `n`'s `field`, its record at `at`, shown in `form`.
+fn quote_of(n: &Node, at: u64, field: Field, text: &str, form: Form) -> Part {
+    Part::Quote(Quote {
+        node: n.id.clone(),
+        position: at,
+        field,
+        from: 0,
+        to: text.len() as u32,
+        form,
+    })
+}
+
+/// A piece of a look back kept by reference keeps the look back's quotes (issue 52): the stored arrangement holds
+/// no word of the messages it showed, only their ids, and no words of the look back's own but by reference.
+#[test]
+fn a_piece_of_a_look_back_stores_no_words_of_its_messages() {
+    let (_d, s) = store();
+    let (asked, said) = (user(ASKED), reply(&[SAID]));
+    let (a_at, s_at) = (put(&s, &asked), put(&s, &said));
+    let look = look_back(vec![
+        Part::Code(LOOK_HEAD.into()),
+        quote_of(&asked, a_at, Field::Text, ASKED, Form::Margin1),
+        Part::Code("\n".into()),
+        quote_of(&said, s_at, Field::ReplyText, SAID, Form::Margin1),
+    ]);
+    let t = transcript(&s, std::slice::from_ref(&look));
+    let a = input(json!({"pieces": [{"node": look.id, "role": "objective"}]}));
+    let pieces = resolve_shown(&s, &a, &t, None, &Cuts::none()).unwrap();
+    assert!(
+        pieces[0].text.as_deref().unwrap().contains("signal white"),
+        "{pieces:?}"
+    );
+    let n = node_of(&pieces);
+    let Body::Arrangement { pieces: kept, .. } = &n.body else {
+        unreachable!()
+    };
+    assert_eq!(kept[0].text, None, "{:?}", kept[0]);
+    assert!(!kept[0].parts.is_empty(), "{:?}", kept[0]);
+    let bytes = serde_json::to_string(&n).unwrap();
+    for words in [
+        "lamp room",
+        "signal white",
+        "marine enamel",
+        "sand the walls",
+    ] {
+        assert!(!bytes.contains(words), "{words}: {bytes}");
+    }
+    assert!(
+        bytes.contains(&asked.id) && bytes.contains(&said.id),
+        "{bytes}"
+    );
+}
+
+/// What the child's compile makes of a piece of a look back kept by reference is byte for byte what it made of
+/// the look back's rendering: a short one, one long enough to be cut at the piece's cap, and one cut through lines
+/// that each hold a known value, with the value's cuts and without; the value shown whole or not at all.
+#[test]
+fn a_piece_of_a_look_back_renders_byte_identical() {
+    let long = (0..2_000)
+        .map(|i| format!("line {i} of the keeper's log"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let valued = (0..900)
+        .map(|i| format!("coat {i} {VALUE}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let scrubber = Scrubber::with_values(vec![(VALUE.to_string(), "v0".to_string())]);
+    for cuts in [Cuts::none(), scrubber.cuts()] {
+        let (_d, s) = store();
+        let texts = [ASKED, long.as_str(), valued.as_str()];
+        let said = texts.map(user);
+        let at: Vec<u64> = said.iter().map(|n| put(&s, n)).collect();
+        let looks: Vec<Node> = (0..3)
+            .map(|i| {
+                look_back(vec![
+                    Part::Code(LOOK_HEAD.into()),
+                    quote_of(&said[i], at[i], Field::Text, texts[i], Form::Margin1),
+                    Part::Code("\n(the end of the session)".into()),
+                ])
+            })
+            .collect();
+        let t = transcript(&s, &looks);
+        let a = input(json!({"pieces": [
+            {"node": looks[0].id, "role": "objective"},
+            {"node": looks[1].id, "role": "context"},
+            {"node": looks[2].id, "role": "context"}]}));
+        let pieces = resolve_shown(&s, &a, &t, None, &cuts).unwrap();
+        assert!(pieces.iter().all(|p| !p.parts.is_empty()), "{pieces:?}");
+        for p in &pieces[1..] {
+            assert!(p.text.as_deref().unwrap().contains("not shown"), "cut");
+        }
+        let then = render(&pieces);
+        let now = render(&laid_pieces(&s, &node_of(&pieces)));
+        assert_eq!(now, then);
+        let read = |q: &Quote| crate::quotes::read(&s, q);
+        let through = crate::quotes::cut_through(&pieces[2].parts, read, &[VALUE]);
+        assert!(through.is_empty(), "{through:#?}");
+        assert!(crate::quotes::no_part_of(&now, VALUE));
+    }
 }

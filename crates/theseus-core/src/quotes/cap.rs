@@ -10,6 +10,11 @@
 //!   its rendering: every edge in a one-line form's rendering is an edge of its bytes. An open's `Margin1` quote
 //!   keeps the whole lines it keeps as `Margin1`, and of a line it cuts, the margin as code and the words as
 //!   `Line1`.
+//! - **A value written over lines** (a key file's): over the cases tried, the cap keeps it whole, not split at its
+//!   line breaks: the lines it runs over stay one `Margin1` quote, and a cut that keeps part of a line beside it
+//!   falls at the value's edge, which shows less. That is not every field: where the cap does split one (a value
+//!   that begins with a line break is such a case), the check before storing (`quotes::edges_hold`) refuses the
+//!   quote, and the words are stored instead.
 //! - **What does not read.** A quote whose record does not read as words when the cap runs is the fixed line it
 //!   shows, as code: it names nothing that could be read again.
 //! - **The runtime's words** around a result are code: the fit note before it ([`noted`]), which the cap may cut
@@ -76,9 +81,9 @@ pub(crate) fn cap_with(
     };
     let h = guarded(&laid, head_end(&text, h), cuts, Side::Head).unwrap_or(h);
     let t = guarded(&laid, t, cuts, Side::Tail).unwrap_or(t);
-    let mut out = kept(&laid, 0..head_end(&text, h));
+    let mut out = kept(&laid, 0..head_end(&text, h), cuts);
     out.push(Part::Code(toolrun::seam(&text, h, t, rest)));
-    out.extend(kept(&laid, t..text.len()));
+    out.extend(kept(&laid, t..text.len(), cuts));
     (tidy(out), true)
 }
 
@@ -119,26 +124,32 @@ fn lay(p: Part, read: &mut impl FnMut(&Quote) -> Read) -> Laid {
 }
 
 /// Where a cut at `at` in the rendering of `laid` falls when it is inside a quote and a known value in the quote's
-/// field runs across the place it cuts: at the value's edge, by `cuts`, which shows less. None when it is not moved.
+/// field runs across the place it cuts, or across the line break beside the part of a line it keeps
+/// ([`broken`]): at the value's edge, by `cuts`, which shows less. None when it is not moved.
 fn guarded(laid: &[Laid], at: usize, cuts: &Cuts, side: Side) -> Option<usize> {
     let mut s = 0;
     for l in laid {
         let e = s + l.text().len();
         if let Laid::Quote { q, field, .. } = l {
             if s < at && at < e {
-                let p = source_at(q, field, at - s, side);
+                let less = |a: usize, b: usize| match side {
+                    Side::Head => a.min(b),
+                    Side::Tail => a.max(b),
+                };
+                let mut k = at - s;
+                let p = source_at(q, field, k, side);
                 let moved = match side {
                     Side::Head => cuts.before(field, p),
                     Side::Tail => cuts.after(field, p),
                 };
-                if moved == p {
-                    return None;
+                if moved != p {
+                    k = less(rendered_at(q, field, moved, side), k);
                 }
-                let k = s + rendered_at(q, field, moved, side);
-                return Some(match side {
-                    Side::Head => k.min(at),
-                    Side::Tail => k.max(at),
-                });
+                // Each move shows strictly less, so this ends.
+                while let Some(m) = broken(q, field, k, cuts, side) {
+                    k = less(m, k);
+                }
+                return (k != at - s).then_some(s + k);
             }
         }
         s = e;
@@ -146,8 +157,41 @@ fn guarded(laid: &[Laid], at: usize, cuts: &Cuts, side: Side) -> Option<usize> {
     None
 }
 
+/// Where a cut at `k` of the rendering of `q`, a `Margin1` quote, falls instead when it keeps part of a line whose
+/// line break on the kept side (before it for a head, after it for a tail) lies inside a known value: at the value's
+/// edge, which shows less. Kept, that line's words would be a `Line1` quote and the lines past the break a quote
+/// apart from it, the value split between them. None when the cut does not fall so.
+fn broken(q: &Quote, field: &str, k: usize, cuts: &Cuts, side: Side) -> Option<usize> {
+    if q.form != Form::Margin1 {
+        return None;
+    }
+    let lines = lines(&field[q.from as usize..q.to as usize]);
+    let j = lines.iter().position(|l| l.start < k && k < l.words.end)?;
+    let (a, b) = match side {
+        Side::Head => (lines.get(j.checked_sub(1)?)?, &lines[j]),
+        Side::Tail => (&lines[j], lines.get(j + 1)?),
+    };
+    let m = across(q, field, a, b, cuts, side)?;
+    let m = rendered_at(q, field, m, side);
+    (m != k).then_some(m)
+}
+
+/// Where a known value runs across the line break between `a` and the line `b` after it in `q`'s field: its edge on
+/// `side` (where a head before it ends, or a tail after it starts), by `cuts`. None when the break lies outside
+/// every value.
+fn across(q: &Quote, field: &str, a: &Line, b: &Line, cuts: &Cuts, side: Side) -> Option<usize> {
+    [a.src.end, b.src.start].into_iter().find_map(|p| {
+        let p = q.from as usize + p;
+        let moved = match side {
+            Side::Head => cuts.before(field, p),
+            Side::Tail => cuts.after(field, p),
+        };
+        (moved != p).then_some(moved)
+    })
+}
+
 /// The parts that show `range` of the rendering of `laid`.
-fn kept(laid: &[Laid], range: Range<usize>) -> Vec<Part> {
+fn kept(laid: &[Laid], range: Range<usize>, cuts: &Cuts) -> Vec<Part> {
     let mut out = Vec::new();
     let mut s = 0;
     for l in laid {
@@ -157,7 +201,7 @@ fn kept(laid: &[Laid], range: Range<usize>) -> Vec<Part> {
             match l {
                 Laid::Code(c) => out.push(Part::Code(c[a - s..b - s].to_string())),
                 Laid::Quote { q, .. } if (a, b) == (s, e) => out.push(Part::Quote(q.clone())),
-                Laid::Quote { q, field, .. } => out.extend(within(q, field, a - s..b - s)),
+                Laid::Quote { q, field, .. } => out.extend(within(q, field, a - s..b - s, cuts)),
             }
         }
         s = e;
@@ -166,10 +210,10 @@ fn kept(laid: &[Laid], range: Range<usize>) -> Vec<Part> {
 }
 
 /// The quotes that show `k`, a range of `q`'s rendering, its field `field`.
-fn within(q: &Quote, field: &str, k: Range<usize>) -> Vec<Part> {
+fn within(q: &Quote, field: &str, k: Range<usize>, cuts: &Cuts) -> Vec<Part> {
     let bytes = &field[q.from as usize..q.to as usize];
     if q.form == Form::Margin1 {
-        return margined(q, bytes, k);
+        return margined(q, field, k, cuts);
     }
     let points = points(q.form, bytes);
     let a = source(&points, k.start, Side::Tail);
@@ -325,10 +369,11 @@ fn rendered_at(q: &Quote, field: &str, p: usize, side: Side) -> usize {
     }
 }
 
-/// The parts that show `k`, a range of the rendering of the `Margin1` quote `q` over `bytes`: each run of whole
-/// lines as one `Margin1` quote when it shows them so, and of every other line, the margin and line break it keeps
-/// as code and the words it keeps as `Line1`.
-fn margined(q: &Quote, bytes: &str, k: Range<usize>) -> Vec<Part> {
+/// The parts that show `k`, a range of the rendering of the `Margin1` quote `q` of `field`: each run of whole lines
+/// as one `Margin1` quote when it shows them so, and of every other line, the margin and line break it keeps as code
+/// and the words it keeps as `Line1`.
+fn margined(q: &Quote, field: &str, k: Range<usize>, cuts: &Cuts) -> Vec<Part> {
+    let bytes = &field[q.from as usize..q.to as usize];
     let shown = Form::Margin1.apply(bytes);
     let lines = lines(bytes);
     let whole = |j: usize| {
@@ -343,7 +388,7 @@ fn margined(q: &Quote, bytes: &str, k: Range<usize>) -> Vec<Part> {
             run.get_or_insert(j);
         } else {
             if let Some(first) = run.take() {
-                out.extend(whole_lines(q, bytes, &shown, &lines[first..j]));
+                out.extend(whole_lines(q, field, &shown, &lines[first..j], cuts));
             }
             let margin = clip(l.start..l.words.start, &k);
             if !margin.is_empty() {
@@ -368,35 +413,89 @@ fn margined(q: &Quote, bytes: &str, k: Range<usize>) -> Vec<Part> {
         // A break between two whole lines is the run's own; any other kept break is code.
         if !brk.is_empty() && !(whole(j) && whole(j + 1)) {
             if let Some(first) = run.take() {
-                out.extend(whole_lines(q, bytes, &shown, &lines[first..=j]));
+                out.extend(whole_lines(q, field, &shown, &lines[first..=j], cuts));
             }
             out.push(Part::Code("\n".into()));
         }
     }
     if let Some(first) = run.take() {
-        out.extend(whole_lines(q, bytes, &shown, &lines[first..]));
+        out.extend(whole_lines(q, field, &shown, &lines[first..], cuts));
     }
     out
 }
 
 /// `lines`, whole and in a row, as one `Margin1` quote when that shows exactly their rendering (a run that ends in an
-/// empty line does not: `str::lines` drops it), else each as its margin, its words as `Line1`, and the breaks.
-fn whole_lines(q: &Quote, bytes: &str, shown: &str, lines: &[Line]) -> Vec<Part> {
-    let (first, last) = (&lines[0], &lines[lines.len() - 1]);
-    let one = sub(q, first.src.start..last.src.end, Form::Margin1);
-    let range = one.from as usize - q.from as usize..one.to as usize - q.from as usize;
-    if Form::Margin1.apply(&bytes[range]) == shown[first.start..last.words.end] {
+/// empty line does not: `str::lines` drops it), else each as its margin, its words as `Line1`, and the breaks; but
+/// the lines a known value runs over, by `cuts`, stay one `Margin1` quote when that shows them so.
+fn whole_lines(q: &Quote, field: &str, shown: &str, lines: &[Line], cuts: &Cuts) -> Vec<Part> {
+    // Only a value that holds a line break runs across one: where the first begins, read once on the whole field.
+    let over = cuts.unchanged(field, |c| matches!(c, '\n' | '\r'));
+    if let Some(one) = one_quote(q, field, shown, lines, (cuts, over), false) {
         return vec![Part::Quote(one)];
     }
+    let joined = |e: usize| {
+        over < q.from as usize + lines[e + 1].src.start
+            && across(q, field, &lines[e], &lines[e + 1], cuts, Side::Head).is_some()
+    };
     let mut out = Vec::new();
-    for (i, l) in lines.iter().enumerate() {
+    let mut i = 0;
+    while i < lines.len() {
+        let mut e = i;
+        while e + 1 < lines.len() && joined(e) {
+            e += 1;
+        }
         if i > 0 {
             out.push(Part::Code("\n".into()));
         }
-        out.push(Part::Code(MARGIN.into()));
-        out.push(Part::Quote(sub(q, l.src.clone(), Form::Line1)));
+        match (e > i).then(|| one_quote(q, field, shown, &lines[i..=e], (cuts, over), true)) {
+            Some(Some(one)) => out.push(Part::Quote(one)),
+            _ => {
+                for (n, l) in lines[i..=e].iter().enumerate() {
+                    if n > 0 {
+                        out.push(Part::Code("\n".into()));
+                    }
+                    out.push(Part::Code(MARGIN.into()));
+                    out.push(Part::Quote(sub(q, l.src.clone(), Form::Line1)));
+                }
+            }
+        }
+        i = e + 1;
     }
     out
+}
+
+/// `lines`, whole and in a row, as one `Margin1` quote of `q`'s field, when that shows exactly their rendering and
+/// does not end inside a known value that holds a line break (by `cuts`, the first of them beginning at `over`).
+/// It ends at the last line's end; or, when that end is inside such a value or `joined` (the lines a value runs
+/// over, which may end in an empty line), past the line break after it, which `str::lines` drops, so the quote
+/// shows the same: the end of a value that ends in its line break, or of the empty line after it.
+fn one_quote(
+    q: &Quote,
+    field: &str,
+    shown: &str,
+    lines: &[Line],
+    (cuts, over): (&Cuts, usize),
+    joined: bool,
+) -> Option<Quote> {
+    let (first, last) = (&lines[0], &lines[lines.len() - 1]);
+    let bytes = &field[q.from as usize..q.to as usize];
+    let shows = |end: usize| {
+        Form::Margin1.apply(&bytes[first.src.start..end]) == shown[first.start..last.words.end]
+    };
+    let inside = |end: usize| {
+        let p = q.from as usize + end;
+        over < p && cuts.before(field, p) != p
+    };
+    let end = last.src.end;
+    if shows(end) && !inside(end) {
+        return Some(sub(q, first.src.start..end, Form::Margin1));
+    }
+    let rest = &bytes[end..];
+    let brk = [("\r\n", 2), ("\n", 1)]
+        .into_iter()
+        .find(|(b, _)| rest.starts_with(b));
+    let end = end + brk.filter(|_| joined || inside(end))?.1;
+    (shows(end) && !inside(end)).then(|| sub(q, first.src.start..end, Form::Margin1))
 }
 
 /// `r` within `k`; empty when they do not meet.

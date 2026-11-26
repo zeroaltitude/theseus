@@ -6,19 +6,35 @@
 //! thinking at the top: off hides that half in that place alone, and a
 //! message with neither half is never made. The turn runs as ever, its cards
 //! and reply still post, and every other place is as it was.
+//!
+//! A third word, `steps` (issue 56), says how those process messages show:
+//! `folded`, the default, as one line for the turn that a button opens
+//! (`render/fold.rs`), or `open`, a message for each loop, as before.
 
 use theseus_protocol::Event;
 
-use crate::bindings::{ChannelBinding, DmBinding};
+use crate::bindings::{ChannelBinding, DmBinding, Steps};
+use crate::render::fold::{self, Folds};
 use crate::render::process::{Process, Shown};
-use crate::render::Op;
+use crate::render::{Buttons, Op, Renderer};
 
-/// A place's two words, and its loops' process messages.
+/// A place's three words, its loops' process messages, and its folds.
 #[derive(Default)]
 pub(crate) struct View {
     tools: bool,
     thinking: bool,
+    steps: Steps,
     process: Process,
+    folds: Folds,
+}
+
+/// Why a press on a fold shows nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unshown {
+    /// The place shows neither its tool lines nor its thinking now.
+    Hidden,
+    /// The turn cannot be read back.
+    TooOld,
 }
 
 /// A place's words, as its binding gives them.
@@ -26,6 +42,7 @@ pub(crate) struct View {
 pub(crate) struct Show {
     pub tools: bool,
     pub thinking: bool,
+    pub steps: Steps,
 }
 
 impl Show {
@@ -33,6 +50,7 @@ impl Show {
         Self {
             tools: c.show_tools,
             thinking: c.show_thinking,
+            steps: c.steps,
         }
     }
 
@@ -40,6 +58,7 @@ impl Show {
         Self {
             tools: d.show_tools,
             thinking: d.show_thinking,
+            steps: d.steps,
         }
     }
 }
@@ -49,6 +68,7 @@ impl Default for Show {
         Self {
             tools: true,
             thinking: true,
+            steps: Steps::default(),
         }
     }
 }
@@ -64,6 +84,7 @@ impl View {
         Show {
             tools: self.tools,
             thinking: self.thinking,
+            steps: self.steps,
         }
     }
 
@@ -71,14 +92,91 @@ impl View {
         Self {
             tools: s.tools,
             thinking: s.thinking,
+            steps: s.steps,
             process: Process::default(),
+            folds: Folds::default(),
         }
     }
 
-    /// The bindings file changed the place's words (theseus-ocwt).
-    pub(crate) fn set(&mut self, s: Show) {
+    /// The bindings file changed the place's words (theseus-ocwt). When
+    /// what it shows changed, each fold it holds is made again from both
+    /// halves under the new words, and what changed of it is returned to be
+    /// written: a fold never shows what its place is set not to show now,
+    /// open or closed, though it was made when the place showed it (issue
+    /// 56). A fold made under `steps = "folded"` stays a fold for its message
+    /// when the place says `open`; nothing new is folded then (`out`).
+    pub(crate) fn set(&mut self, s: Show, r: &Renderer) -> Vec<Op> {
+        let changed = (s.tools, s.thinking) != (self.tools, self.thinking);
         self.tools = s.tools;
         self.thinking = s.thinking;
+        self.steps = s.steps;
+        if !changed {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for turn in self.folds.turns() {
+            let loops = self.folds.loops(&turn);
+            let ops = self.messages(&turn, &loops, r);
+            let head = self.head(&turn, r);
+            out.extend(self.folds.remake(&turn, ops, &head, false));
+        }
+        out
+    }
+
+    /// Each fold this place holds, as it shows now, written again whether or
+    /// not Discord was last sent it: the place's lane is back from an outage
+    /// that may have dropped its updates (issue 56). At most the renderer's
+    /// held turns: a fold leaves with its turn (`hold`).
+    pub(crate) fn resend(&mut self, r: &Renderer) -> Vec<Op> {
+        let mut out = Vec::new();
+        for turn in self.folds.turns() {
+            let loops = self.folds.loops(&turn);
+            let ops = self.messages(&turn, &loops, r);
+            let head = self.head(&turn, r);
+            out.extend(self.folds.remake(&turn, ops, &head, true));
+        }
+        out
+    }
+
+    /// Turn `turn`'s process messages for `loops`, as the place shows them
+    /// now: each loop's thinking (the place's own) over its tool lines (the
+    /// renderer's), each half only under its word, and the loop's choices
+    /// only with its tools.
+    fn messages(&self, turn: &str, loops: &[u32], r: &Renderer) -> Vec<Op> {
+        let s = self.shown();
+        let mut tools: std::collections::BTreeMap<String, (String, Buttons)> = r
+            .tool_messages(turn)
+            .into_iter()
+            .filter_map(|op| match op {
+                Op::Upsert {
+                    key,
+                    content,
+                    buttons,
+                } => Some((key, (content, buttons))),
+                _ => None,
+            })
+            .collect();
+        loops
+            .iter()
+            .map(|li| {
+                let key = format!("{turn}:L{li}:tools");
+                let (raw, menu) = tools.remove(&key).unwrap_or((String::new(), Buttons::Keep));
+                Op::Upsert {
+                    content: self.process.compose(turn, *li, &raw, s),
+                    buttons: if s.tools { menu } else { Buttons::Keep },
+                    key,
+                }
+            })
+            .collect()
+    }
+
+    /// Turn `turn`'s closed line, as the place shows it now.
+    fn head(&self, turn: &str, r: &Renderer) -> String {
+        fold::line(
+            r.tally(turn).as_ref(),
+            self.process.thought(turn),
+            self.shown(),
+        )
     }
 
     fn shown(&self) -> Shown {
@@ -96,9 +194,11 @@ impl View {
         self.process.on_event(e, tokio::time::Instant::now(), s)
     }
 
-    /// The turns the renderer holds now: the thinking of the rest goes.
+    /// The turns the renderer holds now: the thinking and the folds of the
+    /// rest go.
     pub(crate) fn hold(&mut self, held: &[String]) {
         self.process.hold(held);
+        self.folds.hold(held);
     }
 
     /// The thinking that grew since the last tick.
@@ -113,6 +213,53 @@ impl View {
     pub(crate) fn fold(&mut self, ops: Vec<Op>) -> Vec<Op> {
         let s = self.shown();
         self.process.fold_ops(ops, s)
+    }
+
+    /// What the place writes, last (`Place::apply`): as it was in a place
+    /// bound `steps = "open"`; in a folded one, each turn's process messages
+    /// as its one fold, closed by its line (`render/fold.rs`).
+    pub(crate) fn out(&mut self, ops: Vec<Op>, r: &Renderer) -> Vec<Op> {
+        if self.steps == Steps::Open {
+            return ops;
+        }
+        let s = self.shown();
+        let Self { process, folds, .. } = self;
+        folds.take(ops, |turn| {
+            fold::line(r.tally(turn).as_ref(), process.thought(turn), s)
+        })
+    }
+
+    /// A press on turn `turn`'s fold: open at `page`, or closed. Its lines
+    /// are the place's own, or, when it holds no fold for the turn (a
+    /// restart), the renderer's for it, as the place shows them now. Nothing
+    /// changes when the place shows neither half, or the renderer holds no
+    /// such turn.
+    pub(crate) fn press(
+        &mut self,
+        turn: &str,
+        page: Option<usize>,
+        r: &Renderer,
+    ) -> Result<(String, Buttons), Unshown> {
+        if !self.tools && !self.thinking {
+            return Err(Unshown::Hidden);
+        }
+        if !r.knows(turn) {
+            return Err(Unshown::TooOld);
+        }
+        let seed = if self.folds.holds(turn) {
+            Vec::new()
+        } else {
+            let loops: Vec<u32> = r
+                .tool_messages(turn)
+                .iter()
+                .filter_map(|op| op.key().and_then(fold::loop_of).map(|(_, li)| li))
+                .collect();
+            self.messages(turn, &loops, r)
+        };
+        let head = self.head(turn, r);
+        self.folds
+            .press(turn, page, &head, || seed)
+            .ok_or(Unshown::TooOld)
     }
 }
 
@@ -181,11 +328,13 @@ mod tests {
         let no_thinking = Show {
             tools: true,
             thinking: false,
+            ..Show::default()
         };
         assert_eq!(shown(no_thinking), keys(&every));
         let no_tools = Show {
             tools: false,
             thinking: true,
+            ..Show::default()
         };
         assert_eq!(
             shown(no_tools),
@@ -210,6 +359,7 @@ mod tests {
         let mut v = View::new(Show {
             tools: true,
             thinking: false,
+            ..Show::default()
         });
         let started = Event::TurnStarted(TurnStarted {
             turn_id: "turn_a".into(),
@@ -225,10 +375,50 @@ mod tests {
         assert!(v.on_event(&started).is_empty());
         assert!(v.on_event(&think("Tides.")).is_empty());
         assert!(v.tick().is_empty());
-        v.set(Show::default());
+        assert!(v.set(Show::default(), &Renderer::new(false)).is_empty());
         assert!(v.on_event(&think(" Low at six.")).is_empty());
         let ops = v.tick();
         assert_eq!(ops.len(), 1, "{ops:?}");
         assert_eq!(ops[0].key(), Some("turn_a:L0:tools"));
+    }
+
+    /// A place bound `steps = "open"` writes what it wrote before, op for
+    /// op; a folded one, the default, writes a turn's process messages as
+    /// its one fold and every other op as it was (issue 56).
+    #[test]
+    fn open_writes_as_before_and_folded_folds_only_process_messages() {
+        let r = Renderer::new(false);
+        let all = || {
+            vec![
+                up("turn_a:L0:p0"),
+                up("turn_a:L0:tools"),
+                up("turn_a:L1:tools"),
+                up("turn_a:footer"),
+                notice(),
+                Op::Typing,
+            ]
+        };
+        let mut open = View::new(Show {
+            steps: Steps::Open,
+            ..Show::default()
+        });
+        assert_eq!(open.out(all(), &r), all());
+        let mut folded = View::new(Show::default());
+        let keys: Vec<Option<String>> = folded
+            .out(all(), &r)
+            .iter()
+            .map(|o| o.key().map(str::to_string))
+            .collect();
+        // One fold, where the turn's first process message was.
+        assert_eq!(
+            keys,
+            [
+                Some("turn_a:L0:p0".to_string()),
+                Some("turn_a:fold".to_string()),
+                Some("turn_a:footer".to_string()),
+                Some("turn_a:notice:tu_1".to_string()),
+                None
+            ]
+        );
     }
 }

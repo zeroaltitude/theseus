@@ -23,11 +23,12 @@ const REEF: u64 = 900_000_000_000_000_040;
 
 const BOUND: &str = "🔗 Theseus is bound here";
 
-/// A guild channel bound shared, where ana may drive Theseus.
+/// A guild channel bound shared, where ana may drive Theseus, showing a
+/// turn's steps open, as these tests read them (issue 56).
 fn channel(id: u64, name: &str, users: &[u64]) -> String {
     let users: Vec<String> = users.iter().map(|u| format!("\"{u}\"")).collect();
     format!(
-        "[[channel]]\nid = \"{id}\"\nname = \"{name}\"\nusers = [{}]\nmention_only = false\n",
+        "[[channel]]\nid = \"{id}\"\nname = \"{name}\"\nusers = [{}]\nmention_only = false\nsteps = \"open\"\n",
         users.join(", ")
     )
 }

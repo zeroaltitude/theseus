@@ -34,12 +34,14 @@ const MINUTE: u64 = 60_000;
 
 /// A trusted guild (format 1's `private` beside `guild_id`): `#lab` is
 /// private in it unless it says not, and ana has a DM.
+/// Its places show a turn's steps open, a message a loop, as these tests read
+/// them (issue 56: a place folds them unless it says `steps = "open"`).
 pub(crate) fn bindings(lab_private: bool) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\nprivate = true\n\
          [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\n\
-         private = {lab_private}\n\
-         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+         private = {lab_private}\nsteps = \"open\"\n\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\nsteps = \"open\"\n"
     )
 }
 
