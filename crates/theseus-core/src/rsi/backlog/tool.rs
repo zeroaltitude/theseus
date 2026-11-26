@@ -19,10 +19,11 @@
 //!   existing self-improvement config gate, off by default.
 //! - **It is no [`crate::places::public_tool`]**, so a shared place is never
 //!   offered it and the gate refuses it there.
-//! - **[`theseus_protocol::Plan::authority`] is set**, so the gate asks at
-//!   every posture, as the floor does, and the filing waits for the owner's
-//!   own tap. That is what "filing validated as him" means on this route:
-//!   the model can propose a filing, and only a person's yes writes one.
+//! - **No [`theseus_protocol::Plan::authority`]** (issue 57: the owner wants
+//!   approvals only for what is dangerous and cannot be undone): the call
+//!   follows `self.file`'s own posture like any tool, and the owner is told
+//!   once, with how to undo it (`self.drop`). He can still make it ask with
+//!   `[policy.tools] "self.file" = "approve"`.
 //! - **The owner's own place only**, the same wall `card.observed` keeps
 //!   ([`crate::card::tool`]): a private place he is alone in
 //!   ([`Core::owner_alone_in`]) and never a task's session. That is what
@@ -49,11 +50,13 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
+use theseus_protocol::rsi::SelfFileResult;
 use theseus_protocol::Plan;
 use theseus_tools::{
     AsyncMediaRun, Backend, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
 };
 
+use crate::owner_note::told::Undo;
 use crate::rpc::Core;
 
 pub const FILE: &str = "self.file";
@@ -68,14 +71,14 @@ pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
 }
 
 #[derive(Debug, Deserialize)]
-struct Args {
+pub(crate) struct Args {
     finding: String,
     #[serde(default)]
     title: Option<String>,
 }
 
 impl Args {
-    fn parse(input: &Value) -> Result<Self, String> {
+    pub(crate) fn parse(input: &Value) -> Result<Self, String> {
         let a: Self = serde_json::from_value(input.clone())
             .map_err(|e| format!("self.file takes {{ finding, title? }}: {e}"))?;
         // The same reading the CLI and the RPC get, so a refusal reads the
@@ -96,9 +99,9 @@ impl Tool for SelfFile {
         "Put a finding on Theseus's own self-improvement backlog, so the self loop works on it. \
          `finding` is what is wrong, in the words of the person who found it; `title` is the one \
          line the backlog lists it by. The item is marked for good as a person's choice, with who \
-         filed it, and it is never confused with one Theseus mined from its own record. It waits \
-         for the owner's yes before it is filed, and with self-improvement off the item sits and \
-         nothing runs. Use it when a person names a defect in Theseus itself; use \
+         filed it, and it is never confused with one Theseus mined from its own record. The owner \
+         is told of each filing, with how to drop it, and with self-improvement off the item sits \
+         and nothing runs. Use it when a person names a defect in Theseus itself; use \
          self.propose_change to offer a fix for an item that is already on the backlog."
     }
 
@@ -139,13 +142,10 @@ impl Tool for SelfFile {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let a = Args::parse(input)?;
         let title = super::filed::title_of(&a.finding, a.title.as_deref());
+        // No `authority`: the call follows the tool's own posture, and the
+        // owner is told of the filing with its undo (issue 57).
         Ok(Plan {
             summary: format!("file a self-improvement item: {title}"),
-            // The gate asks at every posture, so a person's own yes is what
-            // puts work into the self loop -- never the model's word alone.
-            authority: Some(format!(
-                "put a finding on Theseus's own self-improvement backlog: {title}"
-            )),
             ..Default::default()
         })
     }
@@ -188,20 +188,124 @@ impl Board {
 
 /// The wall, then the filing. One function so a test reaches both past the
 /// gate, as `card::tool::call` does.
-fn filed(core: &Core, private: bool, session: &str, a: Args) -> Result<ToolOutput, String> {
+pub(crate) fn filed(
+    core: &Core,
+    private: bool,
+    session: &str,
+    a: Args,
+) -> Result<ToolOutput, String> {
     if let Some(why) = refusal(core, private, session) {
         return Err(why.to_string());
     }
+    // The filing and the owner's note are one frame (issue 57): never filed and not told. The
+    // finding's words are the model's, so the note names the item, not them.
+    let note = |f: &SelfFileResult| {
+        staged(
+            core,
+            session,
+            "A finding was filed for the self loop",
+            "Theseus put a finding on its own self-improvement backlog from this chat",
+            &format!(
+                "Item {} is on the backlog at rank {}. Its first build does not start for a minute \
+                 after this note is written. Undo drops it only while it has not started; after \
+                 that, `theseus self drop {}` drops it.",
+                f.item, f.rank, f.item
+            ),
+            &Undo::SelfDrop(f.item.clone()),
+        )
+    };
     let f = core
-        .self_file_in_chat(&a.finding, a.title.as_deref(), OWNER)
-        .map_err(|e| format!("the filing could not be written: {e:#}"))?;
+        .self_file_in_chat_told(&a.finding, a.title.as_deref(), OWNER, &note)
+        .map_err(|e| {
+            format!("nothing was filed: the filing and its note could not be written: {e:#}")
+        })?;
     Ok(ToolOutput {
         text: format!(
-            "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and the loop picks it up on its next pass. `theseus self move {} 1` puts it first.",
+            "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and its first build does not start for a minute after the owner's note of it is written. `theseus self move {} 1` puts it first.",
             f.item, f.title, f.rank, f.filed_by, f.item
         ),
         meta: json!({"item": f.item, "cause": f.cause, "rank": f.rank}),
     })
+}
+
+/// The note's second line: which conversation did it, by its short id (never its title, which
+/// is text someone else may have written: the helper's contract), and what it did.
+fn by(session: &str, did: &str) -> String {
+    format!(
+        "In conversation {}, {did}",
+        crate::narrative::short(session)
+    )
+}
+
+/// The owner's note of what a chat tool did on his behalf (issue 57), with its undo, staged for
+/// the act's own frame: the shared note (`owner_note::told`). `did` and `body` are the tool's own
+/// words: no word the model wrote, and no secret.
+pub(crate) fn staged(
+    core: &Core,
+    session: &str,
+    title: &str,
+    did: &str,
+    body: &str,
+    undo: &Undo,
+) -> anyhow::Result<(theseus_kernel::Action, Vec<theseus_store::NewRecord>)> {
+    #[cfg(test)]
+    fail::injected()?;
+    let by = by(session, did);
+    crate::owner_note::told::stage(&core.outbox, Some(session), title, &by, body, undo)
+}
+
+/// `staged`, written now, alone: for an act with no frame of its own (an unpause, whose caller
+/// applies it only once this is written).
+pub(crate) fn told(
+    core: &Core,
+    session: &str,
+    title: &str,
+    did: &str,
+    body: &str,
+    undo: &Undo,
+) -> anyhow::Result<()> {
+    let (post, records) = staged(core, session, title, did, body, undo)?;
+    core.store.append(&records)?;
+    core.outbox.posted(&post);
+    Ok(())
+}
+
+/// The owner told of what a chat tool did on his behalf that has no undo (issue 57: a pause,
+/// which only does less): an FYI note to the operator, where announcements go when a place for
+/// them is bound, written now. `did` and `body` are the tool's own words. The caller applies the
+/// act only once this is written.
+pub(crate) fn tell(
+    core: &Core,
+    session: &str,
+    title: &str,
+    did: &str,
+    body: &str,
+) -> anyhow::Result<()> {
+    #[cfg(test)]
+    fail::injected()?;
+    let text =
+        crate::owner_note::note(crate::owner_note::Kind::Fyi, title, &by(session, did), body);
+    core.outbox.to_operator(
+        Some(session),
+        json!({"kind": "notice", "text": text, crate::outbox::ANNOUNCE_KEY: true}),
+    )?;
+    Ok(())
+}
+
+/// A test's word that the next note cannot be staged (issue 57: an act whose note cannot be
+/// written is not done). A process-wide flag: nextest runs each test in a process of its own.
+#[cfg(test)]
+pub(crate) mod fail {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    pub(crate) static NEXT: AtomicBool = AtomicBool::new(false);
+
+    pub(crate) fn injected() -> anyhow::Result<()> {
+        if NEXT.swap(false, Ordering::SeqCst) {
+            anyhow::bail!("an injected failure to stage the owner's note");
+        }
+        Ok(())
+    }
 }
 
 /// Who a chat filing is by. It is a constant and not a name the model wrote:
@@ -281,8 +385,10 @@ mod tests {
         assert_eq!(a.title, None);
     }
 
+    /// The plan sets no `authority` (issue 57): the call follows its own
+    /// posture, and its summary names the title.
     #[test]
-    fn the_plan_asks_at_every_posture_and_names_the_title() {
+    fn the_plan_follows_the_tools_posture_and_names_the_title() {
         let ctx = ToolCtx::default();
         let p = SelfFile
             .plan(
@@ -294,8 +400,7 @@ mod tests {
             p.summary,
             "file a self-improvement item: The digest folds two kinds."
         );
-        let a = p.authority.expect("a filing waits for a person's own yes");
-        assert!(a.contains("The digest folds two kinds."), "{a}");
+        assert_eq!(p.authority, None, "no ask at every posture");
         // A given title is what both lines say.
         let p = SelfFile
             .plan(

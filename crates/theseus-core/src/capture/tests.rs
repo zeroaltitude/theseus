@@ -97,17 +97,23 @@ fn an_order_is_asked_at_every_confidence_and_never_kept() {
     }
 }
 
+/// Between a half and four fifths it is kept, with its notice and its undo,
+/// as it is above (issue 57).
 #[test]
-fn between_half_and_four_fifths_it_asks() {
+fn between_half_and_four_fifths_it_is_kept() {
     let st = State::default();
-    let v = verdict(Heard::Preference, Band::Confirm, 0.65);
-    assert_eq!(
-        plan(&v, "keep it short", &[], &st),
-        Plan::Ask {
-            kind: StandingKind::Preference,
-            why: "unsure"
-        }
-    );
+    for (heard, kind) in [
+        (Heard::Preference, StandingKind::Preference),
+        (Heard::Fact, StandingKind::Fact),
+        (Heard::Correction, StandingKind::Preference),
+    ] {
+        let v = verdict(heard, Band::Confirm, 0.65);
+        assert_eq!(
+            plan(&v, "keep it short", &[], &st),
+            Plan::Keep(kind),
+            "{heard:?}"
+        );
+    }
 }
 
 #[test]
