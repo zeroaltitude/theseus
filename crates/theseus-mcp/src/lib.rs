@@ -12,6 +12,10 @@
 //! - [`fake::Fake`]: a fake MCP server for tests and the simulator, over
 //!   pipes, this process's stdio, or HTTP on 127.0.0.1, with `fake_discord`'s
 //!   kind of modes (`ok`, `slow`, `crash-after N`, `change-tools`, `error`).
+//! - [`oauth`] (issue 55): signing in to a remote server that wants it, the
+//!   specification's OAuth 2.1 with PKCE, in parts (discovery, registration,
+//!   the request and its loopback redirect, the exchange and the refresh),
+//!   and a fake authorization server for tests.
 //! - [`server`] (feature `server`, step 41a): Theseus's own MCP server at
 //!   `/mcp` on loopback, behind a static key, an `Origin` check, and a rate
 //!   limit, over a small [`server::CoreClient`] trait, with a fake core.
@@ -25,12 +29,13 @@ pub mod jsonrpc;
 #[cfg(feature = "server")]
 mod memory_tools;
 pub mod names;
+pub mod oauth;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod sse;
 pub mod types;
 
-pub use client::{Client, Error, Event, Events, Options, Transport};
+pub use client::{Client, Error, Event, Events, Options, TokenSource, Transport};
 
 /// The newest protocol revision this crate speaks, which a client offers and
 /// a server answers when asked for one it does not know.

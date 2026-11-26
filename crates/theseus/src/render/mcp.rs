@@ -33,6 +33,12 @@ fn server_words(s: &McpServerStatus) -> String {
     }
     let why = match (&s.last_error, s.state.as_str()) {
         (Some(e), "failed" | "restarting" | "starting") => format!(": {e}"),
+        // A server that signs in, with no sign-in that works (issue 55).
+        (e, "needs sign-in") => format!(
+            ": {}; `theseus mcp login {}`",
+            e.as_deref().unwrap_or("it has not been signed in"),
+            s.name
+        ),
         _ => String::new(),
     };
     format!("{} {} ({}){why}", s.name, s.state, parts.join(", "))
@@ -142,6 +148,20 @@ mod tests {
         assert_eq!(
             mcp_line(&[ready.clone(), failed]).unwrap(),
             "mcp: fake ready (5 tools, 2 calls, 0 failed) · docs failed (0 tools, crashed 3×): HTTP 500"
+        );
+        // A server that signs in, with no sign-in that works: the command,
+        // and no crash (issue 55).
+        let signing = McpServerStatus {
+            name: "wiki".into(),
+            transport: "http".into(),
+            state: "needs sign-in".into(),
+            last_error: Some("its sign-in was refused when renewed".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            mcp_line(&[signing]).unwrap(),
+            "mcp: wiki needs sign-in (0 tools): its sign-in was refused when renewed; \
+             `theseus mcp login wiki`"
         );
         let lines = mcp_lines(&McpListResult {
             servers: vec![ready],

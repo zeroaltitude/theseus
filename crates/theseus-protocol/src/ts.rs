@@ -240,7 +240,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         AwsBootstrapResult, AwsConfirmAlertsParams, AwsConfirmAlertsResult, TaskArrangement,
         ArrangementPiece, TaskCheck, CheckPiece, CheckOverlap,
         mcp::McpServerStatus, mcp::McpToolInfo, mcp::McpListResult,
-        mcp::McpRestartParams, mcp::McpRestartResult, mcp::McpPromptArgument,
+        mcp::McpRestartParams, mcp::McpRestartResult, mcp::McpLoginBeginParams, mcp::McpLoginBeginResult, mcp::McpLoginFinishParams, mcp::McpLoginFinishResult, mcp::McpLogoutParams, mcp::McpLogoutResult, mcp::McpPromptArgument,
         mcp::McpPromptInfo, mcp::McpPromptListParams, mcp::McpPromptListResult, mcp::McpPromptRef,
         mcp_server::McpServerHealth, mcp_server::McpServerRefusals,
         extend::ExtendInfo, extend::ExtendListResult, extend::ExtendHealth, extend::ExtendUsage, extend::ExtendListParams, extend::ExtendHandsInfo,

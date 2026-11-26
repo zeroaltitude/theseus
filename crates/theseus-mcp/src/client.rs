@@ -169,12 +169,33 @@ pub fn stdio_command(argv: &[String]) -> Option<tokio::process::Command> {
     Some(cmd)
 }
 
+/// Where a server that signs in (issue 55) gets its token: asked before each
+/// request, so a token about to run out is renewed first, and told when the
+/// server refused one with 401, so it is renewed once and the request goes
+/// again. Its values are never logged or shown.
+pub trait TokenSource: Send + Sync + 'static {
+    /// The token to send now; None when there is none (not signed in).
+    fn token(&self) -> futures_util::future::BoxFuture<'_, Option<String>>;
+    /// The server refused `sent` with 401: true when a new token is ready to
+    /// try once more.
+    fn refused<'a>(&'a self, sent: &'a str) -> futures_util::future::BoxFuture<'a, bool>;
+}
+
 /// A remote server, over streamable HTTP.
 #[derive(Clone)]
 pub struct HttpTarget {
     pub url: String,
     /// Sent as `Authorization: Bearer …`; never logged, never shown.
     pub bearer: Option<String>,
+    /// A server that signs in: its token, in place of `bearer`. Such a
+    /// connection follows no redirect, so its token goes to this `url` alone.
+    pub token: Option<Arc<dyn TokenSource>>,
+    /// The daemon's network rule, which a connection with a `token` must
+    /// have: its address is checked at connect, every new connection
+    /// resolves through the rule's checking resolver and connects to the very
+    /// answer it checked, and no proxy resolves past it. A server with a
+    /// fixed `bearer` or none keeps the client it always had.
+    pub rule: Option<crate::oauth::Rule>,
     /// A connect that takes longer fails (on some hosts a connect to a
     /// loopback port nothing listens on hangs instead of being refused).
     pub connect_timeout: Duration,
@@ -188,6 +209,8 @@ impl HttpTarget {
         Self {
             url: url.into(),
             bearer: None,
+            token: None,
+            rule: None,
             connect_timeout: Duration::from_secs(10),
             server_stream: true,
         }
@@ -199,6 +222,8 @@ impl std::fmt::Debug for HttpTarget {
         f.debug_struct("HttpTarget")
             .field("url", &self.url)
             .field("bearer", &self.bearer.as_ref().map(|_| "(set)"))
+            .field("token", &self.token.as_ref().map(|_| "(a sign-in)"))
+            .field("rule", &self.rule.as_ref().map(|_| "(the daemon's)"))
             .field("connect_timeout", &self.connect_timeout)
             .field("server_stream", &self.server_stream)
             .finish()
@@ -301,8 +326,14 @@ pub enum Error {
     },
     #[error("the server answered protocol revision {answered:?}, which this client does not speak (it offered {offered})")]
     UnsupportedVersion { offered: String, answered: String },
+    /// `challenge`: a 401's `WWW-Authenticate`, which says where a server
+    /// that wants a sign-in has its metadata (issue 55); never printed.
     #[error("HTTP {status}: {body}")]
-    Http { status: u16, body: String },
+    Http {
+        status: u16,
+        body: String,
+        challenge: Option<WwwAuthenticate>,
+    },
     #[error("the server broke the protocol: {0}")]
     Protocol(String),
     /// HTTP: the server ended the session the request carried (inside the
@@ -311,7 +342,61 @@ pub enum Error {
     SessionExpired(String),
 }
 
+/// A 401's `WWW-Authenticate`, as the server sent it. A server may put
+/// anything in it (the very token it was sent), so it is never printed.
+#[derive(Clone, PartialEq, Eq)]
+pub struct WwwAuthenticate(String);
+
+impl WwwAuthenticate {
+    pub fn new(header: impl Into<String>) -> Self {
+        Self(header.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for WwwAuthenticate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WwwAuthenticate(<a server's words>)")
+    }
+}
+
+/// The words a signed-in server's refusal is reduced to, in place of its own.
+const NOT_REPEATED: &str = "(the words of a server that signs in are not repeated)";
+
 impl Error {
+    /// A signed-in server's error, reduced to what the client knows without
+    /// the server's words (issue 55): its kind, a status, a JSON-RPC code, a
+    /// standard OAuth code. A server may echo the token it was sent anywhere
+    /// it writes, so nothing it wrote is kept.
+    fn reduced(self) -> Self {
+        match self {
+            Error::Rpc { code, .. } => Error::Rpc {
+                code,
+                message: NOT_REPEATED.into(),
+                data: Value::Null,
+            },
+            Error::UnsupportedVersion { offered, .. } => Error::UnsupportedVersion {
+                offered,
+                answered: NOT_REPEATED.into(),
+            },
+            // Its body is already its standard code alone (`post`).
+            Error::Http { status, body, .. } => Error::Http {
+                status,
+                body,
+                challenge: None,
+            },
+            Error::Protocol(_) => {
+                Error::Protocol(format!("an answer it could not read {NOT_REPEATED}"))
+            }
+            Error::Closed(_) => Error::Closed("the connection ended".into()),
+            Error::SessionExpired(_) => Error::SessionExpired(String::new()),
+            e @ (Error::Unreachable(_) | Error::Timeout { .. }) => e,
+        }
+    }
+
     /// Whether the request may have run at the server: after a timeout, or
     /// a connection lost while it waited. A non-repeatable call that ends
     /// this way is `outcome_unknown`, and nothing runs it again.
@@ -375,7 +460,7 @@ impl Client {
                 shared: shared.clone(),
             }),
         };
-        let info = initialize(&shared).await?;
+        let info = initialize(&shared).await.map_err(|e| shared.guard(e))?;
         *shared
             .server
             .write()
@@ -424,13 +509,13 @@ impl Client {
     /// logged.
     pub async fn list_tools(&self) -> Result<Vec<Tool>, Error> {
         let raw = self.list_all("tools/list", "tools").await?;
-        Ok(parse_each(raw, "tool"))
+        Ok(parse_each(raw, "tool", self.shared().signed()))
     }
 
     /// Every prompt, over every page.
     pub async fn list_prompts(&self) -> Result<Vec<Prompt>, Error> {
         let raw = self.list_all("prompts/list", "prompts").await?;
-        Ok(parse_each(raw, "prompt"))
+        Ok(parse_each(raw, "prompt", self.shared().signed()))
     }
 
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<CallToolResult, Error> {
@@ -454,8 +539,11 @@ impl Client {
         }
         let timeout = call.timeout.unwrap_or(shared.opts.call_timeout);
         let v = request(shared, "tools/call", params, timeout).await?;
-        serde_json::from_value(v)
-            .map_err(|e| Error::Protocol(format!("an unreadable tools/call answer: {e}")))
+        serde_json::from_value(v).map_err(|e| {
+            shared.guard(Error::Protocol(format!(
+                "an unreadable tools/call answer: {e}"
+            )))
+        })
     }
 
     pub async fn get_prompt(
@@ -469,8 +557,11 @@ impl Client {
             params["arguments"] = json!(arguments);
         }
         let v = request(shared, "prompts/get", params, shared.opts.request_timeout).await?;
-        serde_json::from_value(v)
-            .map_err(|e| Error::Protocol(format!("an unreadable prompts/get answer: {e}")))
+        serde_json::from_value(v).map_err(|e| {
+            shared.guard(Error::Protocol(format!(
+                "an unreadable prompts/get answer: {e}"
+            )))
+        })
     }
 
     /// The round trip of one `ping`.
@@ -547,10 +638,16 @@ impl Client {
     }
 }
 
-fn parse_each<T: serde::de::DeserializeOwned>(raw: Vec<Value>, what: &str) -> Vec<T> {
+/// Each entry that reads; a malformed one is skipped and logged, without the
+/// reader's words for a signed-in server (they can quote the entry).
+fn parse_each<T: serde::de::DeserializeOwned>(raw: Vec<Value>, what: &str, quiet: bool) -> Vec<T> {
     raw.into_iter()
         .filter_map(|v| match serde_json::from_value(v) {
             Ok(t) => Some(t),
+            Err(_) if quiet => {
+                tracing::warn!("mcp: a malformed {what} in the server's list, skipped");
+                None
+            }
             Err(e) => {
                 tracing::warn!(error = %e, "mcp: a malformed {what} in the server's list, skipped");
                 None
@@ -617,6 +714,20 @@ impl Shared {
         self.lock().pending.contains_key(&id)
     }
 
+    /// A connection to a server that signs in (issue 55).
+    fn signed(&self) -> bool {
+        self.http.as_ref().is_some_and(|h| h.token.is_some())
+    }
+
+    /// `e` as it may leave the client: a signed-in server's reduced to what
+    /// the client knows without the server's words ([`Error::reduced`]).
+    fn guard(&self, e: Error) -> Error {
+        match self.signed() {
+            true => e.reduced(),
+            false => e,
+        }
+    }
+
     fn fail(&self, id: i64, e: Error) {
         let waiter = self.lock().pending.remove(&id);
         if let Some(w) = waiter {
@@ -674,7 +785,7 @@ impl Shared {
                         Some(w) => {
                             let _ = w.tx.send(outcome.map_err(Error::from));
                         }
-                        None => tracing::debug!(%id, "mcp: an answer to no waiting call, dropped"),
+                        None => self.dropped(&id),
                     }
                 }
                 Ok(Incoming::Notification { method, params }) => {
@@ -696,9 +807,27 @@ impl Shared {
                     };
                     self.send(answer, None);
                 }
-                Err(e) => {
-                    tracing::warn!(error = %e, "mcp: an unreadable message from the server, skipped")
-                }
+                Err(e) => self.unreadable(&e),
+            }
+        }
+    }
+
+    /// An answer to no waiting call: dropped, and logged without its id for a
+    /// signed-in server (an id is the server's to choose).
+    fn dropped(&self, id: &Value) {
+        match self.signed() {
+            true => tracing::debug!("mcp: an answer to no waiting call, dropped"),
+            false => tracing::debug!(%id, "mcp: an answer to no waiting call, dropped"),
+        }
+    }
+
+    /// A message that does not read: skipped, and logged without the reader's
+    /// words for a signed-in server (they can quote it).
+    fn unreadable(&self, e: &dyn std::fmt::Display) {
+        match self.signed() {
+            true => tracing::warn!("mcp: an unreadable message from the server, skipped"),
+            false => {
+                tracing::warn!(error = %e, "mcp: an unreadable message from the server, skipped")
             }
         }
     }
@@ -798,7 +927,7 @@ async fn request(
     match tokio::time::timeout(timeout, rx).await {
         Ok(Ok(answer)) => {
             call.live = false;
-            answer
+            answer.map_err(|e| shared.guard(e))
         }
         Ok(Err(_)) => {
             call.live = false;
@@ -875,7 +1004,7 @@ async fn initialize(shared: &Arc<Shared>) -> Result<ServerInfo, Error> {
     if let Some(http) = &shared.http {
         http.set_version(Some(r.protocol_version.clone()));
         // Awaited, so it lands before any request that follows.
-        post(shared, &initialized, None).await?;
+        post(shared, &initialized, None, &mut None).await?;
     } else {
         shared.send(initialized, None);
     }
@@ -1204,6 +1333,9 @@ struct Http {
     client: reqwest::Client,
     url: reqwest::Url,
     bearer: Option<String>,
+    token: Option<Arc<dyn TokenSource>>,
+    /// A signed-in connection's network rule.
+    rule: Option<crate::oauth::Rule>,
     server_stream: bool,
     session: Mutex<Option<String>>,
     /// The server gave a session once, so a request without one has lost it.
@@ -1218,24 +1350,23 @@ impl Http {
     fn new(t: HttpTarget) -> Result<Self, Error> {
         let url = reqwest::Url::parse(&t.url)
             .map_err(|e| Error::Unreachable(format!("not a URL ({e})")))?;
-        let mut builder = reqwest::Client::builder().connect_timeout(t.connect_timeout);
-        let loopback = url.host_str().is_some_and(|h| {
-            let h = h.trim_start_matches('[').trim_end_matches(']');
-            h.eq_ignore_ascii_case("localhost")
-                || h.parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        });
-        if loopback {
-            // A proxy from the environment never sees a loopback server.
-            builder = builder.no_proxy();
-        }
-        let client = builder
-            .build()
-            .map_err(|e| Error::Unreachable(format!("the HTTP client: {}", chain(&e))))?;
+        let client = match (&t.token, &t.rule) {
+            (Some(_), Some(rule)) => signed_client(&url, rule, t.connect_timeout)?,
+            (Some(_), None) => {
+                return Err(Error::Unreachable(
+                    "a server that signs in is reached by the daemon's network rule, and none \
+                     was given: nothing was sent"
+                        .into(),
+                ))
+            }
+            (None, _) => plain_client(&url, t.connect_timeout)?,
+        };
         Ok(Self {
             client,
             url,
             bearer: t.bearer,
+            token: t.token,
+            rule: t.rule,
             server_stream: t.server_stream,
             session: Mutex::new(None),
             had_session: AtomicBool::new(false),
@@ -1243,6 +1374,21 @@ impl Http {
             reinit: tokio::sync::Mutex::new(()),
             stream_task: Mutex::new(None),
         })
+    }
+
+    /// A send's failure: for a signed-in connection, in fixed words (the
+    /// rule's refusal of an address said as such), and never its address.
+    fn send_error(&self, e: reqwest::Error) -> Error {
+        match &self.rule {
+            Some(rule) if (rule.refused)(&e) => Error::Unreachable(
+                "its address is not public, so it was not reached: nothing was sent".into(),
+            ),
+            Some(_) if e.is_connect() || e.is_builder() => {
+                Error::Unreachable("it could not be reached: nothing was sent".into())
+            }
+            Some(_) => Error::Closed("the connection ended".into()),
+            None => send_error(e),
+        }
     }
 
     fn session(&self) -> Option<String> {
@@ -1270,8 +1416,15 @@ impl Http {
         *self.version.lock().unwrap_or_else(PoisonError::into_inner) = v;
     }
 
-    /// A request with the session's headers, and the key.
-    fn build(&self, method: reqwest::Method, initialize: bool) -> reqwest::RequestBuilder {
+    /// A request with the session's headers, and the key: a signed-in
+    /// server's token as its source has it now, which is returned too, so
+    /// this request's 401 names the very one it sent. A signed-in server
+    /// whose source has no token (its sign-in is lost) is sent nothing.
+    async fn build(
+        &self,
+        method: reqwest::Method,
+        initialize: bool,
+    ) -> Result<(reqwest::RequestBuilder, Option<Sent>), Error> {
         let mut req = self.client.request(method, self.url.clone());
         if !initialize {
             if let Some(s) = self.session() {
@@ -1281,10 +1434,42 @@ impl Http {
                 req = req.header("mcp-protocol-version", v);
             }
         }
-        if let Some(b) = &self.bearer {
-            req = req.bearer_auth(b);
+        let sent = match &self.token {
+            Some(source) => match source.token().await {
+                Some(t) => Some(Sent(zeroize::Zeroizing::new(t))),
+                None => {
+                    return Err(Error::Unreachable(
+                        "its sign-in is not usable, so nothing was sent".into(),
+                    ))
+                }
+            },
+            None => None,
+        };
+        match (&sent, &self.bearer) {
+            (Some(t), _) => req = req.bearer_auth(t.0.as_str()),
+            (None, Some(b)) => req = req.bearer_auth(b),
+            (None, None) => {}
         }
-        req
+        Ok((req, sent))
+    }
+}
+
+/// The signed-in token one request carried: what its 401 refused. Never
+/// printed.
+struct Sent(zeroize::Zeroizing<String>);
+
+impl std::fmt::Debug for Sent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Sent(<hidden>)")
+    }
+}
+
+/// Whether a 401 to a request that carried `sent` has a new token to try
+/// once more: the source renews, unless it already has since.
+async fn renewed_after(http: &Http, sent: Option<&Sent>) -> bool {
+    match (&http.token, sent) {
+        (Some(source), Some(sent)) => source.refused(sent.0.as_str()).await,
+        _ => false,
     }
 }
 
@@ -1293,9 +1478,35 @@ impl Http {
 async fn exchange(shared: Arc<Shared>, msg: Value, carries: Option<i64>) {
     let initialize = msg.get("method").and_then(Value::as_str) == Some("initialize");
     let mut again = true;
+    let mut renewed = false;
     loop {
-        match post(&shared, &msg, carries).await {
+        let mut sent = None;
+        match post(&shared, &msg, carries, &mut sent).await {
             Ok(()) => return,
+            Err(Error::Http {
+                status: 401,
+                body,
+                challenge,
+            }) if !renewed => {
+                // A signed-in server refused this request's token: renewed
+                // once, and the message goes again.
+                renewed = true;
+                let http = shared.http.as_ref().expect("an HTTP connection");
+                if !renewed_after(http, sent.as_ref()).await {
+                    let e = shared.guard(Error::Http {
+                        status: 401,
+                        body,
+                        challenge,
+                    });
+                    match carries {
+                        Some(id) => shared.fail(id, e),
+                        None => {
+                            tracing::warn!(error = %e, "mcp: a message to the server was not delivered")
+                        }
+                    }
+                    return;
+                }
+            }
             Err(Error::SessionExpired(old)) if !initialize && again => {
                 again = false;
                 if let Err(e) = reinitialize(&shared, &old).await {
@@ -1306,6 +1517,7 @@ async fn exchange(shared: Arc<Shared>, msg: Value, carries: Option<i64>) {
                 }
             }
             Err(e) => {
+                let e = shared.guard(e);
                 match carries {
                     Some(id) => shared.fail(id, e),
                     None => {
@@ -1341,8 +1553,14 @@ async fn reinitialize(shared: &Arc<Shared>, expired: &str) -> Result<(), Error> 
 }
 
 /// POST one message. Its answer, and whatever comes with it, is
-/// dispatched; `carries`' waiter fails if none comes.
-async fn post(shared: &Arc<Shared>, msg: &Value, carries: Option<i64>) -> Result<(), Error> {
+/// dispatched; `carries`' waiter fails if none comes. `sent` is given the
+/// signed-in token this request carried.
+async fn post(
+    shared: &Arc<Shared>,
+    msg: &Value,
+    carries: Option<i64>,
+    sent: &mut Option<Sent>,
+) -> Result<(), Error> {
     let http = shared.http.as_ref().expect("an HTTP connection");
     let initialize = msg.get("method").and_then(Value::as_str) == Some("initialize");
     let session = http.session();
@@ -1350,14 +1568,15 @@ async fn post(shared: &Arc<Shared>, msg: &Value, carries: Option<i64>) -> Result
         // A new `initialize` is running, or one was interrupted.
         return Err(Error::SessionExpired(String::new()));
     }
-    let resp = http
-        .build(reqwest::Method::POST, initialize)
+    let (req, carried) = http.build(reqwest::Method::POST, initialize).await?;
+    *sent = carried;
+    let resp = req
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "application/json, text/event-stream")
         .body(msg.to_string())
         .send()
         .await
-        .map_err(send_error)?;
+        .map_err(|e| http.send_error(e))?;
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND && !initialize {
         if let Some(s) = session {
@@ -1381,10 +1600,29 @@ async fn post(shared: &Arc<Shared>, msg: &Value, carries: Option<i64>) -> Result
         };
     }
     if !status.is_success() {
+        let challenge = match status.as_u16() {
+            401 | 403 => resp
+                .headers()
+                .get(reqwest::header::WWW_AUTHENTICATE)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| WwwAuthenticate::new(jsonrpc::clip(v, 2000))),
+            _ => None,
+        };
         let body = read_body(resp, 2000).await.unwrap_or_default();
+        let body = match http.token.is_some() {
+            // A signed-in server's refusal is said by its standard code
+            // alone: never its own words (issue 55).
+            true => serde_json::from_slice::<Value>(&body)
+                .ok()
+                .and_then(|v| v["error"].as_str().and_then(crate::oauth::standard_code))
+                .map(|c| json!({ "error": c }).to_string())
+                .unwrap_or_default(),
+            false => jsonrpc::clip(String::from_utf8_lossy(&body).trim(), 500),
+        };
         return Err(Error::Http {
             status: status.as_u16(),
-            body: jsonrpc::clip(String::from_utf8_lossy(&body).trim(), 500),
+            body,
+            challenge,
         });
     }
     let kind = content_type(&resp);
@@ -1483,16 +1721,26 @@ async fn resume(
     }
 }
 
-/// A GET on the endpoint: the server's own stream, or a resumed one.
+/// A GET on the endpoint: the server's own stream, or a resumed one. A
+/// signed-in server's 401 renews its token once, as a POST's does.
 async fn get(shared: &Shared, last_event_id: Option<&str>) -> Result<reqwest::Response, Error> {
     let http = shared.http.as_ref().expect("an HTTP connection");
-    let mut req = http
-        .build(reqwest::Method::GET, false)
-        .header(ACCEPT, "text/event-stream");
-    if let Some(id) = last_event_id {
-        req = req.header("last-event-id", id);
+    let mut renewed = false;
+    loop {
+        let (req, sent) = http.build(reqwest::Method::GET, false).await?;
+        let mut req = req.header(ACCEPT, "text/event-stream");
+        if let Some(id) = last_event_id {
+            req = req.header("last-event-id", id);
+        }
+        let resp = req.send().await.map_err(|e| http.send_error(e))?;
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED && !renewed {
+            renewed = true;
+            if renewed_after(http, sent.as_ref()).await {
+                continue;
+            }
+        }
+        return Ok(resp);
     }
-    req.send().await.map_err(send_error)
 }
 
 /// Read a stream's events into `dispatch`, until it ends, fails, the
@@ -1588,8 +1836,11 @@ async fn delete_session(shared: &Shared) {
     if http.session().is_none() {
         return;
     }
-    let req = http.build(reqwest::Method::DELETE, false).send();
-    let _ = tokio::time::timeout(Duration::from_secs(5), req).await;
+    // A lost sign-in sends nothing, and renews nothing.
+    let Ok((req, _)) = http.build(reqwest::Method::DELETE, false).await else {
+        return;
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(5), req.send()).await;
 }
 
 fn content_type(r: &reqwest::Response) -> String {
@@ -1616,6 +1867,49 @@ async fn read_body(resp: reqwest::Response, max: usize) -> Result<Vec<u8>, Error
 }
 
 /// A failed send: nothing went out if it never connected.
+/// The client of a server with a fixed key or none: as it always was.
+fn plain_client(url: &reqwest::Url, connect_timeout: Duration) -> Result<reqwest::Client, Error> {
+    let mut builder = reqwest::Client::builder().connect_timeout(connect_timeout);
+    let loopback = url.host_str().is_some_and(|h| {
+        let h = h.trim_start_matches('[').trim_end_matches(']');
+        h.eq_ignore_ascii_case("localhost")
+            || h.parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    if loopback {
+        // A proxy from the environment never sees a loopback server.
+        builder = builder.no_proxy();
+    }
+    builder
+        .build()
+        .map_err(|e| Error::Unreachable(format!("the HTTP client: {}", chain(&e))))
+}
+
+/// The client of a server that signs in (issue 55), by the daemon's `rule`:
+/// its address checked as written (https, a public host); every new
+/// connection resolved by the rule's checking resolver and made to the very
+/// answer it checked; no proxy; no redirect, so its token goes to this
+/// address alone. One that cannot be built is a refusal, never a client
+/// with fewer limits.
+fn signed_client(
+    url: &reqwest::Url,
+    rule: &crate::oauth::Rule,
+    connect_timeout: Duration,
+) -> Result<reqwest::Client, Error> {
+    if let Some(why) = rule.refuses(url) {
+        return Err(Error::Unreachable(format!(
+            "its address {why}, so it was not reached: nothing was sent"
+        )));
+    }
+    reqwest::Client::builder()
+        .connect_timeout(connect_timeout)
+        .no_proxy()
+        .dns_resolver(rule.resolver())
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| Error::Unreachable("its HTTP client could not start: nothing was sent".into()))
+}
+
 fn send_error(e: reqwest::Error) -> Error {
     let connect = e.is_connect() || e.is_builder();
     let why = chain(&e.without_url());

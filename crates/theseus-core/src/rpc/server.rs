@@ -423,11 +423,13 @@ impl Core {
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),
             m @ (method::EXTEND_LIST | method::EXTENSION_REVOKE) => self.rpc_ext(m, params, conn),
             method::MCP_RESTART => reply(self.mcp_restart(parse(params)?)?),
+            m @ (method::MCP_LOGIN_BEGIN | method::MCP_LOGIN_FINISH | method::MCP_LOGOUT) => {
+                self.rpc_mcp_login(m, params, conn).await
+            }
             method::MCP_PROMPT_LIST => reply(self.mcp_prompt_list(params)?),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.
-            method::AWS_BOOTSTRAP => reply(self.aws_bootstrap(parse(params)?, conn).await?),
-            method::AWS_CONFIRM_ALERTS => {
-                reply(self.aws_confirm_alerts(parse(params)?, conn).await?)
+            m @ (method::AWS_BOOTSTRAP | method::AWS_CONFIRM_ALERTS) => {
+                self.rpc_aws(m, params, conn).await
             }
             // The loops wake once the answer is written (`serve_connection`).
             method::SHUTDOWN => reply(self.stopping()),
@@ -449,6 +451,21 @@ impl Core {
                 .await
                 .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))??,
         )
+    }
+
+    /// AWS's bootstrap and its alerts' confirmation (C2), from one arm of
+    /// `dispatch`, which stays within clippy's complexity that way (the shape
+    /// budget): each awaited arm counts, and the MCP sign-in's arm is one.
+    async fn rpc_aws(
+        &self,
+        name: &str,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        match name {
+            method::AWS_BOOTSTRAP => reply(self.aws_bootstrap(parse(params)?, conn).await?),
+            _ => reply(self.aws_confirm_alerts(parse(params)?, conn).await?),
+        }
     }
 
     /// 43a's list and 43b's revoke, from one arm of `dispatch`, which stays

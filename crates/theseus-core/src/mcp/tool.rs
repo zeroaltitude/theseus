@@ -61,10 +61,18 @@ pub struct McpTool {
     pub wire: String,
     pub description: String,
     read: bool,
+    /// The daemon's secrets: what a server that signs in answers is masked
+    /// by them where the core takes it (issue 55).
+    secrets: Arc<crate::secrets::SecretBoard>,
 }
 
 impl McpTool {
-    pub(super) fn new(server: Arc<Server>, listed: Listed, wire: String) -> Self {
+    pub(super) fn new(
+        server: Arc<Server>,
+        listed: Listed,
+        wire: String,
+        secrets: Arc<crate::secrets::SecretBoard>,
+    ) -> Self {
         let canonical = theseus_mcp::names::canonical(&server.name, &listed.name);
         let mut description = listed
             .description
@@ -80,6 +88,7 @@ impl McpTool {
             wire,
             description,
             read,
+            secrets,
         }
     }
 
@@ -208,6 +217,16 @@ impl Tool for McpTool {
         let canonical = self.canonical.clone();
         let args = input.clone();
         let (wait, timeout) = (self.start_wait(), self.call_timeout());
+        // A server that signs in knows its token, and may write it in what it
+        // answers: every value the daemon keeps is masked here, where the core
+        // takes the answer, before it is a failure, an output, a fact or a
+        // line of a log. A result's words stay the server's own otherwise.
+        let mask = self
+            .server
+            .cfg
+            .oauth
+            .is_some()
+            .then(|| crate::scrub::Scrubber::from_board(self.secrets.clone()));
         Box::pin(async move {
             let external = server.cfg.external.then(|| External {
                 url: canonical.clone(),
@@ -230,7 +249,10 @@ impl Tool for McpTool {
             let ms = started.elapsed().as_millis() as u64;
             match r {
                 Ok(r) => {
-                    let text = r.text_for_model();
+                    let text = match &mask {
+                        Some(m) => m.scrub(&r.text_for_model()).0,
+                        None => r.text_for_model(),
+                    };
                     let meta = json!({"server": server.name, "tool": name, "mcp_ms": ms,
                         "is_error": r.is_error});
                     if r.is_error {

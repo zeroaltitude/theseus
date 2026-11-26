@@ -1186,6 +1186,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   built-ins, in private places only, and a turn's request spec fixes its tools, so a `list_changed` applies at the
   next turn (`mcp.tools_changed`, and an operator notice). Facts in `fact/mcp.rs`; tests in `mcp/tests.rs` (an
   in-process fake through a `Connect` stand-in, the backoff on the paused clock) and theseusd's `tests/mcp.rs`.
+  A server that signs in (issue 55; `oauth` in its table): `mcp/oauth.rs` keeps what its sign-in gave in
+  `<store>/mcp-oauth/<name>.json` (0600, written whole, inside the store directory the floor holds), holds each value
+  on the secret board for the scrubber, and is the client's `TokenSource` (renewed before it runs out and once on a
+  401, under one lock with the file; a loss gives no token until a new sign-in); `mcp/sign_in.rs` is `theseus mcp
+  login`/`logout` (`rpc/mcp_login.rs`, admitted from the CLI's surface alone, as `google.auth.*` are: the surface,
+  the CLI's refusal inside a job, and L1's hidden socket stop a job; an L0 process that reaches the socket is not
+  stopped). Every address a server names, and a signed-in server's own connection (`Key::rule` into
+  `HttpTarget::rule`), is reached by the web fetch's rule (`web::net`: public addresses, `https` alone; `oauth::rule`,
+  whose loopback form only tests build); a fixed-key or keyless server keeps its client. A credential is taken only if
+  the scrubber keeps it from view (`scrub::protectable`, the one test). A signed-in server's tool results are masked by
+  the scrubber where the core takes them (`mcp/tool.rs`); changed tool names are scrubbed at their log, fact, notice. Never signed in, or its refresh refused for good, a
+  server is `needs sign-in`: not a crash, not retried, told once (`attached.rs`) when it was lost. Tests:
+  `mcp/tests/oauth.rs`, `mcp/tests/oauth_hostile.rs`, `mcp/tests_oauth_kept.rs`.
   **Prompts** (36c, `mcp/prompts.rs`): each server's `prompts/list` is kept with a digest per definition and stored
   as META `mcp.prompts.<server>` (no format bump: a new key), listed again on `prompts/list_changed`; `mcp.prompt.list`
   reads it, and `mcp.list` carries it. `turn.submit { prompt }` resolves the prompt first (`McpBoard::resolve_prompt`:
