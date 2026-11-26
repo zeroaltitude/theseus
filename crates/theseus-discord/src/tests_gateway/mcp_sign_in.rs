@@ -1,7 +1,8 @@
 //! Signing in to an MCP server from Discord (issue 59), through the fake gateway: the offer
 //! card reaches the owner's DM with Sign in and Sign out; a form's address goes to the daemon's
 //! finish and is in no exit (a reply, a post, a ledger row, the outbox, the log at trace level);
-//! a form from someone else or from a shared channel is refused in fixed words; Sign out answers
+//! a form from a shared channel is refused in fixed words, and one from someone else signs nothing
+//! in; Sign out answers
 //! in fixed words. The successful sign-in itself is the core's test (`mcp/tests/discord_login.rs`):
 //! a daemon outside its own tests reaches only a public `https` issuer, so it cannot be run here
 //! without the network.
@@ -141,8 +142,6 @@ async fn the_offer_the_form_and_sign_out_say_fixed_words_and_the_address_is_in_n
             None,
         )
         .unwrap();
-    r.until("ben is refused", || told(&r, &from_ben, NOT_HERE))
-        .await;
     let from_lab = r
         .fake
         .modal(&Modal {
@@ -157,6 +156,16 @@ async fn the_offer_the_form_and_sign_out_say_fixed_words_and_the_address_is_in_n
         told(&r, &from_lab, NOT_HERE)
     })
     .await;
+    // Ben's direct messages are no place of this binding: his form signs nothing in, and the
+    // daemon judges any that reaches it (`mcp/tests/discord_login.rs`).
+    assert!(
+        r.fake
+            .replies()
+            .iter()
+            .all(|x| x.interaction.as_deref() != Some(from_ben.as_str())
+                || x.content.as_deref().is_none_or(|c| !c.starts_with("✅"))),
+        "ben signed in"
+    );
 
     // Every exit: the replies, every post, every ledger row, the outbox, the log.
     let replies = serde_json::to_string(&r.fake.replies()).unwrap();
