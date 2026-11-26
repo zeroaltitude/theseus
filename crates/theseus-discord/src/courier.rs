@@ -843,8 +843,7 @@ impl Lane {
         if notices.is_some() {
             self.notices_ok();
         }
-        let mut extra = plan.extra;
-        self.mark_folded(a, &mut extra);
+        let mut extra = self.mark_folded(a, plan.extra);
         extra["ms"] = json!(t0.elapsed().as_millis() as u64);
         if resend {
             extra["resent"] = json!(true);

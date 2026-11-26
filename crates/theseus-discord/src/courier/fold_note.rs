@@ -121,14 +121,15 @@ impl Lane {
         wrote
     }
 
-    /// Post `a`'s detail gains where it was written folded, if it was.
-    pub(super) fn mark_folded(&mut self, a: &Action, detail: &mut Value) {
+    /// Post `a`'s detail, with where it was written folded, if it was.
+    pub(super) fn mark_folded(&mut self, a: &Action, mut detail: Value) -> Value {
         match self.note_folded.take() {
             Some((post, (c, m))) if post == a.correlation_id => {
                 detail[MARK] = json!({"channel": c.to_string(), "id": m.to_string()});
             }
             _ => {}
         }
+        detail
     }
 
     /// A folded note pressed: its words, or its line again, on the message
