@@ -142,3 +142,23 @@ async fn an_old_fork_of_a_role_less_session_is_given_no_role() {
     assert!(c.runner.view_of(&fork).offered("fs.write", &[]));
     assert_eq!(verb(c, &fork), Ok(()));
 }
+
+/// A role kept while a read of it was out (a reviewer's, written as the read found none) is newer than the read:
+/// the read answers it and keeps it, and the session is offered the reviewer's tools, not an ordinary place's.
+#[tokio::test]
+async fn a_role_kept_while_a_read_is_out_is_not_overwritten_by_the_read() {
+    let r = rig();
+    let c = &r.core;
+    let s = self_session(c, None);
+    c.tools.self_pr.forget_roles();
+    let (late, sid) = (c.clone(), s.clone());
+    crate::rsi::pr::tests_role_race::set(move || {
+        late.tools.self_pr.set_role(&sid, Role::Reviewer).unwrap();
+    });
+    let read = c.tools.self_pr.role_in(&c.store, &s).unwrap();
+    assert_eq!(read, Some(Role::Reviewer), "the read answers the newer role");
+    let kept = c.tools.self_pr.role_in(&c.store, &s).unwrap();
+    assert_eq!(kept, Some(Role::Reviewer), "and it is the one kept");
+    let view = c.runner.view_of(&s);
+    assert!(!view.offered("fs.write", &[]), "a reviewer's tools");
+}

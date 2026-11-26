@@ -186,20 +186,25 @@ async fn turn(
     target: Target,
     root: Option<&str>,
 ) -> anyhow::Result<(String, TurnSubmitResult)> {
-    let rec = core.open_session_as(
+    // Its role rides in the frame that opens its session (`rsi::roles`), so no reader ever finds the session
+    // without it.
+    let rec = core.open_session_with(
         SessionOpenParams {
             label: Some(label),
             ..SessionOpenParams::default()
         },
-        theseus_kernel::Authority {
-            principal: crate::rsi::SELF_PRINCIPAL.into(),
-            ..Default::default()
-        },
-        None,
+        (
+            theseus_kernel::Authority {
+                principal: crate::rsi::SELF_PRINCIPAL.into(),
+                ..Default::default()
+            },
+            None,
+        ),
+        &|rec| Ok(vec![role.record(&rec.session_id)?]),
     )?;
     let session = rec.session_id.clone();
     let exec = rec.execution_id.clone();
-    core.tools.self_pr.set_role(&session, role)?;
+    core.tools.self_pr.remember_role(&session, role);
     if let Some(slug) = root {
         confine(core, &session, slug);
     }
