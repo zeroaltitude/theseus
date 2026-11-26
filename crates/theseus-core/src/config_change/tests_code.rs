@@ -613,9 +613,9 @@ async fn the_five_cut_from_g3_keep_mains_code() {
         ),
         (
             with_account_secrets(&format!(
-                "{ACCOUNT}{OWNER_ROLE}durability = true\ndeployment = \"a\"\n"
+                "{ACCOUNT}{OWNER_ROLE}durability = true\ndeployment = \"theseus-a\"\n"
             )),
-            change("aws.accounts.111122223333.deployment", json!("b")),
+            change("aws.accounts.111122223333.deployment", json!("theseus-b")),
         ),
         (
             with_account_secrets(ACCOUNT),

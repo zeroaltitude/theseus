@@ -349,8 +349,8 @@ mod tests {
             ("", "durability = true\n"),
             ("durability = true\n", "durability = false\n"),
             (
-                "durability = true\ndeployment = \"a\"\n",
-                "durability = true\ndeployment = \"b\"\n",
+                "durability = true\ndeployment = \"theseus-a\"\n",
+                "durability = true\ndeployment = \"theseus-b\"\n",
             ),
         ] {
             real(&[
