@@ -178,13 +178,6 @@ pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> Stri
          record, and Theseus cannot take it back (rotate it at its provider, then give the new \
          one where it is typed).\n",
     );
-    out.push_str(match t.replaces() {
-        true => "It needs a fresh code from your authenticator app, every time.\n",
-        false => {
-            "It needs your second proof (a code from your authenticator app, unless one \
-                  given here earlier still covers this place).\n"
-        }
-    });
     out.push_str(&card::care_lines(outside, steered));
     let why = card::reason_line(purpose);
     if !why.is_empty() {
@@ -271,10 +264,9 @@ pub async fn run(
             t.title, t.vault, t.vault, t.title, t.field
         ));
     }
-    let needs = match t.replaces() {
-        true => proof_seam::Needs::Fresh,
-        false => proof_seam::Needs::Proof,
-    };
+    // The card is the form the value is given in; it takes no second proof, for a new item or a
+    // replaced value alike (the owner, 2026-11-25: "the form to ask for it, yes, the 2fa, no").
+    let needs = proof_seam::Needs::Card;
     let (outside, steered) = outside_text(tc);
     let q = question(&t, outside, steered, &purpose);
     let proposal = Proposal {
@@ -283,7 +275,7 @@ pub async fn run(
             "question": q,
             "settled": settled(&t),
             ARG: t.args(),
-            "needs_fresh_proof": t.replaces(),
+            "needs_fresh_proof": false,
             "reason": purpose,
             "outside_text": outside || steered,
             "asked_by": {
@@ -315,7 +307,7 @@ impl Tool for VaultKeep {
          the card's own field or at a hidden prompt in their terminal, and Theseus writes it with its own account. \
          If someone pastes a secret into chat, say it is now with the provider and in Theseus's record, to be \
          rotated, and ask for the new one by this tool. Shows ONE card that says whether it makes an item, adds a \
-         field or REPLACES a value (a replace needs a fresh code); an item Theseus's own settings read is not \
+         field or REPLACES a value; an item Theseus's own settings read is not \
          replaced by a turn. When it is kept, use it by its name with `vault.use`. Offered only to the owner, in a \
          private place."
     }

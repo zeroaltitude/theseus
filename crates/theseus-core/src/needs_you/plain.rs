@@ -204,17 +204,26 @@ pub fn risk_of(req: &ConfirmRequest) -> &'static str {
         "git.show",
         "self.evidence",
         "self.open_work",
+        "config.show",
+        "look.theseus",
+        "look.vault",
+        "look.work",
     ]
     .contains(&t)
     {
         "read-only"
+    } else if t == crate::profile_tool::ASK {
+        // One priced model call: it changes nothing, and it is paid for.
+        "spends"
     } else {
         "writes"
     }
 }
 
 /// The clause a rule gives for asking: the text of the reason's last
-/// `— approve (…)`, any `§` reference cut. None when the owner's own posture
+/// `— approve (…)`, any `§` reference cut, and no "layer 1:" before a hold's
+/// words (`config_change::hold_words`), which is the gate's name and not the
+/// owner's. None when the owner's own posture
 /// asks (`enforcement = approve`, a `[policy.…]` setting, a tightening) or the
 /// reason says nothing: those need no clause. The one reading of a reason that
 /// every surface shares (the Discord card's `why it asks`, the plain words).
@@ -229,9 +238,28 @@ pub fn rule_clause(reason: &str) -> Option<String> {
     let clause = words.join(" ");
     let clause =
         clause.trim_matches(|c: char| c == ',' || c == ';' || c == ':' || c.is_whitespace());
+    let clause = match clause.strip_prefix("layer 1: ") {
+        Some(said) if crate::config_change::is_hold_words(said) => said,
+        _ => clause,
+    };
     let posture = ["enforcement = approve", "[policy.", "tightened by"];
     (!clause.is_empty() && !posture.iter().any(|p| clause.starts_with(p)))
         .then(|| clause.to_string())
+}
+
+/// The rule's clause as a card for `req` says it: [`rule_clause`], and for a
+/// held look whose card offers "Approve and clear" (issue 54), without the way
+/// to clear the flag, which that answer does.
+pub fn card_clause(req: &ConfirmRequest) -> Option<String> {
+    let clause = rule_clause(&req.reason)?;
+    let clears = req
+        .grant_offer
+        .as_ref()
+        .is_some_and(|o| o.kind == theseus_protocol::grants::KIND_CLEAR);
+    Some(match clears {
+        true => crate::config_change::without_way(&clause).to_string(),
+        false => clause,
+    })
 }
 
 /// Why the gate holds the call, in words: the floor, the rule's own clause,
@@ -252,7 +280,7 @@ fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
 fn clause_of(req: &ConfirmRequest) -> Option<String> {
     match req.tool == crate::config_change::ACK {
         true => None,
-        false => rule_clause(&req.reason),
+        false => card_clause(req),
     }
 }
 

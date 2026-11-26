@@ -40,3 +40,21 @@ async fn e_takes_the_plans_offer_and_a_is_the_filter_without_one() {
         [json!({"question_id": "cor_spec01", "option": "approve_grant", "author": "the TUI"})]
     );
 }
+
+/// A held look's other yes (issue 54): its line says what clearing does, and `a` approves and
+/// takes it, through the same `approve_grant`.
+#[tokio::test]
+async fn a_takes_a_held_looks_clear() {
+    let world = offering(GrantOffer::clear(true));
+    NOW.with(|n| n.set(T0 + 98_000));
+    let mut rig = Rig::new(120, 20, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab]).await;
+    rig.shows("[a] approve, and clear the injection flag").await;
+    rig.press(&[KeyCode::Char('a')]).await;
+    rig.asked("work.answer", 1).await;
+    assert_eq!(
+        rig.daemon().asked("work.answer"),
+        [json!({"question_id": "cor_spec01", "option": "approve_grant", "author": "the TUI"})]
+    );
+}

@@ -45,7 +45,7 @@ fn detail(req: &ConfirmRequest) -> String {
 fn why_it_asks(req: &ConfirmRequest, p: &PlainWords) -> String {
     match req.floor {
         true => p.held.clone(),
-        false => rule_clause(&req.reason),
+        false => rule_clause(req),
     }
 }
 
@@ -53,10 +53,27 @@ fn why_it_asks(req: &ConfirmRequest, p: &PlainWords) -> String {
 /// owner-approved words; any other rule says its own clause, which the core reads from the reason
 /// (`needs_you::rule_clause`, so every surface says the same), so the card never gives a
 /// false reason.
-fn rule_clause(reason: &str) -> String {
+fn rule_clause(req: &ConfirmRequest) -> String {
     const POSTURE: &str = "you set this kind of call to ask first";
-    theseus_core::needs_you::rule_clause(reason)
+    theseus_core::needs_you::card_clause(req)
         .map_or_else(|| POSTURE.into(), |c| clip_middle(&c, 200))
+}
+
+/// What the card's third answer does, when it offers one that clears a hold (issue 54).
+fn clear_clause(req: &ConfirmRequest) -> String {
+    match &req.grant_offer {
+        Some(o) if o.kind == theseus_protocol::grants::KIND_CLEAR => format!(
+            "**{}** runs it and {} · ",
+            o.button(),
+            match o.pattern.as_str() {
+                theseus_protocol::grants::CLEAR_FLAG => {
+                    "clears the flag (what it flagged stays here)"
+                }
+                _ => "stops asking until this conversation reads outside text again",
+            }
+        ),
+        _ => String::new(),
+    }
 }
 
 /// The card for a request that carries its plain words.
@@ -93,9 +110,10 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
     };
     let content = format!(
         "{open}{line}\nrisk: {risk} · why it asks: {}{}\n**Approve** runs this one call · \
-         **Decline** refuses it; {who} is told and carries on{}\n-# {place}{}{or}",
+         {}**Decline** refuses it; {who} is told and carries on{}\n-# {place}{}{or}",
         why_it_asks(req, p),
         preview::hunk(req),
+        clear_clause(req),
         proof_clause(req),
         super::heldquestion::footer_clause(req)
     );

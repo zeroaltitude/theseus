@@ -24,8 +24,9 @@ use super::{Lane, SendErr, Write, BACKOFF_MAX};
 
 /// The post kinds whose producers write an FYI that answers no conversation:
 /// the ontology's mint, Jev's pause, a daemon notice, a restart, the disk
-/// coming back, an MCP change, the self notes of a join, and a note of an
-/// act done unasked with its Undo (issue 57). A post of any
+/// coming back, an MCP change, the self notes of a join, a note of an
+/// act done unasked with its Undo (issue 57), and the injection flag's
+/// notice under `notify`, which refuses nothing (issue 54). A post of any
 /// other kind keeps the DM whatever its words say.
 pub(super) const INFORMING: &[&str] = &[
     "onto_card",
@@ -37,6 +38,7 @@ pub(super) const INFORMING: &[&str] = &[
     "mcp_prompt_changed",
     "self_join",
     "told",
+    "content_flag",
 ];
 
 /// Whether a post of `kind` whose finished words are `content` only informs
@@ -84,6 +86,15 @@ impl Lane {
             return dm;
         }
         self.shared.place_bits.notify_place().unwrap_or(dm)
+    }
+
+    /// Whether the notices place, when one is bound instead of the place `here`, is private by the
+    /// rule a press is judged by: there, the owner's press counts. None bound is private enough:
+    /// the post stays `here`.
+    pub(super) fn notices_private(&self, here: u64, target: &str) -> bool {
+        let to = self.notices_place((here, target.to_string()));
+        // The place's own target, by its channel: the second half is a label for some sources.
+        to.0 == here || self.shared.is_private(&format!("discord:channel:{}", to.0))
     }
 
     /// Where an operator post whose words are `content` goes: the notices

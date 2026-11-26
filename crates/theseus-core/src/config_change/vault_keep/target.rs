@@ -91,13 +91,26 @@ impl Target {
 }
 
 /// What reads from the vault in Theseus's own settings: each `[secrets]` entry
-/// that is a vault reference, and the settings note's.
+/// that is a vault reference, in the settings running and in the file as
+/// written, and the settings note's.
 pub fn readers(core: &crate::Core) -> Vec<String> {
     let note = core.config_gate.reference();
+    // The settings file as written, too: a use written there but not live until the next start
+    // is read then (issue 54).
+    let written: Vec<String> = core
+        .tools
+        .config_change
+        .file
+        .as_ref()
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .and_then(|t| crate::Config::parse(&t).ok())
+        .map(|(c, _)| c.secrets.into_values().collect())
+        .unwrap_or_default();
     core.cfg
         .secrets
         .values()
         .cloned()
+        .chain(written)
         .chain(Some(note))
         .filter(|r| Source::of(r) == Source::Vault && r.starts_with("op://"))
         .collect()

@@ -115,9 +115,17 @@ impl Core {
         };
         let mut cards = Vec::new();
         let mut blocked = None;
-        for (question_id, t, fresh) in found {
-            let standing = self.proofs.standing(&place, fresh);
-            if standing.not_enrolled && blocked.is_none() {
+        for (question_id, t, mark) in found {
+            // A card asked with no mark takes no code (issue 54): nothing is asked for one, and
+            // no authenticator need be paired.
+            let (code_needed, not_enrolled) = match mark {
+                Some(fresh) => {
+                    let standing = self.proofs.standing(&place, fresh);
+                    (standing.code_needed, standing.not_enrolled)
+                }
+                None => (false, false),
+            };
+            if not_enrolled && blocked.is_none() {
                 blocked = Some(NOT_ENROLLED.to_string());
             }
             cards.push(KeepCard {
@@ -126,7 +134,7 @@ impl Core {
                 title: t.title.clone(),
                 field: t.field.clone(),
                 state: t.state.as_str().into(),
-                code_needed: standing.code_needed,
+                code_needed,
                 heading: heading(&t),
             });
             // The account's permission is asked now, for the one card a prompt would answer.
@@ -160,18 +168,18 @@ impl Core {
     }
 
     /// What a prompt could answer: the cards that wait (those the terminal named, when it
-    /// named one), or the target typed in the command; each with whether a fresh code is
-    /// always asked. Or the class and words of why the target could not be had.
+    /// named one), or the target typed in the command; each with its proof mark (none
+    /// for a card that asks no code; `true` for a fresh code). Or the class and words of why the target could not be had.
     async fn keep_found(
         self: &Arc<Self>,
         p: &VaultKeepWaitingParams,
-    ) -> Result<Vec<(Option<String>, Target, bool)>, (&'static str, RpcFailure)> {
-        let mut found: Vec<(Option<String>, Target, bool)> = Vec::new();
+    ) -> Result<Vec<(Option<String>, Target, Option<bool>)>, (&'static str, RpcFailure)> {
+        let mut found: Vec<(Option<String>, Target, Option<bool>)> = Vec::new();
         if let (Some(vault), Some(title), Some(field)) = (&p.vault, &p.title, &p.field) {
             // A keep with no card: always a fresh code.
             let reader = self.keep_reader().map_err(|f| ("no_vault", f))?;
             match target::resolve(&reader, &target::readers(self), (vault, title, field)).await {
-                Ok(t) => found.push((None, t, true)),
+                Ok(t) => found.push((None, t, Some(true))),
                 Err(why) => {
                     let class = match why.starts_with(target::CANNOT_WRITE) {
                         true => "not_writable",
@@ -204,7 +212,8 @@ impl Core {
             else {
                 continue;
             };
-            found.push((Some(a.correlation_id.clone()), t.clone(), t.replaces()));
+            let mark = crate::owner_proof::marked(&self.store, &a.correlation_id);
+            found.push((Some(a.correlation_id.clone()), t.clone(), mark));
         }
         Ok(found)
     }
