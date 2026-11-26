@@ -1,12 +1,21 @@
 //! A note that tells the owner of an act Theseus did without asking, with its
 //! **Undo** (issue 57). One helper, [`stage`], used by every act that stopped
 //! asking: an FYI to the operator in the caller's plain words, carrying an
-//! [`Undo`], a call the core already has. The note's text ends with the
-//! command that undoes it, so every surface shows the way back; on Discord it
-//! also carries an Undo button whose press is `told.undo` as the presser
-//! (`rpc/told.rs`): one act, the owner from a private place, whatever the
-//! undo calls underneath. The core keeps the note (its post) and whether it
-//! was undone, so a press works after a restart and counts once.
+//! [`Undo`]. The note is an operator post: Discord delivers it (to the
+//! notices place when one is bound, else the owner's DM), with an Undo
+//! button; other surfaces show it only where they already show operator
+//! posts, and today none of them reads a told note's words. Its text ends
+//! with the command that undoes it, so wherever the words are read they
+//! carry the way back.
+//!
+//! The press is `told.undo` as the presser (`rpc/told.rs`): one act, whatever
+//! the undo calls underneath, judged by the general rule, the owner from a
+//! private place as the daemon judges it. A local process on the owner's
+//! socket counts as the owner's terminal, as for every owner-only command, so
+//! a counted undo is not proof of a human press. The core keeps the note (its
+//! post) and whether it was undone, so a press works after a restart and
+//! counts once. The stored words stay as written: every send and edit masks
+//! them at the exit.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -45,6 +54,11 @@ pub enum Undo {
     /// method of its own; `told.undo` runs it in the core.
     #[serde(rename = "vault.use.undo")]
     VaultUseUndo(u32),
+    /// An undo with no method of its own, for the tests: its arm in
+    /// `rpc::told` counts the times it ran.
+    #[cfg(test)]
+    #[serde(rename = "test.probe")]
+    Probe(String),
 }
 
 impl Undo {
@@ -57,6 +71,8 @@ impl Undo {
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
             Undo::VaultUseUndo(_) => method::TOLD_UNDO,
+            #[cfg(test)]
+            Undo::Probe(_) => method::TOLD_UNDO,
         }
     }
 
@@ -70,20 +86,43 @@ impl Undo {
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
             Undo::VaultUseUndo(n) => json!({"id": n, "author": author}),
+            #[cfg(test)]
+            Undo::Probe(id) => json!({"id": id, "author": author}),
         }
     }
 
-    /// The command that does the same from a shell.
+    /// The command that does the same from a shell. An undo with no method
+    /// of its own answers [`by_door`]: the note's own `theseus told undo`.
     pub fn command(&self) -> String {
         match self {
             Undo::RoutineDelete(id) => format!("theseus routine rm {id}"),
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-            // No shell command puts a settings change back: the words that ask.
-            Undo::VaultUseUndo(n) => format!("ask Theseus to undo settings change #{n}"),
+            // No method of its own: the door, from a terminal.
+            Undo::VaultUseUndo(_) => by_door(),
+            #[cfg(test)]
+            Undo::Probe(_) => by_door(),
         }
     }
+}
+
+/// Where a note names its own post id. The id is minted when the note is
+/// staged, after its words are written, so the words carry this mark and
+/// every reader of a note fills it ([`filled`]: [`of`], and Discord's send).
+/// The stored words keep the mark.
+pub const THIS_POST: &str = "<this-note>";
+
+/// The command that undoes a note through its own door from a terminal,
+/// `theseus told undo <its post id>`: the `command()` of an undo with no
+/// method of its own.
+pub fn by_door() -> String {
+    format!("theseus told undo {THIS_POST}")
+}
+
+/// A note's words as read: its own post id where they name it.
+pub fn filled(text: &str, post: &str) -> String {
+    text.replace(THIS_POST, post)
 }
 
 /// Stage the note to the operator: `title` (what was done), `by` (which
@@ -118,9 +157,35 @@ pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
     Ok(Some((
-        body["text"].as_str().unwrap_or("").to_string(),
+        filled(body["text"].as_str().unwrap_or(""), post),
         undo,
     )))
+}
+
+/// The note `name` names: its post id, or the end of one no other told
+/// note's id shares. None when no told note has it.
+pub fn resolve(kernel: &Kernel, name: &str) -> Result<Option<String>> {
+    if of(kernel, name)?.is_some() {
+        return Ok(Some(name.to_string()));
+    }
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let all: Vec<String> = kernel
+        .outbox_actions()?
+        .into_iter()
+        .filter(|a| body_of(a)["kind"] == KIND && a.correlation_id.ends_with(name))
+        .map(|a| a.correlation_id)
+        .collect();
+    match all.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        many => anyhow::bail!(
+            "`{name}` ends {} notes' ids ({}): give more of it",
+            many.len(),
+            many.join(", ")
+        ),
+    }
 }
 
 /// Who undid a note, and when.
@@ -149,10 +214,21 @@ pub fn mark_undone(store: &Store, post: &str, by: &str) -> Result<()> {
     Ok(())
 }
 
+/// The note's text without its Undo line.
+fn without_undo(text: &str) -> String {
+    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: `")).collect();
+    kept.join("\n")
+}
+
 /// The note's text once undone: the Undo line goes, a line says who undid it.
 pub fn undone_text(text: &str, by: &str) -> String {
-    let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with("Undo: `")).collect();
-    format!("{}\n↩️ Undone by {by}.", kept.join("\n"))
+    format!("{}\n↩️ Undone by {by}.", without_undo(text))
+}
+
+/// The note's text when its undo's outcome was found already there (an
+/// earlier press got that far): the Undo line goes, a line says what was found.
+pub fn found_text(text: &str, found: &str) -> String {
+    format!("{}\n↩️ Nothing left to undo: {found}.", without_undo(text))
 }
 
 #[cfg(test)]
@@ -216,7 +292,7 @@ mod tests {
             json!({"method": "vault.use.undo", "id": 4})
         );
         assert_eq!(u.params("ana", None), json!({"id": 4, "author": "ana"}));
-        assert_eq!(u.command(), "ask Theseus to undo settings change #4");
+        assert_eq!(u.command(), by_door());
     }
 
     /// A restart: the core gone and its store opened again under a new one.

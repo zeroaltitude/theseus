@@ -1,8 +1,9 @@
 //! A note of an act done unasked, with its Undo (issue 57), through the
-//! stand-in's gateway: the note is the core's words with one Undo button whose
-//! id is the post's; the owner's press in her DM is the undo's own method as
-//! hers, once, and the note then says it was undone; a guest's press, and the
-//! owner's in a shared place, undo nothing, and a second press calls nothing.
+//! stand-in's gateway: the note is the core's words, masked at the exit, with
+//! one Undo button whose id is the post's; the owner's press in her DM is
+//! `told.undo` as hers, once, and the note then says it was undone; a guest's
+//! press, and the owner's in a shared place, undo nothing, and a second press
+//! calls nothing.
 
 use std::sync::Arc;
 
@@ -380,4 +381,91 @@ async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() 
     assert!(!listed(&routine), "the routine was deleted");
     assert_eq!(ends(&r, &order), 1, "the order was revoked once");
     assert!(!open(&item), "the item was dropped");
+}
+
+/// The exit's masking holds on every word a note sends: a vault value in the
+/// note's title, its second line and its body reaches Discord in none of the
+/// first send, the edit after the owner's Undo, a repeat press's edit, or any
+/// reply to a presser. The core's stored note keeps the words as written.
+#[tokio::test]
+async fn a_told_notes_send_its_undo_edit_and_its_replies_are_masked() {
+    const SECRET: &str = "fake-token-not-a-secret";
+    let r = rig().await;
+    assert!(r.core.exits.on());
+    let id = wake(&r).await;
+    let (a, frame) = told::stage(
+        &r.core.outbox,
+        None,
+        &format!("Set a reminder about {SECRET}"),
+        &format!("In “{SECRET}”, without asking you"),
+        &format!("It mentions {SECRET}."),
+        &Undo::WakeCancel(id.clone()),
+    )
+    .unwrap();
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+    let post = a.correlation_id;
+    let m = note(&r, &post).await;
+    assert!(m.content.contains("[redacted:"), "{}", m.content);
+    let copy = forge(&r, LAB, &format!("told:undo:{post}")).await;
+    let p = r.press(&copy, "Undo", (BEN, "ben"));
+    told_to(&r, &p, "🔐 Your undo did not count").await;
+    let p = r.press(&m.id, "Undo", (ANA, "ana"));
+    told_to(&r, &p, "↩️ Undone.").await;
+    assert!(!pending(&r, &id), "cancelled");
+    // A repeat press, on a copy still showing the button: the core's answer
+    // edits the copy too, and that edit is masked as well.
+    let again = forge(&r, ANA_DM, &format!("told:undo:{post}")).await;
+    let p = r.press(&again, "Undo", (ANA, "ana"));
+    told_to(&r, &p, "↩️ Already undone by discord:ana").await;
+    for at in [&m.id, &again] {
+        let edited = r.posted(ANA_DM).into_iter().find(|x| x.id == *at).unwrap();
+        assert!(
+            edited.content.contains("\n↩️ Undone by discord:ana."),
+            "{}",
+            edited.content
+        );
+        assert!(edited.content.contains("[redacted:"), "{}", edited.content);
+        assert!(edited.versions.len() >= 2, "{:?}", edited.versions);
+    }
+    for at in [ANA_DM, LAB] {
+        for x in r.posted(at) {
+            assert!(x.versions.iter().all(|v| !v.contains(SECRET)), "{x:?}");
+        }
+    }
+    for x in r.fake.replies() {
+        let c = x.content.unwrap_or_default();
+        assert!(!c.contains(SECRET), "{c}");
+    }
+    let (text, _) = told::of(&r.core.kernel, &post).unwrap().unwrap();
+    assert!(text.contains(SECRET), "the stored note keeps its words");
+}
+
+/// A note that names itself (an undo with no method of its own writes
+/// `told::by_door()`) reaches Discord with its own post id filled in, so
+/// its `theseus told undo` works as written.
+#[tokio::test]
+async fn a_note_naming_itself_reaches_discord_with_its_own_post_id() {
+    let r = rig().await;
+    let id = wake(&r).await;
+    let (a, frame) = told::stage(
+        &r.core.outbox,
+        None,
+        "Theseus took something back",
+        "In “Tides”, without asking you",
+        &format!("Or from a terminal: `{}`", told::by_door()),
+        &Undo::WakeCancel(id),
+    )
+    .unwrap();
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+    let post = a.correlation_id;
+    let m = note(&r, &post).await;
+    assert!(
+        m.content
+            .contains(&format!("Or from a terminal: `theseus told undo {post}`")),
+        "{}",
+        m.content
+    );
+    assert!(!m.content.contains(told::THIS_POST), "{}", m.content);
 }

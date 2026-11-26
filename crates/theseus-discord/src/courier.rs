@@ -1712,7 +1712,10 @@ impl Lane {
             ),
             // An act done unasked, with its Undo (issue 57).
             "told" => (
-                body["text"].as_str().unwrap_or("").to_string(),
+                theseus_core::owner_note::told::filled(
+                    body["text"].as_str().unwrap_or(""),
+                    &a.correlation_id,
+                ),
                 format!("told:{}", a.correlation_id),
                 Buttons::Told(a.correlation_id.clone()),
             ),
