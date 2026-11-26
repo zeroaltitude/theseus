@@ -35,7 +35,9 @@ async fn walk(parent: Vec<Scripted>) -> Rig {
                 (BUOY, [vec![gate(dir)], answers("Buoy painted.")].concat()),
             ]
         },
-        &bindings(true, ""),
+        // Each task's post reads its tool line as a message, as the DM it
+        // takes its words from shows it open (issue 56).
+        &bindings(true, "").replace("name = \"ana\"\n", "name = \"ana\"\nsteps = \"open\"\n"),
         |_| {},
         owners_posture,
     )
