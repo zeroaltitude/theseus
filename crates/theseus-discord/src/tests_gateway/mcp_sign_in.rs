@@ -167,7 +167,12 @@ async fn the_offer_the_form_and_sign_out_say_fixed_words_and_the_address_is_in_n
         "ben signed in"
     );
 
-    // Every exit: the replies, every post, every ledger row, the outbox, the log.
+    in_no_exit(&r, &buf);
+}
+
+/// Neither the code nor the pasted address is in any exit: the replies, every post, every ledger
+/// row, the outbox, or the log at trace level (`buf`).
+fn in_no_exit(r: &Rig, buf: &Arc<Mutex<Vec<u8>>>) {
     let replies = serde_json::to_string(&r.fake.replies()).unwrap();
     let posts: String = [ANA_DM, LAB]
         .iter()
