@@ -27,6 +27,8 @@ mod catchup;
 mod held;
 mod notices;
 mod offer;
+mod press;
+pub(crate) use press::{Press, Told};
 mod recall;
 mod subagent;
 pub(crate) mod v2;
@@ -97,6 +99,8 @@ pub(crate) enum LaneMsg {
     /// The place's board is drawn elsewhere now (the task home stands,
     /// theseus-ysp2k): the one this lane made is removed.
     BoardMoved,
+    /// A press on a turn's fold, checked here first (`press.rs`, issue 56).
+    Press(Box<Press>),
 }
 
 /// Why a call to Discord did not go through.
@@ -368,6 +372,15 @@ pub(crate) struct Lane {
     catchup: catchup::State,
     /// The FYIs waiting on the notices place (`notices.rs`).
     notices: notices::State,
+    /// Presses on its folds, answered after the writes it holds (`press.rs`).
+    presses: Vec<press::Pending>,
+    /// Discord was away since its place last wrote its folds again: once
+    /// every post that waited has gone, the place writes them once more
+    /// (`press.rs`, issue 56).
+    came_back: bool,
+    /// The posts stopped at a card held for its call (`waits_for_its_call`):
+    /// live progress may go on, but the posts have not all gone.
+    card_held: bool,
 }
 
 impl Lane {
@@ -412,6 +425,9 @@ impl Lane {
             v2: v2::State::default(),
             catchup: catchup::State::default(),
             notices: notices::State::default(),
+            presses: Vec::new(),
+            came_back: false,
+            card_held: false,
         }
     }
 
@@ -452,6 +468,7 @@ impl Lane {
                 continue;
             }
             self.retry_at = None;
+            self.presses().await;
             self.v2_tick().await;
             self.drop_stale_board().await;
             // What the place showed before it showed a call goes before the
@@ -461,6 +478,12 @@ impl Lane {
             }
             // The posts first, in order; then the stream.
             if self.deliver_posts().await {
+                // Back from an outage, every post that waited gone (not a
+                // card held for its call, with posts behind it): its place
+                // writes its folds once more (issue 56).
+                if !self.card_held && std::mem::take(&mut self.came_back) {
+                    self.shared.lane_back(&self.target);
+                }
                 self.apply_live().await;
             }
             if self.retires() {
@@ -508,6 +531,7 @@ impl Lane {
                 self.v2.only_if_pinned = true;
             }
             LaneMsg::BoardMoved => self.board_moved(),
+            LaneMsg::Press(p) => self.pressed(press::Pending::of(p)),
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => {
@@ -595,6 +619,8 @@ impl Lane {
         self.live.clear();
         self.live.extend(board);
         self.release();
+        self.refuse_presses();
+        self.came_back = true;
         self.shared.core.outbox.error("discord", e.message.clone());
         if self.attempt == 1 {
             // Once per outage in the ledger; health keeps the latest.
@@ -627,11 +653,13 @@ impl Lane {
                 return false;
             }
             let Some(a) = self.next_post() else {
+                self.card_held = false;
                 return true;
             };
             // It waits, and the posts after it wait behind it; the stream
             // goes on.
             if self.waits_for_its_call(&a) {
+                self.card_held = true;
                 return true;
             }
             match self.deliver(&a).await {
@@ -2034,6 +2062,7 @@ impl Lane {
             Buttons::Sources(session, srcs, offer) => {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
             }
+            Buttons::Fold(f) => crate::runtime::fold::buttons(f),
             Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
         if !comps.is_empty() {
@@ -2115,6 +2144,7 @@ impl Lane {
                 srcs,
                 offer.as_deref(),
             )),
+            Buttons::Fold(f) => Some(crate::runtime::fold::buttons(f)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep | Buttons::V2 => None,
         };

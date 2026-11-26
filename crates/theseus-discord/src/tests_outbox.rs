@@ -25,8 +25,10 @@ const DM: u64 = USER + 1;
 const CHANNEL: u64 = 900_000_000_000_000_001;
 const GUILD: &str = "314159265358979323";
 
+/// The DM shows a turn's steps open, a message a loop, as these tests read
+/// them (issue 56: a place folds them unless it says `steps = "open"`).
 fn dm_only() -> String {
-    format!("guild_id = \"{GUILD}\"\n[[dm]]\nuser = \"{USER}\"\nname = \"zeroaltitude\"\n")
+    format!("guild_id = \"{GUILD}\"\n[[dm]]\nuser = \"{USER}\"\nname = \"zeroaltitude\"\nsteps = \"open\"\n")
 }
 
 /// A core over `dir`, whose binding talks to `fake` and never to Discord.
@@ -895,7 +897,7 @@ async fn a_shared_channels_card_goes_to_the_dm_and_nothing_mentions_anyone() {
         c.policy.tools.insert("wake.at".into(), Posture::Approve);
     });
     let bindings = format!(
-        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"lighthouse\"\nusers = [\"{USER}\", \"{OTHER}\"]\nmention_only = false\n",
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"lighthouse\"\nusers = [\"{USER}\", \"{OTHER}\"]\nmention_only = false\nsteps = \"open\"\n",
         dm_only()
     );
     let rpc = bind(&core, d.path(), &bindings).await;

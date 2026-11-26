@@ -262,7 +262,9 @@ pub(crate) fn of_live(key: &str, owed: bool, content: &str) -> Event {
         } else {
             Event::ReplyPart
         }
-    } else if key.ends_with(":tools") && crate::render::process::holds_thinking(content) {
+    } else if (key.ends_with(":tools") || key.ends_with(crate::render::fold::SUFFIX))
+        && crate::render::process::holds_thinking(content)
+    {
         Event::Thinking
     } else {
         Event::ToolLine
