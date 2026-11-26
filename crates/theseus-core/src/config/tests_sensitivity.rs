@@ -262,7 +262,7 @@ const PROMPT_TEXT: &[&str] = &[
 /// code.
 #[test]
 fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
-    use super::sensitivity::{group, proof_reason, prompt_text, reason, Group};
+    use super::sensitivity::{group, prompt_text, proof_reason, reason, Group};
     let text = super::tests::uncommented(Config::EXAMPLE_TOML);
     let cfg = Config::from_toml(&text).expect("the uncommented template parses");
     let mut all = Vec::new();

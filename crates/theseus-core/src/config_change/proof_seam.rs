@@ -269,7 +269,10 @@ mod tests {
         let aws = format!("{base}\n[aws.accounts.111122223333]\nregion = \"us-west-2\"\n");
         real(&[&aws]);
         let s = between(base, &aws);
-        assert!(!s.is_empty() && s.iter().all(|s| s.path[0] == "aws"), "{s:?}");
+        assert!(
+            !s.is_empty() && s.iter().all(|s| s.path[0] == "aws"),
+            "{s:?}"
+        );
         assert!(s
             .iter()
             .any(|s| group(&s.path) == Some(Group::SelfAndAccounts)));
