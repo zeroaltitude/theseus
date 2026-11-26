@@ -1,5 +1,5 @@
 //! The real offer, run by a real turn (issue 59): the model calls `mcp_sign_in_offer` twice in one
-//! turn in the owner's direct messages; the first posts one card to the owner's DM and nowhere else,
+//! turn of the owner's own conversation (no place: the owner's surface, private); the first posts one card to the owner's DM and nowhere else,
 //! the second posts none and says so, and nothing is begun: the issuer is never asked for a
 //! registration or an authorization, and no tool a turn has is a sign-in's begin, agree or finish.
 
@@ -91,8 +91,7 @@ async fn rig() -> (Arc<Core>, Arc<FakeAuth>, tempfile::TempDir) {
 #[tokio::test]
 async fn the_real_offer_posts_one_card_to_the_owner_and_begins_nothing() {
     let (core, auth, _dir) = rig().await;
-    let place = format!("discord:dm:{OWNER}");
-    let sid = session(&core, Some(&place));
+    let sid = session(&core, None);
     turn(&core, &sid, "sign me in to docs, please").await;
     let results: Vec<String> = core
         .store
@@ -120,10 +119,10 @@ async fn the_real_offer_posts_one_card_to_the_owner_and_begins_nothing() {
     assert_eq!(cards.len(), 1, "one card, to the owner");
     assert!(
         core.outbox
-            .open_for(&place)
+            .open_for(&sid)
             .iter()
             .all(|a| crate::outbox::kind_of(a) != "mcp_sign_in"),
-        "no card in the conversation's own place"
+        "no card for the conversation itself"
     );
     assert_eq!(auth.seen().registrations, 0, "nothing registered");
     assert!(
