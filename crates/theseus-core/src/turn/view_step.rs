@@ -743,7 +743,7 @@ fn window_of(
         .map(|s| (s.piece.range.first.id.as_str(), s.form))
         .collect();
     // A task's opening heads its window (`task::window_head`); any other place's window opens empty.
-    let (mut window, mut spoken) = (task::window_head(store, sid, pov)?, HashSet::new());
+    let (mut window, mut spoken) = (task::window_head(store, sid, pov, said)?, HashSet::new());
     let (mut laid, mut quoted) = (Vec::new(), Vec::new());
     for e in a.ladder.window.iter().filter(|e| e.turn_id != turn) {
         let Some(form) = here.get(e.turn_id.as_str()) else {
