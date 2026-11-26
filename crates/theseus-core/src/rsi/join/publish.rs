@@ -74,6 +74,7 @@ pub fn untrusted(s: &str, max: usize) -> String {
         .filter(|c| !matches!(*c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
         .collect();
     let flat = flat.split_whitespace().collect::<Vec<_>>().join(" ");
+    // plain cut: an untrusted title or subject bounded by characters, its cut said with "[cut]"
     let cut: String = flat.chars().take(max).collect();
     let mut out = String::with_capacity(cut.len());
     for c in cut.chars() {
