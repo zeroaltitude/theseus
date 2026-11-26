@@ -903,9 +903,12 @@ async fn a_reviewers_removal_in_its_scratch_is_bound_to_l1() {
         None,
         "and the scratch is no longer its own"
     );
-    // Its command outside the sandbox kept its temporary files under its scratch.
     let jobs = jobs_of(&session);
     assert_eq!(jobs.len(), 1, "{jobs:?}");
+    // Its L1 view binds the daemon's checkout of the reviewed head read-only (issue 53, STOP 1).
+    let view = jobs[0].sandbox.as_ref().expect("an L1 view");
+    let tree = crate::rsi::join::scratch::tree_of(&scratch(&r.target));
+    assert!(view.ro_paths.contains(&tree), "{:?}", view.ro_paths);
     let tmp = jobs[0].env.iter().find(|(k, _)| k == "TMPDIR");
     let want = scratch(&r.target).join("tmp").display().to_string();
     assert_eq!(
