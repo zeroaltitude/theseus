@@ -240,6 +240,8 @@ mod tests {
             k("spend_limit_hard_multiple", "0"),
             "[self.budget]\nday_usd = 5.0\n".into(),
             "[self.budget]\nday_usd = 3.0\n".into(),
+            k("daily_notice_step_usd", "200.0"),
+            k("daily_notice_step_usd", "100.0"),
         ];
         real(&all.iter().map(String::as_str).collect::<Vec<_>>());
         let (ceiling, runaway, burn, hard) = (
@@ -290,6 +292,12 @@ mod tests {
             needs(&day("5.0"), &day("3.0")),
             Needs::Proof,
             "a limit not yet written down"
+        );
+        let step = |v: &str| k("daily_notice_step_usd", v);
+        assert_eq!(
+            needs(&step("200.0"), &step("100.0")),
+            Needs::Proof,
+            "a kernel limit whose meaning is not written down"
         );
         // The stricter rule wins: one limit tighter and one lifted.
         let both = |c: &str, r: &str| {
