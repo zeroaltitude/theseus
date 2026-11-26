@@ -217,8 +217,10 @@ async fn an_error_result_is_masked_where_the_core_takes_it() {
     }
 }
 
-/// A tool named after the token, listed again after a `list_changed`: the
-/// change's log line, its fact and its notice hold the name scrubbed.
+/// A tool named after the token, listed after a `list_changed`: since
+/// round 4 it is not offered at all (`offered.rs`), where round 3 listed it
+/// with its name masked. The owner is told a count in the log, the fact and
+/// the notice; no change row, log line or notice holds the value.
 #[tokio::test]
 async fn a_tool_named_after_the_token_is_scrubbed_where_it_is_said() {
     let (buf, _guard) = capture();
@@ -229,22 +231,34 @@ async fn a_tool_named_after_the_token_is_scrubbed_where_it_is_said() {
     assert_eq!(done["connected"], true, "{done}");
     r.auth.set(|c| c.tool_named_token = true);
     turn(&r.core, &sid, "use the docs").await;
-    until("the change's row", || {
-        !ledgered(&r.core, "mcp.tools_changed").is_empty()
+    until("the count's row", || {
+        !ledgered(&r.core, "mcp.tools_withheld").is_empty()
     })
     .await;
+    let words = crate::mcp::offered::withheld_words("docs", 1);
     until("the notice", || {
         r.core
             .outbox
             .open_for(crate::outbox::OPERATOR_TARGET)
             .iter()
-            .any(|a| crate::outbox::kind_of(a) == "mcp_changed")
+            .any(|a| {
+                crate::outbox::kind_of(a) == "mcp_changed" && format!("{a:?}").contains(&words)
+            })
     })
     .await;
-    let row = &ledgered(&r.core, "mcp.tools_changed")[0];
-    assert!(row["added"].to_string().contains("[redacted:"), "{row}");
+    let token = r.auth.last_bearer().unwrap();
+    assert!(!r
+        .core
+        .mcp
+        .catalog
+        .all()
+        .iter()
+        .any(|t| t.listed.name == token));
+    for row in ledgered(&r.core, "mcp.tools_changed") {
+        assert!(!row.to_string().contains(&token), "{row}");
+    }
     let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
-    assert!(log.contains("an MCP server's tools changed"));
+    assert!(log.contains(&words));
     let found = leaked(&r, &sid, &log);
     assert!(found.is_empty(), "{} values leaked", found.len());
 }
