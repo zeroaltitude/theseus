@@ -198,12 +198,12 @@ async fn a_message_put_into_the_mailbox_waits_and_nothing_is_put() {
     assert_eq!(ledgered(&r.core, "tool.confirm_requested").len(), 1);
 }
 
-/// What sends, deletes, shares, invites, puts mail into the mailbox, clears
-/// a calendar, and every other change: each asks at every posture.
-#[tokio::test]
-async fn the_keep_calls_and_the_unlisted_writes_still_ask_at_every_posture() {
-    let attendees = json!({"summary": "x", "attendees": [{"email": "a@example.test"}]});
-    let cases = [
+type Case = (&'static str, Value, Option<Value>);
+
+/// What sends, deletes, shares, invites, puts mail into the mailbox or clears
+/// a calendar.
+fn keep() -> Vec<Case> {
+    vec![
         (
             "calendar.calendars.delete",
             json!({"calendarId": "cal9"}),
@@ -223,6 +223,13 @@ async fn the_keep_calls_and_the_unlisted_writes_still_ask_at_every_posture() {
             json!({"sendUpdates": "all"}),
             None,
         ),
+    ]
+}
+
+/// Every other change.
+fn unlisted() -> Vec<Case> {
+    let attendees = json!({"summary": "x", "attendees": [{"email": "a@example.test"}]});
+    vec![
         ("gmail.users.drafts.create", json!({}), Some(json!({}))),
         (
             "POST /gmail/v1/users/me/labels",
@@ -296,14 +303,30 @@ async fn the_keep_calls_and_the_unlisted_writes_still_ask_at_every_posture() {
             json!({}),
             Some(json!({"requests": []})),
         ),
-    ];
-    for posture in Posture::ALL {
-        let r = at(posture, vec![]).await;
-        for (m, params, body) in &cases {
+    ]
+}
+
+/// `google.call`'s input for each of them.
+fn keep_and_unlisted() -> Vec<Value> {
+    keep()
+        .into_iter()
+        .chain(unlisted())
+        .map(|(m, params, body)| {
             let mut input = json!({"method": m, "params": params});
             if let Some(b) = body {
-                input["body"] = b.clone();
+                input["body"] = b;
             }
+            input
+        })
+        .collect()
+}
+
+/// Each of them asks at every posture.
+#[tokio::test]
+async fn the_keep_calls_and_the_unlisted_writes_still_ask_at_every_posture() {
+    for posture in Posture::ALL {
+        let r = at(posture, vec![]).await;
+        for input in keep_and_unlisted() {
             asks(&r, &input);
         }
     }
