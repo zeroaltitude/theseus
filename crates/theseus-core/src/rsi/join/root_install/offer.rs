@@ -272,7 +272,7 @@ pub(super) fn question_text(go: &Go, old_dir: &str) -> String {
          It is already joined to main. Theseus will put its programs in {LIB_DIR}/{c8} with the administrator's \
          helper, point the service at them, and restart. A turn that is running when it restarts is cut. If the new \
          build is not answering within {mins} minutes, Theseus goes back to the build before ({old_dir}) and tells \
-         you. This needs your second proof.",
+         you.",
         what = go.what,
         mins = CONFIRM_WITHIN_SECS / 60,
     )

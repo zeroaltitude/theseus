@@ -329,7 +329,7 @@ async fn ask_makes_the_card_and_the_yes_installs() {
         cards[0].reason
     );
     assert!(
-        cards[0].reason.contains(c8) && cards[0].reason.contains("second proof"),
+        cards[0].reason.contains(c8) && !cards[0].reason.contains("second proof"),
         "{}",
         cards[0].reason
     );
@@ -522,6 +522,8 @@ async fn the_install_asks_with_the_card_alone() {
     t.join().await;
     let q = t.cards()[0].clone();
     assert!(!q.needs_proof && !q.needs_fresh_proof, "{q:?}");
+    // The question as shown asks for no code (finding 8 of the review).
+    assert!(!q.reason.contains("second proof"), "{}", q.reason);
     assert!(
         !t.notices()
             .join("\n")
@@ -987,10 +989,11 @@ fn the_card_says_what_where_and_the_way_back() {
         "/usr/local/lib/theseus/01234567",
         "restart",
         "goes back to the build before",
-        "second proof",
     ] {
         assert!(q.contains(part), "{part} in {q}");
     }
+    // Issue 57: the install takes the owner's yes with no code, and says nothing else.
+    assert!(!q.contains("second proof"), "{q}");
 }
 
 #[tokio::test]
