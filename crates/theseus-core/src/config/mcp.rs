@@ -58,6 +58,11 @@ pub struct McpServerConfig {
     /// HTTP: the `[secrets]` name of a key sent as a bearer token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_secret: Option<String>,
+    /// HTTP: the server signs in in a browser (OAuth, issue 55): the owner
+    /// runs `theseus mcp login <name>` once, and the daemon keeps and renews
+    /// what the sign-in gave. Never with `auth_secret`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<McpOauth>,
     /// The tools the operator calls read-class (`Read`, safe to repeat).
     /// Every other tool is `Run` and not repeatable: a server's own hints
     /// never loosen a tool.
@@ -101,6 +106,21 @@ fn default_start_timeout() -> u64 {
 
 fn default_call_timeout() -> u64 {
     110
+}
+
+/// `oauth = {}`, or `oauth = { client_id = "…", scopes = ["…"] }`: a server
+/// that signs in. Both keys are for a server that offers no registration
+/// (`client_id`) or asks for scopes it does not name in its 401 (`scopes`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct McpOauth {
+    /// The client id the server gave the owner, for a server that offers no
+    /// registration. Not a secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    /// The scopes to ask for; none: the scope the server's 401 names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
 }
 
 /// A call's ceiling, under the core's in-process deadline (120 s).
@@ -169,6 +189,11 @@ impl super::Config {
                              its secrets in `env`"
                         );
                     }
+                    if s.oauth.is_some() {
+                        anyhow::bail!(
+                            "{at}.oauth is for a server over HTTP that signs in in a browser"
+                        );
+                    }
                 }
                 (true, Some(url)) => {
                     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -193,6 +218,7 @@ impl super::Config {
                     );
                 }
             }
+            validate_oauth(&at, s)?;
             if let Some(secret) = &s.auth_secret {
                 if !self.secrets.contains_key(secret) {
                     anyhow::bail!(
@@ -230,6 +256,38 @@ impl super::Config {
         }
         Ok(())
     }
+}
+
+/// A server's `oauth` (issue 55): never with a fixed key, and a client id or
+/// scopes that are not empty.
+fn validate_oauth(at: &str, s: &McpServerConfig) -> Result<()> {
+    let Some(o) = &s.oauth else { return Ok(()) };
+    if s.auth_secret.is_some() {
+        anyhow::bail!(
+            "{at} has both `auth_secret` and `oauth`: a server either is sent a fixed key or \
+             signs in, not both"
+        );
+    }
+    let https = s
+        .url
+        .as_deref()
+        .and_then(|u| reqwest::Url::parse(u).ok())
+        .is_some_and(|u| crate::mcp::oauth::signs_in_at(&u));
+    if !https {
+        anyhow::bail!(
+            "{at} signs in (`oauth`), and a server that signs in must be at an https address"
+        );
+    }
+    if o.client_id.as_ref().is_some_and(|c| c.trim().is_empty()) {
+        anyhow::bail!("{at}.oauth.client_id is empty");
+    }
+    if o.scopes
+        .iter()
+        .any(|x| x.trim().is_empty() || x.contains(' '))
+    {
+        anyhow::bail!("{at}.oauth.scopes holds an empty scope or one with a space");
+    }
+    Ok(())
 }
 
 /// The template's commented `[mcp.servers]` examples are real: called by
@@ -282,6 +340,32 @@ mod tests {
         assert!(!d.external);
         assert_eq!(cfg.mcp.enabled().count(), 2);
         assert_eq!(f.sandbox, super::McpSandbox::L0, "l0 stays the default");
+    }
+
+    /// A server that signs in (issue 55): `oauth`, with a client id and
+    /// scopes or neither; a fixed key stays as it is.
+    #[test]
+    fn a_server_that_signs_in_loads_and_a_fixed_key_is_unchanged() {
+        let cfg = with(
+            "[mcp.servers.docs]\nurl = \"https://docs.example.invalid/mcp\"\noauth = {}\n\n\
+             [mcp.servers.wiki]\nurl = \"https://wiki.example.invalid/mcp\"\n\
+             oauth = { client_id = \"theseus-1\", scopes = [\"read\", \"write\"] }\n\n\
+             [mcp.servers.keyed]\nurl = \"https://k.example.invalid/mcp\"\nauth_secret = \"tok\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.mcp.servers["docs"].oauth,
+            Some(super::McpOauth::default())
+        );
+        let w = cfg.mcp.servers["wiki"].oauth.clone().unwrap();
+        assert_eq!(w.client_id.as_deref(), Some("theseus-1"));
+        assert_eq!(w.scopes, ["read", "write"]);
+        let k = &cfg.mcp.servers["keyed"];
+        assert_eq!(
+            (k.oauth.as_ref(), k.auth_secret.as_deref()),
+            (None, Some("tok"))
+        );
+        assert_eq!(cfg.mcp.servers["docs"].secrets().count(), 0);
     }
 
     /// A stdio server in L1 loads, with its egress list (M7 43a); the
@@ -357,6 +441,30 @@ mod tests {
             (
                 "[mcp.servers.a]\ncommand = [\"x\"]\nauth_secret = \"tok\"",
                 "over HTTP",
+            ),
+            (
+                "[mcp.servers.a]\nurl = \"https://h/\"\nauth_secret = \"tok\"\noauth = {}",
+                "not both",
+            ),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\noauth = {}",
+                "signs in in a browser",
+            ),
+            (
+                "[mcp.servers.a]\nurl = \"https://h/\"\noauth = { secret = \"x\" }",
+                "unknown field",
+            ),
+            (
+                "[mcp.servers.a]\nurl = \"https://h/\"\noauth = { client_id = \" \" }",
+                "client_id is empty",
+            ),
+            (
+                "[mcp.servers.a]\nurl = \"https://h/\"\noauth = { scopes = [\"a b\"] }",
+                "with a space",
+            ),
+            (
+                "[mcp.servers.a]\nurl = \"http://h.example.invalid/mcp\"\noauth = {}",
+                "must be at an https address",
             ),
         ] {
             let e = format!("{:#}", with(toml).unwrap_err());

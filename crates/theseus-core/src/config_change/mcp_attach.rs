@@ -189,6 +189,9 @@ fn table_of(wanted: &McpServerConfig) -> Value {
             if let Some(s) = &wanted.auth_secret {
                 table.insert("auth_secret".into(), json!(s));
             }
+            if let Some(o) = &wanted.oauth {
+                table.insert("oauth".into(), json!(o));
+            }
         }
         None => {
             table.insert("command".into(), json!(wanted.command));
@@ -237,6 +240,7 @@ impl Spec {
             env: i.env.clone(),
             url: i.url.clone(),
             auth_secret: i.auth_secret.clone(),
+            oauth: None,
             read: i.read.clone(),
             sandbox,
             egress: i.egress.clone(),
@@ -254,6 +258,7 @@ impl Spec {
         let trial = McpServerConfig {
             env: BTreeMap::new(),
             auth_secret: None,
+            oauth: None,
             read: Vec::new(),
             sandbox: match wanted.url {
                 Some(_) => McpSandbox::L0,
@@ -277,6 +282,30 @@ impl Spec {
 
     fn path(&self) -> Vec<String> {
         server_path(&self.name)
+    }
+
+    /// A server over HTTP asked for with no key, whose trial was refused with
+    /// HTTP 401, wants a sign-in (issue 55): at an `https` address, it is
+    /// attached as one that signs in (`oauth`), and its card says so. True
+    /// when that changed the table. One at a plaintext address is written as
+    /// asked, and its card says why it will not connect.
+    fn signs_in_after(&mut self, tried: &card::Tried) -> bool {
+        let refused = tried
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("HTTP 401"));
+        let w = &mut self.wanted;
+        let https = w
+            .url
+            .as_deref()
+            .and_then(|u| reqwest::Url::parse(u).ok())
+            .is_some_and(|u| crate::mcp::oauth::signs_in_at(&u));
+        if !refused || !https || w.auth_secret.is_some() || w.oauth.is_some() {
+            return false;
+        }
+        w.oauth = Some(crate::config::mcp::McpOauth::default());
+        self.table = table_of(w);
+        true
     }
 }
 
@@ -576,6 +605,27 @@ fn only_the_server(name: &str, settings: &[diff::Setting]) -> Result<(), String>
     }
 }
 
+/// The settings with `spec`'s table: the file, the server as it loads, and the
+/// settings that change, which must be the server's own table alone.
+fn candidate_of(
+    g: &Ground,
+    spec: &Spec,
+) -> Result<(String, McpServerConfig, Vec<diff::Setting>), String> {
+    let change = edit::Change::Set(spec.path(), spec.table.clone());
+    let candidate = edit::apply(&g.base, &[change])?;
+    let (loaded, _) = crate::Config::parse(&candidate)
+        .map_err(|e| format!("the settings with that server do not load: {e:#}"))?;
+    let server = loaded
+        .mcp
+        .servers
+        .get(&spec.name)
+        .cloned()
+        .ok_or("the settings with that server do not hold it")?;
+    let settings = diff::between(&g.base, &candidate)?;
+    only_the_server(&spec.name, &settings)?;
+    Ok((candidate, server, settings))
+}
+
 /// Run `mcp.attach` for the call `correlation_id` of the turn `tc`. An error is
 /// the result the model reads.
 pub async fn attach(
@@ -592,7 +642,7 @@ pub async fn attach(
         return Ok(done);
     }
     let i: AttachInput = parse(input)?;
-    let spec = Spec::of(&i)?;
+    let mut spec = Spec::of(&i)?;
     let g = ground(rt)?;
     if g.config.mcp.servers.contains_key(&spec.name) || g.board.has_server(&spec.name) {
         return Err(format!(
@@ -614,25 +664,14 @@ pub async fn attach(
     let blocked = !missing.is_empty() || !unloaded.is_empty();
     // The candidate, before anything starts: one that does not load makes no
     // trial and no card.
-    let built = match blocked {
+    let mut built = match blocked {
         true => None,
-        false => {
-            let change = edit::Change::Set(spec.path(), spec.table.clone());
-            let candidate = edit::apply(&g.base, &[change])?;
-            let (loaded, _) = crate::Config::parse(&candidate)
-                .map_err(|e| format!("the settings with that server do not load: {e:#}"))?;
-            let server = loaded
-                .mcp
-                .servers
-                .get(&spec.name)
-                .cloned()
-                .ok_or("the settings with that server do not hold it")?;
-            let settings = diff::between(&g.base, &candidate)?;
-            only_the_server(&spec.name, &settings)?;
-            Some((candidate, server, settings))
-        }
+        false => Some(candidate_of(&g, &spec)?),
     };
     let tried = try_once(rt, &g.board, &spec, correlation_id).await?;
+    if spec.signs_in_after(&tried) {
+        built = built.map(|_| candidate_of(&g, &spec)).transpose()?;
+    }
     if tried.error.is_none() {
         let list = crate::mcp::StoredList {
             digest: crate::mcp::digest(&tried.tools),
@@ -784,6 +823,8 @@ pub(crate) fn at_yes(args: &Value, settings: &[diff::Setting]) -> Result<bool, S
 mod tests;
 #[cfg(test)]
 mod tests_code;
+#[cfg(test)]
+mod tests_oauth;
 #[cfg(test)]
 mod tests_proof;
 #[cfg(test)]

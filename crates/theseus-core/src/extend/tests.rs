@@ -69,7 +69,7 @@ impl Connect for FromDir {
         server: &str,
         cfg: &McpServerConfig,
         _env: Vec<(String, String)>,
-        _bearer: Option<String>,
+        _key: crate::mcp::Key,
         _serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         if let Some((p, text)) = self.edit.lock().unwrap().take() {

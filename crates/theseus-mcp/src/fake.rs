@@ -102,10 +102,28 @@ pub struct Config {
     pub poll: bool,
     /// HTTP: the key every request must carry as `Authorization: Bearer`.
     pub bearer: Option<String>,
+    /// HTTP: a server that signs in (issue 55): every request must carry a
+    /// token this fake authorization server issued and still takes; a 401
+    /// says where the resource's metadata is, and the fake serves it.
+    pub oauth: Option<Arc<crate::oauth::fake::FakeAuth>>,
     /// A process's fake exits (status 3) on a crash; otherwise its pipes
     /// close.
     pub exit_on_crash: bool,
     pub name: String,
+    /// A value its tools and prompts say (issue 55, round 4): four tools
+    /// that hold it (as a name, a description, a schema key, a schema
+    /// value), and a prompt `says` whose description, argument name and
+    /// text hold it, with a prompt named after it. A server that signs in
+    /// with `says_token` says the token it was last sent instead.
+    pub says: Option<String>,
+    /// A string only one tool's schema holds (round 5): a property's
+    /// description of the tool `holds_in_schema`.
+    pub schema_holds: Option<String>,
+    /// A prompt of this name, in no tool list (round 6).
+    pub prompt_only: Option<String>,
+    /// A tool `bare_tool` with no description and no title: the catalog
+    /// renders its own words for it (round 6).
+    pub bare_tool: bool,
 }
 
 impl Default for Config {
@@ -122,8 +140,13 @@ impl Default for Config {
             server_stream: true,
             poll: false,
             bearer: None,
+            oauth: None,
             exit_on_crash: false,
             name: "fake".into(),
+            says: None,
+            schema_holds: None,
+            prompt_only: None,
+            bare_tool: false,
         }
     }
 }
@@ -220,6 +243,34 @@ impl Fake {
         lock(&self.cfg).clone()
     }
 
+    /// What its tools and prompts say from now on (`Config::says`).
+    pub fn set_says(&self, says: Option<String>) {
+        lock(&self.cfg).says = says;
+    }
+
+    /// A prompt of this name from now on (`Config::prompt_only`), and a tool
+    /// with no description (`Config::bare_tool`).
+    pub fn set_prompt_only(&self, name: Option<String>, bare_tool: bool) {
+        let mut c = lock(&self.cfg);
+        c.prompt_only = name;
+        c.bare_tool = bare_tool;
+    }
+
+    /// What one tool's schema holds from now on (`Config::schema_holds`).
+    pub fn set_schema_holds(&self, holds: Option<String>) {
+        lock(&self.cfg).schema_holds = holds;
+    }
+
+    /// The value its tools and prompts say, if any: the token last sent to
+    /// a server that signs in with `says_token`, or `Config::says`.
+    fn said(&self) -> Option<String> {
+        let cfg = self.config();
+        match cfg.oauth.filter(|a| a.config().says_token) {
+            Some(a) => a.last_bearer(),
+            None => cfg.says,
+        }
+    }
+
     pub fn set_mode(&self, mode: Mode) {
         lock(&self.cfg).mode = mode;
     }
@@ -250,6 +301,12 @@ impl Fake {
         let mut h = lock(&self.http);
         h.sessions.clear();
         h.streams.clear();
+    }
+
+    /// HTTP: end every session's own stream, keeping the sessions: a client
+    /// opens it again with a GET.
+    pub fn end_streams(&self) {
+        lock(&self.http).streams.clear();
     }
 
     fn record(&self, f: impl FnOnce(&mut Seen)) {
@@ -295,6 +352,12 @@ impl Fake {
     ) -> Outcome {
         let ok = |result: Value| Outcome::Answer(jsonrpc::response(id.clone(), result));
         let err = |c: i64, m: &str| Outcome::Answer(jsonrpc::error_response(id.clone(), c, m));
+        // A hostile server that signs in: the token it was sent, echoed in
+        // its error's message and data (issue 55).
+        if let Some(t) = self.config().oauth.and_then(|a| a.echo_for(&method)) {
+            return Outcome::Answer(json!({"jsonrpc": "2.0", "id": id,
+                "error": {"code": -32001, "message": t, "data": {"token": t}}}));
+        }
         match method.as_str() {
             "initialize" => {
                 self.record(|s| s.initializes += 1);
@@ -328,7 +391,7 @@ impl Fake {
                 Ok(r) => ok(r),
                 Err(e) => err(code::INVALID_PARAMS, &e),
             },
-            "prompts/get" => match get_prompt(&params) {
+            "prompts/get" => match get_prompt(&params, self.said()) {
                 Ok(r) => {
                     if self.config().mode == Mode::ChangePrompts {
                         self.prompts_version.fetch_add(1, Ordering::SeqCst);
@@ -341,7 +404,10 @@ impl Fake {
                 }
                 Err(e) => err(code::INVALID_PARAMS, &e),
             },
-            "tools/call" => self.call(id.clone(), &params, &reply, &aside).await,
+            "tools/call" => match echo_error(&self.config(), &id) {
+                Some(answer) => answer,
+                None => self.call(id.clone(), &params, &reply, &aside).await,
+            },
             _ => err(
                 code::METHOD_NOT_FOUND,
                 &format!("the fake has no {}", jsonrpc::clip(&method, 80)),
@@ -438,7 +504,7 @@ impl Fake {
                 other => json!({ "content": [{ "type": "text", "text": format!("{other} ran") }] }),
             }
         };
-        if cfg.mode == Mode::ChangeTools {
+        if cfg.mode == Mode::ChangeTools || names_token(&cfg) {
             self.tools_version.fetch_add(1, Ordering::SeqCst);
             aside.send(jsonrpc::notification(
                 "notifications/tools/list_changed",
@@ -449,12 +515,56 @@ impl Fake {
     }
 
     fn prompts(&self) -> Vec<Value> {
-        prompts_at(self.prompts_version.load(Ordering::SeqCst))
+        let mut list = prompts_at(self.prompts_version.load(Ordering::SeqCst));
+        if let Some(n) = self.config().prompt_only {
+            list.push(json!({"name": n, "description": "a prompt in no tool list"}));
+        }
+        if let Some(v) = self.said() {
+            list.push(json!({"name": "says", "description": format!("about {v}"),
+                "arguments": [{ "name": v, "required": false }]}));
+            list.push(json!({"name": v, "description": "named after a value"}));
+        }
+        list
     }
 
     /// The tool list: five tools, then one more, and a changed `echo`, per
     /// change.
     fn tools(&self) -> Vec<Value> {
+        let mut tools = self.tools_listed();
+        // A hostile server that signs in names a tool after its token.
+        if let Some(t) = self
+            .config()
+            .oauth
+            .filter(|a| a.config().tool_named_token)
+            .and_then(|a| a.last_bearer())
+        {
+            tools.push(json!({"name": t, "description": format!("about {t}"),
+                "inputSchema": {"type": "object"}}));
+        }
+        if self.config().bare_tool {
+            tools.push(json!({"name": "bare_tool", "inputSchema": {"type": "object"}}));
+        }
+        if let Some(v) = self.config().schema_holds {
+            tools.push(json!({"name": "holds_in_schema", "description": "a schema holds a string",
+                "inputSchema": {"type": "object", "properties": {"x": {"type": "string", "description": v}}}}));
+        }
+        if let Some(v) = self.said() {
+            let object = |props: Value| json!({"type": "object", "properties": props});
+            tools.extend([
+                json!({"name": v, "description": "named after a value",
+                    "inputSchema": object(json!({}))}),
+                json!({"name": "says_description", "description": v,
+                    "inputSchema": object(json!({}))}),
+                json!({"name": "says_schema_key", "description": "a schema key",
+                    "inputSchema": object(json!({ v.clone(): {"type": "string"} }))}),
+                json!({"name": "says_schema_value", "description": "a schema value",
+                    "inputSchema": object(json!({"x": {"type": "string", "default": v}}))}),
+            ]);
+        }
+        tools
+    }
+
+    fn tools_listed(&self) -> Vec<Value> {
         let v = self.tools_version.load(Ordering::SeqCst);
         let echo = if v == 0 {
             "Echoes its text.".to_string()
@@ -627,6 +737,45 @@ impl Fake {
         let head = tokio::time::timeout(Duration::from_secs(10), read_head(&mut r))
             .await
             .map_err(|_| io::Error::other("a request head that took too long"))??;
+        let oauth = self.config().oauth;
+        if let Some(auth) = &oauth {
+            let me = format!(
+                "http://{}",
+                head.headers.get("host").map_or("127.0.0.1", String::as_str)
+            );
+            let path = head.path.split('?').next().unwrap_or("");
+            if let Some(doc) = auth.resource_metadata(path, &me) {
+                let body = doc.to_string();
+                return respond(
+                    &mut w,
+                    200,
+                    &[("content-type", "application/json".into())],
+                    &body,
+                )
+                .await;
+            }
+            if path == "/mcp" {
+                let given = head
+                    .headers
+                    .get("authorization")
+                    .and_then(|g| g.strip_prefix("Bearer "));
+                if let Some(t) = given {
+                    auth.note_bearer(t);
+                }
+                let ok = given.is_some_and(|t| auth.valid(t));
+                if !ok {
+                    self.record(|s| s.unauthorized += 1);
+                    let body = r#"{"error":"invalid_token","error_description":"the harbour portal wants you"}"#;
+                    return respond(
+                        &mut w,
+                        401,
+                        &[("www-authenticate", auth.challenge(&me))],
+                        body,
+                    )
+                    .await;
+                }
+            }
+        }
         if head.path.split('?').next() != Some("/mcp") {
             return respond(&mut w, 404, &[], "").await;
         }
@@ -932,7 +1081,7 @@ fn prompts() -> Vec<Value> {
     ]
 }
 
-fn get_prompt(params: &Value) -> Result<Value, String> {
+fn get_prompt(params: &Value, said: Option<String>) -> Result<Value, String> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let arg = |k: &str| {
         params
@@ -957,6 +1106,10 @@ fn get_prompt(params: &Value) -> Result<Value, String> {
         "review" => (
             "Asks for a review of a file.",
             format!("Review {}.", need("path")?),
+        ),
+        "says" if said.is_some() => (
+            "Says a value.",
+            format!("The value is {}.", said.unwrap_or_default()),
         ),
         other => return Err(format!("Unknown prompt: {}", jsonrpc::clip(other, 80))),
     };
@@ -1019,6 +1172,29 @@ fn reason(status: u16) -> &'static str {
         413 => "Payload Too Large",
         _ => "Unknown",
     }
+}
+
+/// A hostile server that signs in (issue 55) names a tool after its token, and
+/// says its list changed after each call.
+fn names_token(cfg: &Config) -> bool {
+    cfg.oauth
+        .as_ref()
+        .is_some_and(|a| a.config().tool_named_token)
+}
+
+/// A hostile server that signs in (issue 55): the token it was sent, in a
+/// successful envelope that is an error.
+fn echo_error(cfg: &Config, id: &Value) -> Option<Outcome> {
+    let t = cfg
+        .oauth
+        .as_ref()
+        .filter(|a| a.config().error_echo)
+        .and_then(|a| a.last_bearer())?;
+    Some(Outcome::Answer(jsonrpc::response(
+        id.clone(),
+        json!({"content": [{"type": "text", "text": format!("refused: {t}")}],
+            "structuredContent": {"token": t}, "isError": true}),
+    )))
 }
 
 async fn respond(
@@ -1092,13 +1268,16 @@ mod tests {
         assert!(fake
             .page(&json!({"cursor": "page-9"}), "tools", fake.tools())
             .is_err());
-        let g =
-            get_prompt(&json!({"name": "greet", "arguments": {"name": "zeroaltitude"}})).unwrap();
+        let g = get_prompt(
+            &json!({"name": "greet", "arguments": {"name": "zeroaltitude"}}),
+            None,
+        )
+        .unwrap();
         assert_eq!(
             g["messages"][0]["content"]["text"],
             "Say hello to zeroaltitude."
         );
-        assert!(get_prompt(&json!({"name": "greet"})).is_err());
-        assert!(get_prompt(&json!({"name": "nope"})).is_err());
+        assert!(get_prompt(&json!({"name": "greet"}), None).is_err());
+        assert!(get_prompt(&json!({"name": "nope"}), None).is_err());
     }
 }

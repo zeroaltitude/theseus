@@ -917,7 +917,7 @@ impl SecretBoard {
             match s {
                 SecretState::Ready(value) => {
                     ready.push(name.clone());
-                    if value.expose().trim().len() < crate::scrub::MIN_VALUE {
+                    if !crate::scrub::protectable(value.expose()) {
                         unprotected.push(name.clone());
                     }
                 }
@@ -1299,7 +1299,7 @@ pub mod fake {
 }
 
 fn warn_if_short(name: &str, value: &Secret) {
-    if value.expose().trim().len() < crate::scrub::MIN_VALUE {
+    if !crate::scrub::protectable(value.expose()) {
         tracing::warn!(secret = %name, "resolved secret is shorter than eight bytes and is not redacted at exits");
     }
 }

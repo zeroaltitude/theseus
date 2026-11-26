@@ -6670,6 +6670,7 @@ dependencies = [
  "sha2 0.10.9",
  "similar",
  "tempfile",
+ "theseus",
  "theseus-aws",
  "theseus-aws-guard",
  "theseus-files",
@@ -6884,6 +6885,7 @@ name = "theseus-mcp"
 version = "1.0.6"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "futures-util",
  "libc",
  "rand 0.9.5",
@@ -6897,6 +6899,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]

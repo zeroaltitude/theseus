@@ -605,6 +605,7 @@ fn trial_cfg(command: &[String], frozen: &Path, network: &[String]) -> McpServer
         env: Default::default(),
         url: None,
         auth_secret: None,
+        oauth: None,
         read: vec![],
         sandbox: crate::config::mcp::McpSandbox::L1,
         egress: network.to_vec(),

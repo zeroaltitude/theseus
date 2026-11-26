@@ -73,7 +73,7 @@ impl Connect for InProcess {
         server: &str,
         _cfg: &McpServerConfig,
         _env: Vec<(String, String)>,
-        _bearer: Option<String>,
+        _key: super::Key,
         _serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         self.connects.fetch_add(1, Ordering::SeqCst);
@@ -102,6 +102,7 @@ fn server_cfg(read: &[&str]) -> McpServerConfig {
         env: Default::default(),
         url: None,
         auth_secret: None,
+        oauth: None,
         read: read.iter().map(|s| s.to_string()).collect(),
         sandbox: Default::default(),
         egress: vec![],
@@ -1189,6 +1190,12 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
 }
 
 mod ceilings;
+mod oauth;
+mod oauth_doors;
+mod oauth_exits;
+mod oauth_hostile;
+mod oauth_inventory;
+mod oauth_offered;
 
 #[tokio::test]
 async fn a_protocol_error_is_still_the_servers_outside_text() {

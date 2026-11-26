@@ -176,6 +176,32 @@ impl Fact for McpToolsChanged {
     }
 }
 
+/// Tools of a server that signs in that are not offered, because what they
+/// say of themselves holds a value Theseus keeps secret (issue 55): a count
+/// and the server's name only, never a name or a fragment of a dropped tool.
+pub struct McpToolsWithheld {
+    pub server: String,
+    pub count: u64,
+}
+
+impl Fact for McpToolsWithheld {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::McpToolsWithheld);
+
+    fn row(&self) -> Value {
+        json!({"server": self.server, "count": self.count})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "{}.",
+                crate::mcp::offered::withheld_words(&self.server, self.count as usize)
+            ),
+        );
+    }
+}
+
 /// A prompt whose definition changed since its last use (36c): a
 /// description or an argument. The use goes ahead; the operator is told.
 pub struct McpPromptChanged {

@@ -18,6 +18,11 @@
 //!   operator notice, and the use goes ahead.
 //! - **Outside text.** The messages are the server's words; the content pack
 //!   asks of them what it asks of any item (a prompt holds nothing).
+//! - **A server that signs in** (issue 55) offers no prompts yet: they are not
+//!   listed, seeded, stored or resolved (`signs_in`), and a get is refused in
+//!   [`PROMPTS_CUT`]'s words. Its prompts' text, attachments and argument
+//!   names would need masking of their own first. A server with no sign-in
+//!   is as before.
 
 use std::collections::BTreeMap;
 
@@ -29,6 +34,14 @@ use theseus_protocol::mcp::{McpPromptArgument, McpPromptInfo, McpPromptRef};
 
 use super::{Live, McpBoard, Server, State};
 use crate::fact::mcp::McpPromptChanged;
+
+/// Why a prompt of a server that signs in is not run (issue 55).
+pub const PROMPTS_CUT: &str = "prompts of a server that signs in are not offered yet";
+
+/// Whether `s` signs in, so offers no prompts.
+pub(super) fn signs_in(s: &Server) -> bool {
+    s.cfg.oauth.is_some()
+}
 
 /// The META key of a server's stored prompt list.
 pub const STORED_PREFIX: &str = "mcp.prompts.";
@@ -241,7 +254,7 @@ impl McpBoard {
         stored: impl Fn(&str) -> Option<StoredPrompts>,
         used: impl Fn(&str) -> BTreeMap<String, Used>,
     ) {
-        for s in self.servers.values() {
+        for s in self.servers.values().filter(|s| !signs_in(s)) {
             let mut l = s.live();
             if let Some(p) = stored(&s.name) {
                 l.prompts = p.prompts.len() as u64;
@@ -256,6 +269,9 @@ impl McpBoard {
     /// A list the server gave: kept in the server, and stored when it
     /// differs from what the store has.
     pub(super) fn apply_prompts(&self, s: &Server, list: Vec<Prompt>) {
+        if signs_in(s) {
+            return;
+        }
         let digest = list_digest(&list);
         let old = s.live().prompt_state.digest.clone();
         if digest != old {
@@ -277,7 +293,7 @@ impl McpBoard {
 
     /// The server's prompts again, after `list_changed`.
     pub(super) async fn relist_prompts(&self, s: &Server, client: &theseus_mcp::Client) {
-        if client.server_info().capabilities.prompts.is_none() {
+        if signs_in(s) || client.server_info().capabilities.prompts.is_none() {
             return;
         }
         match client.list_prompts().await {
@@ -292,7 +308,7 @@ impl McpBoard {
         self.servers
             .values()
             .filter(|s| server.is_none_or(|n| n == s.name))
-            .filter(|s| s.cfg.enabled)
+            .filter(|s| s.cfg.enabled && !signs_in(s))
             .flat_map(|s| {
                 let l = s.live();
                 l.prompt_state
@@ -324,6 +340,9 @@ impl McpBoard {
                 "MCP server {} is disabled",
                 s.name
             )));
+        }
+        if signs_in(s) {
+            return Err(Refusal::Invalid(PROMPTS_CUT.into()));
         }
         // The definition: the live list, or the stored one until the server
         // lists. A server that lists none yet is asked all the same.
@@ -403,6 +422,9 @@ impl McpBoard {
     /// A use of `def`: when its definition differs from the one at its last
     /// use, a row and a notice, once; then it is the one on record.
     fn note_use(&self, s: &Server, def: &Prompt) {
+        if signs_in(s) {
+            return;
+        }
         let digest = prompt_digest(def);
         let (before, used) = {
             let mut l = s.live();

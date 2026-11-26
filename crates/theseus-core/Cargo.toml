@@ -67,6 +67,9 @@ tracing-subscriber.workspace = true
 theseus-judge = { path = "../theseus-judge", features = ["fake", "retired-packs"] }
 # The loopback fake Google, for the Google tests.
 theseus-google = { path = "../theseus-google", features = ["fake"] }
+# What the CLI prints of a sign-in (`theseus_client::mcp_lines`), read by the
+# MCP sign-in's tests (issue 55); it links the protocol crate only.
+theseus = { path = "../theseus" }
 # The paused clock for tests that prove a wait never happens (theseus-ksfu);
 # theseus-aws and theseus-voice enable it already, so the workspace's test
 # build is unchanged.

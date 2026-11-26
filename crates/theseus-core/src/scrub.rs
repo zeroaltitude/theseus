@@ -65,6 +65,13 @@ pub struct Scrubber {
 /// The shortest value scrubbed: a shorter one would match by chance.
 pub(crate) const MIN_VALUE: usize = 8;
 
+/// Whether the scrubber keeps `value` from view: its trimmed length is at
+/// least [`MIN_VALUE`]. The one test of it: a sign-in takes no credential
+/// this says no to (issue 55).
+pub fn protectable(value: &str) -> bool {
+    value.trim().len() >= MIN_VALUE
+}
+
 /// One replacement: a byte range of the text, and the name of the value it
 /// held.
 type Span<'a> = (usize, usize, &'a str);
@@ -78,7 +85,8 @@ impl Scrubber {
         }
     }
 
-    #[cfg(test)]
+    /// Scrub exactly `values` (value, name), and nothing the board holds:
+    /// a sign-in's door asks whether a new value is already shown (issue 55).
     pub fn with_values(values: Vec<(String, String)>) -> Self {
         Self {
             exact: values,
@@ -95,9 +103,8 @@ impl Scrubber {
             .collect();
         for (name, s) in states.iter().flat_map(|m| m.iter()) {
             if let SecretState::Ready(v) = s {
-                let v = v.expose().trim();
-                if v.len() >= MIN_VALUE {
-                    values.push((v, name));
+                if protectable(v.expose()) {
+                    values.push((v.expose().trim(), name));
                 }
             }
         }

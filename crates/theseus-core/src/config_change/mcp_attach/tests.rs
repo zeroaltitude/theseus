@@ -79,12 +79,15 @@ pub(super) const SIGN_IN_BODY: &str =
 /// Serves a stand-in server for each connection: a command whose program is
 /// `broken` exits at once, as a server that needs its secret does, and a
 /// server named in `refusing` answers HTTP 401, as one that wants a sign-in.
+/// A server named in `real` is reached at its address by the real HTTP
+/// client, as the daemon reaches one.
 #[derive(Default)]
 struct Fakes {
     seen: Mutex<Vec<Seen>>,
     served: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     connects: AtomicU64,
     refusing: Mutex<Vec<String>>,
+    real: Mutex<Vec<String>>,
 }
 
 impl Connect for Fakes {
@@ -93,7 +96,7 @@ impl Connect for Fakes {
         server: &str,
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
-        bearer: Option<String>,
+        key: crate::mcp::Key,
         _serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         self.connects.fetch_add(1, Ordering::SeqCst);
@@ -101,10 +104,21 @@ impl Connect for Fakes {
             server: server.into(),
             cfg: cfg.clone(),
             env,
-            bearer,
+            bearer: key.bearer.clone(),
         });
         let broken = cfg.command.first().is_some_and(|p| p == "broken");
         let refused = self.refusing.lock().unwrap().iter().any(|n| n == server);
+        if self.real.lock().unwrap().iter().any(|n| n == server) {
+            let mut t = theseus_mcp::client::HttpTarget::new(cfg.url.clone().unwrap_or_default());
+            t.bearer = key.bearer;
+            t.token = key.token;
+            return Box::pin(async move {
+                let (client, events) = Client::connect(Transport::Http(t), Default::default())
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Connected { client, events })
+            });
+        }
         let name = server.to_string();
         let served = self.served.clone();
         Box::pin(async move {
@@ -115,6 +129,9 @@ impl Connect for Fakes {
                 return Err(theseus_mcp::Error::Http {
                     status: 401,
                     body: SIGN_IN_BODY.into(),
+                    challenge: Some(theseus_mcp::client::WwwAuthenticate::new(
+                        "Bearer error=\"invalid_token\"",
+                    )),
                 }
                 .to_string());
             }
@@ -201,6 +218,7 @@ pub(super) fn rig() -> Rig {
             env: Default::default(),
             url: None,
             auth_secret: None,
+            oauth: None,
             read: vec![],
             sandbox: McpSandbox::L1,
             egress: vec![],
@@ -275,6 +293,12 @@ impl Rig {
     /// From now on, the server `name` answers HTTP 401 ([`SIGN_IN_BODY`]).
     pub(super) fn refuse(&self, name: &str) {
         self.fakes.refusing.lock().unwrap().push(name.into());
+    }
+
+    /// From now on, the server `name` is reached at its address by the real
+    /// HTTP client.
+    pub(super) fn real(&self, name: &str) {
+        self.fakes.real.lock().unwrap().push(name.into());
     }
 
     async fn run(&self, sid: &str, input: &str, agent: Option<&str>) {
@@ -1068,6 +1092,7 @@ fn the_card_shows_everything_whole_as_escaped_literals_and_no_value_begins_a_lin
         env: [("WC\nKEY".to_string(), "wc_key".to_string())].into(),
         url: None,
         auth_secret: None,
+        oauth: None,
         read: vec!["echo\nRead-only: all".into()],
         sandbox: McpSandbox::L0,
         egress: vec![],
@@ -1167,6 +1192,7 @@ fn a_line_separator_in_a_servers_words_is_escaped() {
         env: Default::default(),
         url: None,
         auth_secret: None,
+        oauth: None,
         read: vec![],
         sandbox: McpSandbox::L1,
         egress: vec![],
@@ -1217,6 +1243,7 @@ fn what_cannot_be_shown_whole_is_refused_before_a_card_is_made() {
         env: Default::default(),
         url: None,
         auth_secret: None,
+        oauth: None,
         read: vec![],
         sandbox: McpSandbox::L1,
         egress: vec![],
@@ -1399,6 +1426,7 @@ fn a_source_for_what_will_run_is_the_models_word_on_one_line() {
         env: Default::default(),
         url: None,
         auth_secret: None,
+        oauth: None,
         read: vec![],
         sandbox: McpSandbox::L1,
         egress: vec![],

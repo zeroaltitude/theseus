@@ -183,8 +183,9 @@ pub struct GetPromptResult {
 }
 
 /// The answer to `tools/call`. `is_error` is a failure the model reads, not
-/// a protocol error.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// a protocol error. Its `Debug` prints how much it holds and the flag, never
+/// what a server wrote in it (issue 55).
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallToolResult {
     #[serde(default, deserialize_with = "lenient_vec")]
@@ -199,6 +200,16 @@ pub struct CallToolResult {
     pub is_error: bool,
     #[serde(flatten)]
     pub other: Map<String, Value>,
+}
+
+impl std::fmt::Debug for CallToolResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CallToolResult")
+            .field("content", &self.content.len())
+            .field("structured_content", &self.structured_content.is_some())
+            .field("is_error", &self.is_error)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CallToolResult {

@@ -17,7 +17,7 @@ rust-version.workspace = true
 default = ["server"]
 # Theseus's own MCP server (`server`, step 41), on axum. The core's client
 # side (36b) can leave it out with `default-features = false`.
-server = ["dep:axum", "dep:sha2", "dep:rand"]
+server = ["dep:axum"]
 
 [[bin]]
 name = "theseus-mcp-fake"
@@ -43,8 +43,12 @@ tracing.workspace = true
 thiserror.workspace = true
 libc = "0.2"
 axum = { version = "0.8", optional = true }
-sha2 = { version = "0.10", optional = true }
-rand = { version = "0.9", optional = true }
+# The sign-in (issue 55): PKCE's verifier and challenge, and tokens held so
+# that they are wiped when dropped.
+sha2 = "0.10"
+rand = "0.9"
+base64.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

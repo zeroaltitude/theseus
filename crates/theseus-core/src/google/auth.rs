@@ -335,8 +335,9 @@ impl Google {
     }
 }
 
-/// Whether this kernel is WSL's: `/proc/version` names Microsoft.
-fn on_wsl() -> bool {
+/// Whether this kernel is WSL's: `/proc/version` names Microsoft. An MCP
+/// server's sign-in asks it too (issue 55).
+pub(crate) fn on_wsl() -> bool {
     wsl_at(std::path::Path::new("/proc/version"))
 }
 
