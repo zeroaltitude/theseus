@@ -99,7 +99,7 @@ async fn a_provider_from_a_vault_item_is_one_card_and_no_value() {
     assert!(
         plain
             .what
-            .starts_with("use the vault's item \"Lantern key\" (field \"credential\") as `lantern_key`, given to the provider `lantern` (its key): change 3 settings"),
+            .starts_with("use the vault's item \"Lantern key\" (field \"credential\") as `lantern_key`, given to the provider `lantern` (its key, which sends it to https://lantern.example.test): change 3 settings"),
         "{}",
         plain.what
     );
