@@ -38,8 +38,24 @@ async fn rig() -> Rig {
 /// A standing order, as an act done unasked made it, and its note staged
 /// through the helper: the order's id and the note's post id.
 fn ordered(r: &Rig) -> (String, String) {
-    let id = r
-        .core
+    let id = order(r);
+    let (a, frame) = told::stage(
+        &r.core.outbox,
+        None,
+        "Theseus kept a standing order",
+        "In “Tides”, without asking you",
+        "Read the tide table in metres.",
+        &Undo::StandingRevoke(id.clone()),
+    )
+    .unwrap();
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+    (id, a.correlation_id)
+}
+
+/// A standing order the owner's terminal keeps; its id.
+fn order(r: &Rig) -> String {
+    r.core
         .standing_add(
             &StandingAddParams {
                 kind: StandingKind::Order,
@@ -56,19 +72,7 @@ fn ordered(r: &Rig) -> (String, String) {
         )
         .unwrap()
         .record
-        .id;
-    let (a, frame) = told::stage(
-        &r.core.outbox,
-        None,
-        "Theseus kept a standing order",
-        "In “Tides”, without asking you",
-        "Read the tide table in metres.",
-        &Undo::StandingRevoke(id.clone()),
-    )
-    .unwrap();
-    r.core.store.append(&frame).unwrap();
-    r.core.outbox.posted(&a);
-    (id, a.correlation_id)
+        .id
 }
 
 /// How many revokes ended the order.
@@ -242,56 +246,12 @@ fn note_of(r: &Rig, undo: Undo) -> String {
     a.correlation_id
 }
 
-/// A reminder, in Theseus's home conversation; its wake id.
-async fn wake(r: &Rig) -> String {
-    let c = theseus_core::approval::Client::new("test", theseus_core::approval::Surface::Cli);
-    let rpc = crate::rpc_client::RpcClient::connect(r.core.clone(), c).0;
-    let made: theseus_protocol::wakes::WakeEditResult = rpc
-        .call(
-            theseus_protocol::method::WAKE_CREATE,
-            theseus_protocol::wakes::WakeCreateParams {
-                when: "in 2h".into(),
-                note: "check the moorings".into(),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-    made.wake.wake_id
-}
-
-fn pending(r: &Rig, wake: &str) -> bool {
-    let all = r.core.kernel.pending_wakes().unwrap();
-    all.iter().any(|(_, w)| w.id == wake)
-}
-
-/// The judged door (issue 57): a wake note's Undo pressed by a guest, or by
-/// the owner in a shared place, cancels nothing, though `wake.cancel` itself
-/// judges no one; the owner's press in her DM cancels it once.
-#[tokio::test]
-async fn a_wake_notes_undo_counts_only_for_the_owner_in_private() {
-    let r = rig().await;
-    let id = wake(&r).await;
-    let post = note_of(&r, Undo::WakeCancel(id.clone()));
-    let m = note(&r, &post).await;
-    let copy = forge(&r, LAB, &format!("told:undo:{post}")).await;
-    let p = r.press(&copy, "Undo", (BEN, "ben"));
-    told_to(&r, &p, "🔐 Your undo did not count").await;
-    let p = r.press(&copy, "Undo", (ANA, "ana"));
-    told_to(&r, &p, "🔐 Your undo did not count").await;
-    assert!(pending(&r, &id), "nothing was cancelled");
-    let p = r.press(&m.id, "Undo", (ANA, "ana"));
-    told_to(&r, &p, "↩️ Undone.").await;
-    assert!(!pending(&r, &id), "cancelled");
-}
-
-/// Each of the four undos runs through `told.undo` and does what its own
-/// method does; a second `told.undo` of the same note is refused by the core
-/// and does not do it twice.
+/// Each undo runs through `told.undo` and does what its own method does; a
+/// second `told.undo` of the same note is refused by the core and does not
+/// do it twice.
 #[tokio::test]
 async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() {
     use theseus_core::rpc::told::{ToldUndoParams, ToldUndoResult};
-    use theseus_protocol::routines::{RoutineCreateParams, RoutineEditResult};
     use theseus_protocol::rsi::{SelfBacklogParams, SelfFileParams, SelfFileResult};
     let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
         c.self_improve.mode = theseus_core::config::self_improve::SelfMode::Act;
@@ -300,19 +260,6 @@ async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() 
     .await;
     let c = theseus_core::approval::Client::new("test", theseus_core::approval::Surface::Cli);
     let rpc = crate::rpc_client::RpcClient::connect(r.core.clone(), c).0;
-    let routine: RoutineEditResult = rpc
-        .call(
-            theseus_protocol::method::ROUTINE_CREATE,
-            RoutineCreateParams {
-                title: "Tides".into(),
-                schedule: "weekdays 08:00".into(),
-                brief: "Look at the tide table.".into(),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-    let routine = routine.routine.id;
     let item: SelfFileResult = rpc
         .call(
             theseus_protocol::method::SELF_FILE,
@@ -324,7 +271,6 @@ async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() 
         .await
         .unwrap();
     let item = item.item;
-    let wake = wake(&r).await;
     let (order, _) = ordered(&r);
     let open = |id: &str| {
         let all = r
@@ -340,19 +286,9 @@ async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() 
                 )
         })
     };
-    let listed = |id: &str| {
-        r.core
-            .routine_list()
-            .unwrap()
-            .routines
-            .iter()
-            .any(|x| x.id == id)
-    };
-    assert!(pending(&r, &wake) && listed(&routine) && open(&item) && ends(&r, &order) == 0);
+    assert!(open(&item) && ends(&r, &order) == 0);
 
     for undo in [
-        Undo::WakeCancel(wake.clone()),
-        Undo::RoutineDelete(routine.clone()),
         Undo::StandingRevoke(order.clone()),
         Undo::SelfDrop(item.clone()),
     ] {
@@ -377,8 +313,6 @@ async fn each_undo_runs_through_told_undo_and_a_second_is_refused_by_the_core() 
             .unwrap_err();
         assert!(again.data.get("undone_by").is_some(), "{undo:?}: {again:?}");
     }
-    assert!(!pending(&r, &wake), "the wake was cancelled");
-    assert!(!listed(&routine), "the routine was deleted");
     assert_eq!(ends(&r, &order), 1, "the order was revoked once");
     assert!(!open(&item), "the item was dropped");
 }
@@ -392,14 +326,14 @@ async fn a_told_notes_send_its_undo_edit_and_its_replies_are_masked() {
     const SECRET: &str = "fake-token-not-a-secret";
     let r = rig().await;
     assert!(r.core.exits.on());
-    let id = wake(&r).await;
+    let id = order(&r);
     let (a, frame) = told::stage(
         &r.core.outbox,
         None,
-        &format!("Set a reminder about {SECRET}"),
+        &format!("Kept an order about {SECRET}"),
         &format!("In “{SECRET}”, without asking you"),
         &format!("It mentions {SECRET}."),
-        &Undo::WakeCancel(id.clone()),
+        &Undo::StandingRevoke(id.clone()),
     )
     .unwrap();
     r.core.store.append(&frame).unwrap();
@@ -412,7 +346,7 @@ async fn a_told_notes_send_its_undo_edit_and_its_replies_are_masked() {
     told_to(&r, &p, "🔐 Your undo did not count").await;
     let p = r.press(&m.id, "Undo", (ANA, "ana"));
     told_to(&r, &p, "↩️ Undone.").await;
-    assert!(!pending(&r, &id), "cancelled");
+    assert_eq!(ends(&r, &id), 1, "revoked once");
     // A repeat press, on a copy still showing the button: the core's answer
     // edits the copy too, and that edit is masked as well.
     let again = forge(&r, ANA_DM, &format!("told:undo:{post}")).await;
@@ -447,14 +381,14 @@ async fn a_told_notes_send_its_undo_edit_and_its_replies_are_masked() {
 #[tokio::test]
 async fn a_note_naming_itself_reaches_discord_with_its_own_post_id() {
     let r = rig().await;
-    let id = wake(&r).await;
+    let id = order(&r);
     let (a, frame) = told::stage(
         &r.core.outbox,
         None,
         "Theseus took something back",
         "In “Tides”, without asking you",
         &format!("Or from a terminal: `{}`", told::by_door()),
-        &Undo::WakeCancel(id),
+        &Undo::StandingRevoke(id),
     )
     .unwrap();
     r.core.store.append(&frame).unwrap();

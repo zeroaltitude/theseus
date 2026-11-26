@@ -1,21 +1,23 @@
 //! A note that tells the owner of an act Theseus did without asking, with its
 //! **Undo** (issue 57). One helper, [`stage`], used by every act that stopped
-//! asking: an FYI to the operator in the caller's plain words, carrying an
-//! [`Undo`]. The note is an operator post: Discord delivers it (to the
-//! notices place when one is bound, else the owner's DM), with an Undo
-//! button; other surfaces show it only where they already show operator
-//! posts, and today none of them reads a told note's words. Its text ends
-//! with the command that undoes it, so wherever the words are read they
-//! carry the way back.
+//! asking: an FYI to the operator in the caller's fixed words, carrying an
+//! [`Undo`]. Its text ends with the command that undoes it.
+//!
+//! **Where it is seen (the conductor's scope, 2026-11-25):** the note is an
+//! operator post that Discord delivers, to the notices place when one is
+//! bound, else the owner's DM, with an Undo button. No other surface (the
+//! TUI, the cockpit, `theseus answer`) shows a told note today; that is a
+//! later ticket.
 //!
 //! The press is `told.undo` as the presser (`rpc/told.rs`): one act, whatever
 //! the undo calls underneath, judged by the general rule, the owner from a
-//! private place as the daemon judges it. A local process on the owner's
-//! socket counts as the owner's terminal, as for every owner-only command, so
-//! a counted undo is not proof of a human press. The core keeps the note (its
-//! post) and whether it was undone, so a press works after a restart and
-//! counts once. The stored words stay as written: every send and edit masks
-//! them at the exit.
+//! private place as the daemon judges it, and refused first to a connection
+//! whose own peer reading names an agent or a job. A local process the
+//! daemon reads as the owner's terminal counts as the owner, so a counted
+//! undo is not proof of a human press. The core keeps the note (its post) and
+//! how its undo settled, so a press works after a restart and counts once.
+//! The stored words stay as written: every Discord send and edit, and every
+//! copy `told.undo` returns, masks them at the exit.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -37,12 +39,6 @@ pub const KIND: &str = "told";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "id")]
 pub enum Undo {
-    /// `routine.delete`: a routine's schedule and any run going end.
-    #[serde(rename = "routine.delete")]
-    RoutineDelete(String),
-    /// `wake.cancel`: a pending wake or watch fires nothing.
-    #[serde(rename = "wake.cancel")]
-    WakeCancel(String),
     /// `standing.revoke`: a standing order or record stops holding.
     #[serde(rename = "standing.revoke")]
     StandingRevoke(String),
@@ -61,8 +57,6 @@ impl Undo {
     pub fn method(&self) -> &'static str {
         use theseus_protocol::method;
         match self {
-            Undo::RoutineDelete(_) => method::ROUTINE_DELETE,
-            Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
             #[cfg(test)]
@@ -74,10 +68,9 @@ impl Undo {
     /// pressed wherever the method takes it.
     pub fn params(&self, author: &str, discord: Option<DiscordOrigin>) -> Value {
         match self {
-            Undo::RoutineDelete(id) | Undo::StandingRevoke(id) => {
+            Undo::StandingRevoke(id) => {
                 json!({"id": id, "author": author, "discord": discord})
             }
-            Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
             #[cfg(test)]
             Undo::Probe(id) => json!({"id": id, "author": author}),
@@ -88,8 +81,6 @@ impl Undo {
     /// of its own answers [`by_door`]: the note's own `theseus told undo`.
     pub fn command(&self) -> String {
         match self {
-            Undo::RoutineDelete(id) => format!("theseus routine rm {id}"),
-            Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
             #[cfg(test)]
@@ -120,6 +111,13 @@ pub fn filled(text: &str, post: &str) -> String {
 /// conversation did it, the note's second line), `body` (more, or empty),
 /// then the command that undoes it. Append the records with the act's own (or
 /// alone), then `outbox.posted` the action, as `stage_to_operator`'s callers do.
+///
+/// **The contract.** `title`, `by` and `body` are the caller's fixed words
+/// with ids, counts, schedules, settings names and the like: never
+/// model-written or outside text. A conversation is named by its short id,
+/// never by its title, which is text someone else may have written. The
+/// exit's masking is a backstop for the vault's registered secret values
+/// only; it is not a filter for outside text, and it is not applied here.
 pub fn stage(
     outbox: &Outbox,
     session: Option<&str>,
@@ -153,37 +151,28 @@ pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
     )))
 }
 
-/// The note `name` names: its post id, or the end of one no other told
-/// note's id shares. None when no told note has it.
-pub fn resolve(kernel: &Kernel, name: &str) -> Result<Option<String>> {
-    if of(kernel, name)?.is_some() {
-        return Ok(Some(name.to_string()));
-    }
-    if name.is_empty() {
-        return Ok(None);
-    }
-    let all: Vec<String> = kernel
-        .outbox_actions()?
-        .into_iter()
-        .filter(|a| body_of(a)["kind"] == KIND && a.correlation_id.ends_with(name))
-        .map(|a| a.correlation_id)
-        .collect();
-    match all.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(Some(one.clone())),
-        many => anyhow::bail!(
-            "`{name}` ends {} notes' ids ({}): give more of it",
-            many.len(),
-            many.join(", ")
-        ),
-    }
-}
-
-/// Who undid a note, and when.
+/// Who settled a note's undo, when, and the line the note ended with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Undone {
     pub by: String,
     pub at_ms: u64,
+    /// The note's last line once settled ([`undone_line`], [`found_line`] or
+    /// [`moved_line`]); none on a mark this lane wrote before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
+}
+
+impl Undone {
+    /// The note's last line once settled.
+    pub fn line(&self) -> String {
+        self.line.clone().unwrap_or_else(|| undone_line(&self.by))
+    }
+
+    /// Whether the undo ran (rather than finding nothing left to do, or the
+    /// act moved on).
+    pub fn ran(&self) -> bool {
+        self.line() == undone_line(&self.by)
+    }
 }
 
 fn undone_key(post: &str) -> String {
@@ -195,11 +184,12 @@ pub fn undone(store: &Store, post: &str) -> Result<Option<Undone>> {
     store.get_meta(&undone_key(post))
 }
 
-/// Write that the note `post` was undone by `by`.
-pub fn mark_undone(store: &Store, post: &str, by: &str) -> Result<()> {
+/// Write that the note `post`'s undo settled, by `by`, with `line` its last.
+pub fn mark_undone(store: &Store, post: &str, by: &str, line: &str) -> Result<()> {
     let u = Undone {
         by: by.to_string(),
         at_ms: theseus_protocol::now_unix_ms(),
+        line: Some(line.to_string()),
     };
     store.append(&[NewRecord::json(kinds::META, Some(&undone_key(post)), &u)?])?;
     Ok(())
@@ -211,15 +201,33 @@ fn without_undo(text: &str) -> String {
     kept.join("\n")
 }
 
-/// The note's text once undone: the Undo line goes, a line says who undid it.
-pub fn undone_text(text: &str, by: &str) -> String {
-    format!("{}\n↩️ Undone by {by}.", without_undo(text))
+/// The note's text once settled: the Undo line goes, `line` ends it.
+pub fn settled_text(text: &str, line: &str) -> String {
+    format!("{}\n{line}", without_undo(text))
 }
 
-/// The note's text when its undo's outcome was found already there (an
-/// earlier press got that far): the Undo line goes, a line says what was found.
-pub fn found_text(text: &str, found: &str) -> String {
-    format!("{}\n↩️ Nothing left to undo: {found}.", without_undo(text))
+/// The last line of a note whose undo ran.
+pub fn undone_line(by: &str) -> String {
+    format!("↩️ Undone by {by}.")
+}
+
+/// The last line of a note whose undo's outcome was found already there.
+pub fn found_line(found: &str) -> String {
+    format!("↩️ Nothing left to undo: {found}.")
+}
+
+/// The last line of a note whose act moved on before its Undo was pressed:
+/// the undo no longer applies, and `command` is the ordinary way now.
+pub fn moved_line(command: &str) -> String {
+    format!(
+        "↩️ This Undo no longer applies: the item has moved on since it was filed. To drop it \
+         as it is now: `{command}`."
+    )
+}
+
+/// The note's text once undone: the Undo line goes, a line says who undid it.
+pub fn undone_text(text: &str, by: &str) -> String {
+    settled_text(text, &undone_line(by))
 }
 
 #[cfg(test)]
@@ -233,18 +241,6 @@ mod tests {
     fn each_undo_names_an_existing_method_its_params_and_its_command() {
         let id = "rtn_1".to_string();
         let cases = [
-            (
-                Undo::RoutineDelete(id.clone()),
-                method::ROUTINE_DELETE,
-                "id",
-                "theseus routine rm rtn_1",
-            ),
-            (
-                Undo::WakeCancel(id.clone()),
-                method::WAKE_CANCEL,
-                "wake",
-                "theseus cancel rtn_1",
-            ),
             (
                 Undo::StandingRevoke(id.clone()),
                 method::STANDING_REVOKE,
@@ -278,11 +274,11 @@ mod tests {
     async fn the_note_and_its_undone_survive_a_restart() {
         let dir = tempfile::tempdir().unwrap();
         let core = crate::tests_unlabel::core_in(dir.path());
-        let undo = Undo::WakeCancel("wke_1".into());
+        let undo = Undo::StandingRevoke("std_1".into());
         let (a, frame) = stage(
             &core.outbox,
             None,
-            "Set a watch",
+            "Kept a standing order",
             "In “Tides”, without asking you",
             "",
             &undo,
@@ -296,15 +292,16 @@ mod tests {
         assert_eq!(got, undo);
         assert_eq!(
             text,
-            "ℹ️ FYI · Set a watch\nIn “Tides”, without asking you\nUndo: `theseus cancel wke_1`"
+            "ℹ️ FYI · Kept a standing order\nIn “Tides”, without asking you\n\
+             Undo: `theseus standing revoke std_1`"
         );
         assert!(undone(&core.store, &post).unwrap().is_none());
-        mark_undone(&core.store, &post, "ana").unwrap();
+        mark_undone(&core.store, &post, "ana", &found_line("it is gone")).unwrap();
         let core = reopened(core, dir.path()).await;
-        assert_eq!(
-            undone(&core.store, &post).unwrap().map(|u| u.by).as_deref(),
-            Some("ana")
-        );
+        let u = undone(&core.store, &post).unwrap().unwrap();
+        assert_eq!(u.by, "ana");
+        assert_eq!(u.line(), "↩️ Nothing left to undo: it is gone.");
+        assert!(!u.ran());
         assert!(of(&core.kernel, "no_such_post").unwrap().is_none());
     }
 
@@ -335,5 +332,37 @@ mod tests {
             undone_text(&t, "ana"),
             "ℹ️ FYI · Made a routine\nIn “Trip”, without asking you\n↩️ Undone by ana."
         );
+    }
+
+    /// A stored note whose undo names a tag this build no longer has (the cut
+    /// `wake.cancel`, `routine.delete`) is refused when read: an error, no
+    /// panic, nothing run.
+    #[tokio::test]
+    async fn a_note_with_a_cut_undo_refuses_to_decode() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::tests_unlabel::core_in(dir.path());
+        for gone in ["wake.cancel", "routine.delete"] {
+            let (a, frame) = core
+                .outbox
+                .stage_to_operator(
+                    None,
+                    json!({"kind": "told", "text": "ℹ️ FYI · old",
+                           "undo": {"method": gone, "id": "x_1"}}),
+                )
+                .unwrap();
+            core.store.append(&frame).unwrap();
+            core.outbox.posted(&a);
+            let e = of(&core.kernel, &a.correlation_id).unwrap_err();
+            assert!(e.to_string().contains(gone), "{e}");
+        }
+    }
+
+    /// A mark this lane wrote before it kept the line reads as an undo that
+    /// ran.
+    #[test]
+    fn a_mark_with_no_line_is_an_undo_that_ran() {
+        let u: Undone = serde_json::from_value(json!({"by": "ana", "at_ms": 1})).unwrap();
+        assert_eq!(u.line(), "↩️ Undone by ana.");
+        assert!(u.ran());
     }
 }

@@ -99,25 +99,32 @@ impl Shared {
                     .and_then(Value::as_str)
                     .unwrap_or(&e.message)
             ),
-            Err(e) => match e.data.get("undone_by").and_then(Value::as_str) {
-                Some(by) => {
-                    if let Some(t) = e.data.get("text").and_then(Value::as_str) {
-                        self.told_edit(i, t).await;
+            Err(e) => {
+                // A settled note, or one whose act moved on, comes back with
+                // its words as they now stand: an edit an earlier press missed
+                // is mended.
+                if let Some(t) = e.data.get("text").and_then(Value::as_str) {
+                    self.told_edit(i, t).await;
+                }
+                let moved = ["unfinished", "done", "moved_on"];
+                match e.data.get("undone_by").and_then(Value::as_str) {
+                    Some(by) if e.data["ran"] != false => {
+                        format!("↩️ Already undone by {by}: nothing was done.")
                     }
-                    format!("↩️ Already undone by {by}: nothing was done.")
+                    Some(_) => format!("↩️ Nothing was done: {}.", e.message),
+                    // The core's words say what is done and what is not.
+                    None if moved.iter().any(|k| e.data.get(k).is_some()) => {
+                        format!("⚠️ {}", e.message)
+                    }
+                    None if e.code == theseus_protocol::error_code::NOT_FOUND => {
+                        format!("⚠️ The undo was not made: {}", e.message)
+                    }
+                    None => format!(
+                        "⚠️ The undo was not confirmed: {}. Press Undo again: it never runs twice.",
+                        e.message
+                    ),
                 }
-                // The core's words say what is done and what is not.
-                None if e.data.get("unfinished").is_some() || e.data.get("done").is_some() => {
-                    format!("⚠️ {}", e.message)
-                }
-                None if e.code == theseus_protocol::error_code::NOT_FOUND => {
-                    format!("⚠️ The undo was not made: {}", e.message)
-                }
-                None => format!(
-                    "⚠️ The undo was not confirmed: {}. Press Undo again: it never runs twice.",
-                    e.message
-                ),
-            },
+            }
         };
         self.followup(i, &text).await;
     }

@@ -204,7 +204,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`standing`**: the owner's standing orders, preferences and facts, kept in every prompt of their scope.
   `theseus standing add --kind order "no emoji"`; `standing revoke ID`.
 - **`told`**: undo an act Theseus did without asking, from its note. `theseus told undo POST` (the note's
-  post id, or its end) is what the note's "Undo:" line names when the act has no command of its own; it goes
+  full post id) is what the note's "Undo:" line names when the act has no command of its own; it goes
   through the same door as the note's Undo button. Yours alone, refused inside a job.
 - **`owner`**: your own second proof, a code from an authenticator app, asked for by the changes that matter most.
   `theseus owner proof enroll` pairs the app (once, in your own terminal); `owner proof status` says whether one is
