@@ -2105,9 +2105,9 @@ pub fn build_runtime(
         // The owner's Sign in button for an MCP server, offered (issue 59).
         r.register(Arc::new(crate::mcp::offer::Offer));
         // The owner's Confirm alerts button, offered where an AWS account is bound (issue 59).
-        if aws.is_some() {
-            r.register(crate::aws::offer::tool());
-        }
+        aws.iter()
+            .map(|_| crate::aws::offer::tool())
+            .for_each(|tool| r.register(tool));
         // Theseus and its vault, looked at by name, with no shell (issue 26).
         crate::look::register(cfg, &mut r);
         // Asking a profile and holding a conversation to one, with no shell (issue 28).
