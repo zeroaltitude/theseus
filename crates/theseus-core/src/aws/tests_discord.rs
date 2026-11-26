@@ -161,8 +161,8 @@ async fn a_stranger_a_shared_place_and_no_presser_are_refused_the_alerts() {
     );
 }
 
-/// A turn's tools never confirm: the offer is among AWS's tools, takes no token, and says nothing
-/// was confirmed.
+/// A turn's tools never confirm: the offer is there where an account is bound, takes no token, and
+/// says nothing was confirmed.
 #[tokio::test]
 async fn a_turn_only_offers_the_alerts_confirmation() {
     let fake = Fake::start(sns);

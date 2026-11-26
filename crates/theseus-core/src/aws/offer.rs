@@ -2,9 +2,9 @@
 //! subscription, a turn can only OFFER the control. The tool posts one small card to the owner's
 //! direct messages with **Confirm alerts**, and does nothing else: it confirms nothing, and says
 //! so in its result. Only the owner's own press of the button, in a private place, opens the form
-//! whose token goes to the daemon's confirm (`rpc/aws.rs`, `rpc/owner_press.rs`). It is among
-//! AWS's tools, so it is offered only where an AWS account is bound; its name is not `aws.`'s,
-//! because it is no AWS act.
+//! whose token goes to the daemon's confirm (`rpc/aws.rs`, `rpc/owner_press.rs`). It is offered
+//! only where an AWS account is bound (`toolrun.rs`), but it is not one of AWS's tools and its name
+//! is not `aws.`'s: it is no AWS act.
 
 use std::sync::Arc;
 

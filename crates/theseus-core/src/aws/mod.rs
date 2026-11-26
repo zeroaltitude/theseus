@@ -223,8 +223,6 @@ impl Aws {
         all.extend(tag::all(self));
         all.push(Arc::new(cost::Cost::new(self.clone())));
         all.push(Arc::new(hands::tool::HandsRun(self.clone())));
-        // The owner's Confirm alerts button, offered (issue 59).
-        all.push(offer::tool());
         all
     }
 
