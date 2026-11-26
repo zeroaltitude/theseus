@@ -45,9 +45,13 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
-    /// A tidy Google act's own opposite (an untrash, a restore, a trash
-    /// again), named by the act's result node (`google::told`). It has no
-    /// method of its own: `told.undo` runs it inside the core.
+    /// `self.pause`, not cleared: new self builds wait again. The id is the
+    /// pause's reason, a phrase of the caller's own, never the model's words.
+    #[serde(rename = "self.pause")]
+    SelfPause(String),
+    /// A told Google act put back as it was (issue 57), named by the act's
+    /// result node (`google::told`). It has no method of its own: `told.undo`
+    /// runs it inside the core.
     #[serde(rename = "google.take_back")]
     GoogleTakeBack(String),
     /// An undo with no method of its own, for the tests: its arm in
@@ -64,6 +68,7 @@ impl Undo {
         match self {
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
+            Undo::SelfPause(_) => method::SELF_PAUSE,
             Undo::GoogleTakeBack(_) => method::TOLD_UNDO,
             #[cfg(test)]
             Undo::Probe(_) => method::TOLD_UNDO,
@@ -77,8 +82,11 @@ impl Undo {
             Undo::StandingRevoke(id) => {
                 json!({"id": id, "author": author, "discord": discord})
             }
-            Undo::GoogleTakeBack(id) => json!({"id": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
+            Undo::SelfPause(why) => {
+                json!({"clear": false, "why": why, "author": author, "discord": discord})
+            }
+            Undo::GoogleTakeBack(id) => json!({"id": id, "author": author}),
             #[cfg(test)]
             Undo::Probe(id) => json!({"id": id, "author": author}),
         }
@@ -90,6 +98,7 @@ impl Undo {
         match self {
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
+            Undo::SelfPause(why) => format!("theseus self pause {why}"),
             Undo::GoogleTakeBack(_) => by_door(),
             #[cfg(test)]
             Undo::Probe(_) => by_door(),
@@ -260,6 +269,12 @@ mod tests {
                 method::SELF_DROP,
                 "item",
                 "theseus self drop rtn_1",
+            ),
+            (
+                Undo::SelfPause(id.clone()),
+                method::SELF_PAUSE,
+                "why",
+                "theseus self pause rtn_1",
             ),
         ];
         for (u, m, field, cmd) in cases {

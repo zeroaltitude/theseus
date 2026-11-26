@@ -569,10 +569,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
   outstanding card is open (`docs/design/abandon-said-in-words.md`). `judge_inbound` hands its judgment to
   `Core::capture_directive` once the batch settles, off the turn's path. The bands are the pack's own (`act` 0.80, `confirm`
-  0.50): `capture::decide` (pure) keeps at the act band, asks from the confirm band, and below it only notes a correction
-  (`standing.candidate`) to propose it when its words overlap one noted in the last week (`capture::words::same`); an order
-  is always asked; a message of the same kind as a live record of its scope and sharing its words is `standing.repeated`
-  and no record. The words kept are the message's own on one line (Jev answers choices, not text; over 240 characters
+  0.50): `capture::decide` (pure) keeps at the act and the confirm band (issue 57: told with its undo,
+  `standing.revoke`, not asked), asks an order at either, and below them only notes a correction (`standing.candidate`) to
+  propose it when its words overlap one noted in the last week (`capture::words::same`); a message of the same kind as a
+  live record of its scope and sharing its words is `standing.repeated` and no record. A turn an agent's process sent on
+  the CLI or the web (`Conn::answerer`'s reading of the peer) is never noted, marker or none. The words kept are the message's own on
+  one line (Jev answers choices, not text; over 240 characters
   nothing is captured). A kept record's source is `capture:<node>`, its scope Jev's when its `scope` answer reached the act
   band, else where it was said (a Discord place, else the session). One frame each (`capture/act.rs`): the record, its
   `standing.added` and `standing.captured` rows, the state (`capture/state.rs`: candidates, open asks, repeats, which
@@ -806,7 +808,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   secrets), `approval.rs` (who answers, and from where), `peer.rs` (the web UI's other-uid check at accept), and `peer_proc.rs` (who is behind a CLI answer).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
   unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both
-  (`web::net::PrivateAddresses`, `Web.private`).
+  (`web::net::PrivateAddresses`, `Web.private`). A literal loopback or LAN address is told, not asked
+  (issue 57: `web::net::told_host`, `ToolPolicy::told_address`, `toolrun/told.rs`, which also keeps a shared
+  place's card for it). `localhost` keeps its card, and so does a URL with credentials before its host; any
+  other name that resolves privately is refused by the checked resolver. It belongs to any private place, not
+  to who started the turn. Its note is staged as the fetch starts and says only that.
   **Reversibility** (theseus-p5kln, row B6 `theseus-2yowd`; `toolrun/reversible.rs`, `judge/undo.rs`,
   `judge/undo/state.rs`; `[judge] reversibility`, on by default, the owner's word 2026-11-12; the design of the
   consumption is `docs/design/undo-v1.md`): `undo.v2` (undo.v1 until issue 46) is asked ONCE for a planned call, on the gate's own path
@@ -1646,7 +1652,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `ontology.write:<judgment>`, `added_by jev:<judgment>`), an `onto.filed` row and the owner's cards to the judgment's own frame;
     the snapshot is held only after that frame is written. A mint (`new` at the act band with a `<kind>_name` at the act band,
     which files under a same-named category instead of minting twice) sends one `onto_card` post to the owner's DM with its undo;
-    a confirm-band answer sends one asking and writes nothing; a plain filing sends none; below the confirm band nothing
+    a confirm-band answer is written as an act-band one is (a `new` when its name reaches the confirm band; none, nothing)
+    and sends one `onto_card` with its undo (issue 57: told, not asked); a confirm-band project is still asked, writing
+    nothing; a plain filing sends none; below the confirm band nothing
     but the judgment's row. The operator's entries are never changed: a list full of them refuses Jev's, a refusal is a step
     in the `onto.filed` row (`disagrees`), never a panic. **The naming call** (`onto/name.rs`): `new` at the act band and no mined
     name fits, one call to `[ontology] name_profile` for three names and a line, reserved on the day ceiling, an `onto.named` row

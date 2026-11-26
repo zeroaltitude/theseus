@@ -569,7 +569,8 @@ impl Core {
             let Some(t) = by_id.get(id.as_str()) else {
                 continue;
             };
-            if t.state != TaskState::Proposed {
+            // A finding filed from chat waits a minute after its note is written (issue 57).
+            if t.state != TaskState::Proposed || self.rsi.pipeline.chat_holds.held(t) {
                 continue;
             }
             let (n, findings, at) = rejections(t);
