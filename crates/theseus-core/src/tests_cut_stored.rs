@@ -500,6 +500,8 @@ async fn an_arrangements_piece_holds_a_known_value_whole_or_not_at_all() {
         .find(|t| t.title.starts_with("Survey the moorings"))
         .expect("the task's record");
     let task_session = task.session.expect("its session");
+    let none = std::collections::BTreeSet::new();
+    let since = crate::copies::since::Since::new(&r.core.store, &none);
     let pieces = r
         .core
         .store
@@ -507,7 +509,7 @@ async fn an_arrangements_piece_holds_a_known_value_whole_or_not_at_all() {
         .unwrap()
         .into_iter()
         .find_map(
-            |(_, n)| match crate::arrangement::laid(&r.core.store, &n).body {
+            |(_, n)| match crate::arrangement::laid(&r.core.store, &n, &since).body {
                 Body::Arrangement { pieces, .. } => Some(pieces),
                 _ => None,
             },

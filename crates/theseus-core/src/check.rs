@@ -454,7 +454,9 @@ pub fn said(text: String, mut meta: Value, basis: &TaskCheck) -> (String, Value)
 
 /// The checked task's standing `objective` and `acceptance` pieces, read
 /// from its `Arrangement` node, those kept by reference with their words
-/// read (`arrangement::laid`): none for a task from before 27.
+/// read (`arrangement::laid`): none for a task from before 27. Nothing is
+/// marked wrong in them: the check compares their words with the work's, and
+/// a line saying what was said since is not the task's words.
 fn inherited(store: &crate::store::Store, rec: Option<&SessionRecord>) -> Vec<Piece> {
     let Some(id) = rec.and_then(|r| r.task.as_ref()?.arrangement.clone()) else {
         return vec![];
@@ -462,7 +464,9 @@ fn inherited(store: &crate::store::Store, rec: Option<&SessionRecord>) -> Vec<Pi
     let Ok(Some((_, n))) = store.get_node(&id) else {
         return vec![];
     };
-    let Body::Arrangement { pieces, .. } = arr::laid(store, &n).body else {
+    let none = std::collections::BTreeSet::new();
+    let since = crate::copies::since::Since::new(store, &none);
+    let Body::Arrangement { pieces, .. } = arr::laid(store, &n, &since).body else {
         return vec![];
     };
     pieces
