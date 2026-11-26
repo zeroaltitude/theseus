@@ -622,6 +622,11 @@ impl Broker {
     }
 
     /// Whether the wiring granted `tool` any secret.
+    /// Whether `[broker.programs]` grants the program `name` anything.
+    pub fn grants_program(&self, name: &str) -> bool {
+        self.programs.contains_key(name)
+    }
+
     pub fn has_tool(&self, tool: &str) -> bool {
         self.tools.read().unwrap().contains_key(tool)
     }

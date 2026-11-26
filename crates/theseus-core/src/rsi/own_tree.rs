@@ -141,10 +141,21 @@ pub(crate) fn l1_of(
     plan: &theseus_tools::Plan,
     input: &serde_json::Value,
 ) -> Option<String> {
+    // Every command of a self-principal session (a builder, a fixer, a picker, a reviewer, an approver, and any
+    // task or helper they start: the principal, not the role) runs in L1, whatever `[sandbox] default`,
+    // `l1_argv` or the call's own `sandbox: false` say (issue 53). Where L1 cannot run, the launcher refuses the
+    // job; nothing falls back to L0.
+    if session.is_some_and(|s| is_self(rt, s)) {
+        return Some(SELF_ALWAYS_L1.to_string());
+    }
     rt.sandbox
         .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
         .or_else(|| l1_instead_of_floor(rt, session, tool, plan, input))
 }
+
+/// Why a self-principal session's command runs in L1.
+pub(crate) const SELF_ALWAYS_L1: &str =
+    "a self-improvement session's commands always run in the sandbox, never on the host";
 
 /// A self builder's command that the floor would hold at L0 only because it runs `theseusd`, bound
 /// for L1 instead (issue 20). The floor reads every word that could be a program, so
@@ -183,6 +194,26 @@ fn l1_instead_of_floor(
             .to_string()
     })
 }
+
+/// Why a self-principal session's command may not run, or none: it runs `git` or `gh` by its own argv, a program
+/// the broker hands a credential to (`[broker.programs]`). With that credential such a command could publish to the
+/// self repository's remote around the owner's card; a self session's git needs none. A refusal in fixed words,
+/// never a card.
+pub(crate) fn credential_refusal(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    plan: &theseus_tools::Plan,
+) -> Option<String> {
+    let first = plan.argv.as_deref()?.first()?;
+    let name = std::path::Path::new(first).file_name()?.to_str()?;
+    let credentialed = ["git", "gh"].contains(&name) && rt.broker.grants_program(name);
+    (credentialed && session.is_some_and(|s| is_self(rt, s)))
+        .then(|| CREDENTIAL_REFUSAL.to_string())
+}
+
+/// What a self-principal session is told when it runs `git` or `gh` with a brokered credential.
+pub(crate) const CREDENTIAL_REFUSAL: &str = "a self-improvement session may not run git or gh with the \
+     credential the broker grants them: the self loop publishes only through the join, on the owner's yes";
 
 /// Why a self session's call may not write where it would, or none: a path with a `.git`
 /// component (a tree's `.git` file, a repository's git directory, anywhere), the self repo's
