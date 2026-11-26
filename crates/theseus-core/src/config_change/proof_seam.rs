@@ -166,11 +166,20 @@ mod tests {
     }
 
     /// Every case is a setting a real configuration accepts, so the classifier is
-    /// read on the schema, not on made-up keys.
+    /// read on the schema, not on made-up keys: each is parsed beside the provider's
+    /// secret every configuration names.
     fn real(cases: &[&str]) {
         let bad: Vec<String> = cases
             .iter()
-            .filter_map(|c| crate::Config::parse(c).err().map(|e| format!("{c}: {e:#}")))
+            .filter_map(|c| {
+                let text = match c.starts_with("[secrets]") {
+                    true => c.to_string(),
+                    false => format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n{c}"),
+                };
+                crate::Config::parse(&text)
+                    .err()
+                    .map(|e| format!("{c}: {e:#}"))
+            })
             .collect();
         assert!(bad.is_empty(), "not accepted: {bad:#?}");
     }
@@ -182,9 +191,9 @@ mod tests {
     fn the_code_is_kept_for_the_gates_and_dropped_for_the_rest() {
         let kept = [
             "[policy.tools]\n\"proc.run\" = \"open\"\n",
-            "[secrets]\nk = \"op://v/i/f\"\n",
-            "[places]\npublic = [\"discord:9\"]\n",
-            "[broker]\nenabled = true\n",
+            "[secrets]\nanthropic_api_key = \"op://v/i/f\"\nk = \"op://v/i/k\"\n",
+            "[places]\npublic_paths = [\"/srv/public\"]\n",
+            "[broker.secrets.anthropic_api_key]\nposture = \"approve\"\n",
             "[mcp_server]\nenabled = true\n",
             "[mcp.servers.files]\ncommand = [\"x\"]\n",
         ];
@@ -200,8 +209,7 @@ mod tests {
             "[tools]\nroots = [\"/x\"]\n",
             "[tools]\nagent_processes = [\"x\"]\n",
         ];
-        real(&kept);
-        real(&dropped);
+        real(&[kept.as_slice(), dropped.as_slice()].concat());
         for after in kept {
             assert_eq!(Needs::of(&between("", after)), Needs::Proof, "{after}");
         }
