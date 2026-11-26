@@ -371,6 +371,20 @@ impl Rig {
             .collect()
     }
 
+    /// The same store, config and provider under a new core, its self loop resumed: a restart.
+    pub(crate) fn restarted(&self) -> Arc<Core> {
+        let p = crate::rpc::Parts::for_tests(
+            (*self.core.cfg).clone(),
+            self.says.clone(),
+            self.core.store.clone(),
+        );
+        let core = Core::build(p).unwrap();
+        core.tools.self_pr.set_env(hermetic());
+        core.self_resume(&SelfResumeParams::default(), &Answerer::from("the CLI"))
+            .unwrap();
+        core
+    }
+
     pub(super) fn upstream_main(&self) -> String {
         git(&self.f.upstream, &["rev-parse", "refs/heads/main"])
     }
