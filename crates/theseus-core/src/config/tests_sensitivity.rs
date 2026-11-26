@@ -171,3 +171,74 @@ fn every_sensitive_table_is_a_real_one_and_the_template_reaches_it() {
         let _ = &v;
     }
 }
+
+/// Every leaf of the config as the template sets it, with its value.
+fn valued(v: &Value, at: &mut Vec<String>, out: &mut Vec<(Vec<String>, Value)>) {
+    match v {
+        Value::Object(m) if !m.is_empty() => {
+            for (k, v) in m {
+                at.push(k.clone());
+                valued(v, at, out);
+                at.pop();
+            }
+        }
+        _ => out.push((at.clone(), v.clone())),
+    }
+}
+
+/// (G1) The addresses the configuration holds today, by the walk of the uncommented template.
+const ADDRESSES: &[&str] = &[];
+/// (G3) The folders, files and agent lists the configuration holds today outside the account
+/// tables.
+const FOLDERS_AND_AGENTS: &[&str] = &[];
+/// (D) The prompt-text keys the configuration holds today.
+const PROMPT_TEXT: &[&str] = &[];
+
+/// Issue 57, the second reason table by groups: the walk of every setting the configuration
+/// accepts (the uncommented template, parsed) names each key of the groups found by kind, and
+/// no setting needs less than main asked of it (main: every sensitive setting needs the code)
+/// except prompt text (D). A spending limit is set where there was none here, which keeps the
+/// code.
+#[test]
+fn each_group_names_its_keys_and_nothing_is_weaker_than_main_but_prompt_text() {
+    use super::sensitivity::{group, proof_reason, reason, Group, DROPPED_KEYS};
+    let text = super::tests::uncommented(Config::EXAMPLE_TOML);
+    let cfg = Config::from_toml(&text).expect("the uncommented template parses");
+    let mut all = Vec::new();
+    valued(&serde_json::to_value(&cfg).unwrap(), &mut Vec::new(), &mut all);
+    let named = |pick: &dyn Fn(&[String]) -> bool| {
+        let mut v: Vec<String> = all
+            .iter()
+            .filter(|(p, _)| pick(p))
+            .map(|(p, _)| p.join("."))
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let accounts = |p: &[String]| super::sensitivity::ACCOUNT_TABLES.contains(&p[0].as_str());
+    let got = (
+        named(&|p| group(p) == Some(Group::Addresses)),
+        named(&|p| group(p) == Some(Group::SelfAndAccounts) && !accounts(p)),
+        named(&|p| reason(p).is_some_and(|r| DROPPED_KEYS.contains(&r.as_str()))),
+    );
+    assert_eq!(
+        got,
+        (
+            ADDRESSES.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            FOLDERS_AND_AGENTS.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            PROMPT_TEXT.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        ),
+        "the groups as the configuration holds them now: (addresses, folders and agents, prompt \
+         text)\n{got:#?}"
+    );
+    let weaker: Vec<String> = all
+        .iter()
+        .filter(|(p, v)| {
+            let dropped = reason(p).is_some_and(|r| DROPPED_KEYS.contains(&r.as_str()));
+            reason(p).is_some() && !dropped && proof_reason(p, None, Some(v)).is_none()
+        })
+        .map(|(p, _)| p.join("."))
+        .collect();
+    assert!(weaker.is_empty(), "weaker than main: {weaker:#?}");
+}

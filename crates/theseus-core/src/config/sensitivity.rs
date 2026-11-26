@@ -161,7 +161,7 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || has("persona")
         || has("instruction")
     {
-        return Some("text that is put into every prompt, or the persona that speaks");
+        return Some(PROMPT_REASON);
     }
     if has("agent") || is("provider") || ends("_provider") || has("not_") {
         return Some("which processes count as agents, which provider sees the owner's text, or what Theseus is told never to keep");
@@ -185,7 +185,7 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || is("tree")
         || is("repo")
     {
-        return Some("a folder or file Theseus may touch");
+        return Some(FOLDER_REASON);
     }
     if is("sandbox")
         || is("cwd")
@@ -277,12 +277,23 @@ pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> 
             && after.is_some_and(|v| v.as_str() == Some("auto")))
 }
 
-/// The tables a change to which needs the owner's authenticator code as well as the card's
-/// yes (issue 57): the approval rules, where secrets come from, the sandbox, the places and
-/// who owns them, the secrets broker, where Theseus listens and keeps its state, its own MCP
-/// server, and the second proof itself. Every other sensitive table keeps its card and needs
-/// no code.
-pub const PROOF_TABLES: [&str; 8] = [
+/// Why a key holds text put into every prompt (`key_reason`).
+pub const PROMPT_REASON: &str = "text that is put into every prompt, or the persona that speaks";
+/// Why a key names a folder or a file Theseus may touch (`key_reason`).
+pub const FOLDER_REASON: &str = "a folder or file Theseus may touch";
+/// Why a catalog price is kept for the code ([`proof_reason`]).
+pub const PRICE_REASON: &str = "a price that decides what a model call is charged or reserved";
+
+// The second reason table (issue 57): which sensitive settings' cards ALSO take the owner's
+// authenticator code. Every sensitive setting keeps its card; these lists say only where the
+// code is kept or dropped. Each group is one list, so a later decision flips one group. A
+// setting in no list keeps what main does for it ([`reason`]: sensitive keeps the code), so no
+// unlisted key is weaker than main.
+
+/// (K) The code is KEPT, as the owner's yes named: the approval rules, where secrets come from,
+/// the sandbox, places, the broker, where Theseus listens and keeps its state, its own MCP
+/// server, and the second proof itself.
+pub const KEPT_TABLES: [&str; 8] = [
     "policy",
     "secrets",
     "sandbox",
@@ -293,42 +304,71 @@ pub const PROOF_TABLES: [&str; 8] = [
     "owner_proof",
 ];
 
-/// The kinds of key, in any table, a change to which needs the code too: where a secret is
-/// read from, who the owner is, and the sandbox's kind (what may run and the hosts it may
-/// reach). A spending limit needs it unless it is known to be tightened ([`proof_reason`]).
-pub const PROOF_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
+/// (K) The code is KEPT, in any table, for a key of these kinds: where a secret is read from,
+/// who the owner is, and the sandbox's kind (what may run and the hosts it may reach).
+pub const KEPT_KEYS: [&str; 3] = [SECRET_REASON, OWNER_REASON, SANDBOX_REASON];
 
-/// Why a price is kept for the code (`PRICE_KEYS`).
-pub const PRICE_REASON: &str = "a price that decides what a model call is charged or reserved";
-
-/// What zero means for a spending limit whose direction is known ([`TIGHTENS`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Zero {
-    /// Zero is refused by the settings' own check (`limits::check_dollars`).
-    Refused,
-    /// Zero means "never stop": no limit at all.
-    Never,
-}
-
-/// The spending limits whose direction is known, each with what zero means: for
-/// these, and only these, a change to a tighter limit needs the card alone. Every
-/// other spending key needs the code in either direction until its meaning is
-/// written here (`config/limits.rs` and `KernelSection` say each).
-pub const TIGHTENS: [(&str, &str, Zero); 5] = [
-    ("kernel", "spend_limit_usd", Zero::Refused),
-    ("kernel", "daily_spend_ceiling_usd", Zero::Refused),
-    ("kernel", "spend_limit_hard_multiple", Zero::Never),
-    ("kernel", "daily_runaway_usd", Zero::Never),
-    ("kernel", "runaway_usd_per_10min", Zero::Never),
-];
-
-/// The catalog's keys that price a call: what it is charged and what is reserved
-/// for it before it is made. Each needs the code in either direction: a lower
-/// price lets more calls through the same dollar limits.
+/// (K) The catalog's keys that price a call (with every `*_per_mtok`): the code is KEPT in
+/// either direction, since a lower price lets more calls through the same dollar limits.
 pub const PRICE_KEYS: [&str; 3] = ["long_prompt", "off_peak", "bytes_per_token"];
 
-/// Whether `path` prices a model call (`catalog.<model>.<a price>`), or names a
-/// catalog row whole.
+/// A group whose code waits on the owner's word ([`PENDING`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    /// (G1) Every key whose value is an address that conversations, messages or a credential
+    /// are sent to ([`ADDRESS_REASON`]), and which provider a model uses (`provider`,
+    /// `*_provider`).
+    Addresses,
+    /// (G2) The tables that decide or guard later gates ([`GATE_TABLES`]).
+    Gates,
+    /// (G3) Self-improvement, the AWS and Google accounts, the vault ([`ACCOUNT_TABLES`]),
+    /// the folders and files Theseus may touch ([`FOLDER_REASON`]), and which processes count
+    /// as agents.
+    SelfAndAccounts,
+}
+
+/// The groups whose code is KEPT PENDING the owner's word. Taking a group out of this list
+/// drops its code, with nothing else to change.
+pub const PENDING: [Group; 3] = [Group::Addresses, Group::Gates, Group::SelfAndAccounts];
+
+/// (G2) The tables that decide or guard later gates.
+pub const GATE_TABLES: [&str; 3] = ["judge", "privacy", "content_based_security"];
+
+/// (G3) Self-improvement, the AWS and Google accounts, and the vault.
+pub const ACCOUNT_TABLES: [&str; 6] = ["self", "self_issues", "self_fix", "aws", "google", "vault"];
+
+/// (D) The code is DROPPED (the card's yes is enough) for prompt text ([`PROMPT_REASON`]),
+/// including a long prompt value. Prompt files, removing an MCP server and attaching one with
+/// no secret, env, address or egress take their own cards with no code
+/// (`config_change::prompt_file`, `config_change::mcp_attach::needs`); so does tightening one
+/// of [`TIGHTENS`].
+pub const DROPPED_KEYS: [&str; 1] = [PROMPT_REASON];
+
+/// The group a setting is in, when it is in one ([`Group`]).
+pub fn group(path: &[String]) -> Option<Group> {
+    let first = path.first()?.as_str();
+    let keys = || path.iter().skip(1);
+    let provider = |k: &String| {
+        let k = k.to_ascii_lowercase();
+        k == "provider" || k.ends_with("_provider")
+    };
+    if keys().any(|k| key_reason(k) == Some(ADDRESS_REASON) || provider(k)) {
+        return Some(Group::Addresses);
+    }
+    if GATE_TABLES.contains(&first) {
+        return Some(Group::Gates);
+    }
+    let agent = |k: &String| k.to_ascii_lowercase().contains("agent");
+    if ACCOUNT_TABLES.contains(&first)
+        || keys().any(|k| key_reason(k) == Some(FOLDER_REASON) || agent(k))
+    {
+        return Some(Group::SelfAndAccounts);
+    }
+    None
+}
+
+/// Whether `path` prices a model call (`catalog.<model>.<a price>`), or names a catalog row
+/// whole.
 fn price(path: &[String]) -> bool {
     path.first().is_some_and(|t| t == "catalog")
         && (path.len() < 3
@@ -339,18 +379,10 @@ fn price(path: &[String]) -> bool {
 }
 
 /// Why a change of `path` from `before` to `after` needs the owner's authenticator code on
-/// top of the card's yes (issue 57), or `None` when the card alone is enough. The second
-/// reason table beside [`reason`]: a setting may be sensitive (it keeps its card) and need no
-/// code.
-///
-/// - who the owner is and the proof itself: [`needs_fresh_proof`], a code typed for it;
-/// - a table nobody classified, and the tables of [`PROOF_TABLES`];
-/// - in any table, a key of a kind [`PROOF_KEYS`] names;
-/// - a catalog price ([`PRICE_KEYS`] and every `*_per_mtok`), in either direction;
-/// - a spending limit, unless it is one of [`TIGHTENS`] and the change makes it tighter by
-///   what it means (zero that means "never stop" is no limit at all). A removal, a value set
-///   where there was none, or one that is not a number keeps the code: money spent cannot
-///   come back.
+/// top of the card's yes (issue 57), or `None` when the card alone is enough. In order, the
+/// strictest first: the fresh proof ([`needs_fresh_proof`]); (K) [`KEPT_TABLES`], a price,
+/// [`KEPT_KEYS`], a spending limit not made tighter ([`tightened`]); a group in [`PENDING`];
+/// (D) [`DROPPED_KEYS`]; and else what main does ([`reason`]).
 pub fn proof_reason(
     path: &[String],
     before: Option<&serde_json::Value>,
@@ -360,33 +392,71 @@ pub fn proof_reason(
         return Some("who the owner is, or the second proof itself".into());
     }
     let first = path.first()?.as_str();
-    if PROOF_TABLES.contains(&first) {
-        return reason(path);
-    }
-    let known = ORDINARY_TABLES.contains(&first)
-        || ORDINARY_TABLES_MORE.contains(&first)
-        || SENSITIVE_TABLES.iter().any(|(t, _)| *t == first);
-    if !known {
-        return reason(path);
+    if KEPT_TABLES.contains(&first) {
+        return reason(path).or_else(|| Some(format!("[{first}]")));
     }
     if price(path) {
         return Some(PRICE_REASON.into());
     }
-    for k in path.iter().skip(1) {
-        let lower = k.to_ascii_lowercase();
-        if let Some(why) = key_reason(k).filter(|w| PROOF_KEYS.contains(w)) {
-            return Some(why.into());
-        }
-        if spend_key(&lower) && !tightened(path, before, after) {
-            return Some(format!("{SPEND_REASON}, not made tighter"));
-        }
+    let keys = || path.iter().skip(1);
+    if let Some(why) = keys().find_map(|k| key_reason(k).filter(|w| KEPT_KEYS.contains(w))) {
+        return Some(why.into());
     }
-    None
+    if keys().any(|k| spend_key(&k.to_ascii_lowercase())) {
+        return match tightened(path, before, after) {
+            true => None,
+            false => Some(format!("{SPEND_REASON}, not made tighter")),
+        };
+    }
+    if group(path).is_some_and(|g| PENDING.contains(&g)) {
+        return reason(path).or_else(|| Some(format!("{:?}", group(path))));
+    }
+    let why = reason(path)?;
+    match DROPPED_KEYS.contains(&why.as_str()) {
+        true => None,
+        false => Some(why),
+    }
 }
 
-/// Whether a change makes a spending limit of [`TIGHTENS`] tighter by what it
-/// means: both sides numbers, and the new limit lower, where a zero that means
-/// "never stop" is no limit at all. Any other key, or any other change: no.
+/// What zero means for a spending limit whose direction is known ([`TIGHTENS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unit {
+    /// Dollars, which the kernel holds as micro-dollars (`theseus_kernel::usd_to_micros`,
+    /// rounded to the nearest); zero micro-dollars is no limit at all.
+    Dollars,
+    /// A whole multiple of a session's limit; zero is no limit at all.
+    Multiple,
+}
+
+/// The spending limits whose direction is known, by what the kernel holds for each
+/// (`KernelSection::to_kernel_config`): for these, and only these, a change that makes the
+/// limit strictly tighter in the kernel's own units needs the card alone. Every other spending
+/// key needs the code in either direction until its meaning is written here.
+pub const TIGHTENS: [(&str, &str, Unit); 5] = [
+    ("kernel", "spend_limit_usd", Unit::Dollars),
+    ("kernel", "daily_spend_ceiling_usd", Unit::Dollars),
+    ("kernel", "daily_runaway_usd", Unit::Dollars),
+    ("kernel", "runaway_usd_per_10min", Unit::Dollars),
+    ("kernel", "spend_limit_hard_multiple", Unit::Multiple),
+];
+
+/// A limit's value as the kernel will use it, with no limit as `u64::MAX`; `None` when it is
+/// not a value of its unit.
+pub fn effective(unit: Unit, v: &serde_json::Value) -> Option<u64> {
+    let held = match unit {
+        Unit::Dollars => theseus_kernel::usd_to_micros(v.as_f64()?),
+        Unit::Multiple => v.as_u64()?,
+    };
+    Some(match held {
+        0 => u64::MAX,
+        n => n,
+    })
+}
+
+/// Whether a change makes a spending limit of [`TIGHTENS`] strictly tighter in the kernel's
+/// own units: both sides values of its unit, and the new limit strictly lower, where zero (or
+/// a value that converts to zero micro-dollars) is no limit at all. Any other key, a removal,
+/// a value set where there was none: no.
 fn tightened(
     path: &[String],
     before: Option<&serde_json::Value>,
@@ -398,18 +468,11 @@ fn tightened(
     let known = TIGHTENS
         .iter()
         .find(|(t, k, _)| *t == table.as_str() && *k == key.as_str());
-    let Some((_, _, zero)) = known else {
+    let (Some((_, _, unit)), Some(b), Some(a)) = (known, before, after) else {
         return false;
     };
-    let limit = |v: f64| match (*zero, v == 0.0) {
-        (Zero::Never, true) => f64::INFINITY,
-        _ => v,
-    };
-    match (
-        before.and_then(serde_json::Value::as_f64),
-        after.and_then(serde_json::Value::as_f64),
-    ) {
-        (Some(b), Some(a)) => limit(a) < limit(b),
+    match (effective(*unit, b), effective(*unit, a)) {
+        (Some(b), Some(a)) => a < b,
         _ => false,
     }
 }

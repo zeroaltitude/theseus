@@ -956,7 +956,8 @@ async fn a_task_and_a_shared_place_cannot_propose() {
 
 /// A change that reaches a sensitive setting gets a card that is marked as
 /// needing the second proof: named whole, as a table, or deeper. With no app
-/// paired it cannot be approved, and nothing is written.
+/// paired it cannot be approved, and nothing is written. Prompt text asks with
+/// the card alone (issue 57, `tests_code.rs`).
 #[tokio::test]
 async fn a_sensitive_change_is_asked_with_the_second_proof_marked() {
     let r = rig();
@@ -965,7 +966,6 @@ async fn a_sensitive_change_is_asked_with_the_second_proof_marked() {
         change("tools.roots", json!(["/tmp/elsewhere"])),
         change("mcp.servers.files", json!({"command": ["files-server"]})),
         change("policy.enforcement", json!("open")),
-        change("model.system", json!("be brief")),
         change("discord.rest_proxy", json!("evil.test:80")),
         change("model.provider", json!("anthropic")),
     ] {

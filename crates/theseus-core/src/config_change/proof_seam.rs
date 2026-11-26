@@ -11,10 +11,10 @@
 //! mark its settings call for, so a card asked without one is never written.
 //!
 //! An ordinary change needs the card alone, and so does a sensitive one whose
-//! settings `config::sensitivity::proof_reason` does not name (issue 57: the
-//! code is kept for the approval rules, secrets, the sandbox, places, the
-//! broker, where Theseus listens, its MCP server, who the owner is, and a
-//! raised spend). A change to who the owner is, to the proof itself, or turning
+//! settings `config::sensitivity::proof_reason` does not name (issue 57: by its
+//! groups, the code is dropped only for prompt text and for tightening one of
+//! the listed kernel limits; every other sensitive setting keeps it, some
+//! pending the owner's word). A change to who the owner is, to the proof itself, or turning
 //! `[self] install` to `"auto"` is marked fresh: a code typed for that change,
 //! covered by no window.
 
@@ -184,139 +184,157 @@ mod tests {
         assert!(bad.is_empty(), "not accepted: {bad:#?}");
     }
 
-    /// Issue 57: the code is kept for the rules, secrets, the sandbox, places, the broker, where
-    /// Theseus listens and its MCP server; every other sensitive setting keeps its card and
-    /// needs no code.
+    /// Each case as a proposal of it alone from an empty file: what its card asks.
+    fn of_each(cases: &[&str]) -> Vec<(String, Needs)> {
+        real(cases);
+        cases
+            .iter()
+            .map(|c| (c.to_string(), Needs::of(&between("", c))))
+            .collect()
+    }
+
+    /// (K) Kept, as the owner's yes named: the rules, secrets, the sandbox, places, the broker,
+    /// where Theseus listens, its own MCP server, and a key that runs a command.
     #[test]
-    fn the_code_is_kept_for_the_gates_and_dropped_for_the_rest() {
-        let kept = [
+    fn group_k_keeps_the_code() {
+        for (c, n) in of_each(&[
             "[policy.tools]\n\"proc.run\" = \"open\"\n",
             "[secrets]\nanthropic_api_key = \"op://v/i/f\"\nk = \"op://v/i/k\"\n",
+            "[sandbox]\npids = 64\n",
             "[places]\npublic_paths = [\"/srv/public\"]\n",
             "[broker.secrets.anthropic_api_key]\nposture = \"approve\"\n",
+            "[server]\nmax_connections = 9\n",
             "[mcp_server]\nrequests_per_minute = 30\n",
             "[mcp.servers.files]\ncommand = [\"x\"]\n",
-        ];
-        let dropped = [
+        ]) {
+            assert_eq!(n, Needs::Proof, "{c}");
+        }
+    }
+
+    /// (G1) Kept pending the owner's word: an address conversations or messages are sent to,
+    /// and which provider a model uses.
+    #[test]
+    fn group_g1_addresses_keep_the_code_pending_his_word() {
+        use crate::config::sensitivity::{group, Group};
+        for (c, n) in of_each(&[
+            "[model]\nprovider = \"anthropic\"\n",
+            "[discord]\nrest_proxy = \"proxy.example:80\"\n",
+        ]) {
+            assert_eq!(n, Needs::Proof, "{c}");
+            let s = between("", &c);
+            assert_eq!(group(&s[0].path), Some(Group::Addresses), "{c}");
+        }
+    }
+
+    /// (G2) Kept pending the owner's word: the tables that decide or guard later gates.
+    #[test]
+    fn group_g2_gates_keep_the_code_pending_his_word() {
+        use crate::config::sensitivity::{group, Group};
+        for (c, n) in of_each(&[
+            "[judge]\nenabled = false\n",
+            "[privacy]\nredact_outbound = false\n",
+            "[content_based_security]\ninjection = \"refuse\"\n",
+        ]) {
+            assert_eq!(n, Needs::Proof, "{c}");
+            assert_eq!(group(&between("", &c)[0].path), Some(Group::Gates), "{c}");
+        }
+    }
+
+    /// (G3) Kept pending the owner's word: self-improvement, the accounts, the vault, the
+    /// folders Theseus may touch and which agents are read.
+    #[test]
+    fn group_g3_self_and_accounts_keep_the_code_pending_his_word() {
+        use crate::config::sensitivity::{group, Group};
+        for (c, n) in of_each(&[
             "[self]\nmode = \"act\"\n",
             "[self_issues]\nmax = 3\n",
             "[self_fix]\nlines = 50\n",
+            "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n",
             "[google]\nmax_sends_per_day = 5\n",
-            "[content_based_security]\ninjection = \"refuse\"\n",
-            "[judge]\nenabled = false\n",
-            "[privacy]\nredact_outbound = false\n",
             "[vault]\nkeep_by_discord = true\n",
             "[tools]\nroots = [\"/x\"]\n",
-            "[model]\nsystem = \"be brief\"\n",
-        ];
-        real(&[kept.as_slice(), dropped.as_slice()].concat());
-        for after in kept {
-            assert_eq!(Needs::of(&between("", after)), Needs::Proof, "{after}");
-        }
-        for after in dropped {
-            assert_eq!(Needs::of(&between("", after)), Needs::Card, "{after}");
+            "[import.openclaw]\nagents = [\"main\"]\n",
+        ]) {
+            assert_eq!(n, Needs::Proof, "{c}");
+            let s = between("", &c);
+            assert!(
+                s.iter().all(|s| group(&s.path) == Some(Group::SelfAndAccounts)),
+                "{c}"
+            );
         }
     }
 
-    /// Issue 57, the conductor's ruling (money): a spending limit goes without the code only
-    /// when it is one whose meaning is known and the change makes it tighter by that meaning.
-    /// Zero that means "never stop" is no limit at all, so setting it is a raise; a removal, a
-    /// value set where there was none, and every limit whose meaning is not written keep the
-    /// code. The stricter rule wins in a change of several.
+    /// (D) Dropped tonight: prompt text, a long prompt value included, takes the card alone;
+    /// mixed with a kept or pending setting, the stricter rule wins.
     #[test]
-    fn a_spending_limit_goes_without_the_code_only_when_made_tighter_by_what_it_means() {
+    fn group_d_prompt_text_takes_the_card_alone() {
+        let long = format!("[model]\nsystem = \"{}\"\n", "be brief. ".repeat(80));
+        for (c, n) in of_each(&["[model]\nsystem = \"be brief\"\n", &long]) {
+            assert_eq!(n, Needs::Card, "{c}");
+        }
+        let mixed = "[model]\nsystem = \"be brief\"\n\n[judge]\nenabled = false\n";
+        real(&[mixed]);
+        assert_eq!(Needs::of(&between("", mixed)), Needs::Proof);
+    }
+
+    /// Issue 57, finding 1: a spending limit is compared in the kernel's own units. Dollars
+    /// become micro-dollars as `to_kernel_config` converts them (to the nearest one), and zero
+    /// micro-dollars is no limit at all: a positive value that converts to zero keeps the code,
+    /// as does every change that is not strictly tighter there. The hard multiple is its own
+    /// whole-number case. The other spending keys keep the code in either direction.
+    #[test]
+    fn a_spending_limit_is_compared_in_the_kernels_own_units() {
+        use crate::config::sensitivity::{effective, Unit};
         let k = |key: &str, v: &str| format!("[kernel]\n{key} = {v}\n");
         let needs = |b: &str, a: &str| Needs::of(&between(b, a));
-        let all = [
-            k("daily_spend_ceiling_usd", "50.0"),
-            k("daily_spend_ceiling_usd", "40.0"),
-            k("daily_runaway_usd", "2000.0"),
-            k("daily_runaway_usd", "1000.0"),
-            k("daily_runaway_usd", "0.0"),
-            k("runaway_usd_per_10min", "200.0"),
-            k("runaway_usd_per_10min", "0.0"),
-            k("spend_limit_hard_multiple", "10"),
-            k("spend_limit_hard_multiple", "5"),
-            k("spend_limit_hard_multiple", "0"),
-            "[self.budget]\nday_usd = 5.0\n".into(),
-            "[self.budget]\nday_usd = 3.0\n".into(),
-            k("daily_notice_step_usd", "200.0"),
-            k("daily_notice_step_usd", "100.0"),
-        ];
-        real(&all.iter().map(String::as_str).collect::<Vec<_>>());
-        let (ceiling, runaway, burn, hard) = (
-            |v: &str| k("daily_spend_ceiling_usd", v),
-            |v: &str| k("daily_runaway_usd", v),
-            |v: &str| k("runaway_usd_per_10min", v),
-            |v: &str| k("spend_limit_hard_multiple", v),
-        );
-        // Tighter by what it means: the card alone.
-        assert_eq!(needs(&ceiling("50.0"), &ceiling("40.0")), Needs::Card);
-        assert_eq!(needs(&runaway("2000.0"), &runaway("1000.0")), Needs::Card);
-        assert_eq!(
-            needs(&runaway("0.0"), &runaway("1000.0")),
-            Needs::Card,
-            "from never to a stop"
-        );
+        for key in [
+            "spend_limit_usd",
+            "daily_spend_ceiling_usd",
+            "daily_runaway_usd",
+            "runaway_usd_per_10min",
+        ] {
+            let from = k(key, "50.0");
+            real(&[&from]);
+            assert_eq!(needs(&from, &k(key, "40.0")), Needs::Card, "{key} tighter");
+            assert_eq!(needs(&k(key, "40.0"), &from), Needs::Proof, "{key} raised");
+            assert_eq!(needs(&from, &from.replace("50.0", "50.0000001")), Needs::Proof, "{key} the same micro-dollars");
+            for v in ["0.0000004", "0.0000005", "0.0000006", "0.000001"] {
+                let micros = theseus_kernel::usd_to_micros(v.parse().unwrap());
+                let want = match micros {
+                    0 => Needs::Proof,
+                    _ => Needs::Card,
+                };
+                assert_eq!(needs(&from, &k(key, v)), want, "{key} = {v} ({micros} micro-dollars)");
+                let held = effective(Unit::Dollars, &serde_json::json!(v.parse::<f64>().unwrap()));
+                assert_eq!(held == Some(u64::MAX), micros == 0, "{key} = {v}");
+            }
+            assert_eq!(needs("", &k(key, "40.0")), Needs::Proof, "{key} set where there was none");
+            assert_eq!(needs(&from, ""), Needs::Proof, "{key} removed");
+        }
+        let hard = |v: &str| k("spend_limit_hard_multiple", v);
+        real(&[&hard("10"), &hard("0")]);
         assert_eq!(needs(&hard("10"), &hard("5")), Needs::Card);
-        // Raised, or zero that means never: the code.
-        assert_eq!(needs(&ceiling("40.0"), &ceiling("50.0")), Needs::Proof);
-        assert_eq!(
-            needs(&runaway("2000.0"), &runaway("0.0")),
-            Needs::Proof,
-            "0 never stops"
-        );
-        assert_eq!(
-            needs(&burn("200.0"), &burn("0.0")),
-            Needs::Proof,
-            "0 never pauses"
-        );
-        assert_eq!(
-            needs(&hard("10"), &hard("0")),
-            Needs::Proof,
-            "0 never stops"
-        );
-        // Direction not known: the code.
-        assert_eq!(
-            needs("", &ceiling("40.0")),
-            Needs::Proof,
-            "set where there was none"
-        );
-        assert_eq!(
-            needs(&ceiling("40.0"), ""),
-            Needs::Proof,
-            "removed: its default"
-        );
-        let day = |v: &str| format!("[self.budget]\nday_usd = {v}\n");
-        assert_eq!(
-            needs(&day("5.0"), &day("3.0")),
-            Needs::Proof,
-            "a limit not yet written down"
-        );
+        assert_eq!(needs(&hard("10"), &hard("0")), Needs::Proof, "0 never stops");
+        assert_eq!(needs(&hard("0"), &hard("5")), Needs::Card, "from never to a stop");
+        assert_eq!(needs(&hard("5"), &hard("10")), Needs::Proof);
         let step = |v: &str| k("daily_notice_step_usd", v);
-        assert_eq!(
-            needs(&step("200.0"), &step("100.0")),
-            Needs::Proof,
-            "a kernel limit whose meaning is not written down"
-        );
-        // The stricter rule wins: one limit tighter and one lifted.
+        assert_eq!(needs(&step("200.0"), &step("100.0")), Needs::Proof, "not a listed limit");
+        let day = |v: &str| format!("[self.budget]\nday_usd = {v}\n");
+        assert_eq!(needs(&day("5.0"), &day("3.0")), Needs::Proof, "not a listed limit");
         let both = |c: &str, r: &str| {
             format!("[kernel]\ndaily_spend_ceiling_usd = {c}\ndaily_runaway_usd = {r}\n")
         };
-        real(&[&both("40.0", "0.0")]);
+        real(&[&both("40.0", "0.0000001")]);
         assert_eq!(
-            needs(&both("50.0", "2000.0"), &both("40.0", "0.0")),
-            Needs::Proof
+            needs(&both("50.0", "2000.0"), &both("40.0", "0.0000001")),
+            Needs::Proof,
+            "the stricter rule wins"
         );
-        assert_eq!(
-            needs(&both("50.0", "2000.0"), &both("40.0", "1000.0")),
-            Needs::Card
-        );
+        assert_eq!(needs(&both("50.0", "2000.0"), &both("40.0", "1000.0")), Needs::Card);
     }
 
-    /// Issue 57: the catalog's prices decide what a call is charged and reserved, so a change
-    /// to one needs the code in either direction; a catalog figure that is not a price needs the
-    /// card alone.
+    /// The catalog's prices decide what a call is charged and reserved: a change to one needs
+    /// the code in either direction; a catalog figure that is not a price takes the card alone.
     #[test]
     fn a_catalog_price_needs_the_code_in_either_direction() {
         let row = |k: &str, v: &str| format!("[catalog.\"claude-sonnet-5-5\"]\n{k} = {v}\n");
@@ -331,11 +349,7 @@ mod tests {
         let needs = |b: &str, a: &str| Needs::of(&between(b, a));
         assert_eq!(needs(&cases[0], &cases[1]), Needs::Proof, "to zero");
         assert_eq!(needs(&cases[0], &cases[2]), Needs::Proof, "raised");
-        assert_eq!(
-            needs("", &cases[3]),
-            Needs::Proof,
-            "set where there was none"
-        );
+        assert_eq!(needs("", &cases[3]), Needs::Proof, "set where there was none");
         assert_eq!(needs("", &cases[4]), Needs::Card, "not a price");
     }
 }
