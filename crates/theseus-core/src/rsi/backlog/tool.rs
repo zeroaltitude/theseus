@@ -206,8 +206,10 @@ pub(crate) fn filed(
             "A finding was filed for the self loop",
             "Theseus put a finding on its own self-improvement backlog from this chat",
             &format!(
-                "Item {} is on the backlog at rank {}. The self loop picks it up on its next pass.",
-                f.item, f.rank
+                "Item {} is on the backlog at rank {}. Its first build does not start for a minute \
+                 after this note is written. Undo drops it only while it has not started; after \
+                 that, `theseus self drop {}` drops it.",
+                f.item, f.rank, f.item
             ),
             &Undo::SelfDrop(f.item.clone()),
         )
@@ -219,7 +221,7 @@ pub(crate) fn filed(
         })?;
     Ok(ToolOutput {
         text: format!(
-            "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and the loop picks it up on its next pass. `theseus self move {} 1` puts it first.",
+            "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and its first build does not start for a minute after the owner's note of it is written. `theseus self move {} 1` puts it first.",
             f.item, f.title, f.rank, f.filed_by, f.item
         ),
         meta: json!({"item": f.item, "cause": f.cause, "rank": f.rank}),

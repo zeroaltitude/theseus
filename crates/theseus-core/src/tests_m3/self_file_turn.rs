@@ -173,6 +173,14 @@ async fn a_chat_filing_runs_unasked_and_tells_the_owner_once() {
     );
     assert!(n.contains("from this chat"), "{n}");
     assert!(
+        n.contains("does not start for a minute after this note is written"),
+        "{n}"
+    );
+    assert!(
+        n.contains("Undo drops it only while it has not started"),
+        "{n}"
+    );
+    assert!(
         n.contains(&format!("Undo: `theseus self drop {}`", items[0].id)),
         "{n}"
     );

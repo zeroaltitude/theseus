@@ -570,10 +570,29 @@ impl Core {
             rank,
             filed_by: filed_by.to_string(),
         };
+        // A chat filing is held before its frame is staged, and its minute starts once the
+        // frame is written (`pipeline::chat_hold`).
+        let holds = &self.rsi.pipeline.chat_holds;
+        if note.is_some() {
+            holds.writing(&res.item);
+        }
         // A note that cannot be staged files nothing: nothing has been written yet.
-        let staged = note.map(|n| n(&res)).transpose()?;
-        let more = staged.as_ref().map_or_else(Vec::new, |(_, r)| r.clone());
-        self.backlog_write_with(&mut w, more)?;
+        let written = (|| -> Result<_> {
+            let staged = note.map(|n| n(&res)).transpose()?;
+            let more = staged.as_ref().map_or_else(Vec::new, |(_, r)| r.clone());
+            self.backlog_write_with(&mut w, more)?;
+            Ok(staged)
+        })();
+        let staged = match written {
+            Ok(s) => s,
+            Err(e) => {
+                holds.failed(&res.item);
+                return Err(e);
+            }
+        };
+        if note.is_some() {
+            holds.written(&res.item);
+        }
         if let Some((post, _)) = &staged {
             self.outbox.posted(post);
         }

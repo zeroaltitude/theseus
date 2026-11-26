@@ -189,8 +189,9 @@ impl Core {
                 .self_item_closed(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item has left the backlog"),
-            // A pause lives in this process's memory: after a restart none is found, and a
-            // press pauses, which is the undo's own effect.
+            // A pause lives in this process's memory. The note's receipt is asked first: a note
+            // undone once stays undone across a restart. Only a note with no receipt, after a
+            // restart cleared the pause, finds none here, and its press pauses again.
             Undo::SelfPause(_) => self
                 .self_paused()
                 .is_some()

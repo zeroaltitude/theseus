@@ -73,6 +73,7 @@
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
 
+pub(crate) mod chat_hold;
 pub(crate) mod held_long;
 pub(crate) mod installing;
 pub mod main_red;
@@ -171,6 +172,8 @@ pub struct Shared {
     /// The start's discovery of an install still running (`installing`): until it has once succeeded, the loop is
     /// "not known", never quiet.
     pub(crate) discovered: installing::Discovery,
+    /// The hold on each finding filed from chat (issue 57, `chat_hold`).
+    pub(crate) chat_holds: chat_hold::ChatHolds,
     /// A test's stand-in for the commit this daemon runs.
     #[cfg(test)]
     pub(crate) running: std::sync::Mutex<Option<String>>,
