@@ -2037,11 +2037,11 @@ impl FakeDiscord {
         let content = r.content.clone().unwrap_or_default();
         {
             let mut st = self.state.lock().unwrap();
-            if kind == "callback"
-                && matches!(r.response_type, Some(4 | 7))
+            if (kind == "callback" && matches!(r.response_type, Some(4 | 7)) || kind == "original")
                 && data["components"].is_array()
             {
-                // A message the binding answered with: kept to be pressed.
+                // A message the binding answered with, or edited a deferred answer into: kept to
+                // be pressed.
                 st.next_id += 1;
                 let channel = interaction
                     .and_then(|i| st.pressed.get(i).copied())
