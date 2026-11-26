@@ -37,16 +37,18 @@ fn a_form_needs_the_agree_the_record_holds() {
     let rs = Records::default();
     begun(&rs, "mcpin", "s1", true);
     assert_eq!(
-        rs.step("mcpin", "s1", Some(OWNER), Record::ready)
+        rs.step("mcpin", "s1", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Stage,
         "no agree yet"
     );
     rs.set("mcpin", "s1", Stage::Agreed);
-    assert!(rs.step("mcpin", "s1", Some(OWNER), Record::ready).is_ok());
+    assert!(rs
+        .step("mcpin", "s1", Some((OWNER, "500")), Record::ready)
+        .is_ok());
     rs.set("mcpin", "s1", Stage::Pasted);
     assert_eq!(
-        rs.step("mcpin", "s1", Some(OWNER), Record::ready)
+        rs.step("mcpin", "s1", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Stage,
         "sent already"
@@ -59,7 +61,7 @@ fn another_user_cannot_step_a_sign_in() {
     let rs = Records::default();
     begun(&rs, "mcpin", "s1", false);
     assert_eq!(
-        rs.step("mcpin", "s1", Some(SECOND), Record::ready)
+        rs.step("mcpin", "s1", Some((SECOND, "500")), Record::ready)
             .unwrap_err(),
         Why::NotYours
     );
@@ -67,7 +69,15 @@ fn another_user_cannot_step_a_sign_in() {
         rs.step("mcpin", "s1", None, Record::ready).unwrap_err(),
         Why::NotYours
     );
-    assert!(rs.step("mcpin", "s1", Some(OWNER), Record::ready).is_ok());
+    assert_eq!(
+        rs.step("mcpin", "s1", Some((OWNER, "900")), Record::ready)
+            .unwrap_err(),
+        Why::NotYours,
+        "the same user, from another place"
+    );
+    assert!(rs
+        .step("mcpin", "s1", Some((OWNER, "500")), Record::ready)
+        .is_ok());
 }
 
 /// An id this binding never issued, of any kind, is refused.
@@ -76,12 +86,12 @@ fn an_unissued_id_is_refused() {
     let rs = Records::default();
     begun(&rs, "mcpin", "s1", false);
     assert_eq!(
-        rs.step("mcpin", "forged", Some(OWNER), Record::ready)
+        rs.step("mcpin", "forged", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Missing
     );
     assert_eq!(
-        rs.step("gsi", "s1", Some(OWNER), Record::ready)
+        rs.step("gsi", "s1", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Missing,
         "another kind's id is not this kind's"
@@ -94,15 +104,17 @@ fn a_record_past_its_deadline_is_refused_and_retired() {
     let rs = Records::default();
     begun(&rs, "mcpin", "s1", false);
     rs.advance(Duration::from_secs(599));
-    assert!(rs.step("mcpin", "s1", Some(OWNER), Record::ready).is_ok());
+    assert!(rs
+        .step("mcpin", "s1", Some((OWNER, "500")), Record::ready)
+        .is_ok());
     rs.advance(Duration::from_secs(2));
     assert_eq!(
-        rs.step("mcpin", "s1", Some(OWNER), Record::ready)
+        rs.step("mcpin", "s1", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Stale
     );
     assert_eq!(
-        rs.step("mcpin", "s1", Some(OWNER), Record::ready)
+        rs.step("mcpin", "s1", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Missing
     );
@@ -117,15 +129,19 @@ fn a_newer_sign_in_and_a_sign_out_retire_the_old() {
     begun(&rs, "gsi", "g1", false);
     begun(&rs, "mcpin", "new", false);
     assert_eq!(
-        rs.step("mcpin", "old", Some(OWNER), Record::ready)
+        rs.step("mcpin", "old", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Missing
     );
-    assert!(rs.step("mcpin", "new", Some(OWNER), Record::ready).is_ok());
-    assert!(rs.step("gsi", "g1", Some(OWNER), Record::ready).is_ok());
+    assert!(rs
+        .step("mcpin", "new", Some((OWNER, "500")), Record::ready)
+        .is_ok());
+    assert!(rs
+        .step("gsi", "g1", Some((OWNER, "500")), Record::ready)
+        .is_ok());
     rs.retire_target("mcpin", "docs");
     assert_eq!(
-        rs.step("mcpin", "new", Some(OWNER), Record::ready)
+        rs.step("mcpin", "new", Some((OWNER, "500")), Record::ready)
             .unwrap_err(),
         Why::Missing
     );

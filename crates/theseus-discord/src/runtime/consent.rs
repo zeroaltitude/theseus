@@ -330,13 +330,14 @@ impl Records {
         o.push(r);
     }
 
-    /// The record of sign-in `id` for a step by `user`: the same user, before its deadline, and
-    /// `ok` of it (the stage the step needs). A stale one is retired.
+    /// The record of sign-in `id` for a step by `who` (its user, and the channel pressed in): the
+    /// same user in the place it was begun in, before its deadline, and `ok` of it (the stage the
+    /// step needs). A stale one is retired.
     pub(crate) fn step(
         &self,
         kind: &str,
         id: &str,
-        user: Option<u64>,
+        who: Option<(u64, &str)>,
         ok: impl Fn(&Record) -> bool,
     ) -> Result<Record, Why> {
         let now = self.now();
@@ -349,7 +350,7 @@ impl Records {
             return Err(Why::Stale);
         }
         let r = &o[at];
-        if Some(r.user) != user {
+        if who != Some((r.user, r.origin.channel_id.as_str())) {
             return Err(Why::NotYours);
         }
         if !ok(r) {
@@ -439,7 +440,8 @@ impl Shared {
                 &self.core.runner.place_rule,
                 &self.core.cfg,
             );
-            Some((user_of(i)?, d)).filter(|_| ok.is_ok())
+            let user = user_of(i)?;
+            ok.is_ok().then_some((user, d))
         });
         if judged.is_none() {
             self.consent_reply(i, what, not_here, vec![]).await;

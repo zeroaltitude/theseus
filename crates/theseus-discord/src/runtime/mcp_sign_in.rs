@@ -195,7 +195,10 @@ impl Shared {
             Press::In(server) => self.mcp_begin(i, &server, who, user, origin).await,
             Press::Agree(id) => {
                 let ok = |r: &consent::Record| r.stage == Stage::Begun && r.needs_agree;
-                match self.consents.step(PREFIX, &id, Some(user), ok) {
+                match self
+                    .consents
+                    .step(PREFIX, &id, Some((user, origin.channel_id.as_str())), ok)
+                {
                     Ok(r) => {
                         self.consents.set(PREFIX, &id, Stage::Agreed);
                         let words = address_words(&r.url).unwrap_or_else(|| TOO_LONG.into());
@@ -205,7 +208,12 @@ impl Shared {
                     Err(why) => self.consent_reply(i, WHAT, refused(why), vec![]).await,
                 }
             }
-            Press::Paste(id) => match self.consents.step(PREFIX, &id, Some(user), |r| r.ready()) {
+            Press::Paste(id) => match self.consents.step(
+                PREFIX,
+                &id,
+                Some((user, origin.channel_id.as_str())),
+                |r| r.ready(),
+            ) {
                 Ok(_) => self.respond_modal(i, &modal(&id)).await,
                 Err(why) => self.consent_reply(i, WHAT, refused(why), vec![]).await,
             },
@@ -292,10 +300,12 @@ impl Shared {
         let Some(login_id) = consent::submitted(m, PREFIX) else {
             return self.consent_reply(i, WHAT, EXPIRED, vec![]).await;
         };
-        let rec = match self
-            .consents
-            .step(PREFIX, &login_id, Some(user), |r| r.ready())
-        {
+        let rec = match self.consents.step(
+            PREFIX,
+            &login_id,
+            Some((user, origin.channel_id.as_str())),
+            |r| r.ready(),
+        ) {
             Ok(r) => r,
             Err(why) => return self.consent_reply(i, WHAT, refused(why), vec![]).await,
         };

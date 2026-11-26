@@ -173,7 +173,12 @@ impl Shared {
         };
         match press {
             Press::In => self.google_begin(i, who, user, origin).await,
-            Press::Paste(id) => match self.consents.step(PREFIX, &id, Some(user), |r| r.ready()) {
+            Press::Paste(id) => match self.consents.step(
+                PREFIX,
+                &id,
+                Some((user, origin.channel_id.as_str())),
+                |r| r.ready(),
+            ) {
                 Ok(_) => self.respond_modal(i, &modal(&id)).await,
                 Err(why) => self.consent_reply(i, WHAT, refused(why), vec![]).await,
             },
@@ -245,10 +250,12 @@ impl Shared {
         let Some(auth_id) = consent::submitted(m, PREFIX) else {
             return self.consent_reply(i, WHAT, EXPIRED, vec![]).await;
         };
-        if let Err(why) = self
-            .consents
-            .step(PREFIX, &auth_id, Some(user), |r| r.ready())
-        {
+        if let Err(why) = self.consents.step(
+            PREFIX,
+            &auth_id,
+            Some((user, origin.channel_id.as_str())),
+            |r| r.ready(),
+        ) {
             return self.consent_reply(i, WHAT, refused(why), vec![]).await;
         }
         let Some(pasted) = consent::pasted(m) else {

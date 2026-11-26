@@ -149,7 +149,12 @@ impl Shared {
         let Some(id) = consent::submitted(m, PREFIX) else {
             return self.consent_reply(i, WHAT, EXPIRED, vec![]).await;
         };
-        if let Err(why) = self.consents.step(PREFIX, &id, Some(user), |r| r.ready()) {
+        if let Err(why) =
+            self.consents
+                .step(PREFIX, &id, Some((user, origin.channel_id.as_str())), |r| {
+                    r.ready()
+                })
+        {
             return self.consent_reply(i, WHAT, refused(why), vec![]).await;
         }
         let Some(token) = consent::pasted(m) else {
