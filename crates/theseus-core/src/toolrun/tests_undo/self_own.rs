@@ -186,6 +186,19 @@ pub(super) fn jobs_of(session: &str) -> Vec<theseus_kernel::job::WrapperArgs> {
         .collect()
 }
 
+/// Whether the session's calls were bound to L1: a job started, each with an L1 view, none at L0. In this rig an
+/// L1 job's init does not start, so what the command would do in L1 is not seen here (`theseusd/tests/self_build.rs`
+/// runs the real view); what is seen is that nothing ran at L0.
+pub(super) fn bound_to_l1(session: &str) -> bool {
+    let jobs = jobs_of(session);
+    !jobs.is_empty() && jobs.iter().all(|j| j.sandbox.is_some())
+}
+
+/// Whether any call of the session ran at L0.
+pub(super) fn ran_at_l0(session: &str) -> bool {
+    jobs_of(session).iter().any(|j| j.sandbox.is_none())
+}
+
 pub(super) fn read(p: PathBuf) -> String {
     std::fs::read_to_string(p).unwrap()
 }
@@ -286,31 +299,31 @@ async fn a_self_sessions_write_aimed_outside_its_own_places_is_held() {
 
 // ---- rm, which the code reads only as an argv ----------------------------
 
-/// KEY: a review's scratch, removed by the session that runs the review (its registry entry is the
-/// scratch's only door); the same call from an operator's session is held.
+/// KEY (issue 53): a self session's removal of a review's scratch is bound to L1, unheld, and runs nowhere at L0
+/// (the daemon removes a review's scratch); the same call from an operator's session is held, as before.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_self_session_removes_its_reviews_scratch_and_an_operator_cannot() {
-    for (principal, runs) in [("self", true), ("operator", false)] {
+async fn a_self_sessions_removal_of_a_reviews_scratch_is_bound_to_l1_and_an_operators_is_held() {
+    for (principal, l1) in [("self", true), ("operator", false)] {
         let (r, sid) = drive(principal, "proc_run", rm_of(built_in_scratch), nothing);
         r.core
             .tools
             .self_pr
             .review_opened(&sid, &scratch(&r.target));
         r.turn(&sid).await;
-        assert_eq!(
-            r.was_held(&sid),
-            !runs,
-            "{principal}: {:?}",
-            r.results(&sid)
+        assert_eq!(r.was_held(&sid), !l1, "{principal}: {:?}", r.results(&sid));
+        assert_eq!(bound_to_l1(&sid), l1, "{principal}");
+        assert!(
+            built_in_scratch(&r.target).exists(),
+            "{principal}: nothing removed it at L0"
         );
-        assert_eq!(built_in_scratch(&r.target).exists(), !runs, "{principal}");
     }
 }
 
-/// KEY: what is in its item's build folder is its own, which is the place an L1 builder keeps its
-/// output in; the folder itself, and another item's, are not. An operator's session has none.
+/// KEY (issue 53): a self session's removal in its item's build folder, or of the folder, the builders' root or
+/// another item's folder, is bound to L1 and unheld, and runs nowhere at L0; in L1 only its own folder is a
+/// read-write bind (`theseusd/tests/self_build.rs` proves what persists). An operator's session's is held.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_self_session_removes_its_build_folders_contents_and_nothing_beside_it() {
+async fn a_self_sessions_removal_about_its_build_folder_is_bound_to_l1_and_an_operators_is_held() {
     for (principal, runs) in [("self", true), ("operator", false)] {
         let (r, sid) = drive(
             principal,
@@ -325,11 +338,7 @@ async fn a_self_session_removes_its_build_folders_contents_and_nothing_beside_it
             "{principal}: {:?}",
             r.results(&sid)
         );
-        assert_eq!(
-            builder(&r.target).join("target").exists(),
-            !runs,
-            "{principal}"
-        );
+        assert_eq!(bound_to_l1(&sid), runs, "{principal}");
     }
     let aims: [(&str, Aim<PathBuf>); 3] = [
         ("the folder itself", builder),
@@ -344,7 +353,7 @@ async fn a_self_session_removes_its_build_folders_contents_and_nothing_beside_it
         let (r, sid) = drive("self", "proc_run", |t| rm_argv("-rf", aim(t)), nothing);
         std::fs::create_dir_all(builder(&r.target).with_file_name("tides")).unwrap();
         r.turn(&sid).await;
-        assert!(r.was_held(&sid), "{what}: {:?}", r.results(&sid));
+        assert!(!ran_at_l0(&sid), "{what}: {:?}", r.results(&sid));
         assert!(builder(&r.target).join("target/out.o").exists(), "{what}");
     }
 }
@@ -352,8 +361,7 @@ async fn a_self_session_removes_its_build_folders_contents_and_nothing_beside_it
 /// A file of its working copy is its own. Another lane's directory under the system temporary
 /// directory is nobody's scratch of this session's: it is held, and it is still there.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_self_session_removes_a_file_of_its_tree_and_not_another_lanes_directory_in_the_temp_dir()
-{
+async fn a_self_sessions_removal_in_its_tree_or_another_lanes_directory_is_bound_to_l1() {
     let lane = crate::scratch::dir("self-own-other-lane");
     std::fs::create_dir_all(lane.join("worktree")).unwrap();
     std::fs::write(lane.join("worktree/unpushed.rs"), WAS).unwrap();
@@ -361,7 +369,10 @@ async fn a_self_session_removes_a_file_of_its_tree_and_not_another_lanes_directo
     let (r, sid) = drive("self", "proc_run", |t| one(notes_of_sails(t)), nothing);
     r.turn(&sid).await;
     assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
-    assert!(!notes_of_sails(&r.target).exists(), "its own tree's file");
+    assert!(
+        bound_to_l1(&sid),
+        "its own tree's file: in L1, where the tree is no read-write bind"
+    );
     for aim in [
         lane.join("worktree"),
         lane.join("worktree/unpushed.rs"),
@@ -370,7 +381,7 @@ async fn a_self_session_removes_a_file_of_its_tree_and_not_another_lanes_directo
         let held = aim.clone();
         let (r, sid) = drive("self", "proc_run", move |_| one(held), nothing);
         r.turn(&sid).await;
-        assert!(r.was_held(&sid), "{}: {:?}", aim.display(), r.results(&sid));
+        assert!(!ran_at_l0(&sid), "{}: {:?}", aim.display(), r.results(&sid));
         assert!(
             lane.join("worktree/unpushed.rs").exists(),
             "{}",
@@ -388,12 +399,11 @@ async fn a_self_session_removes_a_file_of_its_tree_and_not_another_lanes_directo
     );
 }
 
-/// A removal aimed anywhere else is held: the sweep over a parent, another task's tree, the places
-/// that are the layer's own, and the shapes the code does not read (a shell line, a batch, a program
-/// of the call's own `PATH`, a flag it does not know). The session has a scratch registered, so each
-/// of the last four would run but for its shape.
+/// A self session's removal aimed anywhere else (the sweep over a parent, another task's tree, the places that are
+/// the layer's own, a shell line, a batch, a program of the call's own `PATH`, a flag the code does not read) is
+/// bound to L1 (issue 53), where no such place is a read-write bind, and runs nowhere at L0: nothing goes.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_removal_aimed_outside_its_own_places_is_held() {
+async fn a_removal_aimed_outside_its_own_places_runs_nowhere_at_l0() {
     let aims: [(&str, Aim<Value>); 12] = [
         (
             "the workspace",
@@ -451,7 +461,7 @@ async fn a_removal_aimed_outside_its_own_places_is_held() {
             .self_pr
             .review_opened(&sid, &scratch(&r.target));
         r.turn(&sid).await;
-        assert!(r.was_held(&sid), "{what}: {:?}", r.results(&sid));
+        assert!(!ran_at_l0(&sid), "{what}: {:?}", r.results(&sid));
         assert!(
             r.target.exists()
                 && built_in_scratch(&r.target).exists()
@@ -478,13 +488,14 @@ fn rm_argv(flags: &str, p: PathBuf) -> Value {
     json!({"argv": ["rm", flags, p.to_string_lossy()]})
 }
 
-/// A path that starts in an own place and leaves it is judged as `rm` will act. A `..` is not read.
+/// A path that starts in an own place and leaves it runs nowhere at L0 (issue 53: a self session's removal is bound
+/// to L1, where no such path is a read-write bind), and what it aims at is still there. A `..` is not read.
 /// A link followed by a `..` is the case a resolver that drops the `..` first gets wrong (the
 /// review's finding): `out/../victim.txt` is `<base>/victim.txt` to the kernel, and the resolver's
 /// `<scratch>/tree/victim.txt` is its own. And a link outside that points into its own places is
 /// removed as a link, which is not its own.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_path_that_leaves_its_own_places_is_judged_as_rm_acts() {
+async fn a_path_that_leaves_its_own_places_runs_nowhere_at_l0() {
     let cases = [
         Escape {
             what: "a `..`",
@@ -564,7 +575,7 @@ async fn a_path_that_leaves_its_own_places_is_judged_as_rm_acts() {
             .self_pr
             .review_opened(&sid, &scratch(&r.target));
         r.turn(&sid).await;
-        assert!(r.was_held(&sid), "{what}: {:?}", r.results(&sid));
+        assert!(!ran_at_l0(&sid), "{what}: {:?}", r.results(&sid));
         assert!(
             survivor(&r.target).symlink_metadata().is_ok(),
             "{what}: it is still there"
@@ -572,10 +583,10 @@ async fn a_path_that_leaves_its_own_places_is_judged_as_rm_acts() {
     }
 }
 
-/// And what stays its own when `rm` reaches it by a link that does not leave: a link inside its tree
-/// is removed as a link, whatever it points at.
+/// A self session's removal of a link inside its tree is bound to L1 and unheld (issue 53); nothing ran at L0, so in
+/// this rig the link and what it points at are both still there.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_link_inside_its_tree_is_removed_as_a_link_and_not_followed() {
+async fn a_link_inside_its_tree_is_removed_in_l1_and_nothing_at_l0() {
     let own_link = |t: &Path| {
         rm_argv(
             "-f",
@@ -589,8 +600,9 @@ async fn a_link_inside_its_tree_is_removed_as_a_link_and_not_followed() {
         tree(&r.target, "sails")
             .join("pointer")
             .symlink_metadata()
-            .is_err(),
-        "the link went"
+            .is_ok()
+            && bound_to_l1(&sid),
+        "bound to L1, and nothing removed the link at L0"
     );
     assert!(r.target.exists(), "what it pointed at did not");
 }
@@ -622,10 +634,11 @@ async fn the_sealed_set_is_still_refused_before_anything_is_asked() {
 /// all hold the same call.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_scratch_belongs_to_the_session_that_registered_it() {
+    // A self session's removal is bound to L1 whatever is registered (issue 53): it runs nowhere at L0.
     let (r, sid) = drive("self", "proc_run", rm_of(built_in_scratch), nothing);
     r.turn(&sid).await;
     assert!(
-        r.was_held(&sid),
+        !ran_at_l0(&sid),
         "no review registered a scratch for this session"
     );
     let (r, sid) = drive("operator", "proc_run", rm_of(built_in_scratch), nothing);
@@ -643,7 +656,7 @@ async fn a_scratch_belongs_to_the_session_that_registered_it() {
     r.core.tools.self_pr.review_opened(&sid, &elsewhere);
     r.turn(&sid).await;
     assert!(
-        r.was_held(&sid),
+        !ran_at_l0(&sid),
         "an entry outside the reviews' directory is no scratch"
     );
 }
@@ -744,14 +757,14 @@ async fn a_self_session_that_is_no_builder_is_given_no_network() {
     assert!(jobs[0].sandbox.as_ref().unwrap().egress.is_empty());
 }
 
-/// A self session's call that is still held says what runs, so it does not stop at "move it aside"
-/// and leave litter. An operator's held call is told what it always was.
+/// A self session's shell line that main held at L0 (and told what does run) is bound to L1 and not held (issue 53),
+/// so it is told none of that. An operator's held call is told what it always was.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_held_call_of_a_self_session_says_what_does_run() {
+async fn a_self_sessions_shell_line_is_bound_to_l1_and_not_held() {
     let line = |t: &Path| json!({"command": format!("rm -rf {}", built_in_scratch(t).display())});
     let (r, sid) = drive("self", "proc_run", line, nothing);
     r.turn(&sid).await;
-    assert!(r.was_held(&sid));
+    assert!(!r.was_held(&sid) && bound_to_l1(&sid));
     let said = r.results(&sid)[0].1.clone();
     for part in [
         "these run",
@@ -760,7 +773,7 @@ async fn a_held_call_of_a_self_session_says_what_does_run() {
         "sandbox: true",
         "review's scratch is removed",
     ] {
-        assert!(said.contains(part), "{part}: {said}");
+        assert!(!said.contains(part), "{part}: {said}");
     }
     let (r, sid) = drive("operator", "proc_run", line, nothing);
     r.turn(&sid).await;
@@ -826,11 +839,11 @@ async fn a_final_verdict_on_a_self_sessions_own_write_still_asks_the_owner() {
 
 // ---- the review that makes the scratch ------------------------------------
 
-/// The whole path of the incident, through the review's own turn: the reviewer is a session of the
-/// self principal that `CheckTurn` opens, the scratch is the one its ask names, and what it removes
-/// there runs. When it has answered, the scratch is no longer its own.
+/// The whole path of the incident, through the review's own turn: the reviewer is a session of the self principal
+/// that `CheckTurn` opens, the scratch is the one its ask names, and what it removes there is bound to L1 (issue 53),
+/// unheld. When it has answered, the scratch is no longer its own.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
+async fn a_reviewers_removal_in_its_scratch_is_bound_to_l1() {
     use crate::rsi::join::review::{Ask, CheckTurn, Reviewer};
     let r = rig_launched(
         RESHAPEABLE,
@@ -882,8 +895,8 @@ async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
         "nothing the reviewer removed was held"
     );
     assert!(
-        !built_in_scratch(&r.target).exists(),
-        "the checkout it made is gone"
+        bound_to_l1(&session),
+        "its removal was bound to L1, nowhere at L0"
     );
     assert_eq!(
         r.core.tools.self_pr.review_scratch(&session),
@@ -925,9 +938,9 @@ async fn a_command_that_is_no_reviews_keeps_the_temporary_directory_it_had() {
 }
 
 /// A link where the item's build folder goes (or at the builders' root) does not make what it points
-/// at the session's own: the folder is a place only while it is its own resolved path, so `rm`, a
-/// file write and a sandboxed shell line through it are all held and the target's file stays
-/// (the round-4 review's B3).
+/// at the session's own: the folder is a place only while it is its own resolved path. `rm` through it runs
+/// nowhere at L0 (issue 53: bound to L1), a file write through it is held, a sandboxed shell line through it is
+/// given no read-write bind, and the target's file stays (the round-4 review's B3).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_link_where_the_build_folder_goes_is_not_the_sessions_own() {
     let swap = |t: &Path, root: bool| {
@@ -952,7 +965,7 @@ async fn a_link_where_the_build_folder_goes_is_not_the_sessions_own() {
         };
         let (r, sid) = drive("self", "proc_run", through, nothing);
         r.turn(&sid).await;
-        assert!(r.was_held(&sid), "{name}, rm: {:?}", r.results(&sid));
+        assert!(!ran_at_l0(&sid), "{name}, rm: {:?}", r.results(&sid));
         assert!(r.target.exists(), "{name}, rm: the workspace file is there");
         let write = |t: &Path| {
             swap(t, root);

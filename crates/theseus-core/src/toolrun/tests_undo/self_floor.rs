@@ -68,15 +68,17 @@ async fn the_same_call_from_any_other_principal_is_asked() {
     }
 }
 
-/// A self session that is no builder (its item's tree is not open), and a builder that asks for no
-/// sandbox in so many words, are asked: nothing is moved for either.
+/// CHANGED GUARANTEE (issue 53): a self session that is no builder (its item's tree is not open), and a builder
+/// that asks for no sandbox in so many words, were asked by the floor at L0. Every command of a self-principal
+/// session is now bound to L1, where the floor is not in the view: nothing is asked, and nothing runs at L0.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_self_session_with_no_open_tree_or_an_explicit_no_sandbox_is_asked() {
+async fn a_self_session_with_no_open_tree_or_an_explicit_no_sandbox_is_bound_to_l1_and_asked_nothing(
+) {
     let (r, sid) = drive_says(REVERSIBLE, "self", "proc_run", line(""), nothing);
     std::fs::remove_dir_all(tree(&r.target, "sails").join(".git")).unwrap();
     r.turn(&sid).await;
-    assert_eq!(r.asked().len(), 1, "no open tree: {:?}", r.results(&sid));
-    assert!(jobs_of(&sid).is_empty());
+    assert_eq!(r.asked().len(), 0, "no open tree: {:?}", r.results(&sid));
+    assert!(super::self_own::bound_to_l1(&sid));
 
     let explicit = |t: &Path| {
         let mut v = line("")(t);
@@ -85,15 +87,16 @@ async fn a_self_session_with_no_open_tree_or_an_explicit_no_sandbox_is_asked() {
     };
     let (r, sid) = drive_says(REVERSIBLE, "self", "proc_run", explicit, nothing);
     r.turn(&sid).await;
-    assert_eq!(r.asked().len(), 1, "sandbox: false: {:?}", r.results(&sid));
-    assert!(jobs_of(&sid).is_empty());
+    assert_eq!(r.asked().len(), 0, "sandbox: false: {:?}", r.results(&sid));
+    assert!(super::self_own::bound_to_l1(&sid));
 }
 
-/// Everything else the floor holds stays held for a self builder in its own tree: another floored
-/// program beside the package name, the store, the bindings, the owner's instruction file and the
-/// socket named by any word of the line. None of them is moved to the sandbox, and none starts.
+/// CHANGED GUARANTEE (issue 53): what else the floor held at L0 for a self builder in its own tree (another floored
+/// program beside the package name, the store, the bindings, the owner's instruction file and the socket named by
+/// any word of the line) is now bound to L1 with the rest of its commands, where none of those paths is in the view
+/// (`theseusd/tests/self_build.rs`), and is asked nothing.
 #[tokio::test(flavor = "multi_thread")]
-async fn what_else_the_floor_holds_is_still_held_for_a_self_builder() {
+async fn what_else_the_floor_held_is_bound_to_l1_for_a_self_builder() {
     type Aim = fn(&Path) -> String;
     let aims: [(&str, Aim); 6] = [
         ("another floored program", |_| "; op item get x".into()),
@@ -128,15 +131,14 @@ async fn what_else_the_floor_holds_is_still_held_for_a_self_builder() {
         let (r, sid) = drive_says(REVERSIBLE, "self", "proc_run", call, nothing);
         r.turn(&sid).await;
         let asked = r.asked();
-        assert_eq!(asked.len(), 1, "{what}: {:?}", r.results(&sid));
-        assert_eq!(asked[0]["floor"], true, "{what}");
-        assert!(jobs_of(&sid).is_empty(), "{what}: nothing ran");
+        assert_eq!(asked.len(), 0, "{what}: {:?}", r.results(&sid));
+        assert_eq!(jobs_of(&sid).len(), 1, "{what}: one job, started in L1");
+        assert!(super::self_own::bound_to_l1(&sid), "{what}: bound to L1");
     }
 }
 
-/// The state directory itself is not the floor: a self builder's L0 line that names its own tree and
-/// no floored program was never asked, and still runs at L0 (no sandbox), as it did. This is what the
-/// incident's own tree path was NOT: the tie to the floor was the program name.
+/// The state directory itself is not the floor: a self builder's line that names its own tree and no floored program
+/// is asked nothing, and (issue 53, a CHANGED GUARANTEE) runs in L1, where it ran at L0 on main.
 #[tokio::test(flavor = "multi_thread")]
 async fn naming_its_own_tree_alone_is_no_tie_to_the_floor() {
     let own = |t: &Path| {
@@ -148,7 +150,7 @@ async fn naming_its_own_tree_alone_is_no_tie_to_the_floor() {
     assert!(r.asked().is_empty(), "{:?}", r.asked());
     let jobs = jobs_of(&sid);
     assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
-    assert!(jobs[0].sandbox.is_none(), "a plain line stays where it was");
+    assert!(jobs[0].sandbox.is_some(), "a plain line is bound to L1 now");
 }
 
 /// The reversibility layer reads the class the gate chose: a moved call that removes a file of the

@@ -153,6 +153,19 @@ async fn the_review_file_holds_what_a_textconv_would_hide() {
             "sh -c 'echo HIDDEN-BY-TEXTCONV'",
         ],
     );
+    // Where git reads attributes for this operation: the repository's own `info/attributes`. With it there,
+    // `--textconv` would show HIDDEN-BY-TEXTCONV; the review file's `--no-textconv` shows the line itself.
+    let info = PathBuf::from(repo_git(
+        &r,
+        &["rev-parse", "--git-path", "info/attributes"],
+    ));
+    let info = if info.is_absolute() {
+        info
+    } else {
+        r.f.place.repo.join(info)
+    };
+    std::fs::create_dir_all(info.parent().unwrap()).unwrap();
+    std::fs::write(&info, "secret.txt diff=hide\n").unwrap();
     r.seed_by("trim-the-sails", SONNET, |wt| {
         proved(wt);
         write(wt, ".gitattributes", b"secret.txt diff=hide\n");
