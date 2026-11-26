@@ -911,6 +911,7 @@ mod own_tree {
     use super::*;
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
+    mod always_l1;
     mod builder_folder;
     mod git_pin;
     mod proc_in_tree;

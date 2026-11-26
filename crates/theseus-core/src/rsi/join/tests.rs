@@ -291,6 +291,27 @@ impl Rig {
         files: &[(&str, &str)],
         builder: &str,
     ) -> (String, String) {
+        self.seed_by(name, builder, |wt| {
+            for (path, text) in files {
+                let p = wt.join(path);
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(p, text).unwrap();
+            }
+            git(wt, &["add", "-A"]);
+            git(
+                wt,
+                &["commit", "-q", "-m", &format!("self: {name} ({name})")],
+            );
+        })
+    }
+
+    /// [`Self::seed`], its commits made by `commits` in the branch's worktree (which starts at origin/main).
+    pub(crate) fn seed_by(
+        &self,
+        name: &str,
+        builder: &str,
+        commits: impl FnOnce(&Path),
+    ) -> (String, String) {
         let branch = format!("self/20261014-{name}");
         let wt = self
             .f
@@ -312,16 +333,7 @@ impl Rig {
                 "origin/main",
             ],
         );
-        for (path, text) in files {
-            let p = wt.join(path);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, text).unwrap();
-        }
-        git(&wt, &["add", "-A"]);
-        git(
-            &wt,
-            &["commit", "-q", "-m", &format!("self: {name} ({name})")],
-        );
+        commits(&wt);
         let head = git(&wt, &["rev-parse", "HEAD"]);
         git(
             repo,
@@ -936,7 +948,8 @@ async fn nothing_is_pushed_without_a_signature() {
     // An unsigned commit is refused at the push itself, too.
     let t = super::git::detached(&r.f.place, "probe", "self/probe", "origin/main").unwrap();
     let head = git(&t.dir, &["rev-parse", "HEAD"]);
-    let e = super::git::push_main(&r.f.place, &t, "origin", &head, &head).unwrap_err();
+    let dest = super::git::dest(&r.f.place, "origin").unwrap().unwrap();
+    let e = super::git::push_main(&r.f.place, &t, "origin", &dest, &head, &head).unwrap_err();
     assert!(format!("{e:#}").contains("is not signed"), "{e:#}");
     crate::rsi::tree::close(&r.f.place, &t).unwrap();
 }

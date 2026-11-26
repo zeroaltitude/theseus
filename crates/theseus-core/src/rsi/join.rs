@@ -121,6 +121,8 @@ mod tests_proof_kind;
 #[cfg(test)]
 pub(crate) mod tests_publish;
 #[cfg(test)]
+mod tests_publish_r6;
+#[cfg(test)]
 mod tests_reap;
 #[cfg(test)]
 mod tests_retry;
@@ -440,6 +442,13 @@ pub fn lock_dir(cfg: &crate::Config) -> std::path::PathBuf {
     )
 }
 
+/// The branch of `b`'s latest green built head.
+fn latest_head(built: &[Built], b: &Built) -> String {
+    (built.iter().rev())
+        .find(|n| n.branch == b.branch)
+        .map_or_else(|| b.head.clone(), |n| n.head.clone())
+}
+
 /// Whether this pass parked `b`'s join on the owner's card.
 fn pass_parked(pass: &Pass, b: &Built) -> bool {
     pass.parked.last() == Some(&(b.branch.clone(), b.head.clone()))
@@ -584,9 +593,7 @@ impl Core {
                 continue;
             }
             // A head the branch has moved past is never joined, and a card asked for it ends.
-            let latest = (seen.built.iter().rev())
-                .find(|n| n.branch == b.branch)
-                .map_or_else(|| b.head.clone(), |n| n.head.clone());
+            let latest = latest_head(&seen.built, b);
             if latest != b.head {
                 self.publish_end_for_head(&b.branch, &b.head)?;
                 continue;

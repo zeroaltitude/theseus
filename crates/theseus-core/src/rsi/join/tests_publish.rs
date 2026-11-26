@@ -16,13 +16,13 @@ use crate::fact::rsi_pr::SelfBranchBuilt;
 use crate::Core;
 
 /// Where the loop's git commands and the remote's received refs are written.
-struct Watched {
+pub(super) struct Watched {
     trace: PathBuf,
     received: PathBuf,
 }
 
 /// Watch what `core`'s git commands do and what the rig's remote receives.
-fn watch(r: &Rig, core: &Core) -> Watched {
+pub(super) fn watch(r: &Rig, core: &Core) -> Watched {
     let root = r.f.upstream.parent().unwrap().to_path_buf();
     let (trace, received) = (root.join("git-trace.log"), root.join("received.log"));
     let hook = r.f.upstream.join("hooks").join("pre-receive");
@@ -42,7 +42,7 @@ fn watch(r: &Rig, core: &Core) -> Watched {
 
 impl Watched {
     /// Every git command traced that sends to a remote: a push, or the receive end it runs.
-    fn sends(&self) -> Vec<String> {
+    pub(super) fn sends(&self) -> Vec<String> {
         let text = std::fs::read_to_string(&self.trace).unwrap_or_default();
         text.lines()
             .filter(|l| l.contains("trace: "))
@@ -54,13 +54,13 @@ impl Watched {
     }
 
     /// Every ref update the remote received, one `old new ref` a line.
-    fn received(&self) -> Vec<String> {
+    pub(super) fn received(&self) -> Vec<String> {
         let text = std::fs::read_to_string(&self.received).unwrap_or_default();
         text.lines().map(str::to_string).collect()
     }
 
     /// Whether the trace saw the loop's git at all (so an empty `sends` is not an empty trace).
-    fn traced(&self) -> bool {
+    pub(super) fn traced(&self) -> bool {
         std::fs::read_to_string(&self.trace).is_ok_and(|t| t.contains("trace: "))
     }
 }
@@ -100,7 +100,7 @@ impl PassYes for Arc<Core> {
     }
 }
 
-fn seams(r: &Rig) -> Seams {
+pub(super) fn seams(r: &Rig) -> Seams {
     Seams {
         reviewer: Arc::new(super::review::CheckTurn),
         ..r.seams()
@@ -108,7 +108,7 @@ fn seams(r: &Rig) -> Seams {
 }
 
 /// The publish cards waiting on `core`.
-fn cards(core: &Core) -> Vec<theseus_protocol::ConfirmRequest> {
+pub(super) fn cards(core: &Core) -> Vec<theseus_protocol::ConfirmRequest> {
     core.confirm_list()
         .unwrap()
         .into_iter()
@@ -117,14 +117,14 @@ fn cards(core: &Core) -> Vec<theseus_protocol::ConfirmRequest> {
 }
 
 /// The remote's branches.
-fn remote_heads(r: &Rig) -> String {
+pub(super) fn remote_heads(r: &Rig) -> String {
     git(
         &r.f.upstream,
         &["for-each-ref", "--format=%(refname)", "refs/heads/"],
     )
 }
 
-fn publish_stops(r: &Rig) -> Vec<Value> {
+pub(super) fn publish_stops(r: &Rig) -> Vec<Value> {
     (r.rows_all("self.join.stopped").into_iter())
         .filter(|d| d["phase"] == publish::PHASE)
         .collect()

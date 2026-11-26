@@ -24,7 +24,6 @@ use crate::fact::answer::CallAnswered;
 use crate::fact::rsi_join::SelfJoinStopped;
 use crate::outbox::Closed;
 use crate::rpc::Core;
-use crate::rsi::tree::Place;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 

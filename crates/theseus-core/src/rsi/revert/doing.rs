@@ -201,17 +201,11 @@ impl Core {
                 closing(&made.t);
                 return Ok(held);
             }
-            // The push's one destination, as the join's is pinned (`git::dest`); the revert asks no card.
-            let (p, r) = (place.clone(), remote.to_string());
-            let dest = match blocking(move || git::dest(&p, &r)).await {
-                Ok(Ok(d)) => d,
-                Ok(Err(why)) => {
+            let dest = match self.revert_dest(place, remote, j).await {
+                Ok(d) => d,
+                Err(held) => {
                     closing(&made.t);
-                    return Ok(self.revert_held(j, "push", why, true));
-                }
-                Err(e) => {
-                    closing(&made.t);
-                    return Ok(self.revert_held(j, "push", &format!("{e:#}"), true));
+                    return Ok(held);
                 }
             };
             let (p, t, r, base, s) = (
@@ -234,6 +228,22 @@ impl Core {
         }
         let why = format!("main moved before each of {TRIES} pushes");
         Ok(self.revert_held(j, "push", &why, true))
+    }
+
+    /// The push's one destination, as the join's is pinned (`git::dest`); the revert asks no card. Its held stop
+    /// when the remote has no single destination.
+    async fn revert_dest(
+        &self,
+        place: &Place,
+        remote: &str,
+        j: &Joined,
+    ) -> Result<git::Dest, Done> {
+        let (p, r) = (place.clone(), remote.to_string());
+        match blocking(move || git::dest(&p, &r)).await {
+            Ok(Ok(d)) => Ok(d),
+            Ok(Err(why)) => Err(self.revert_held(j, "push", why, true)),
+            Err(e) => Err(self.revert_held(j, "push", &format!("{e:#}"), true)),
+        }
     }
 
     /// Before a phase: the test's hook, then (an automatic revert) the gate.
