@@ -295,8 +295,7 @@ fn earlier_list() -> crate::mcp::StoredList {
 /// The stored tool record is read whole (round 7): a token equal to the
 /// digest of a signed-in server's stored list from an earlier run (in no
 /// live status: the server is not seeded and has not listed) is refused at
-/// the finish, before anything is kept or sent; and so is one equal to the
-/// digest of a list an attach's trial retained.
+/// the finish, before anything is kept or sent.
 #[tokio::test]
 async fn a_token_equal_to_a_stored_lists_digest_is_refused() {
     let list = earlier_list();
@@ -304,7 +303,7 @@ async fn a_token_equal_to_a_stored_lists_digest_is_refused() {
     // The store's record of the server that signs in.
     {
         let (buf, _guard) = capture();
-        let stored = list.clone();
+        let stored = list;
         let r = rig_edit(
             FakeAuth::start(AuthConfig {
                 access_token_is: Some(digest.clone()),
@@ -350,7 +349,14 @@ async fn a_token_equal_to_a_stored_lists_digest_is_refused() {
         let found = issued_in(&r, &all_exits(&r, &sid, &log).await, &[&digest]);
         assert!(found.is_empty(), "{} values in the exits", found.len());
     }
-    // A list an attach's trial retained.
+}
+
+/// The same for a list an attach's trial retained (`keep_listed`): a token
+/// equal to its digest is refused at the finish.
+#[tokio::test]
+async fn a_token_equal_to_a_trials_list_digest_is_refused() {
+    let list = earlier_list();
+    let digest = list.digest.clone();
     {
         let (buf, _guard) = capture();
         let (r, _plain) = rig_doors(AuthConfig {
@@ -359,7 +365,7 @@ async fn a_token_equal_to_a_stored_lists_digest_is_refused() {
         })
         .await;
         let sid = session(&r.core, None);
-        r.core.mcp.keep_listed("trialled", list.clone());
+        r.core.mcp.keep_listed("trialled", list);
         r.core.mcp.start();
         let done = sign_in(&r).await;
         assert_eq!(
