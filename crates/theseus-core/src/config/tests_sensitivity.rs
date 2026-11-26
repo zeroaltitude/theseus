@@ -266,8 +266,7 @@ const PROMPT_TEXT: &[&str] = &[
 #[test]
 fn each_group_names_its_keys_and_only_the_dropped_ones_are_weaker_than_main() {
     use super::sensitivity::{
-        group, key_reason, prompt_text, proof_reason, reason, Group, KEEPS, KEPT_KEYS,
-        SPEND_REASON,
+        group, key_reason, prompt_text, proof_reason, reason, Group, KEEPS, KEPT_KEYS, SPEND_REASON,
     };
     let text = super::tests::uncommented(Config::EXAMPLE_TOML);
     let cfg = Config::from_toml(&text).expect("the uncommented template parses");
@@ -327,18 +326,22 @@ fn each_group_names_its_keys_and_only_the_dropped_ones_are_weaker_than_main() {
         .collect();
     assert!(weaker.is_empty(), "weaker than main: {weaker:#?}");
     let exception = |p: &[String]| {
-        p.iter().skip(1).any(|k| {
-            key_reason(k).is_some_and(|w| KEPT_KEYS.contains(&w) || w == SPEND_REASON)
-        })
+        p.iter()
+            .skip(1)
+            .any(|k| key_reason(k).is_some_and(|w| KEPT_KEYS.contains(&w) || w == SPEND_REASON))
     };
     let lost: Vec<String> = all
         .iter()
         .filter(|(p, v)| dropped(p) && exception(p) && proof_reason(p, None, Some(v)).is_none())
         .map(|(p, _)| p.join("."))
         .collect();
-    assert!(lost.is_empty(), "an exception inside the dropped group lost its code: {lost:#?}");
     assert!(
-        all.iter().any(|(p, v)| dropped(p) && proof_reason(p, None, Some(v)).is_none()),
+        lost.is_empty(),
+        "an exception inside the dropped group lost its code: {lost:#?}"
+    );
+    assert!(
+        all.iter()
+            .any(|(p, v)| dropped(p) && proof_reason(p, None, Some(v)).is_none()),
         "the dropped group takes the card alone somewhere"
     );
 }

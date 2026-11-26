@@ -93,7 +93,11 @@ async fn a_folder_takes_the_card_alone_and_the_yes_alone_writes_it() {
     r.core
         .confirm_action(&q.correlation_id, true, None, "cli")
         .unwrap();
-    assert!(r.file_text().contains("/tmp/elsewhere"), "{}", r.file_text());
+    assert!(
+        r.file_text().contains("/tmp/elsewhere"),
+        "{}",
+        r.file_text()
+    );
 }
 
 /// Finding 1: each of the four dollar limits, from a stop of $50, to a positive

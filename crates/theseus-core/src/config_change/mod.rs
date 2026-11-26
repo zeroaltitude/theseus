@@ -529,6 +529,20 @@ pub(crate) fn sensitive_of(
 /// The sensitive settings of a change: each path and why.
 type Sensitive = Vec<(String, String)>;
 
+/// What a change's card asks besides the yes (issue 57): a plain use of a vault secret (nothing
+/// sensitive, by [`sensitive_of`]) is main's answer, the card alone; every other change is read by
+/// the code table (`proof_seam::Needs::of`).
+fn needs_of(
+    secret: Option<&vault_use::Chosen>,
+    sens: &Sensitive,
+    settings: &[diff::Setting],
+) -> proof_seam::Needs {
+    match secret.is_some() && sens.is_empty() {
+        true => proof_seam::Needs::plain(settings),
+        false => proof_seam::Needs::of(settings),
+    }
+}
+
 /// The settings as they are, for a change that uses a vault secret (what its path is classified
 /// against, `vault_use::classify`; None for any other change), and the change's sensitive
 /// settings as [`sensitive_of`] reads them.
@@ -657,12 +671,7 @@ pub(crate) fn put_using(
     }
     let long = too_big(&settings)?;
     let (base_cfg, sens) = sensitive_for(changes, &settings, secret, base)?;
-    // A plain use of a vault secret is the card alone, as main has it
-    // (`sensitive_of`); every other change is read by the code table.
-    let needs = match secret.is_some() && sens.is_empty() {
-        true => proof_seam::Needs::plain(&settings),
-        false => proof_seam::Needs::of(&settings),
-    };
+    let needs = needs_of(secret, &sens, &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
         settings: &settings,
@@ -901,9 +910,9 @@ pub(crate) mod tests;
 #[cfg(test)]
 pub(crate) mod tests_answer;
 #[cfg(test)]
-pub(crate) mod tests_hold;
-#[cfg(test)]
 mod tests_code;
+#[cfg(test)]
+pub(crate) mod tests_hold;
 #[cfg(test)]
 mod tests_look;
 #[cfg(test)]

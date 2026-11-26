@@ -295,7 +295,11 @@ mod tests {
             );
         }
         let account = "[aws.accounts.111122223333]\nregion = \"us-west-2\"\n";
-        assert_eq!(with_secrets(account), Needs::Card, "an AWS account's region");
+        assert_eq!(
+            with_secrets(account),
+            Needs::Card,
+            "an AWS account's region"
+        );
         // The exceptions win inside the dropped group.
         for (c, n) in of_each(&["[self.budget]\nday_usd = 3.0\n"]) {
             assert_eq!(n, Needs::Proof, "a spending key under self: {c}");
