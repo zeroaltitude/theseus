@@ -557,13 +557,10 @@ impl super::review::Reviewer for Looks {
         ask: &'a super::review::Ask,
     ) -> super::review::Fut<'a> {
         let tree = Path::new(&ask.scratch).join("tree");
-        let head = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&tree)
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default();
+        let head = match tree.exists() {
+            true => git(&tree, &["rev-parse", "HEAD"]),
+            false => String::new(),
+        };
         self.seen
             .lock()
             .unwrap()
