@@ -276,8 +276,8 @@ mod tests {
     fn group_g3_is_a_closed_list_of_exact_settings() {
         use crate::config::sensitivity::DROPPED_SHAPES;
         assert_eq!(
-            DROPPED_SHAPES,
-            [
+            DROPPED_SHAPES.as_slice(),
+            &[
                 "self.mode",
                 "aws.accounts.*.region",
                 "aws.accounts.*.regions",
@@ -291,7 +291,7 @@ mod tests {
                 "tools.projects_dir",
                 "lsp.servers.*.roots",
                 "index.weights_dir",
-            ]
+            ][..]
         );
         for (c, n) in of_each(&[
             "[self]\nmode = \"act\"\n",
@@ -403,8 +403,8 @@ mod tests {
     fn group_d_prompt_text_is_a_closed_list_of_exact_settings() {
         use crate::config::sensitivity::PROMPT_TEXT_SHAPES;
         assert_eq!(
-            PROMPT_TEXT_SHAPES,
-            ["model.system", "profiles.*.system", "personas.*.card"]
+            PROMPT_TEXT_SHAPES.as_slice(),
+            &["model.system", "profiles.*.system", "personas.*.card"][..]
         );
         let long = format!("[model]\nsystem = \"{}\"\n", "be brief. ".repeat(80));
         for (c, n) in of_each(&[
