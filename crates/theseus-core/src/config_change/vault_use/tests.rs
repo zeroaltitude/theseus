@@ -963,7 +963,7 @@ fn the_list_is_decided_by_the_paths_shape_and_the_value() {
         (vec![own.clone(), set("mcp.servers.key.command", json!(["lantern_key"]))], Other),
         (vec![own.clone(), set("model.api_key_secret", json!(["lantern_key"]))], Other),
         (vec![own.clone(), set("model.api_key_secret", json!("other_key"))], Other),
-        (vec![own.clone(), set("model.model", json!("lantern_key"))], Other),
+        (vec![own, set("model.model", json!("lantern_key"))], Other),
         (vec![], Other),
     ] {
         assert_eq!(classify::case_of(&base, &settings, "lantern_key"), want, "{settings:?}");

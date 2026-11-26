@@ -526,6 +526,21 @@ pub(crate) fn sensitive_of(
     }
 }
 
+/// The settings as they are, for a change that uses a vault secret: what its path is classified
+/// against (`vault_use::classify`). None for any other change.
+fn base_of_use(
+    secret: Option<&vault_use::Chosen>,
+    base: &str,
+) -> Result<Option<crate::Config>, String> {
+    secret
+        .map(|_| {
+            crate::Config::parse(base)
+                .map(|(c, _)| c)
+                .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))
+        })
+        .transpose()
+}
+
 /// Run `config.propose` for the call `correlation_id` of the turn `tc`: build
 /// the candidate, check it loads, and ask. An error is the result the model
 /// reads.
@@ -630,14 +645,7 @@ pub(crate) fn put_using(
         vault_use::refuse_other_references(&settings, secret)?;
     }
     let long = too_big(&settings)?;
-    let base_cfg = match secret {
-        Some(_) => Some(
-            crate::Config::parse(base)
-                .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?
-                .0,
-        ),
-        None => None,
-    };
+    let base_cfg = base_of_use(secret, base)?;
     let used = secret.zip(base_cfg.as_ref()).map(|(s, b)| (b, s.name.as_str()));
     let sens = sensitive_of(changes, &settings, used);
     let needs = proof_seam::Needs::of(!sens.is_empty(), &settings);
