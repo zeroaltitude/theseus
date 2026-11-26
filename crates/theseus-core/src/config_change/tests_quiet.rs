@@ -569,7 +569,7 @@ async fn a_flag_raised_between_the_check_and_the_removal_stays() {
     let q = r.asked().remove(0);
     let core = r.core.clone();
     let between = sid.clone();
-    r.core.between_clear_check(
+    crate::rpc::Core::between_clear_check(
         &sid,
         Box::new(move || {
             // Another path removes the offered flag, and a new one is raised, in the gap.

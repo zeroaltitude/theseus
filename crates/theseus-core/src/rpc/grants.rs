@@ -225,7 +225,7 @@ static BETWEEN: std::sync::Mutex<Between> = std::sync::Mutex::new(Vec::new());
 impl Core {
     /// Have `f` run, once, between an "Approve and clear" answer's check and its flag's removal in
     /// `session`: what a test does in that gap.
-    pub(crate) fn between_clear_check(&self, session: &str, f: Box<dyn FnOnce() + Send>) {
+    pub(crate) fn between_clear_check(session: &str, f: Box<dyn FnOnce() + Send>) {
         BETWEEN.lock().unwrap().push((session.to_string(), f));
     }
 }

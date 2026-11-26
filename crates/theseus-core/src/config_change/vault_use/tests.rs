@@ -82,7 +82,7 @@ async fn a_provider_from_a_vault_item_is_one_card_and_no_value() {
         "its account can read them",
         "never goes to the model, a record or this card",
         "kept under the name `lantern_key`, read from op://Harbor/Lantern key/credential",
-        "Given to: the provider `lantern` (its key).",
+        "Given to: the provider `lantern` (its key, which sends it to https://lantern.example.test).",
         "- secrets.lantern_key: not set (its default) → \"op://Harbor/Lantern key/credential\"",
         "- providers.lantern.api_key_secret: not set (its default) → \"lantern_key\"",
         "second proof",
@@ -209,7 +209,9 @@ async fn a_field_in_a_section_is_written_with_its_section() {
         .contains("op://Harbor/Lantern key/Recovery/backup code"));
     assert!(logged(&dir)
         .contains(&"read --no-newline op://Harbor/Lantern key/Recovery/backup code".to_string()));
-    assert!(asks[0].reason.contains("Nothing is given it yet"));
+    assert!(asks[0].reason.contains(
+        "No setting is set to read it; a setting that reads this name by default may use it."
+    ));
 }
 
 /// Two items of one title are not guessed between: their ids are given, and
@@ -1103,6 +1105,14 @@ async fn a_use_keeps_the_wall_for_each_kind_of_session() {
     sessions.push(("shared".into(), r.session_at("channel:2")));
     for (who, sid) in sessions {
         r.turn_with("vault_use", &sid, call(json!([]))).await;
+        // An MCP client's call first waits on a question (the gate asks for that principal):
+        // answered yes as the owner, the call then meets the wall, which refuses it.
+        if let Some(q) = r.asked().into_iter().find(|q| q.session_id == sid) {
+            r.core
+                .confirm_action(&q.correlation_id, true, None, "cli")
+                .unwrap();
+            r.try_continue(&sid).await.unwrap();
+        }
         // Every result the turn wrote: the call is refused, in the wall's words when the tool was
         // offered, and as a tool that is not offered (an error result under its wire name) when
         // the producer's place offers none. Either way the call is answered with an error.
@@ -1132,7 +1142,6 @@ async fn a_use_keeps_the_wall_for_each_kind_of_session() {
                 );
             }
         }
-        eprintln!("{who}: {results:?}");
     }
     assert_eq!(r.file_text(), crate::config_change::tests::FILE);
     assert!(logged(&dir).is_empty(), "the vault was not read");
