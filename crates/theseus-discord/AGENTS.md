@@ -42,8 +42,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `/extensions` (`runtime/extensions.rs`, M7 43b): the loaded extensions from `extend.list`, ephemeral, each with a
   Revoke button (`ext-revoke:<name>`); the text and a press go through the place (`Control::Extensions`,
   `Control::Revoke`), a press as `extension.revoke` with the presser's ids, which the core judges.
-  **Consent** (issue 59, `runtime/consent.rs`): a press, the address to the presser alone, a one-field form to the
-  core as the presser, fixed words; `mcp_sign_in.rs`, `google_sign_in.rs`, `aws_alerts.rs` use it.
+  **Consent** (issue 59, `runtime/consent.rs`): each interaction once, judged owner-in-private, a record per
+  sign-in (user, stage, deadline); fixed words. For `mcp_sign_in.rs`, `google_sign_in.rs`, `aws_alerts.rs`.
   `/orders` (`runtime/orders.rs`, theseus-a7vi; `add:<text> [kind:] [surface:]`, theseus-slvl.4, is `standing.add` as the presser): the owner's standing records from `standing.list` as the presser
   (the core gives the text of a preference or a fact only to the owner in a private place), ephemeral, each with a
   Revoke button (`orders-revoke:<id>`); a press goes through the place (`Control::Unorder`) as `standing.revoke` with
