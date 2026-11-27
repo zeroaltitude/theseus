@@ -155,9 +155,23 @@ pub struct Asked {
     pub main: String,
     /// The review file's SHA-256.
     pub file_sha256: String,
+    /// The review file the card names.
+    pub file: std::path::PathBuf,
     /// The destination and the configuration digest (`git::Dest`).
     pub dest: super::git::Dest,
 }
+
+impl Asked {
+    /// Whether the review file the card names is there with the bytes the card's SHA-256 names: a yes counts only
+    /// while it is. A missing, replaced or changed file voids it.
+    pub fn file_unchanged(&self) -> bool {
+        super::review_file::sha256_of(&self.file).as_deref() == Some(self.file_sha256.as_str())
+    }
+}
+
+/// Why a yes is void when the review file is not the one the card named.
+pub const FILE_CHANGED: &str =
+    "the review file the card names is missing or changed; a new card asks for it";
 
 /// The owner's answer to a question, as the question stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,6 +311,7 @@ impl Core {
             head: l.head.clone(),
             main: l.main.clone(),
             file_sha256: l.review.sha256.clone(),
+            file: l.review.path.clone(),
             dest: l.dest.clone(),
         };
         let planned = self.kernel.plan_confirm_with(
@@ -360,7 +375,24 @@ impl Core {
         by: &str,
         via: &str,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        self.publish_settle(a, approve, note, (by, via))?;
+        // A yes is taken only while the review file the card names is the one it named: else the card ends
+        // (superseded, no held row) and the next pass makes the file again and asks one new card.
+        let branch = (a.proposal.as_ref())
+            .and_then(|p| p.args["branch"].as_str().map(str::to_string))
+            .unwrap_or_default();
+        let unchanged = (self.publish_asked(&branch)?)
+            .filter(|asked| asked.question == a.correlation_id)
+            .is_some_and(|asked| asked.file_unchanged());
+        let approve = match approve && !unchanged {
+            true => {
+                self.publish_settle(a, false, Some(FILE_CHANGED), (SUPERSEDED, SUPERSEDED))?;
+                false
+            }
+            false => {
+                self.publish_settle(a, approve, note, (by, via))?;
+                approve
+            }
+        };
         Ok(theseus_protocol::ActionConfirmResult {
             correlation_id: a.correlation_id.clone(),
             approved: approve,

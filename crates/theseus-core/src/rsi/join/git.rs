@@ -7,6 +7,7 @@
 //! tree, as self-pr's do, and is removed by `rsi::tree::close`.
 
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -453,39 +454,89 @@ fn push_setting(key: &str) -> bool {
         || k == "credential.helper"
 }
 
-/// The settings that bear on a push (`push_setting`), as git reads them with includes followed, `key=value` sorted;
-/// a credential helper's value is its name.
-fn push_settings(p: &Place) -> Result<Vec<String>> {
-    let o = p.git(&p.repo, &["config", "--list", "-z"])?;
+/// A setting's key with its section and its name lowercased and its subsection as written: git compares the first
+/// two without case and the subsection exactly.
+fn key_as_git_reads(k: &str) -> String {
+    match (k.find('.'), k.rfind('.')) {
+        (Some(f), Some(l)) if f < l => format!(
+            "{}{}{}",
+            k[..f].to_ascii_lowercase(),
+            &k[f..l],
+            k[l..].to_ascii_lowercase()
+        ),
+        _ => k.to_ascii_lowercase(),
+    }
+}
+
+/// Fixed words: git rewrites addresses in this repository (`url.*.insteadOf` or `url.*.pushInsteadOf`).
+pub const REWRITES: &str = "git rewrites addresses here, so the destination cannot be shown truly";
+/// Fixed words: the destination carries a credential where it cannot be removed from what is shown.
+pub const URL_CREDENTIAL: &str =
+    "the destination carries a credential outside the user part of its address, so it cannot be shown";
+
+/// The settings that bear on a push (`push_setting`), as git reads them in `dir` (the directory the push runs in)
+/// with includes followed, `key=value` in git's own order, a repeated key's values in theirs; a credential helper's
+/// value is its name. Or [`REWRITES`] when an address rewrite rule is in effect.
+fn push_settings(p: &Place, dir: &Path) -> Result<std::result::Result<Vec<String>, &'static str>> {
+    let o = p.git(dir, &["config", "--list", "-z"])?;
     if !o.status.success() {
         bail!(
             "git config --list failed: {}",
             String::from_utf8_lossy(&o.stderr).trim()
         );
     }
-    let mut out: Vec<String> = (o.stdout.split(|b| *b == 0))
-        .filter(|e| !e.is_empty())
-        .map(|e| String::from_utf8_lossy(e).into_owned())
-        .filter_map(|e| {
-            let (k, v) = e.split_once('\n').unwrap_or((e.as_str(), ""));
-            push_setting(k).then(|| format!("{}={v}", k.to_ascii_lowercase()))
-        })
-        .collect();
-    out.sort();
-    Ok(out)
+    let mut out = Vec::new();
+    for e in (o.stdout.split(|b| *b == 0)).filter(|e| !e.is_empty()) {
+        let e = String::from_utf8_lossy(e);
+        let (k, v) = e.split_once('\n').unwrap_or((&e, ""));
+        let lower = k.to_ascii_lowercase();
+        if lower.starts_with("url.")
+            && (lower.ends_with(".insteadof") || lower.ends_with(".pushinsteadof"))
+        {
+            return Ok(Err(REWRITES));
+        }
+        if push_setting(k) {
+            out.push(format!("{}={v}", key_as_git_reads(k)));
+        }
+    }
+    Ok(Ok(out))
 }
 
-/// The remote's one push destination, or why there is none, in fixed words: no push URL, more than one, or a fetch
-/// URL that is not the push URL (the fetch the card and the merge read must read where the push goes).
-pub fn dest(p: &Place, remote: &str) -> Result<std::result::Result<Dest, &'static str>> {
+/// Whether `url` carries what may be a credential outside its user part: a query, a fragment, or a path segment
+/// holding `@` or `:`.
+fn credential_outside_userinfo(url: &str) -> bool {
+    let Some((_, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let path = rest.find('/').map_or("", |i| &rest[i..]);
+    url.contains('?')
+        || url.contains('#')
+        || path
+            .split('/')
+            .any(|seg| seg.contains('@') || seg.contains(':'))
+}
+
+/// The remote's one push destination, read in `dir` (the directory the push runs in), or why there is none, in
+/// fixed words: no push URL, more than one, a fetch URL that is not the push URL (the fetch the card and the merge
+/// read must read where the push goes), an address rewrite rule in effect, or a credential in the address outside
+/// its user part.
+pub fn dest_in(
+    p: &Place,
+    dir: &Path,
+    remote: &str,
+) -> Result<std::result::Result<Dest, &'static str>> {
     let urls = |args: &[&str]| -> Result<Vec<String>> {
-        let o = p.git(&p.repo, args)?;
+        let o = p.git(dir, args)?;
         Ok(String::from_utf8_lossy(&o.stdout)
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .map(str::to_string)
             .collect())
+    };
+    let settings = match push_settings(p, dir)? {
+        Ok(s) => s,
+        Err(why) => return Ok(Err(why)),
     };
     let push = urls(&["remote", "get-url", "--push", "--all", remote])?;
     let fetch = urls(&["remote", "get-url", "--all", remote])?;
@@ -496,6 +547,9 @@ pub fn dest(p: &Place, remote: &str) -> Result<std::result::Result<Dest, &'stati
     };
     if fetch != vec![url.clone()] {
         return Ok(Err(SPLIT_DEST));
+    }
+    if credential_outside_userinfo(&url) {
+        return Ok(Err(URL_CREDENTIAL));
     }
     let configured = |key: &str| -> Result<Vec<String>> {
         urls(&["config", "--get-all", &format!("remote.{remote}.{key}")])
@@ -510,10 +564,13 @@ pub fn dest(p: &Place, remote: &str) -> Result<std::result::Result<Dest, &'stati
         _ => return Ok(Err(TWO_DESTS)),
     };
     use sha2::Digest;
-    let digest = hex::encode(sha2::Sha256::digest(
-        push_settings(p)?.join("\0").as_bytes(),
-    ));
+    let digest = hex::encode(sha2::Sha256::digest(settings.join("\0").as_bytes()));
     Ok(Ok(Dest { raw, url, digest }))
+}
+
+/// [`dest_in`], read in the self repository.
+pub fn dest(p: &Place, remote: &str) -> Result<std::result::Result<Dest, &'static str>> {
+    dest_in(p, &p.repo, remote)
 }
 
 /// Push the signed `merge` to main at `dest`, never forced, after checking that main is still `base`: one ref, to
@@ -561,6 +618,7 @@ pub fn push_args(url: &str, spec: &str) -> Vec<String> {
         "push.followTags=false",
         "-c",
         "push.recurseSubmodules=no",
+        "--no-replace-objects",
         "push",
         "-q",
         "--no-verify",

@@ -201,7 +201,7 @@ impl Core {
                 closing(&made.t);
                 return Ok(held);
             }
-            let dest = match self.revert_dest(place, remote, j).await {
+            let dest = match self.revert_dest(place, &made.t.dir, remote, j).await {
                 Ok(d) => d,
                 Err(held) => {
                     closing(&made.t);
@@ -235,11 +235,12 @@ impl Core {
     async fn revert_dest(
         &self,
         place: &Place,
+        dir: &std::path::Path,
         remote: &str,
         j: &Joined,
     ) -> Result<git::Dest, Done> {
-        let (p, r) = (place.clone(), remote.to_string());
-        match blocking(move || git::dest(&p, &r)).await {
+        let (p, r, d) = (place.clone(), remote.to_string(), dir.to_path_buf());
+        match blocking(move || git::dest_in(&p, &d, &r)).await {
             Ok(Ok(d)) => Ok(d),
             Ok(Err(why)) => Err(self.revert_held(j, "push", why, true)),
             Err(e) => Err(self.revert_held(j, "push", &format!("{e:#}"), true)),

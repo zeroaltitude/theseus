@@ -189,7 +189,10 @@ impl Run<'_> {
         let core = self.core.clone();
         let here = (self.b.branch.clone(), self.b.head.clone());
         if let Some(asked) = core.publish_asked(&self.b.branch)? {
-            if asked.head == self.b.head {
+            // A card whose review file is missing or changed is ended, and asked again from the objects.
+            if asked.head == self.b.head && !asked.file_unchanged() {
+                core.publish_end(&self.b.branch, publish::FILE_CHANGED)?;
+            } else if asked.head == self.b.head {
                 match core.publish_answer(&asked.question)? {
                     publish::Answer::Yes => return Ok(true),
                     publish::Answer::Waiting => {
@@ -271,6 +274,7 @@ impl Run<'_> {
         &self,
         remote: &str,
         base: &str,
+        dir: &std::path::Path,
     ) -> Result<std::result::Result<git::Dest, &'static str>> {
         let Some(asked) = self.core.publish_asked(&self.b.branch)? else {
             return Ok(Err("no card stands for this head"));
@@ -280,13 +284,17 @@ impl Run<'_> {
                 "the branch has a newer head than the one the owner said yes to",
             ));
         }
+        if !asked.file_unchanged() {
+            return Ok(Err(publish::FILE_CHANGED));
+        }
         let (p, r) = (self.place.clone(), remote.to_string());
-        let (branch, base) = (self.b.branch.clone(), base.to_string());
+        let (branch, base, dir) = (self.b.branch.clone(), base.to_string(), dir.to_path_buf());
         blocking(move || {
             if git::at(&p, &branch)? != asked.head {
                 return Ok(Err("the branch moved after the owner's yes"));
             }
-            match git::dest(&p, &r)? {
+            // Read where the push runs: the merge's own tree.
+            match git::dest_in(&p, &dir, &r)? {
                 Ok(d) if d == asked.dest => {}
                 _ => {
                     return Ok(Err(
@@ -421,7 +429,7 @@ impl Run<'_> {
             f(attempt);
         }
         // Under the join lock, just before the push: the owner's yes still covers what this push sends.
-        let dest = match self.still_approved(remote, &m.base).await? {
+        let dest = match self.still_approved(remote, &m.base, &m.t.dir).await? {
             Ok(dest) => dest,
             Err(why) => {
                 close(self);

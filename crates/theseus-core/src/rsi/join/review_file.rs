@@ -1,10 +1,17 @@
 //! The review file of a publication (issue 53): everything a join of `head` onto the remote's `main` would send,
 //! made from the objects themselves, written under the self reports folder before the owner's card is asked. For
 //! every commit of `main..head` (every parent's history, not the first parent's only): the raw commit object, every
-//! header as git stores it, and its change against every parent, read with attributes, text conversion, external
-//! diff drivers, color and rename detection off, file modes, symlink targets and gitlinks shown as git records them.
-//! A range holding what the file cannot show as text is not offered (`Unshowable`): a file git calls binary or that
-//! holds a NUL byte, a file over [`FILE_BYTES`], or an annotated tag or a note on a commit of the range.
+//! header as git stores it, and its change against every parent. Text conversion and external diff drivers are off
+//! whatever attributes say (`--no-textconv`, `--no-ext-diff`), the user's attributes file is not read, color, pager
+//! and rename detection are off, and replacement objects are not used (`--no-replace-objects`); file modes, symlink
+//! targets and gitlinks are shown as git records them.
+//!
+//! **One closed rule on bytes, checked before anything is rendered** ([`exact`]): every raw commit object of the
+//! range, every changed or added blob (a symlink's target included) and every path must be valid UTF-8 holding no
+//! control character but newline and tab (a carriage return only before a newline) and no direction character.
+//! Anything else is not offered (`Unshowable`): a file git calls binary or that holds a NUL byte, a file over
+//! [`FILE_BYTES`], text that cannot be shown exactly, or an annotated tag or a note on a commit of the range. The
+//! rendering is then lossless: git's output is decoded strictly, never with a lossy decoder.
 
 use std::path::PathBuf;
 
@@ -24,6 +31,31 @@ pub enum Unshowable {
     Large,
     /// An annotated tag or a note on a commit of the range.
     TagOrNote,
+    /// Bytes [`exact`] refuses: not valid UTF-8, a control character, or a direction character.
+    Inexact,
+}
+
+/// Whether `b` can be shown exactly: valid UTF-8, no control character but newline and tab (a carriage return only
+/// before a newline), and no bidirectional-override or other invisible direction character.
+pub fn exact(b: &[u8]) -> bool {
+    let Ok(s) = std::str::from_utf8(b) else {
+        return false;
+    };
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\n' | '\t' => {}
+            '\r' if chars.peek() == Some(&'\n') => {}
+            '\u{200e}'
+            | '\u{200f}'
+            | '\u{061c}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}' => return false,
+            c if c.is_control() => return false,
+            _ => {}
+        }
+    }
+    true
 }
 
 impl Unshowable {
@@ -34,6 +66,7 @@ impl Unshowable {
             }
             Unshowable::Large => "it holds a file larger than 4 MiB",
             Unshowable::TagOrNote => "an annotated tag or a note names one of its commits",
+            Unshowable::Inexact => "it holds text that cannot be shown exactly",
         }
     }
 }
@@ -52,10 +85,11 @@ pub struct Review {
     pub size: String,
 }
 
-/// git with every presentation setting off: no attributes file, no text conversion, no external diff, no color, no
-/// pager, no renames, paths unquoted.
+/// git with its presentation settings off: the user's attributes file unread, paths unquoted, no color, no pager, and
+/// replacement objects not used. Text conversion, external diff and renames are turned off on each diff's own line.
 fn plain<'a>(args: &[&'a str]) -> Vec<&'a str> {
     let mut v = vec![
+        "--no-replace-objects",
         "-c",
         "core.attributesFile=/dev/null",
         "-c",
@@ -70,7 +104,8 @@ fn plain<'a>(args: &[&'a str]) -> Vec<&'a str> {
     v
 }
 
-fn git_ok(p: &Place, args: &[&str]) -> Result<String> {
+/// git's output, its bytes.
+fn git_bytes(p: &Place, args: &[&str]) -> Result<Vec<u8>> {
     let o = p.git(&p.repo, &plain(args))?;
     if !o.status.success() {
         bail!(
@@ -79,57 +114,66 @@ fn git_ok(p: &Place, args: &[&str]) -> Result<String> {
             String::from_utf8_lossy(&o.stderr).trim()
         );
     }
-    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+    Ok(o.stdout)
 }
 
-/// What of the range the file cannot show, if anything.
+/// git's output decoded strictly: shas, counts and names the closed rule has already passed.
+fn git_ok(p: &Place, args: &[&str]) -> Result<String> {
+    let b = git_bytes(p, args)?;
+    String::from_utf8(b)
+        .map_err(|_| anyhow::anyhow!("git {} printed bytes that are not UTF-8", args.join(" ")))
+}
+
+/// git's output for the file, decoded strictly; none when it cannot be shown exactly.
+fn git_exact(p: &Place, args: &[&str]) -> Result<Option<String>> {
+    let b = git_bytes(p, args)?;
+    Ok(String::from_utf8(b).ok())
+}
+
+/// What of the range the file cannot show, if anything: each commit's raw object, each changed path, and each
+/// changed blob of a file or a symlink, checked on bytes before anything is rendered.
 fn unshowable(p: &Place, commits: &[String]) -> Result<Option<Unshowable>> {
     for c in commits {
+        if !exact(&git_bytes(p, &["cat-file", "commit", c])?) {
+            return Ok(Some(Unshowable::Inexact));
+        }
         let parents = parents(p, c)?;
         let against: Vec<String> = match parents.is_empty() {
             true => vec!["--root".into()],
             false => parents,
         };
         for parent in &against {
-            let mut args = vec![
+            let range: Vec<&str> = match parent.as_str() {
+                "--root" => vec!["--root", c.as_str()],
+                p => vec![p, c.as_str()],
+            };
+            let mut raw = vec![
                 "diff-tree",
                 "-r",
+                "-z",
+                "--no-renames",
+                "--raw",
+                "--no-abbrev",
+            ];
+            raw.extend(range.iter().copied());
+            if let Some(u) = changed_unshowable(p, &git_bytes(p, &raw)?)? {
+                return Ok(Some(u));
+            }
+            let mut num = vec![
+                "diff-tree",
+                "-r",
+                "-z",
                 "--no-renames",
                 "--no-textconv",
                 "--no-ext-diff",
                 "--numstat",
             ];
-            let range: Vec<&str> = match parent.as_str() {
-                "--root" => vec!["--root", c.as_str()],
-                p => vec![p, c.as_str()],
-            };
-            args.extend(range.iter().copied());
-            let numstat = git_ok(p, &args)?;
-            if numstat.lines().any(|l| l.starts_with("-\t-\t")) {
+            num.extend(range.iter().copied());
+            if git_bytes(p, &num)?
+                .split(|b| *b == 0)
+                .any(|e| e.starts_with(b"-\t-\t"))
+            {
                 return Ok(Some(Unshowable::Binary));
-            }
-            let mut raw = vec!["diff-tree", "-r", "--no-renames", "--raw", "--no-abbrev"];
-            raw.extend(range.iter().copied());
-            for l in git_ok(p, &raw)?.lines().filter(|l| l.starts_with(':')) {
-                let f: Vec<&str> = l.split_whitespace().collect();
-                let (mode, blob) = (
-                    f.get(1).copied().unwrap_or(""),
-                    f.get(3).copied().unwrap_or(""),
-                );
-                if !(mode == "100644" || mode == "100755") || blob.chars().all(|ch| ch == '0') {
-                    continue;
-                }
-                let bytes: u64 = git_ok(p, &["cat-file", "-s", blob])?
-                    .trim()
-                    .parse()
-                    .unwrap_or(u64::MAX);
-                if bytes > FILE_BYTES {
-                    return Ok(Some(Unshowable::Large));
-                }
-                let o = p.git(&p.repo, &["cat-file", "blob", blob])?;
-                if o.stdout.contains(&0) {
-                    return Ok(Some(Unshowable::Binary));
-                }
             }
         }
     }
@@ -155,6 +199,46 @@ fn unshowable(p: &Place, commits: &[String]) -> Result<Option<Unshowable>> {
             .any(|annotated| commits.iter().any(|c| c == annotated))
         {
             return Ok(Some(Unshowable::TagOrNote));
+        }
+    }
+    Ok(None)
+}
+
+/// What of one `diff-tree -z --raw` listing the file cannot show: each path, and each new blob of a file or a
+/// symlink (its size, a NUL, then the closed rule). `:<mode> <mode> <sha> <sha> <status>` NUL `<path>` NUL, an entry.
+fn changed_unshowable(p: &Place, listing: &[u8]) -> Result<Option<Unshowable>> {
+    let mut parts = listing.split(|b| *b == 0).filter(|e| !e.is_empty());
+    while let Some(head) = parts.next() {
+        if !head.starts_with(b":") {
+            continue;
+        }
+        let path = parts.next().unwrap_or_default();
+        if !exact(path) {
+            return Ok(Some(Unshowable::Inexact));
+        }
+        let fields: Vec<&[u8]> = head.split(|b| *b == b' ').collect();
+        let (mode, blob) = (
+            fields.get(1).copied().unwrap_or_default(),
+            fields.get(3).copied().unwrap_or_default(),
+        );
+        let blob = std::str::from_utf8(blob).unwrap_or_default();
+        let shown = matches!(mode, b"100644" | b"100755" | b"120000");
+        if !shown || blob.is_empty() || blob.chars().all(|ch| ch == '0') {
+            continue;
+        }
+        let bytes: u64 = git_ok(p, &["cat-file", "-s", blob])?
+            .trim()
+            .parse()
+            .unwrap_or(u64::MAX);
+        if bytes > FILE_BYTES {
+            return Ok(Some(Unshowable::Large));
+        }
+        let content = git_bytes(p, &["cat-file", "blob", blob])?;
+        if content.contains(&0) {
+            return Ok(Some(Unshowable::Binary));
+        }
+        if !exact(&content) {
+            return Ok(Some(Unshowable::Inexact));
         }
     }
     Ok(None)
@@ -196,7 +280,8 @@ pub fn write(
     let mut listed = Vec::new();
     for (i, c) in commits.iter().enumerate() {
         let raw = git_ok(p, &["cat-file", "commit", c])?;
-        let subject = git_ok(p, &["log", "-1", "--format=%s", c])?
+        let subject = (raw.split_once("\n\n").map_or("", |(_, m)| m).lines().next())
+            .unwrap_or_default()
             .trim()
             .to_string();
         text.push_str(&format!(
@@ -230,7 +315,10 @@ pub fn write(
                 "--root" => args.extend(["--root", c.as_str()]),
                 _ => args.extend([parent, c.as_str()]),
             }
-            let diff = git_ok(p, &args)?;
+            // Lossless: an old side the closed rule did not read (main's own bytes) that is not UTF-8 is held too.
+            let Some(diff) = git_exact(p, &args)? else {
+                return Ok(Err(Unshowable::Inexact));
+            };
             text.push_str(&format!("--- change against parent {parent}\n{diff}"));
             if !diff.ends_with('\n') {
                 text.push('\n');
@@ -246,13 +334,25 @@ pub fn write(
     let sha256 = hex::encode(sha2::Sha256::digest(text.as_bytes()));
     let dir = p.reports();
     std::fs::create_dir_all(&dir)?;
-    let path = dir.join(format!(
-        "publish-{}-onto-{}.txt",
-        &head[..head.len().min(12)],
-        &main[..main.len().min(12)]
+    // The name carries the two full shas; the bytes are written to a temporary file of this process's own and
+    // renamed over it, so a reader never sees half a file.
+    let path = dir.join(format!("publish-{head}-onto-{main}.txt"));
+    let tmp = dir.join(format!(
+        ".publish-{head}-{}-{}.tmp",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
     ));
-    let tmp = path.with_extension("txt.tmp");
-    std::fs::write(&tmp, &text)?;
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        f.write_all(text.as_bytes())?;
+        f.sync_all()?;
+    }
     std::fs::rename(&tmp, &path)?;
     Ok(Ok(Review {
         path,
