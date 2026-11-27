@@ -86,7 +86,7 @@ impl crate::Core {
                 // A Discord press is told the kind alone (issue 62).
                 reply(
                     self.mcp
-                        .login_begin(&p.name, p.manual, crate::google::auth::on_wsl())
+                        .login_begin(&p.name, p.manual, on_wsl())
                         .await
                         .map_err(|f| failed(f.said_to(conn.surface)))?,
                 )
@@ -101,4 +101,19 @@ impl crate::Core {
             }
         }
     }
+}
+
+/// Whether this machine is WSL, for a sign-in's begin: the machine's answer, or a test's.
+fn on_wsl() -> bool {
+    #[cfg(test)]
+    if let Some(wsl) = TEST_WSL.with(std::cell::Cell::get) {
+        return wsl;
+    }
+    crate::google::auth::on_wsl()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the answer to whether this machine is WSL, in place of the machine's.
+    pub(crate) static TEST_WSL: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }

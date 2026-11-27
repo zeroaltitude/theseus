@@ -68,6 +68,8 @@ pub(super) async fn rig_edit(
     setup: impl FnOnce(&std::path::Path),
     edit: impl FnOnce(&mut Config),
 ) -> Rig {
+    // The rig's host is not WSL: a sign-in's begin listens on the loopback and offers its redirect.
+    crate::rpc::TEST_WSL.with(|w| w.set(Some(false)));
     let fake = Fake::new(fake::Config {
         oauth: Some(auth.clone()),
         name: "docs".into(),
@@ -290,6 +292,34 @@ async fn the_owner_signs_in_once_and_a_turn_calls_the_servers_tool() {
         (ResultStatus::Ok, "signed in", true)
     );
     assert_eq!(r.auth.seen().registrations, 1);
+}
+
+/// On WSL the owner's browser cannot reach the loopback: the begin offers the paste at once and no
+/// loopback address, and the pasted address finishes the sign-in.
+#[tokio::test]
+async fn on_wsl_the_begin_offers_the_paste_at_once_and_no_redirect() {
+    let r = rig().await;
+    crate::rpc::TEST_WSL.with(|w| w.set(Some(true)));
+    r.core.mcp.start();
+    let begun = call(
+        &r.core,
+        Surface::Cli,
+        "mcp.login.begin",
+        json!({"name": "docs"}),
+    )
+    .await;
+    assert_eq!(begun["redirect"], "", "{begun}");
+    assert_eq!(begun["paste_after_secs"], 0, "{begun}");
+    let sent_to = r.auth.browse(begun["url"].as_str().unwrap(), false).await;
+    let done = call(
+        &r.core,
+        Surface::Cli,
+        "mcp.login.finish",
+        json!({"login_id": begun["login_id"], "pasted": sent_to}),
+    )
+    .await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(status(&r).state, "ready");
 }
 
 /// The paste in place of the redirect: one with another sign-in's state is

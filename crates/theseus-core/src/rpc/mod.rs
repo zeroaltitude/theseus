@@ -55,6 +55,8 @@ mod ledger_rows;
 mod ledger_verify;
 mod mcp;
 mod mcp_login;
+#[cfg(test)]
+pub(crate) use mcp_login::TEST_WSL;
 mod memory;
 mod methods;
 mod modes;

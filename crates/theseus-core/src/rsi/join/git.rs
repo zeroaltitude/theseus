@@ -282,26 +282,38 @@ pub fn dry_run(p: &Place, base: &str, head: &str) -> Result<Result<(), String>> 
 }
 
 /// The dry run with plain git: `head` merged into a throwaway detached tree at
-/// `base` without a commit, its conflicting paths read, the merge aborted and
-/// the tree closed.
+/// `base` without a commit, its conflicting paths read from the index, and the
+/// tree closed. Once the merge has put the branch's files in the tree, no git
+/// reads them: a `diff` or a `merge --abort` there would read each file through
+/// the filter the branch's `.gitattributes` selects, outside L1. The paths come
+/// from `ls-files -u`, which reads the index alone, and the close removes the
+/// tree with the merge in it.
 pub(super) fn dry_run_in_tree(p: &Place, base: &str, head: &str) -> Result<Result<(), String>> {
     let t = detached(p, "dry", "dry-run", base)?;
     let merged = p.git(&t.dir, &["merge", "--no-commit", "--no-ff", head]);
     let r = match merged {
         Ok(o) if o.status.success() => Ok(Ok(())),
-        Ok(_) => {
-            let paths = p.git_ok(&t.dir, &["diff", "--name-only", "--diff-filter=U"])?;
-            let paths: Vec<&str> = paths.lines().filter(|l| !l.is_empty()).collect();
-            Ok(Err(format!(
+        Ok(_) => p.git_ok(&t.dir, &["ls-files", "-u", "-z"]).map(|out| {
+            Err(format!(
                 "it conflicts with main in {}",
-                paths.join(", ")
-            )))
-        }
+                unmerged(&out).join(", ")
+            ))
+        }),
         Err(e) => Err(e),
     };
-    let _ = p.git(&t.dir, &["merge", "--abort"]);
     let _ = tree::close(p, &t);
     r
+}
+
+/// The paths of `git ls-files -u -z`'s entries (`<mode> <object> <stage>\t<path>`, up to three for
+/// a path), each once, in git's order.
+fn unmerged(out: &str) -> Vec<&str> {
+    let mut paths: Vec<&str> = out
+        .split('\0')
+        .filter_map(|e| e.split_once('\t').map(|(_, path)| path))
+        .collect();
+    paths.dedup();
+    paths
 }
 
 /// A plain `--no-ff` merge of `head` into a detached tree at `base`, as the
