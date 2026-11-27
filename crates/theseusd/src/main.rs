@@ -316,7 +316,7 @@ fn run() -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let exit = rt.block_on(daemon(cli, lookup, origin, sd))?;
+    let exit = rt.block_on(daemon(cli, lookup, origin, sd));
     // The clean shutdown path has run, for a stop and a restart in place
     // alike (theseus-jo7f). The runtime's tasks go, and with them the store,
     // which closes (redb's close, logged by the index): each timed
@@ -330,7 +330,8 @@ fn run() -> Result<()> {
     // build's gate) is ended once the tasks are gone, and the pool is waited
     // for at most `stop_wait::BOUND` (issue 63): the drop waited for it with
     // no bound.
-    stop_wait::end_runtime(rt);
+    // An error ends the runtime through the same bounded end, then is returned.
+    let exit = stop_wait::end_runtime(rt, exit)?;
     stop_phase("runtime dropped");
     // A thread outside the runtime that upgrades a `Weak` to the core for a
     // unit of work can be mid-unit now, and holds the store until the unit

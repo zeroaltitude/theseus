@@ -49,8 +49,9 @@ fn waiting_for(runs: &[Run]) -> String {
     runs.iter().map(Run::words).collect::<Vec<_>>().join(", ")
 }
 
-/// End `rt` as a stop does: its tasks dropped, its own runs ended, its pool waited for at most `BOUND`.
-pub fn end_runtime(rt: tokio::runtime::Runtime) {
+/// End `rt` as a stop does: its tasks dropped, its own runs ended, its pool waited for at most `BOUND`; then
+/// `then` (the daemon's result, an error as much as a success) is handed back.
+pub fn end_runtime<T>(rt: tokio::runtime::Runtime, then: T) -> T {
     let handle = rt.handle().clone();
     let watch = Watch::start(
         REAL,
@@ -81,6 +82,7 @@ pub fn end_runtime(rt: tokio::runtime::Runtime) {
     if released > 0 {
         tracing::info!(released, "stop: the join lock a stop cut is released");
     }
+    then
 }
 
 /// The watch beside a runtime's end, on a thread of its own.
