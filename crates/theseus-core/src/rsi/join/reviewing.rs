@@ -167,18 +167,28 @@ impl Run<'_> {
     /// The review: the verdict written, or none when a halt stopped it.
     /// The review's scratch, open, with the daemon's checkout of the reviewed head in it (issue 53): the reviewer's
     /// L1 view binds it read-only, and the scratch's close removes it.
-    async fn scratch_with_checkout(&self) -> Result<scratch::Scratch> {
+    /// A checkout that cannot be made fails the preparation: the scratch is closed and the words say why, and the
+    /// reviewer is never told of a tree that is not there.
+    async fn scratch_with_checkout(
+        &self,
+    ) -> Result<std::result::Result<scratch::OpenScratch, String>> {
         let (p, b, h) = (
             self.place.clone(),
             self.b.branch.clone(),
             self.b.head.clone(),
         );
         blocking(move || {
-            let own = scratch::open(&p, &b);
-            if let Err(e) = scratch::checkout(&p, &own, &h) {
-                tracing::warn!(branch = %b, "self-review: its checkout was not made: {e:#}");
-            }
-            Ok(own)
+            let own = scratch::OpenScratch::new(p.clone(), scratch::open(&p, &b));
+            let s = scratch::Scratch::at(own.dir());
+            Ok(match scratch::checkout(&p, &s, &h) {
+                Ok(_) => Ok(own),
+                Err(e) => {
+                    drop(own);
+                    Err(format!(
+                        "its checkout of the reviewed head could not be made: {e:#}"
+                    ))
+                }
+            })
         })
         .await
     }
@@ -207,13 +217,15 @@ impl Run<'_> {
         let remote = remote_of(&self.core.cfg);
         // The reviewer's own place to write, and what it leaves is removed whatever it says:
         // a tree it left under the self trees held the pipeline's slot for good (`scratch`).
-        let own = self.scratch_with_checkout().await?;
-        let place = self.place.clone();
-        let closed = |own: scratch::Scratch| {
-            let p = place.clone();
-            blocking(move || Ok(scratch::close(&p, &own)))
+        let own = match self.scratch_with_checkout().await? {
+            Ok(own) => own,
+            Err(why) => {
+                self.stop("review", &why, Value::Null);
+                return Ok(None);
+            }
         };
-        let ask = match self.ask(&remote, target, &own.dir).await {
+        let closed = |own: scratch::OpenScratch| blocking(move || Ok(own.close()));
+        let ask = match self.ask(&remote, target, own.dir()).await {
             Ok(a) => Ask {
                 proof: planted.ask_text(&a.scratch),
                 ..a

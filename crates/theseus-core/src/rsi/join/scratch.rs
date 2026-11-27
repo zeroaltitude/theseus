@@ -58,6 +58,16 @@ pub struct Scratch {
     before: Vec<String>,
 }
 
+impl Scratch {
+    /// The scratch at `dir`, as [`checkout`] reads it.
+    pub fn at(dir: &Path) -> Self {
+        Self {
+            dir: dir.to_path_buf(),
+            before: Vec::new(),
+        }
+    }
+}
+
 /// Make `branch`'s scratch, empty, after closing any review that never closed. A scratch
 /// that cannot be made is said and the review runs all the same: its close still clears what
 /// it leaves.
@@ -134,8 +144,10 @@ fn unclosed(p: &Place) -> Vec<Scratch> {
 /// of those. A tree open before the review is not this review's to remove, and the
 /// pipeline's own are never touched.
 pub fn close(p: &Place, s: &Scratch) -> Vec<String> {
+    let mut whole = true;
     if let Err(e) = std::fs::remove_dir_all(&s.dir) {
         if s.dir.exists() {
+            whole = false;
             tracing::warn!(dir = %s.dir.display(), "self-review: its scratch was not removed: {e}");
         }
     }
@@ -155,9 +167,48 @@ pub fn close(p: &Place, s: &Scratch) -> Vec<String> {
             }
         }
     }
-    let _ = p.git(&p.repo, &["worktree", "prune"]);
-    let _ = std::fs::remove_file(mark(&s.dir));
+    let pruned = p
+        .git(&p.repo, &["worktree", "prune"])
+        .is_ok_and(|o| o.status.success());
+    // The mark is what a later open recovers this review by: it stays until the scratch is gone and its worktree is
+    // unregistered.
+    if whole && pruned {
+        let _ = std::fs::remove_file(mark(&s.dir));
+    } else {
+        tracing::warn!(dir = %s.dir.display(), "self-review: its scratch stays marked for the next review to close");
+    }
     left
+}
+
+/// A review's scratch while it is open: closed when this is dropped, a cancelled review's included, unless
+/// [`OpenScratch::close`] closed it already. A daemon that stops while it is open leaves its mark, and the next
+/// review's [`open`] closes it before anything else.
+pub struct OpenScratch {
+    p: Place,
+    s: Option<Scratch>,
+}
+
+impl OpenScratch {
+    pub fn new(p: Place, s: Scratch) -> Self {
+        Self { p, s: Some(s) }
+    }
+
+    pub fn dir(&self) -> &Path {
+        self.s.as_ref().map_or(Path::new(""), |s| &s.dir)
+    }
+
+    /// Close it now: what the review left under the self trees.
+    pub fn close(mut self) -> Vec<String> {
+        self.s.take().map_or_else(Vec::new, |s| close(&self.p, &s))
+    }
+}
+
+impl Drop for OpenScratch {
+    fn drop(&mut self) {
+        if let Some(s) = self.s.take() {
+            let _ = close(&self.p, &s);
+        }
+    }
 }
 
 /// Whether the tree `name` is one the pipeline opened, or might be: a join's, a build's, or

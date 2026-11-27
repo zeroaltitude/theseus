@@ -185,6 +185,15 @@ pub fn word_of(reply: &str) -> (&'static str, Vec<String>) {
 /// The core's own reviewer: one check turn in a new `"self"` session.
 pub struct CheckTurn;
 
+/// A review's scratch registration, ended when this is dropped.
+struct Unregister<'a>(&'a Arc<Core>, String);
+
+impl Drop for Unregister<'_> {
+    fn drop(&mut self) {
+        self.0.tools.self_pr.review_closed(&self.1);
+    }
+}
+
 impl Reviewer for CheckTurn {
     fn review<'a>(&'a self, core: &'a Arc<Core>, ask: &'a Ask) -> Fut<'a> {
         Box::pin(async move {
@@ -212,6 +221,8 @@ impl Reviewer for CheckTurn {
             core.tools
                 .self_pr
                 .review_opened(&session, std::path::Path::new(&ask.scratch));
+            // Unregistered when the review ends, a cancelled one included.
+            let registered = Unregister(core, session.clone());
             let sink = crate::bus::EventSink::new(core.bus.clone(), &session, None);
             let run = core.runner.run(TurnRequest {
                 session: rec,
@@ -234,7 +245,7 @@ impl Reviewer for CheckTurn {
                 }
                 None => run.await,
             };
-            core.tools.self_pr.review_closed(&session);
+            drop(registered);
             let r = r?;
             let (word, reasons) = word_of(&r.output);
             Ok(Review {
