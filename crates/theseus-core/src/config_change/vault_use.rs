@@ -54,6 +54,8 @@ mod tests_once_owner;
 #[cfg(test)]
 mod tests_request;
 #[cfg(test)]
+mod tests_request_base;
+#[cfg(test)]
 mod tests_request_more;
 pub(crate) mod used;
 

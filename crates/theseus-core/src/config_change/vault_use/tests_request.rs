@@ -231,6 +231,17 @@ pub(super) fn rig_on(
     outside: OutsideMode,
     tweak: impl FnOnce(&mut crate::Config) + Send + 'static,
 ) -> Req {
+    rig_typed(server, web, outside, true, tweak)
+}
+
+/// [`rig_on`], with the owner's turns his own typed input only when `typed`.
+pub(super) fn rig_typed(
+    server: Server,
+    web: Arc<crate::web::Web>,
+    outside: OutsideMode,
+    typed: bool,
+    tweak: impl FnOnce(&mut crate::Config) + Send + 'static,
+) -> Req {
     let mut tools = web.tools();
     tools.push(web.request_plaintext());
     let r = rig_with_tools(tools, move |c, _| {
@@ -240,7 +251,9 @@ pub(super) fn rig_on(
     let d = tempfile::tempdir().unwrap();
     r.core.tools.look.set_vault(Arc::new(stub(d.path(), "ok")));
     // The owner's turns are his own typed input, as `turn.submit` judges it.
-    r.owner_types();
+    if typed {
+        r.owner_types();
+    }
     Req {
         r,
         vault: d.path().to_path_buf(),

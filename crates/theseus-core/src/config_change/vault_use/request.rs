@@ -275,8 +275,9 @@ fn tell(tc: &TurnCtx<'_>, c: &Checked, checked: &super::Checked, mask: &Scrubber
         "A key from the vault, sent in a request",
         &mask.scrub(&body).0,
         "Nothing was written to the settings. Theseus remembers which items it has used this way, \
-         by name only, and reads them again at each start so that it keeps masking their values; \
-         the next use reads the vault again. To stop it being used at all, take the item out of \
+         by name only, and reads them again at each start so that it keeps masking their current \
+         values (a value an item held before it was changed in the vault is not known to it); the \
+         next use reads the vault again. To stop it being used at all, take the item out of \
          what Theseus's vault account can see.",
     );
     crate::config_change::hold::tell_owner(tc, &note, REQUEST);
