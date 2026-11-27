@@ -562,6 +562,17 @@ impl Signed {
         self.held.hold(what, value);
     }
 
+    /// When the sign-in kept now was made (`signed_in_at_ms`), lost or not: what names one
+    /// sign-in, so its loss is offered a new one once (issue 59, `offer.rs`).
+    pub async fn kept_since(&self) -> Option<u64> {
+        self.slot
+            .lock()
+            .await
+            .kept
+            .as_ref()
+            .map(|k| k.signed_in_at_ms)
+    }
+
     /// Whether a sign-in is kept, and not lost.
     pub async fn signed_in(&self) -> bool {
         let slot = self.slot.lock().await;

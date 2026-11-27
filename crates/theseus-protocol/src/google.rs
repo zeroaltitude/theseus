@@ -13,6 +13,14 @@ use serde::{Deserialize, Serialize};
 pub struct GoogleAuthBeginParams {
     #[serde(default)]
     pub manual: bool,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// The consent URL, which holds no secret (the client id, the PKCE challenge, a
@@ -35,7 +43,7 @@ pub struct GoogleAuthBeginResult {
 
 /// `google.auth.finish`: wait for the redirect (`pasted` empty), or redeem the
 /// address bar the owner pasted.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct GoogleAuthFinishParams {
     pub auth_id: String,
@@ -47,6 +55,25 @@ pub struct GoogleAuthFinishParams {
     /// `waiting` so the CLI can ask for the paste.
     #[serde(default)]
     pub wait_secs: u64,
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+/// The pasted address carries the code: never printed.
+impl std::fmt::Debug for GoogleAuthFinishParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GoogleAuthFinishParams")
+            .field("auth_id", &self.auth_id)
+            .field("pasted", &self.pasted.as_ref().map(|_| "(given)"))
+            .field("wait_secs", &self.wait_secs)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What the consent came to.
@@ -71,7 +98,16 @@ pub struct GoogleAuthFinishResult {
 /// `google.revoke`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct GoogleRevokeParams {}
+pub struct GoogleRevokeParams {
+    /// The presser, as the Discord binding read it off the owner's own press
+    /// (issue 59): judged as every press is. None from the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -110,4 +146,42 @@ pub struct GoogleStatus {
     pub max_sends_per_day: u32,
     /// Where the refresh token is kept: `op`, `file`, `env`, or `memory`.
     pub store: String,
+}
+
+/// The presser's fields (issue 59) are absent when unset, so the CLI's requests are the bytes they
+/// were: `theseus google auth`, `revoke` and `aws confirm-alerts` send exactly what they sent.
+#[cfg(test)]
+mod tests_cli_bytes {
+    use super::*;
+
+    #[test]
+    fn the_clis_requests_are_the_bytes_they_were() {
+        let s = |v: serde_json::Value| v.to_string();
+        let begin = GoogleAuthBeginParams {
+            manual: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            s(serde_json::to_value(begin).unwrap()),
+            r#"{"manual":true}"#
+        );
+        let finish = GoogleAuthFinishParams {
+            auth_id: "a1".into(),
+            pasted: None,
+            wait_secs: 5,
+            ..Default::default()
+        };
+        assert_eq!(
+            s(serde_json::to_value(finish).unwrap()),
+            r#"{"auth_id":"a1","wait_secs":5}"#
+        );
+        let revoke = GoogleRevokeParams::default();
+        assert_eq!(s(serde_json::to_value(revoke).unwrap()), "{}");
+        let alerts = crate::AwsConfirmAlertsParams {
+            account: None,
+            token: "t".into(),
+            ..Default::default()
+        };
+        assert_eq!(s(serde_json::to_value(alerts).unwrap()), r#"{"token":"t"}"#);
+    }
 }

@@ -82,7 +82,7 @@ export const FIXED: FixedSetting[] = [
 export interface CliOnlySetting { id: string; name: string; words: string; methods: string[]; command: string }
 
 export const CLI_ONLY: CliOnlySetting[] = [
-  { id: 'google', name: 'Signing in to Google, and taking its access back', words: 'Theseus refuses these from anywhere but its own command line on the computer it runs on, so that a page in a browser can never grant or take away access to your Google account.', methods: ['google.auth.begin', 'google.auth.finish', 'google.revoke', 'google.status'], command: 'theseus google auth · status · revoke' },
+  { id: 'google', name: 'Signing in to Google, and taking its access back', words: 'Theseus refuses these from anywhere but its own command line on the computer it runs on, and, for signing in and taking access back, your own press of Connect Google or Revoke Google in a private place on Discord, so that a page in a browser can never grant or take away access to your Google account.', methods: ['google.auth.begin', 'google.auth.finish', 'google.revoke', 'google.status'], command: 'theseus google auth · status · revoke' },
 ]
 
 /** Every table the file's example names that a group of FIXED does not (the test reads the example and lists what is

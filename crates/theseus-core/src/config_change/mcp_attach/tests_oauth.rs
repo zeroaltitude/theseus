@@ -159,6 +159,24 @@ async fn a_real_401_goes_through_attach_the_card_the_proof_and_the_write() {
     );
     assert!(cfg.mcp.servers["docs"].auth_secret.is_none());
     assert!(r.core.mcp.is_loaded("docs"));
+    // The owner's Sign in card, once, to his direct messages (issue 59).
+    let cards = || {
+        r.core
+            .outbox
+            .open_for(crate::outbox::OPERATOR_TARGET)
+            .iter()
+            .filter(|a| crate::outbox::kind_of(a) == "mcp_sign_in")
+            .count()
+    };
+    assert_eq!(cards(), 1, "one card for the attach");
+    // The offer finds the server attached in this run (not in the settings it started with), and
+    // posts no second card while the first is still the owner's.
+    let asks = r.session();
+    r.turn(&asks, "mcp_sign_in_offer", json!({"server": "docs"}))
+        .await;
+    let (_, said) = r.result(&asks);
+    assert!(said.contains("no new one was posted"), "{said}");
+    assert_eq!(cards(), 1, "one card still");
     // Started, the loaded server waits for its sign-in: no crash.
     r.core.mcp.start();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -177,6 +195,7 @@ async fn a_real_401_goes_through_attach_the_card_the_proof_and_the_write() {
         );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+    assert_eq!(cards(), 1, "waiting for its sign-in offers no second card");
     // A plaintext server that wants a sign-in is written as asked, and its
     // card says it will not connect.
     let mut plain = spec(json!({"name": "p", "url": "http://p.example.invalid/mcp"}));

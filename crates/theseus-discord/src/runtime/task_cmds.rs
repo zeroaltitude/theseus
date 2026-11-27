@@ -278,6 +278,27 @@ impl Shared {
                 self.persona_soul_modal(i, m, &who).await;
                 true
             }
+            // The address a sign-in's form took (issue 59): to the daemon, and nowhere else.
+            Some(InteractionData::ModalSubmit(m))
+                if m.custom_id.starts_with(super::mcp_sign_in::MODAL) =>
+            {
+                self.mcp_sign_in_modal(i, m, &who).await;
+                true
+            }
+            // The address Google's consent form took (issue 59): to the daemon, and nowhere else.
+            Some(InteractionData::ModalSubmit(m))
+                if m.custom_id.starts_with(super::google_sign_in::MODAL) =>
+            {
+                self.google_sign_in_modal(i, m, &who).await;
+                true
+            }
+            // The token the alerts' form took (issue 59): to the daemon, and nowhere else.
+            Some(InteractionData::ModalSubmit(m))
+                if m.custom_id.starts_with(super::aws_alerts::MODAL) =>
+            {
+                self.aws_alerts_modal(i, m, &who).await;
+                true
+            }
             Some(InteractionData::ModalSubmit(m))
                 if m.custom_id.starts_with(super::card_question::MODAL) =>
             {

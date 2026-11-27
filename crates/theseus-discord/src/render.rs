@@ -104,6 +104,10 @@ pub enum Buttons {
     Told(String),
     /// A new persona's card (theseus-utfnl): Write its soul and Decline, for this persona.
     PersonaSoul(String),
+    /// An MCP server's sign-in card (issue 59): Sign in and Sign out, for this server.
+    McpSignIn(String),
+    /// Google's consent card (issue 59): Connect Google and Revoke Google.
+    Consent(String),
     /// A self note's Drop for each started item `(id, title)` and its Halt (theseus-o1h3f.7).
     SelfNote(Vec<(String, String)>),
     /// The self-halt note's Resume (theseus-6s7ll).

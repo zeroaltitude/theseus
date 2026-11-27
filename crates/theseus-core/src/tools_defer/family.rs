@@ -150,6 +150,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "read and change the files that are Theseus's own prompt text (its context files and each persona's file), on the owner's word; the daemon writes them after the owner's yes, so do not use the shell or a file tool for them",
     ),
     (
+        "sign-in",
+        "offer the owner a Sign in button for an MCP server that signs in; only his own press begins one",
+    ),
+    (
         "self",
         "propose and inspect changes to Theseus itself, and list what is open on its own development",
     ),
@@ -180,6 +184,9 @@ pub fn of_wire(wire: &str) -> String {
         // The files that are Theseus's own prompt text (issue 23) are a family
         // of their own: the settings' family is held to a token bound.
         "config_propose_file" | "config_read_file" => "prompt-files",
+        // The owner's Sign in button for an MCP server (issue 59): its own
+        // family, for the same bound.
+        "mcp_sign_in_offer" | "google_sign_in_offer" | "alerts_confirm_offer" => "sign-in",
         "task_wait" | "task_fan_out" => HELPERS,
         _ => match wire.split('_').next().unwrap_or("") {
             "fs" | "git" | "text" => "files",
@@ -425,6 +432,9 @@ mod tests {
             ("vault_use", "vault"),
             ("config_propose_file", "prompt-files"),
             ("config_read_file", "prompt-files"),
+            ("mcp_sign_in_offer", "sign-in"),
+            ("google_sign_in_offer", "sign-in"),
+            ("alerts_confirm_offer", "sign-in"),
             ("daemon_restart", "settings"),
             ("mcp_attach", "settings"),
             ("mcp_detach", "settings"),

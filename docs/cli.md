@@ -180,13 +180,14 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   the browser was sent to, pasted), and ends with the tools found. The daemon keeps the sign-in in a private file
   inside its store and renews it; `mcp logout NAME` forgets it, revoked at the server when it offers that, and says
   so when the file could not be removed. A server whose sign-in is refused for good shows `needs sign-in` and is not
-  retried until you sign in again. `login` and `logout` are admitted from the CLI's surface alone, as `google auth`
-  is; the CLI refuses them inside a Theseus job, and L1 hides the socket from a sandboxed job, but a process at L0
-  that reaches the socket is not stopped.
+  retried until you sign in again. `login` and `logout` are admitted from the CLI's surface and from your own press
+  of a Sign in or Sign out button in a private place on Discord (issue 59; `docs/discord.md`), and from nowhere else;
+  the CLI refuses them inside a Theseus job, and L1 hides the socket from a sandboxed job, but a process at L0 that
+  reaches the socket is not stopped.
 - **`extend`**: extensions: proposals with their state and frozen digest, and the loaded ones. `theseus extend list`;
   `extend revoke NAME`.
-- **`aws`**: Theseus's AWS account: `bootstrap` plans its first stacks read-only and applies them on your yes.
-- **`google`**: Google Workspace: `auth` is the one-time consent (run it from your own shell), `status` shows the account, the scopes granted and the tools on, `revoke` ends the grant.
+- **`aws`**: Theseus's AWS account: `bootstrap` plans its first stacks read-only and applies them on your yes. `confirm-alerts` confirms the alerts subscription with the token from SNS's email, never printed or kept; it is also admitted from your own press of Confirm alerts in a private place on Discord (issue 59; `docs/discord.md`), and `bootstrap` from the CLI alone.
+- **`google`**: Google Workspace: `auth` is the one-time consent (run it from your own shell), `status` shows the account, the scopes granted and the tools on, `revoke` ends the grant. `auth` and `revoke` are also admitted from your own press of Connect Google or Revoke Google in a private place on Discord (issue 59; `docs/discord.md`); `status` is the CLI's alone.
   `theseus aws bootstrap`.
 
 ## Models

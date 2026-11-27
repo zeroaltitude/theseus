@@ -56,6 +56,7 @@ pub mod inventory;
 pub mod logs;
 pub mod month_warn;
 pub mod narrow;
+pub mod offer;
 pub mod policy_keys;
 pub mod presigned;
 pub mod repair;
@@ -79,6 +80,8 @@ mod tests_c2;
 mod tests_c3;
 #[cfg(test)]
 mod tests_credential_classes;
+#[cfg(test)]
+mod tests_discord;
 #[cfg(test)]
 mod tests_durable;
 #[cfg(test)]

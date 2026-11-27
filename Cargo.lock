@@ -6710,6 +6710,7 @@ dependencies = [
  "tempfile",
  "theseus-core",
  "theseus-files",
+ "theseus-google",
  "theseus-judge",
  "theseus-kernel",
  "theseus-protocol",

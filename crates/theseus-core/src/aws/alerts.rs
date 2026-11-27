@@ -280,6 +280,7 @@ mod tests {
         let p = theseus_protocol::AwsConfirmAlertsParams {
             account: None,
             token: TOKEN.into(),
+            ..Default::default()
         };
         let printed = format!("{p:?}");
         assert!(

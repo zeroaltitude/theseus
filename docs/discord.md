@@ -69,6 +69,40 @@ These the core judges as the owner's, from a private place.
 | `/publish` | Publish a node, a file, or a message into a place (only you, from a private place) |
 | `/prompt` | Run an MCP server's prompt as this conversation's next turn (you, from a private place) |
 
+**Signing in to an MCP server, with no one at the machine** (issue 59). Ask in words to sign in to a server that
+signs in (`oauth`): the turn can only offer a card, to your direct messages, with **Sign in** and **Sign out**. Your
+own press of **Sign in**, in a private place, shows you alone the host you sign in at and every other place the
+sign-in goes through, whole (over several messages when one cannot hold them), with **I agree** first when there is
+one; then the address to open and **Paste the address**. An address too long to show whole is not shown: you are told
+to sign in at the terminal. The form takes the whole address your browser ended on (at most 4,000 characters; a
+longer one is refused) and hands it to the daemon's own finish (`theseus mcp login --manual`'s): it passes through
+Discord to Theseus, and is in no message, log line, row or reply. The answer is fixed words: signed in and the tools
+found, or why not (it ran out, not this sign-in's address, refused, the server said no, or it may have been kept but
+could not be made sure of). **Sign out** forgets the sign-in, and says so when its kept file could not be removed.
+When a server you signed in to has its sign-in refused for good (`needs sign-in`), or an attach's trial was refused
+for want of one, the daemon itself posts the same card to your direct messages, once for that change: not per retry,
+not again after a restart.
+
+**Connecting Google, the same way** (issue 59). Ask in words to connect Google: the turn can only offer a card, to
+your direct messages, with **Connect Google** and **Revoke Google**. Your own press of **Connect Google**, in a
+private place, shows you alone what the consent asks for, the consent address and **Paste the address**; the form
+hands the whole address your browser ended on to the daemon's own finish (`theseus google auth`'s), which keeps the
+grant exactly where that keeps it, and says so when keeping it could not be made sure of. **Revoke Google** ends the
+grant.
+
+**Confirming the AWS alerts, the same way** (issue 59). Ask in words to confirm the alerts subscription: the turn can
+only offer a card, to your direct messages, with **Confirm alerts**. Your own press opens a form with one field: the
+Token=… value from the link in SNS's email (copy the link; do not open it), or the whole address. It goes to the
+daemon's own confirm (`theseus aws confirm-alerts`'s), authenticated on unsubscribe; the answer is fixed words.
+
+**What holds for all three.** They are one pattern, written once (`runtime/consent.rs`). Every press and every form
+is acted on once, however often Discord delivers it, and each is first judged as the owner's own, in a private place:
+anyone else's press, or a press in a shared channel, is refused and shown nothing. The binding keeps a record of each
+sign-in it began (who began it, where, its stage, until when): an I agree, a Paste or a form that does not match it
+(another person's, a newer sign-in's, an old one, one past its time) is refused before anything reaches the daemon.
+What you agreed to is that record's, never the button's. A value you paste passes through Discord to Theseus and is
+kept nowhere. A turn posts at most one card for a server, for Google or for the alerts in fifteen minutes.
+
 `/project trust <path>` lets a repository's own `AGENTS.md` and `CLAUDE.md` join the system block;
 `/project untrust <path>` takes that back, naming the files without reading them; `/project trusted`
 lists what you have granted, with who granted each and by what route. The CLI's

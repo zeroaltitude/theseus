@@ -41,6 +41,7 @@ tracing-subscriber.workspace = true
 theseus-sim = { path = "../theseus-sim" }
 theseus-files.workspace = true
 theseus-judge = { path = "../theseus-judge", features = ["fake"] }
+theseus-google = { path = "../theseus-google", features = ["fake"] }
 proptest.workspace = true
 
 [lints]

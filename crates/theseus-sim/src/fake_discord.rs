@@ -310,6 +310,9 @@ pub struct Reply {
     /// A modal the binding answered with (type 9): its `data`.
     #[serde(default)]
     pub modal: Option<Value>,
+    /// The answer's components, as sent (an edit's too).
+    #[serde(default)]
+    pub components: Value,
 }
 
 impl State {
@@ -2020,6 +2023,7 @@ impl FakeDiscord {
                 })
                 .collect(),
             modal: (kind == "callback" && body["type"].as_u64() == Some(9)).then(|| data.clone()),
+            components: data["components"].clone(),
         };
         {
             let id = interaction.unwrap_or_default();

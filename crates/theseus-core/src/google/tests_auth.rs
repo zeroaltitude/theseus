@@ -37,6 +37,7 @@ async fn finish(r: &Rig, id: &str, paste: &str) -> Result<GoogleAuthFinishResult
         auth_id: id.into(),
         pasted: Some(paste.into()),
         wait_secs: 0,
+        ..Default::default()
     };
     r.g.auth_finish(&p, None).await
 }

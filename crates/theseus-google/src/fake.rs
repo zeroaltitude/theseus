@@ -98,6 +98,8 @@ struct Inner {
     log: Vec<Logged>,
     routes: Vec<(String, String, Handler)>,
     failures: VecDeque<Reply>,
+    /// Replies the token and revoke endpoints give first, in order.
+    oauth_failures: VecDeque<Reply>,
     disabled: Option<(Service, String)>,
     forms: Vec<std::collections::BTreeMap<String, String>>,
     mail: gmail::Mailbox,
@@ -142,6 +144,7 @@ impl Fake {
             log: Vec::new(),
             routes: Vec::new(),
             failures: VecDeque::new(),
+            oauth_failures: VecDeque::new(),
             disabled: None,
             forms: Vec::new(),
             mail: gmail::Mailbox::default(),
@@ -220,6 +223,11 @@ impl Fake {
     /// The next `n` API requests get `reply`, then the routes answer.
     pub fn fail_next(&self, n: usize, reply: &Reply) {
         self.with(|i| (0..n).for_each(|_| i.failures.push_back(reply.clone())));
+    }
+
+    /// The next request to the token or revoke endpoint gets `reply`.
+    pub fn fail_oauth_next(&self, reply: &Reply) {
+        self.with(|i| i.oauth_failures.push_back(reply.clone()));
     }
 
     /// Every API request of `service` answers `SERVICE_DISABLED` for `project`.
@@ -340,6 +348,14 @@ fn service_of(path: &str) -> Option<Service> {
 
 fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
     let mut i = me.lock().unwrap();
+    if matches!(
+        (req.method.as_str(), req.path()),
+        ("POST", "/token" | "/revoke")
+    ) {
+        if let Some(f) = i.oauth_failures.pop_front() {
+            return f;
+        }
+    }
     match (req.method.as_str(), req.path()) {
         ("POST", "/token") => return token_reply(&mut i, req),
         ("POST", "/revoke") => {

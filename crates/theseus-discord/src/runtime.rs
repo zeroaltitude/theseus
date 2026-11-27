@@ -56,10 +56,14 @@ pub(crate) use asked::{asked_button, asked_controls};
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
+pub(crate) mod aws_alerts;
 mod capture_card;
 pub(crate) mod card_question;
+pub(crate) mod consent;
 pub(crate) mod content;
+pub(crate) mod google_sign_in;
 pub(crate) mod grant;
+pub(crate) mod mcp_sign_in;
 mod notice_press;
 mod onto_card;
 pub(crate) mod persona_soul;
@@ -413,6 +417,7 @@ async fn connect(
         tasks: Default::default(),
         task_threads: Default::default(),
         task_posts: Default::default(),
+        consents: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -641,6 +646,8 @@ pub(crate) struct Shared {
     pub(crate) task_threads: threads::TaskThreads,
     /// The task forums and their posts (theseus-i3do6).
     pub(crate) task_posts: forum::TaskPosts,
+    /// The sign-ins begun here, and the interactions acted on (issue 59).
+    pub(crate) consents: consent::Records,
 }
 
 #[derive(Default)]
@@ -2472,6 +2479,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         tasks: Default::default(),
         task_threads: Default::default(),
         task_posts: Default::default(),
+        consents: Default::default(),
     })
 }
 

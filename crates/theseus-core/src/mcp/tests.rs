@@ -1190,12 +1190,15 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
 }
 
 mod ceilings;
+mod discord_login;
 mod oauth;
 mod oauth_doors;
 mod oauth_exits;
 mod oauth_hostile;
 mod oauth_inventory;
+mod oauth_offer_card;
 mod oauth_offered;
+mod offer_turn;
 
 #[tokio::test]
 async fn a_protocol_error_is_still_the_servers_outside_text() {

@@ -42,6 +42,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `/extensions` (`runtime/extensions.rs`, M7 43b): the loaded extensions from `extend.list`, ephemeral, each with a
   Revoke button (`ext-revoke:<name>`); the text and a press go through the place (`Control::Extensions`,
   `Control::Revoke`), a press as `extension.revoke` with the presser's ids, which the core judges.
+  **Consent** (issue 59, `runtime/consent.rs`): each interaction once, judged owner-in-private, a record per
+  sign-in (user, stage, deadline); fixed words. For `mcp_sign_in.rs`, `google_sign_in.rs`, `aws_alerts.rs`.
   `/orders` (`runtime/orders.rs`, theseus-a7vi; `add:<text> [kind:] [surface:]`, theseus-slvl.4, is `standing.add` as the presser): the owner's standing records from `standing.list` as the presser
   (the core gives the text of a preference or a fact only to the owner in a private place), ephemeral, each with a
   Revoke button (`orders-revoke:<id>`); a press goes through the place (`Control::Unorder`) as `standing.revoke` with
@@ -63,12 +65,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   thread's session (`Core::thread_place_session`, in `Place::ready`) and its posts (`Outbox::place_bound`, in memory,
   asserted again at each start by `revive_thread_lanes` and `start_threads`); its own plain session is left as it was
   (never superseded), so `unbind` gives it back, and `/new` there says so. `State` (`Shared.threads`) maps channel to
-  slug. **The DM**: a message that begins `thread:<slug> ` (provisional until `thread-route`'s explicit form joins) or
-  replies to a message carrying a thread's tag (`Shared::thread_of_reply`, the one lookup `thread-route`'s rule (c)
-  calls: message, turn, thread, in `Replies`) is `Inbound.thread`, run by `Place::thread_turn` as `turn.submit {
+  slug. **The DM**: a message that begins `thread:<slug> ` or
+  replies to a message carrying a thread's tag (`Shared::thread_of_reply`) is `Inbound.thread`, run by `Place::thread_turn` as `turn.submit {
   thread, speaking { discord, answer_at: the DM } }`, answered in the DM by the outbox post (no live stream), and
-  pointed at from the thread's surface by a quiet notice (`-# from the DM: <first 80 chars> · <link>`, body `quiet`,
-  never a ping; kept in `State` until the thread has a surface). A thread's reply in the DM opens with `-# → <title>`
+  pointed at from the thread's surface by a quiet notice, never a ping,
+  kept in `State` until the thread has one. A thread's reply in the DM opens with `-# → <title>`
   (`render::thread_tag`); in a bound place it carries none. **One Discord thread per activity thread**: with `[threads]
   discord_channel`, `thread.changed { opened }` (the first message, from anywhere) makes one (a text channel's public
   thread, a forum's post), run as a dynamic place (`dynamic_lane`, `PlaceRule::bind_more`, private) and recorded in
