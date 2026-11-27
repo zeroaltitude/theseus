@@ -129,20 +129,35 @@ impl Watch {
 
 /// A test's plant (a debug build's `THESEUS_TEST_SELF_JOB`): a self build's command, the variable's shell text,
 /// started at serving through the gate's own launcher (`Jail::run`, in L1, waited for on the blocking pool), as
-/// the self pipeline starts its gate. What it does not hold: the pipeline before the gate (its tree, its lock,
-/// may-build). Its result, should one come back to it, is logged and nothing else. A release build has no plant.
-pub fn planted_self_job(core: &Arc<theseus_core::Core>, state_dir: &std::path::Path) {
+/// the self pipeline starts its gate; serving waits until its run is going (at most 10 s). With
+/// `THESEUS_TEST_SELF_JOB_LOCK`, a join lock at that directory is taken first and released after, as the join holds
+/// its lock across its gate. What it does not hold: the pipeline before the gate (its tree, its trees lock,
+/// may-build). Whether its result came back is logged, and nothing of the result. A release build has no plant.
+pub async fn planted_self_job(core: &Arc<theseus_core::Core>, state_dir: &std::path::Path) {
     #[cfg(debug_assertions)]
     if let Ok(body) = std::env::var("THESEUS_TEST_SELF_JOB") {
         use std::ffi::OsString;
         use theseus_core::rsi::jail::{Jail, Job};
+        use theseus_core::rsi::join::lock;
         use theseus_core::rsi::tree::{Place, Tree};
         let root = state_dir.join("planted-self-job");
         let jail = Jail::new(core.tools.sandbox.clone());
+        let lock_dir = std::env::var_os("THESEUS_TEST_SELF_JOB_LOCK").map(std::path::PathBuf::from);
         tokio::spawn(async move {
             for d in ["repo", "state", "tree", "target"] {
                 let _ = std::fs::create_dir_all(root.join(d));
             }
+            let held = match lock_dir.map(|d| lock::try_take(&d, "theseus self-join planted")) {
+                Some(Ok(Ok(h))) => {
+                    tracing::info!("planted self job: took the join lock");
+                    Some(h)
+                }
+                Some(_) => {
+                    tracing::info!("planted self job: the join lock is held");
+                    None
+                }
+                None => None,
+            };
             let tree = Tree {
                 slug: "planted".into(),
                 branch: "self/planted".into(),
@@ -168,9 +183,16 @@ pub fn planted_self_job(core: &Arc<theseus_core::Core>, state_dir: &std::path::P
                 limit: Duration::from_secs(3600),
             };
             tracing::info!("planted self job: started");
-            let r = jail.run(&place, job).await;
-            tracing::info!(result = ?r.map_err(|e| format!("{e:#}")), "planted self job: its result came back");
+            let _ = jail.run(&place, job).await;
+            tracing::info!("planted self job: its result came back");
+            if let Some(h) = held {
+                let _ = h.release("planted");
+            }
         });
+        let t0 = std::time::Instant::now();
+        while own_runs::running().is_empty() && t0.elapsed() < Duration::from_secs(10) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
     #[cfg(not(debug_assertions))]
     let _ = (core, state_dir);

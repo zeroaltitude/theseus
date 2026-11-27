@@ -202,9 +202,9 @@ impl Served {
         Self::start_with(prepare, tweak, |_| {})
     }
 
-    /// `start`, with `hook` on the daemon's command before it spawns (an
-    /// environment variable, or a limit set in a `pre_exec`).
-    pub fn start_with(
+    /// `start`'s daemon, spawned and not waited for: `hook` on its command before it spawns (an environment
+    /// variable, or a limit set in a `pre_exec`).
+    pub fn spawn_with(
         prepare: impl FnOnce(&Path),
         tweak: impl FnOnce(&mut toml::Table),
         hook: impl FnOnce(&mut Command),
@@ -250,7 +250,16 @@ impl Served {
             .stderr(log);
         hook(&mut cmd);
         let daemon = Daemon::spawn(&mut cmd);
-        let mut s = Self { dir, daemon };
+        Self { dir, daemon }
+    }
+
+    /// `spawn_with`, to its first `health` answer.
+    pub fn start_with(
+        prepare: impl FnOnce(&Path),
+        tweak: impl FnOnce(&mut toml::Table),
+        hook: impl FnOnce(&mut Command),
+    ) -> Self {
+        let mut s = Self::spawn_with(prepare, tweak, hook);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         while s.call("health", serde_json::Value::Null).is_err() {
             if let Some(status) = s.daemon.try_wait() {

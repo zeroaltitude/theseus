@@ -598,16 +598,36 @@ impl crate::rpc::Core {
     /// workers, each recorded in its own session.
     pub async fn close_terminals(&self) {
         let terms = self.tools.terms.clone();
-        if terms.all().is_empty() {
+        let hold = planted_close_hold();
+        if terms.all().is_empty() && hold.is_none() {
             return;
         }
-        let closed = tokio::task::spawn_blocking(move || terms.close_where(BY_DAEMON, |_| true))
-            .await
-            .unwrap_or_default();
+        let closed = tokio::task::spawn_blocking(move || {
+            if let Some(h) = hold {
+                std::thread::sleep(h);
+            }
+            terms.close_where(BY_DAEMON, |_| true)
+        })
+        .await
+        .unwrap_or_default();
         for c in &closed {
             record_closed(&self.session_rec(&c.session), c);
         }
     }
+}
+
+/// A test's plant (a debug build's `THESEUS_TEST_HOLD_TERMINAL_CLOSE_MS`): the
+/// stop's terminal close is held that long first, as a close whose program
+/// will not be reaped holds it. A release build has no plant.
+fn planted_close_hold() -> Option<Duration> {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("THESEUS_TEST_HOLD_TERMINAL_CLOSE_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return Some(Duration::from_millis(ms));
+    }
+    None
 }
 
 /// A close's facts: its `term.closed`, and its `term.left` when it left

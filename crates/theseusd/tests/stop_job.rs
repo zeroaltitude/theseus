@@ -173,3 +173,98 @@ fn a_stop_with_no_self_build_is_quick() {
         "a stop with nothing running waited:\n{log}"
     );
 }
+
+/// A stop whose terminal close does not return (the debug build's plant holds it 20 s, as a program stuck in the
+/// kernel holds its reap) goes on past it within the close's bound (10 s), and says so; the stop's later phases
+/// still run.
+#[test]
+fn a_terminal_close_that_does_not_return_does_not_hold_the_stop() {
+    const HOLD: Duration = Duration::from_secs(20);
+    let mut s = Served::start_with(
+        |_| {},
+        |_| {},
+        |cmd| {
+            cmd.env(
+                "THESEUS_TEST_HOLD_TERMINAL_CLOSE_MS",
+                HOLD.as_millis().to_string(),
+            );
+        },
+    );
+    let t0 = Instant::now();
+    let _ = s.call("shutdown", Value::Null);
+    while !s.log().contains("posts settled") {
+        assert!(
+            t0.elapsed() < Duration::from_secs(60) && s.daemon.try_wait().is_none(),
+            "the stop never reached its posts:\n{}",
+            common::tail(&s.log(), 40)
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let reached = t0.elapsed();
+    assert!(
+        reached < HOLD - Duration::from_secs(3),
+        "the stop waited {reached:?} for the terminals' close:\n{}",
+        common::tail(&s.log(), 40)
+    );
+    while s.daemon.try_wait().is_none() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(90),
+            "the daemon never ended"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let log = s.log();
+    assert!(
+        log.contains("the terminals' close did not return within its bound"),
+        "no warning:\n{}",
+        common::tail(&log, 40)
+    );
+    assert!(
+        log.contains("last checkpoint"),
+        "a later phase was skipped:\n{}",
+        common::tail(&log, 40)
+    );
+}
+
+/// A daemon whose serving fails at its start (another listens on its socket) while a self build runs on its
+/// blocking pool ends within the bound, and still reports its error.
+#[test]
+fn a_daemon_whose_serving_fails_ends_its_self_build_and_reports_the_error() {
+    if as_root() {
+        return;
+    }
+    let mut listener = None;
+    let mut s = Served::spawn_with(
+        |d| listener = Some(std::os::unix::net::UnixListener::bind(d.join("sock")).unwrap()),
+        |_| {},
+        |cmd| {
+            cmd.env("THESEUS_TEST_SELF_JOB", "exec sleep 3600")
+                .process_group(0);
+        },
+    );
+    let t0 = Instant::now();
+    let status = loop {
+        if let Some(status) = s.daemon.try_wait() {
+            break status;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(30) + STOPPED_WITHIN,
+            "the daemon whose serving failed never ended: it waits for the job:\n{}",
+            common::tail(&s.log(), 40)
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    drop(listener);
+    let log = s.log();
+    assert!(!status.success(), "it ended well:\n{log}");
+    assert!(
+        log.contains("another theseusd is already listening"),
+        "its error was not reported:\n{}",
+        common::tail(&log, 40)
+    );
+    assert!(
+        log.contains("planted self job: started"),
+        "the self build never ran:\n{}",
+        common::tail(&log, 40)
+    );
+}
