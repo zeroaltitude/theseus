@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at the merge of 2c4a907c into ae908b29, over every file git tracks:
+Counted at commit aa60cf15, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -19,7 +19,7 @@ Counted at the merge of 2c4a907c into ae908b29, over every file git tracks:
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
 | crates/theseus-aws-catalog | 5,996 | 1,394 | 644 |
 | crates/theseus-aws-guard | 2,861 | 1,522 | 323 |
-| crates/theseus-core | 275,567 | 323,224 | 99,752 |
+| crates/theseus-core | 276,500 | 324,609 | 100,101 |
 | crates/theseus-discord | 35,725 | 48,866 | 11,891 |
 | crates/theseus-exam | 5,403 | 3,237 | 1,247 |
 | crates/theseus-files | 2,377 | 682 | 297 |
@@ -40,17 +40,17 @@ Counted at the merge of 2c4a907c into ae908b29, over every file git tracks:
 | crates/theseus-tools | 4,918 | 3,315 | 1,128 |
 | crates/theseus-tui | 13,127 | 13,001 | 3,125 |
 | crates/theseus-voice | 6,144 | 6,651 | 2,023 |
-| crates/theseusd | 5,348 | 33,462 | 5,746 |
+| crates/theseusd | 5,349 | 33,462 | 5,748 |
 | infra/ | 554 | 1,432 | 193 |
 | scripts/ | 10,150 | 9,198 | 3,682 |
-| **Total** | **629,413** | **617,274** | **209,976** |
+| **Total** | **630,347** | **618,659** | **210,327** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes
 
 ### What each crate builds
 
-From the `release` build of bbd0803d (an optimised build; a library's newest `.rlib` when the build directory holds several). An `.rlib` carries metadata and code for link-time optimisation, so it is far larger than what its crate adds to an executable: `scripts/size-breakdown.py` gives that.
+From the `release` build of bbc5511d (an optimised build; a library's newest `.rlib` when the build directory holds several). An `.rlib` carries metadata and code for link-time optimisation, so it is far larger than what its crate adds to an executable: `scripts/size-breakdown.py` gives that.
 
 | Crate | Library (.rlib) | Executables |
 |---|---:|---|
@@ -58,8 +58,8 @@ From the `release` build of bbd0803d (an optimised build; a library's newest `.r
 | crates/theseus-aws | 1.75 MB |  |
 | crates/theseus-aws-catalog | 8.26 MB |  |
 | crates/theseus-aws-guard | 4.68 MB |  |
-| crates/theseus-core | 286.68 MB |  |
-| crates/theseus-discord | 71.10 MB |  |
+| crates/theseus-core | 286.96 MB |  |
+| crates/theseus-discord | 71.12 MB |  |
 | crates/theseus-exam | not built |  |
 | crates/theseus-files | 3.62 MB |  |
 | crates/theseus-follow | 0.26 MB |  |
@@ -79,7 +79,7 @@ From the `release` build of bbd0803d (an optimised build; a library's newest `.r
 | crates/theseus-tools | 6.31 MB |  |
 | crates/theseus-tui | — | theseus-tui 5.07 MB |
 | crates/theseus-voice | 5.35 MB |  |
-| crates/theseusd | — | theseusd 84.10 MB |
+| crates/theseusd | — | theseusd 84.12 MB |
 
 ### Executables that are installed and run
 
