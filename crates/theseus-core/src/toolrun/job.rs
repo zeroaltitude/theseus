@@ -524,7 +524,7 @@ impl ToolRuntime {
         // The view a self session's command runs in: a builder's keeps its build folder and its own
         // tree, a reviewer's reads the daemon's checkout (`Sandbox::self_view`).
         let places = crate::sandbox::SelfPlaces {
-            tree: build.as_ref().and_then(|_| own),
+            tree: own,
             folder: build.clone(),
             review: review_tree,
         };
