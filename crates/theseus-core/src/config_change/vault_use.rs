@@ -26,6 +26,9 @@
 //!
 //! **The run form** (issue 64, `once.rs`) puts the item to use for one run of one program, with
 //! no card and no settings: `run: {program, variable}` in place of `name` and `also`.
+//!
+//! **`http.request`** (issue 65, `request.rs`) sends one request with a vault item as its key,
+//! by the run form's wall, ask and reading.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -39,6 +42,7 @@ use crate::toolrun::{ToolRuntime, TurnCtx};
 pub(crate) mod check;
 pub(crate) mod classify;
 pub(crate) mod once;
+pub(crate) mod request;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -47,6 +51,14 @@ mod tests_once;
 mod tests_once_exits;
 #[cfg(test)]
 mod tests_once_owner;
+#[cfg(test)]
+mod tests_request;
+#[cfg(test)]
+mod tests_request_base;
+#[cfg(test)]
+mod tests_request_fix;
+#[cfg(test)]
+mod tests_request_more;
 pub(crate) mod used;
 
 pub use check::Checked;

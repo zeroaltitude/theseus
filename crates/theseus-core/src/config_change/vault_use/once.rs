@@ -104,8 +104,19 @@ pub(super) fn plan(input: &Value) -> Result<Plan, String> {
 
 /// The gate's hold on the run form, at both `outside` settings: outside text since the owner's
 /// last message, the session's flag, or a turn the owner's own message did not begin.
-pub(crate) fn ask_first(tc: &TurnCtx<'_>, mut plan: Plan) -> Plan {
-    if let Some(said) = hold_reason(tc) {
+pub(crate) fn ask_first(tc: &TurnCtx<'_>, plan: Plan) -> Plan {
+    ask_first_for(tc, WHAT, &|_| false, plan)
+}
+
+/// [`ask_first`] for the call that asks to do `what`, with the results `skip` names not counted
+/// as outside text (`http.request`'s earlier answers from the same host with the same item).
+pub(crate) fn ask_first_for(
+    tc: &TurnCtx<'_>,
+    what: &str,
+    skip: &dyn Fn(&crate::node::Node) -> bool,
+    mut plan: Plan,
+) -> Plan {
+    if let Some(said) = hold_reason_for(tc, what, skip) {
         plan.authority = Some(said);
     }
     plan
@@ -116,14 +127,24 @@ pub(crate) fn ask_first(tc: &TurnCtx<'_>, mut plan: Plan) -> Plan {
 /// typed input did not begin ([`begun_by_owner`]). Read at the gate, and again when the call
 /// runs (`run`).
 fn hold_reason(tc: &TurnCtx<'_>) -> Option<String> {
+    hold_reason_for(tc, WHAT, &|_| false)
+}
+
+/// [`hold_reason`] for the call that asks to do `what`, with the results `skip` names not
+/// counted as outside text.
+pub(super) fn hold_reason_for(
+    tc: &TurnCtx<'_>,
+    what: &str,
+    skip: &dyn Fn(&crate::node::Node) -> bool,
+) -> Option<String> {
     let outside = match tc.store.session_nodes(tc.session_id) {
-        Ok(nodes) => outside_since_owners_message(&nodes),
+        Ok(nodes) => outside_since_owners_message(&nodes, skip),
         Err(_) => true,
     };
     let (_, steered) = crate::config_change::outside_text(tc);
     let way = crate::config_change::flag_way(tc);
-    crate::config_change::hold_words(WHAT, outside, steered, &way)
-        .or_else(|| (!begun_by_owner(tc)).then(|| format!("{WHAT}: {NOT_BEGUN}")))
+    crate::config_change::hold_words(what, outside, steered, &way)
+        .or_else(|| (!begun_by_owner(tc)).then(|| format!("{what}: {NOT_BEGUN}")))
 }
 
 /// Whether any result after the owner's own last message is marked as outside text. The owner's
@@ -131,7 +152,10 @@ fn hold_reason(tc: &TurnCtx<'_>) -> Option<String> {
 /// harness_own`: its clock, its progress, a helper's fixed note), so such a note does not end the
 /// window; a result whose call the owner approved with "Approve and clear" counts as his message,
 /// as `hold::span` counts it.
-fn outside_since_owners_message(nodes: &[(u64, crate::node::Node)]) -> bool {
+fn outside_since_owners_message(
+    nodes: &[(u64, crate::node::Node)],
+    skip: &dyn Fn(&crate::node::Node) -> bool,
+) -> bool {
     let at = nodes.iter().rposition(|(_, n)| match &n.body {
         Body::UserMessage { .. } => {
             n.origin == Origin::Operator
@@ -149,7 +173,7 @@ fn outside_since_owners_message(nodes: &[(u64, crate::node::Node)]) -> bool {
     };
     nodes[from..]
         .iter()
-        .any(|(_, n)| crate::external::is_outside(n))
+        .any(|(_, n)| crate::external::is_outside(n) && !skip(n))
 }
 
 /// Whether the owner's own typed input began this turn: the latest message of the session that
@@ -245,7 +269,7 @@ pub(crate) fn turn_of(tc: &TurnCtx<'_>) -> String {
 }
 
 /// Whether the owner approved the call `correlation_id` itself, on its card.
-fn approved(tc: &TurnCtx<'_>, correlation_id: &str) -> bool {
+pub(super) fn approved(tc: &TurnCtx<'_>, correlation_id: &str) -> bool {
     tc.kernel
         .action(correlation_id)
         .ok()
@@ -412,7 +436,7 @@ pub(super) async fn run(
 /// reads is read from (in the settings running or as written, or the settings note's), or its
 /// value is one the board holds for Theseus now (such a name's, or any value held at run time).
 /// A name only a program's grant or an attached server's variable reads is not Theseus's own.
-fn runs_on(rt: &ToolRuntime, read: &Read) -> Result<bool, String> {
+pub(super) fn runs_on(rt: &ToolRuntime, read: &Read) -> Result<bool, String> {
     let Some(core) = rt.jobs.core() else {
         return Err(
             "Theseus cannot read its own settings now, so it cannot tell whether \

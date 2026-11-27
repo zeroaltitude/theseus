@@ -1845,6 +1845,8 @@ impl ToolRuntime {
             crate::config_change::RESTART => {
                 crate::config_change::restart(self, tc, &call.input, correlation_id)
             }
+            // Run again after a restart: a request that was out is never sent again (issue 65).
+            crate::web::request::REQUEST => crate::web::request::again(),
             // The history of those changes, and the undo of one (issue 22).
             crate::config_change::history::HISTORY => {
                 crate::config_change::history::run(self, tc, &call.input)
@@ -1934,12 +1936,19 @@ impl ToolRuntime {
             Ok((text, meta)) => (ResultStatus::Ok, text, meta),
             Err(why) => (ResultStatus::Error, why, Value::Null),
         };
+        // A request's answer is outside text, a 4xx or 5xx is an error, and one that may have
+        // reached its server unanswered is unknown (issue 65).
+        let (status, external) = match tool.name() == crate::web::request::REQUEST {
+            true => result_node::sent(status, &meta),
+            false => (status, None),
+        };
         let node = self.result_node(
             tc,
             ResultNode {
                 correlation_id: Some(correlation_id),
                 duration_ms: Some(dur),
                 meta: meta.clone(),
+                external,
                 ..ResultNode::new(&call.id, tool.name(), status, text)
             },
         );
@@ -2081,7 +2090,13 @@ pub fn build_runtime(
             private,
             scrubber.clone(),
         );
-        for tool in web.tools_with(not_offered.is_empty()) {
+        // A request with a key from the vault (issue 65), offered wherever `vault.use` is.
+        let request = web.request_for(cfg);
+        for tool in web
+            .tools_with(not_offered.is_empty())
+            .into_iter()
+            .chain(request)
+        {
             r.register(tool);
         }
         let (aws_tools, google_tools) = (

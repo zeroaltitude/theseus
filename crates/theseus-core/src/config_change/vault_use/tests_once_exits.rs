@@ -28,7 +28,7 @@ const PRINTS_AND_WAITS: &str =
 /// Every copy that leaves for `sid`: each request the model was sent (after the exits), and
 /// each of the session's nodes and of the owner's posts as the courier (`Exits::text`) and the
 /// push line (the board's scrubber) would send it.
-fn leaves(r: &Rig, sid: &str) -> String {
+pub(super) fn leaves(r: &Rig, sid: &str) -> String {
     let mut out: Vec<String> = r
         .sent()
         .iter()

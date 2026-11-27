@@ -39,6 +39,27 @@ pub(super) fn failure(
     (status, message, meta, None, external)
 }
 
+/// A request's status and marker from its meta (`http.request`, issue 65): `outcome_unknown` is
+/// unknown, `failed` (a 4xx or 5xx) is an error, and `external` is where its text came from. An
+/// error before the request went out keeps its status, with no marker.
+pub(super) fn sent(
+    status: ResultStatus,
+    meta: &Value,
+) -> (ResultStatus, Option<theseus_tools::External>) {
+    if status != ResultStatus::Ok {
+        return (status, None);
+    }
+    let status = match (meta["outcome_unknown"].as_bool(), meta["failed"].as_bool()) {
+        (Some(true), _) => ResultStatus::Unknown,
+        (_, Some(true)) => ResultStatus::Error,
+        _ => ResultStatus::Ok,
+    };
+    let external = meta["external"]
+        .as_str()
+        .map(|url| theseus_tools::External { url: url.into() });
+    (status, external)
+}
+
 /// What a call that never ran tells the model: who declined it, that nobody
 /// answered its question in time, or why it was cancelled (its action's
 /// resolution).

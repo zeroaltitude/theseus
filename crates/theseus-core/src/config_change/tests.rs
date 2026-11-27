@@ -291,11 +291,23 @@ pub(super) fn rig() -> Rig {
 /// [`rig`], with `tweak` to say about the settings last: it is given them and
 /// the state directory.
 pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
-    rig_in(tempfile::tempdir().unwrap(), tweak)
+    rig_in(tempfile::tempdir().unwrap(), tweak, Vec::new())
+}
+
+/// [`rig_with`], with `tools` registered over the daemon's own (a test's web client).
+pub(super) fn rig_with_tools(
+    tools: Vec<Arc<dyn theseus_tools::Tool>>,
+    tweak: impl FnOnce(&mut Config, &std::path::Path),
+) -> Rig {
+    rig_in(tempfile::tempdir().unwrap(), tweak, tools)
 }
 
 /// [`rig_with`] over the state directory `dir`: a daemon started again on a store that is there.
-fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
+fn rig_in(
+    dir: tempfile::TempDir,
+    tweak: impl FnOnce(&mut Config, &std::path::Path),
+    tools: Vec<Arc<dyn theseus_tools::Tool>>,
+) -> Rig {
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
     std::fs::write(&file, FILE).unwrap();
@@ -328,7 +340,11 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         requests: Mutex::default(),
         batch: Mutex::default(),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let core = Core::build(crate::rpc::Parts {
+        toollets: tools,
+        ..crate::rpc::Parts::for_tests(cfg, model.clone(), store)
+    })
+    .unwrap();
     // The daemon's start step: the context files the tweak named are
     // accepted, once, as they are on disk.
     core.held_first_start().unwrap();
@@ -458,7 +474,7 @@ impl Rig {
         }
         let said = model.agent.lock().unwrap().clone();
         drop((core, model));
-        let r = rig_in(_dir, tweak);
+        let r = rig_in(_dir, tweak, Vec::new());
         *r.model.agent.lock().unwrap() = said;
         r
     }

@@ -143,7 +143,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
     ),
     (
         "vault",
-        "use a secret that is in the vault, by its name: the daemon finds the item and field, checks it can read them, and the owner approves one card; its value never reaches you, and the vault's program in a shell has no session by design",
+        "use a secret that is in the vault, by its name: the daemon finds the item and field, checks it can read them, and the owner approves one card, or send one in an HTTPS request to one address; its value never reaches you, and the vault's program in a shell has no session by design",
     ),
     (
         "prompt-files",
@@ -188,6 +188,8 @@ pub fn of_wire(wire: &str) -> String {
         // family, for the same bound.
         "mcp_sign_in_offer" | "google_sign_in_offer" | "alerts_confirm_offer" => "sign-in",
         "task_wait" | "task_fan_out" => HELPERS,
+        // A request with a key from the vault loads with the vault's tools (issue 65).
+        "http_request" => "vault",
         _ => match wire.split('_').next().unwrap_or("") {
             "fs" | "git" | "text" => "files",
             "job" => "commands",
