@@ -326,8 +326,11 @@ fn run() -> Result<()> {
     // restart used to shut the runtime down with a 500 ms bound instead: a
     // task that held the core past it kept the store open into the exec,
     // the stop's last checkpoint was lost, and the next image replayed the
-    // run.
-    drop(rt);
+    // run. A run of the daemon's own in L1 on the blocking pool (a self
+    // build's gate) is ended once the tasks are gone, and the pool is waited
+    // for at most `stop_wait::BOUND` (issue 63): the drop waited for it with
+    // no bound.
+    stop_wait::end_runtime(rt);
     stop_phase("runtime dropped");
     // A thread outside the runtime that upgrades a `Weak` to the core for a
     // unit of work can be mid-unit now, and holds the store until the unit

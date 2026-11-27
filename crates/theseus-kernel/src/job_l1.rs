@@ -19,6 +19,7 @@ use theseus_sandbox::{Exit, Init, Limits, SandboxChild, Spec, Stdio};
 use crate::children::{self, Kind};
 use crate::job::{Reap, WrapperArgs, L1};
 use crate::job_egress as egress;
+use crate::own_runs;
 use crate::patience::{Cut, Patience};
 use crate::tree::{self, Proc};
 use crate::types::{Outcome, Verdict, VerifiedBy};
@@ -166,6 +167,8 @@ pub(crate) fn run(
     }
     let limits = l1.limits.lowered_by(&started.lowered);
     let proxy = egress::start(&mut child, l1, &allow, detail);
+    // A daemon's own run is listed while it goes, so its stop can end it and say what it waits for.
+    let _listed = matches!(reap, Reap::Command).then(|| own_runs::hold(&args.correlation_id, child.id()));
     let (exit, end) = wait(&mut child, reap, patience);
     // The job has ended, its whole tree with it (a stop included).
     egress::stop(proxy, &allow, detail);
@@ -250,6 +253,11 @@ fn wait(
         }
         if let (Reap::Descendants, Some(asked)) = (reap, crate::job::stop_asked()) {
             let (exit, v) = stop(child, reap, asked.grace());
+            return (exit, End::Stopped(v));
+        }
+        // The daemon is stopping: its own run ends, and every process of its job with it.
+        if let (Reap::Command, Some(grace)) = (reap, own_runs::asked()) {
+            let (exit, v) = stop(child, reap, grace);
             return (exit, End::Stopped(v));
         }
         if let Some(cut) = patience.check() {

@@ -1,8 +1,8 @@
 //! A stop never waits behind a self build (issue 63), with the real `theseusd`: a self build's command started
 //! through the gate's own launcher (the debug build's plant, `THESEUS_TEST_SELF_JOB`: `Jail::run`, in L1, waited
 //! for on the runtime's blocking pool) that would not end by itself for an hour. The runtime's drop waited for that
-//! thread with no bound, so the stop's phases all ran and the process never ended. Now the stop ends the job, its
-//! whole tree, and goes on: within seconds, with nothing of the job left and nothing else signalled.
+//! thread with no bound, so the stop's phases all ran and the process never ended. Now the stop ends the job, every
+//! process of it, and goes on: within seconds, with nothing of the job left and nothing else signalled.
 //!
 //! The restart in place, the same end, is `config_copy.rs`'s
 //! `a_restart_in_place_ends_a_self_build_that_would_not_end_by_itself`.
@@ -82,7 +82,7 @@ fn stop(s: &mut Served) -> Result<Duration, String> {
     Ok(t0.elapsed())
 }
 
-/// KEY: a self build that would run for an hour is ended at a stop, its whole tree with it, and the stop goes on.
+/// KEY: a self build that would run for an hour is ended at a stop, every process of it, and the stop goes on.
 /// What the cut job returns is never read: the task that waited for it is gone first.
 #[test]
 fn a_stop_ends_a_self_build_that_would_not_end_by_itself() {
@@ -139,10 +139,11 @@ fn a_stop_never_signals_the_daemons_process_group() {
         .process_group(pgid)
         .spawn()
         .expect("a sibling in the daemon's group");
-    stop(&mut s).unwrap_or_else(|e| panic!("{e}"));
+    let stopped = stop(&mut s);
     let still = sibling.try_wait().expect("the sibling's status").is_none();
     let _ = sibling.kill();
     let _ = sibling.wait();
+    stopped.unwrap_or_else(|e| panic!("{e}"));
     assert!(still, "a process in the daemon's group was ended by the stop");
 }
 
