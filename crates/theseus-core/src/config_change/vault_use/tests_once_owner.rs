@@ -97,14 +97,20 @@ async fn an_outside_read_earlier_in_the_same_response_is_caught_when_the_form_ru
 
 /// One `turn.submit` over the RPC, as a client of the command line sends it.
 async fn submit(r: &Rig, params: Value) -> Value {
+    submit_as(
+        r,
+        crate::approval::Client::new("sock#1", crate::approval::Surface::Cli),
+        params,
+    )
+    .await
+}
+
+/// [`submit`], from the connection `client`.
+async fn submit_as(r: &Rig, from: crate::approval::Client, params: Value) -> Value {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let (client, server) = tokio::io::duplex(64 * 1024);
     let (sr, sw) = tokio::io::split(server);
-    let srv = tokio::spawn(r.core.clone().serve_connection(
-        sr,
-        sw,
-        crate::approval::Client::new("sock#1", crate::approval::Surface::Cli),
-    ));
+    let srv = tokio::spawn(r.core.clone().serve_connection(sr, sw, from));
     let (cr, mut cw) = tokio::io::split(client);
     let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), "turn.submit", params);
     let mut line = serde_json::to_string(&req).unwrap();
@@ -300,4 +306,89 @@ async fn a_copy_of_a_runtime_token_is_a_key_theseus_runs_on() {
     assert_eq!(status, ResultStatus::Error, "{text}");
     assert!(text.contains(RUNS_ON_WORDS), "{text}");
     assert_eq!(counted(&o), ["0"]);
+}
+
+/// H2: at the producer. An identified agent's `turn.submit` through the command line, though the
+/// place rule lets it be the owner's input, is asked first; the owner's own is not.
+#[tokio::test]
+async fn an_agents_submission_asks() {
+    let o = rig_once();
+    let r = &o.r;
+    let sid = r.session();
+    r.call_next("vault_use", run_call("./call_lantern.sh"));
+    let agent = crate::approval::Client::new("sock#9", crate::approval::Surface::Cli)
+        .behind(crate::peer_proc::Behind::Agent("an-agent".into()));
+    let out = submit_as(
+        r,
+        agent,
+        json!({"session_id": sid, "input": "run the lantern script with its key"}),
+    )
+    .await;
+    assert!(out.get("error").is_none(), "{out}");
+    let asks = asked_in(r, &sid);
+    assert_eq!(asks.len(), 1, "an agent's turn asks: {asks:?}");
+    assert_eq!(asks[0].tool, USE);
+    assert!(
+        asks[0].reason.contains(once::NOT_BEGUN),
+        "{}",
+        asks[0].reason
+    );
+    assert!(
+        logged(&o.vault).is_empty(),
+        "nothing read for the agent's turn"
+    );
+}
+
+/// A rig whose `proc.run` is asked, with a program `lantern` in two folders.
+fn asked_runs() -> super::tests_once::Once {
+    let o = rig_once_with(OutsideMode::default(), COUNTS, |c| {
+        c.policy
+            .tools
+            .insert("proc.run".into(), crate::policy::Posture::Approve);
+    });
+    for d in ["one", "two"] {
+        std::fs::create_dir_all(o.work.join(d)).unwrap();
+        script(&o.work.join(d), "lantern", COUNTS);
+    }
+    o
+}
+
+/// H3 (a): a question about one program does not keep the grant of another file of the same
+/// name.
+#[tokio::test]
+async fn a_question_about_another_file_of_the_same_name_keeps_no_grant() {
+    let o = asked_runs();
+    let r = &o.r;
+    let sid = r.session();
+    r.steps(
+        &sid,
+        vec![
+            ("vault_use", run_call("./one/lantern")),
+            ("proc_run", proc(json!(["./two/lantern"]))),
+        ],
+    )
+    .await;
+    assert_eq!(asked_in(r, &sid).len(), 1, "the other file's run is asked");
+    assert!(!r.core.tools.broker.has_once(&sid), "the grant ended");
+}
+
+/// H3 (b): an approval that arrives together with a new message: the old run gets nothing.
+#[tokio::test]
+async fn an_approval_that_comes_with_a_new_message_gives_the_old_run_nothing() {
+    let o = asked_runs();
+    let r = &o.r;
+    let sid = r.session();
+    r.steps(
+        &sid,
+        vec![("vault_use", run_call("./call_lantern.sh")), script_run()],
+    )
+    .await;
+    let asks = asked_in(r, &sid);
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    r.core
+        .confirm_action(&asks[0].correlation_id, true, None, "cli")
+        .unwrap();
+    r.says("something else now");
+    r.run_turn(&sid).await;
+    assert_eq!(counted(&o), ["0"], "the approved run ran, and got nothing");
 }

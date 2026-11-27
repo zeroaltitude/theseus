@@ -88,28 +88,35 @@ second proof, nothing written to the settings, no restart. The model makes two c
    server, Google, an AWS account, any other setting but a program's variable or an attached server's variable), in the
    settings running or as written, or the settings note's; or whose value the board holds for Theseus now: such a name's,
    or any value held at run time (a signed-in server's token, a value a call returned), but not a name only a program's
-   grant reads and not the run form's own holds. The answer says it goes by the card form (`vault.use` with `name`), which
-   asks the owner as before. The vault session's own token is deliberately not compared.
+   grant reads and not the run form's own holds. A configured name that ONLY a program's grant or an attached server's
+   environment reads is not a key Theseus runs on; every other value the board holds is. The answer says it goes by the
+   card form (`vault.use` with `name`), which asks the owner as before. The vault session's own token is deliberately not
+   compared.
 5. **A value shorter than the scrubber's floor** (8 characters) could be masked at no exit, and is not given.
 6. **The item is remembered, by name**, before the value can reach a program (`used.rs`; the META record `vault.used`: the
-   vault, item, field and the reference the daemon built, never a value; one entry per item). **At every start each
-   remembered item is put on the board as resolving and read again** (`Core::hold_vault_used`, `vault-used:<n>`), and a
-   turn waits for it as it waits for every configured secret, so the exits mask its value in every copy that leaves: the
-   requests the model is sent, the Discord courier's and the push line's text, whatever record holds it (a read of a
-   running job, an earlier step's output, a capped output's kept file, a result taken after a restart). The record keeps
-   what the job wrote, as for every configured secret a program prints. An item that cannot be read at a start is named
-   in one warning, taken off the board, and the start goes on.
+   vault, item, field and the reference the daemon built, never a value; one entry per item). **At every start, before
+   the daemon serves, each remembered item is read again** (`Core::hold_vault_used`, all at once, within 20 seconds for
+   all of them) and held (`vault-used:<n>`), so the exits mask its value in every copy that leaves from the first moment:
+   the requests the model is sent, the Discord courier's and the push line's text, whatever record holds it (a read of a
+   running job, an earlier step's output, a capped output's kept file, a result taken after a restart). It is the item's
+   **current** value that is masked after a restart: a value the item held before it was changed in the vault is not
+   known to Theseus. The record keeps what the job wrote, as for every configured secret a program prints. An item unread
+   at the bound, or whose read failed, is named in one warning, and the start goes on without waiting for it; it is tried
+   again in the background (three more times a minute apart, then once five minutes later) and held the moment a try
+   succeeds. A record of the items that cannot be read is not an empty list: the start holds nothing from it, and the run
+   form gives nothing, so it is never replaced.
 7. **The value is held on the board** (`vault-use:<call>`) from the grant, so the scrubber and every exit mask it, and the
    broker gives it to **the next run of that file in this turn** (`broker/once.rs`): run by its own argv, with no variable
    the call sets, never by a shell, an interpreter or a wrapper around it. A run that does not take it leaves it for the
-   next. It ends when a run takes it; when its turn ends, unless a run of that program waits on the owner's answer (the
-   continuation his answer begins may still take it); and when any later occasion begins in that session (a message, a
-   wake, a task's report, a job that ended). A run in the background is not given it, and its `secret.withheld` row says
+   next. It ends when a run takes it; when its turn ends, unless a run of that program's file waits on the owner's answer
+   (the continuation his answer begins may still take it); and when any later occasion begins in that session (a message,
+   a wake, a task's report, a job that ended), before any call that occasion resumes runs. A run in the background is not given it, and its `secret.withheld` row says
    why. The gate holds the run at no looser a posture than notify, as a configured grant's.
 8. **What a completed run printed is also replaced by the scrubber's marker in its stored result** (`Broker::scrub_once`).
 9. **The owner is told** in one FYI note that the item was made ready for one run: the item, the field and the vault as the
    vault listed them, the program's file name, the variable and the conversation's short id, never the model's words; that
-   nothing was written to the settings, and that Theseus remembers the items it has used, by name, to keep masking them.
+   nothing was written to the settings, and that Theseus remembers the items it has used, by name, to keep masking their
+   current values.
    It has no Undo. The `secret.granted` row carries `once: true` and the vault, item and field by name.
 
 A request the daemon itself makes carrying a key (no program) is not this form; it is not built.
@@ -129,8 +136,9 @@ only and before anything is read:
   fixed note) does not end that window;
 - with the `injection` flag;
 - in a turn the owner's own typed input did not begin: the turn's submission must be judged his own (`Core::owner_input`:
-  the owner, in a private place, not a job's or a prompt's) and its opening message the session's latest that is not the
-  harness's own words. A wake, a task's report, a job that ended, a job's or an agent's submission all ask.
+  the owner, in a private place, not a job's or a prompt's), carry no agent's identity (`EventSink::agent`: an agent's
+  process behind the command line or the web), and its opening message be the session's latest that is not the harness's
+  own words. A wake, a task's report, a job that ended, a job's or an agent's submission all ask.
 
 The hold is read again when the call runs: outside text an earlier call of the same response read after the gate judged
 this one stops it, unless the owner approved this very call; nothing is read from the vault, and the model is told to call

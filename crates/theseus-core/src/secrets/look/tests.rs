@@ -29,6 +29,8 @@ case "$1 $2" in "item get"|"item edit"|"item create"|"item delete") case " $* " 
 [ "$MODE" = dup ] && [ "$1 $2" = "item list" ] && {{ echo '[{{"id":"itemid00000000000000000001","title":"Lantern key","vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL"}},{{"id":"itemid00000000000000000009","title":"Lantern key","vault":{{"id":"vaultid00000000000000000002","name":"Dock"}},"category":"LOGIN"}}]'; exit 0; }}
 [ "$MODE" = big ] && {{ head -c 5000000 /dev/zero | tr '\0' 'x'; exit 0; }}
 [ "$MODE" = short ] && [ "$1" = read ] && {{ printf 'SEVEN77'; exit 0; }}
+[ "$MODE" = slow ] && [ "$1" = read ] && sleep 1
+[ "$MODE" = fail-read-once ] && [ "$1" = read ] && [ ! -f '{d}/read-failed-once' ] && {{ touch '{d}/read-failed-once'; echo '[ERROR] 2026/10/19 08:00:00 could not read secret: a passing failure' >&2; exit 1; }}
 case "$1 $2" in
   "whoami --format") echo '{{"url":"https://harbor.example.test/path","account_uuid":"ACCT-UUID-1","user_uuid":"USER-UUID-1","user_type":"SERVICE_ACCOUNT"}}' ;;
   "vault list") echo '[{{"id":"vaultid00000000000000000001","name":"Harbor","content_version":3}},{{"id":"vaultid00000000000000000002","name":"Dock"}}]' ;;

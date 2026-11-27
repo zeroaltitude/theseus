@@ -129,14 +129,25 @@ impl Broker {
             .retain(|o| o.session != session);
     }
 
-    /// Keep only the one-run grants of `session` whose program is one of `programs` (by file
-    /// name): the runs that wait on the owner's answer as its turn ends.
-    pub fn once_keep_only(&self, session: &str, programs: &[String]) {
+    /// Keep only the one-run grants of `session` whose program's file is one of `files`: the runs
+    /// that wait on the owner's answer as its turn ends.
+    pub fn once_keep_only(&self, session: &str, files: &[PathBuf]) {
         self.once
             .live
             .lock()
             .unwrap()
-            .retain(|o| o.session != session || programs.contains(&o.program()));
+            .retain(|o| o.session != session || files.contains(&o.file));
+    }
+
+    /// The file a run of `program` in `cwd` with the job's PATH `job_path` runs, as the spawn's
+    /// match finds it (canonical).
+    pub fn once_file_of(
+        &self,
+        program: &str,
+        cwd: &Path,
+        job_path: Option<&str>,
+    ) -> Option<PathBuf> {
+        resolve(program, job_path, cwd, false)
     }
 
     /// A turn of `session`, begun by the message `turn`, calls: the grants another turn left end.
