@@ -75,6 +75,11 @@ pub(crate) fn asked() -> Option<Duration> {
     }
 }
 
+/// Whether this daemon's stop has asked its own runs to end: a run that ended since is no result to record.
+pub fn stopping() -> bool {
+    asked().is_some()
+}
+
 /// The pipe a wait polls beside its init's pidfd, once a run has made it: readable once asked. A wrapper process
 /// starts no run of its own and never has one.
 pub(crate) fn wake_fd() -> Option<RawFd> {
