@@ -263,42 +263,11 @@ async fn googles_consent_succeeds_through_the_gateway_and_nothing_pasted_is_in_a
         .await;
     let card = r.posted(ANA_DM).into_iter().find(card_of).unwrap();
     let began = r.press(&card.id, "Connect Google", (ANA, "ana"));
-    let shown = || {
-        r.fake
-            .replies()
-            .iter()
-            .filter(|x| x.interaction.as_deref() == Some(began.as_str()))
-            .filter_map(|x| x.content.clone())
-            .find(|c| c.contains("](<"))
-    };
-    r.until("the address is shown", || shown().is_some()).await;
-    let text = shown().unwrap();
-    let address = text
-        .split("](<")
-        .nth(1)
-        .unwrap()
-        .split(">)")
-        .next()
-        .unwrap()
-        .to_string();
-    let state = address
-        .split(['?', '&'])
-        .find_map(|p| p.strip_prefix("state="))
-        .unwrap()
-        .to_string();
+    r.until("the address is shown", || state_shown(&r, &began).is_some())
+        .await;
+    let state = state_shown(&r, &began).unwrap();
     // Her press of the paste button the answer carries.
-    let paste_id = r
-        .fake
-        .replies()
-        .iter()
-        .filter(|x| x.interaction.as_deref() == Some(began.as_str()))
-        .find_map(|x| {
-            let row = x.components.get(0)?;
-            row["components"][0]["custom_id"]
-                .as_str()
-                .map(str::to_string)
-        })
-        .expect("the answer carries Paste the address");
+    let paste_id = button_of(&r, &began).expect("the answer carries Paste the address");
     assert!(paste_id.starts_with("gsi:paste:"), "{paste_id}");
     let paste = r
         .fake
@@ -327,4 +296,34 @@ async fn googles_consent_succeeds_through_the_gateway_and_nothing_pasted_is_in_a
     let kept = std::fs::read_to_string(&token_file).unwrap();
     assert!(kept.contains(REFRESH_TOKEN), "kept where the CLI keeps it");
     in_no_exit(&r, &buf, &[GCODE, "41999/?code", REFRESH_TOKEN]);
+}
+
+/// The `state` of the consent address the answer to `interaction` shows as a link.
+fn state_shown(r: &Rig, interaction: &str) -> Option<String> {
+    let text = r
+        .fake
+        .replies()
+        .iter()
+        .filter(|x| x.interaction.as_deref() == Some(interaction))
+        .filter_map(|x| x.content.clone())
+        .find(|c| c.contains("](<"))?;
+    let address = text.split("](<").nth(1)?.split(">)").next()?.to_string();
+    address
+        .split(['?', '&'])
+        .find_map(|p| p.strip_prefix("state="))
+        .map(str::to_string)
+}
+
+/// The custom id of the first button the answer to `interaction` carries.
+fn button_of(r: &Rig, interaction: &str) -> Option<String> {
+    r.fake
+        .replies()
+        .iter()
+        .filter(|x| x.interaction.as_deref() == Some(interaction))
+        .find_map(|x| {
+            let row = x.components.get(0)?;
+            row["components"][0]["custom_id"]
+                .as_str()
+                .map(str::to_string)
+        })
 }
