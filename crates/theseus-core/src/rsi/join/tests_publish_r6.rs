@@ -13,7 +13,7 @@ use super::tests_publish::{cards, owner_says_yes, publish_stops, seams, watch};
 use crate::Core;
 
 /// A bare repository beside the rig's remote, cloned from it, with a hook that writes down every ref it receives.
-fn another_remote(r: &Rig, name: &str) -> (PathBuf, PathBuf) {
+pub(super) fn another_remote(r: &Rig, name: &str) -> (PathBuf, PathBuf) {
     let root = r.f.upstream.parent().unwrap().to_path_buf();
     let dir = root.join(format!("{name}.git"));
     git(
@@ -30,7 +30,7 @@ fn another_remote(r: &Rig, name: &str) -> (PathBuf, PathBuf) {
 }
 
 /// A `pre-receive` hook in `bare` writing what it receives to a log; the log's path.
-fn hooked(bare: &Path, name: &str) -> PathBuf {
+pub(super) fn hooked(bare: &Path, name: &str) -> PathBuf {
     let log = bare.parent().unwrap().join(format!("{name}-received.log"));
     let hook = bare.join("hooks").join("pre-receive");
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
@@ -40,7 +40,7 @@ fn hooked(bare: &Path, name: &str) -> PathBuf {
     log
 }
 
-fn received(log: &Path) -> Vec<String> {
+pub(super) fn received(log: &Path) -> Vec<String> {
     std::fs::read_to_string(log)
         .unwrap_or_default()
         .lines()
@@ -48,18 +48,18 @@ fn received(log: &Path) -> Vec<String> {
         .collect()
 }
 
-fn repo_git(r: &Rig, args: &[&str]) -> String {
+pub(super) fn repo_git(r: &Rig, args: &[&str]) -> String {
     git(&r.f.place.repo, args)
 }
 
 /// The review file the waiting card names, read.
-fn review_text(core: &Core) -> String {
+pub(super) fn review_text(core: &Core) -> String {
     let card = cards(core).pop().expect("a card");
     std::fs::read_to_string(card.input["review_file"].as_str().unwrap()).unwrap()
 }
 
 /// The proving files committed, as every branch here needs them for its review.
-fn proved(wt: &Path) {
+pub(super) fn proved(wt: &Path) {
     for (p, t) in PROVED {
         let p = wt.join(p);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -72,13 +72,13 @@ fn proved(wt: &Path) {
     );
 }
 
-fn write(wt: &Path, path: &str, text: &[u8]) {
+pub(super) fn write(wt: &Path, path: &str, text: &[u8]) {
     let p = wt.join(path);
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
     std::fs::write(p, text).unwrap();
 }
 
-async fn pass(r: &Rig) -> super::Pass {
+pub(super) async fn pass(r: &Rig) -> super::Pass {
     r.core.self_join_pass(&seams(r)).await.unwrap()
 }
 
@@ -410,7 +410,7 @@ async fn a_rewritten_main_voids_the_yes() {
 
 /// A commit onto the remote's main from another clone: a fast-forward of it, or (`rewrite`) main's tip amended and
 /// force-pushed. The new main.
-fn onto_upstream_main(r: &Rig, name: &str, rewrite: bool) -> String {
+pub(super) fn onto_upstream_main(r: &Rig, name: &str, rewrite: bool) -> String {
     let root = r.f.upstream.parent().unwrap().to_path_buf();
     let work = root.join(name);
     git(

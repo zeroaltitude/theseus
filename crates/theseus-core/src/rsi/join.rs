@@ -121,7 +121,9 @@ mod tests_proof_kind;
 #[cfg(test)]
 pub(crate) mod tests_publish;
 #[cfg(test)]
-mod tests_publish_r6;
+pub(crate) mod tests_publish_r6;
+#[cfg(test)]
+mod tests_publish_r8;
 #[cfg(test)]
 mod tests_reap;
 #[cfg(test)]
