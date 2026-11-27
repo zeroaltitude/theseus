@@ -202,7 +202,7 @@ async fn googles_revoke_says_what_happened_in_all_four_cases() {
             theseus_core::secrets::Secret::new(REFRESH_TOKEN.into()),
         );
         if google_fails {
-            google.fail_next(1, &Reply::server_error());
+            google.fail_oauth_next(&Reply::json(400, json!({"error": "invalid_request"})));
         }
         if store_fails {
             folder(0o555);

@@ -228,13 +228,10 @@ async fn a_discord_failure_leaves_the_daemon_in_fixed_words_and_the_clis_are_unc
     )
     .await
     .unwrap();
-    r.fake.fail_next(
-        1,
-        &Reply::json(
-            400,
-            json!({"error": "invalid_request", "error_description": GOOGLE_SENTINEL}),
-        ),
-    );
+    r.fake.fail_oauth_next(&Reply::json(
+        400,
+        json!({"error": "invalid_request", "error_description": GOOGLE_SENTINEL}),
+    ));
     let second = rpc(
         &r.core,
         Surface::Discord,
