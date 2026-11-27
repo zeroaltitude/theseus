@@ -395,9 +395,19 @@ pub(crate) fn builder_path(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
     (paths::canonical_best_effort(&dir) == dir).then_some(dir)
 }
 
+/// The tree `session`'s self task works in, to bind read-write in its builder's view beside the
+/// build folder, or none: the session is no self session, its tree is not open, the tree is not its
+/// own resolved path (a link at it or above it would send the bind elsewhere), or its `.git` is not
+/// the plain file `git worktree add` wrote. Named by the session's task, never by a call.
+pub(crate) fn own_tree_bind(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
+    let tree = of(rt, session)?;
+    let dot = std::fs::symlink_metadata(tree.join(".git")).ok()?;
+    (dot.file_type().is_file() && paths::canonical_best_effort(&tree) == tree).then_some(tree)
+}
+
 /// The build folder for `session`'s self task, made if it was not there, or none (no self
 /// session, or its tree is closed): what a self session's `proc.run` in L1 may write and keep,
-/// and the only thing (`Sandbox::builder_view` binds it read-write for this session alone). Err
+/// beside its own tree ([`own_tree_bind`]; `Sandbox::self_view` binds both read-write for this session alone). Err
 /// is the words a command is refused with when the folder has reached its bound. The disk is
 /// walked, so call it off the runtime's workers.
 pub(crate) fn builder_folder(rt: &ToolRuntime, session: &str) -> Result<Option<PathBuf>, String> {

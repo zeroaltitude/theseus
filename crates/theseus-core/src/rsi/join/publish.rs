@@ -128,8 +128,8 @@ impl Leaving {
              and renames off. The join adds its merge commit and main's count to them.\n\n\
              YES: the join merges HEAD into main, runs main's gate on the merge, signs it and pushes main, one ref, to \
              DESTINATION. Your yes counts only for this HEAD, this review file and this DESTINATION, while the remote's \
-             main is REMOTE MAIN or has only moved forward with none of HEAD's commits sent; anything else asks a new \
-             card.\nNO: nothing is published, the branch's HEAD is held, and you are not asked about it again.",
+             main is REMOTE MAIN, or has only moved forward and every commit of HEAD's the join would then send is one the \
+             review file shows; anything else asks a new card.\nNO: nothing is published, the branch's HEAD is held, and you are not asked about it again.",
             title = untrusted(&self.title, UNTRUSTED_CHARS),
             item = untrusted(&self.item, UNTRUSTED_CHARS),
             branch = untrusted(&self.branch, UNTRUSTED_CHARS),

@@ -144,15 +144,31 @@ fn unclosed(p: &Place) -> Vec<Scratch> {
 /// of those. A tree open before the review is not this review's to remove, and the
 /// pipeline's own are never touched.
 pub fn close(p: &Place, s: &Scratch) -> Vec<String> {
-    let mut whole = true;
-    if let Err(e) = std::fs::remove_dir_all(&s.dir) {
-        if s.dir.exists() {
-            whole = false;
+    let whole = match std::fs::remove_dir_all(&s.dir) {
+        Err(e) if s.dir.exists() => {
             tracing::warn!(dir = %s.dir.display(), "self-review: its scratch was not removed: {e}");
+            false
         }
-    }
+        _ => true,
+    };
     // Under the lock an open holds, so a build's tree is never seen half made.
     let _one = tree::repo_lock();
+    let left = remove_left(p, s);
+    let pruned = p
+        .git(&p.repo, &["worktree", "prune"])
+        .is_ok_and(|o| o.status.success());
+    // The mark is what a later open recovers this review by: it stays until the scratch is gone and its worktree is
+    // unregistered.
+    if whole && pruned {
+        let _ = std::fs::remove_file(mark(&s.dir));
+    } else {
+        tracing::warn!(dir = %s.dir.display(), "self-review: its scratch stays marked for the next review to close");
+    }
+    left
+}
+
+/// Every directory the review left under the self trees, removed: the names of those removed.
+fn remove_left(p: &Place, s: &Scratch) -> Vec<String> {
     let trees = p.trees();
     let mut left = Vec::new();
     for name in trees_named(&trees) {
@@ -166,16 +182,6 @@ pub fn close(p: &Place, s: &Scratch) -> Vec<String> {
                 tracing::warn!(dir = %d.display(), "self-review: a tree it left was not removed: {e}");
             }
         }
-    }
-    let pruned = p
-        .git(&p.repo, &["worktree", "prune"])
-        .is_ok_and(|o| o.status.success());
-    // The mark is what a later open recovers this review by: it stays until the scratch is gone and its worktree is
-    // unregistered.
-    if whole && pruned {
-        let _ = std::fs::remove_file(mark(&s.dir));
-    } else {
-        tracing::warn!(dir = %s.dir.display(), "self-review: its scratch stays marked for the next review to close");
     }
     left
 }

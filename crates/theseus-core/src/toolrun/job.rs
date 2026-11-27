@@ -488,6 +488,12 @@ impl ToolRuntime {
             }
             _ => None,
         };
+        // A self builder's L1 command writes its own tree too, the one its task names
+        // (`rsi::own_tree::own_tree_bind`).
+        let own = build
+            .is_some()
+            .then(|| crate::rsi::own_tree::own_tree_bind(self, tc.session_id))
+            .flatten();
         // A self review's L1 command sees the daemon's checkout of the reviewed head, read-only (issue 53).
         let review_tree = class
             .l1()
@@ -515,21 +521,14 @@ impl ToolRuntime {
             correlation_id,
         )
         .await;
-        // The view a self builder's command runs in keeps one more directory (`builder_view`).
-        let sandbox = match (&build, sandbox) {
-            (Some(dir), Some(view)) => {
-                Some(crate::sandbox::Sandbox::with_builder_folder(view, dir))
-            }
-            (_, view) => view,
+        // The view a self session's command runs in: a builder's keeps its build folder and its own
+        // tree, a reviewer's reads the daemon's checkout (`Sandbox::self_view`).
+        let places = crate::sandbox::SelfPlaces {
+            tree: build.as_ref().and_then(|_| own),
+            folder: build.clone(),
+            review: review_tree,
         };
-        let sandbox = match (review_tree, sandbox) {
-            (Some(t), Some(mut view)) => {
-                view.hidden.retain(|h| !(t != *h && t.starts_with(h)));
-                view.ro_paths.push(t);
-                Some(view)
-            }
-            (_, view) => view,
-        };
+        let sandbox = sandbox.map(|view| crate::sandbox::Sandbox::self_view(view, &places));
         // A self builder's command may also reach the registries, and keeps package caches of its
         // own inside that folder (`rsi::deps::builder`). No other session's job is changed.
         let mut sandbox = sandbox;

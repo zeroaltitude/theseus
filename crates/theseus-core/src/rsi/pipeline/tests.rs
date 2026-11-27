@@ -699,7 +699,8 @@ async fn a_staged_ended_build_cannot_overwrite_the_owners_drop() {
 
 /// While a join waits for the owner's card (issue 53), the pipeline still starts a build: a second item's tree is
 /// opened and its builder's session begun by the backlog's own start, in the same fixture as the parked join, and
-/// nothing is published.
+/// nothing is published. START-ONLY evidence: it proves the second build starts, not that its builder's turn, gate
+/// and build finish.
 #[tokio::test]
 async fn a_build_starts_while_a_join_waits_for_the_owners_card() {
     use crate::rsi::join::tests::{rig_with as join_rig, PROVED, SONNET};

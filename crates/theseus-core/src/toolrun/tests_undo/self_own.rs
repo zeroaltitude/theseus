@@ -787,9 +787,9 @@ async fn a_self_sessions_shell_line_is_bound_to_l1_and_not_held() {
 }
 
 /// The premise of the L1 half, from the code: the view a `proc.run` is given binds nothing
-/// read-write, for a self session as for any other. A self builder's command is then given one more
-/// bind (`with_builder_folder`), its own item's build folder, which is the session's own: the only
-/// thing that persists.
+/// read-write, for a self session as for any other. A self builder's command is then given two more
+/// binds (`Sandbox::self_view`), its own item's build folder and its own item's tree, both the
+/// session's own: what persists (`rsi::tests_pr::own_tree::builder_folder`).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_view_a_self_sessions_command_is_given_binds_nothing_read_write() {
     let (r, _) = drive("self", "proc_run", sandboxed, nothing);

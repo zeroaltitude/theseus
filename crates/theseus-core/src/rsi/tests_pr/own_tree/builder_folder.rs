@@ -84,24 +84,46 @@ fn state(r: &Rig) -> PathBuf {
     r.f.place.state.canonicalize().unwrap()
 }
 
-/// KEY: the command is given exactly one directory it can write and keep, which is its item's
-/// own, and cargo is told to build there; the rest of its view is an ordinary job's.
+/// KEY: the command is given exactly two directories it can write and keep, its item's build folder
+/// and its item's own tree, both named by its task and not by the call; the tree's `.git` file is
+/// bound read-only over the tree; cargo is told to build in the folder; the rest of its view is an
+/// ordinary job's.
 #[tokio::test]
-async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it() {
+async fn a_self_builders_sandboxed_command_keeps_its_folder_and_its_own_tree() {
     let kept = Arc::new(Kept::default());
     let r = rig(&kept);
     let (sid, t) = item(&r, "sails");
+    // Another item's tree, open: the call runs in it and names it, and it is not given it.
+    let (_, other) = item(&r, "tides");
     // The call tries to point cargo elsewhere: its own word does not stand.
-    let mut call = built(&t.dir, true);
+    let mut call = built(&other.dir, true);
     call["env"] = json!({"CARGO_TARGET_DIR": "/tmp/mine", "TMPDIR": "/tmp/mine"});
     r.turn(&sid, "proc_run", call).await;
     let args = only(&kept);
     let folder = builder_dir::dir_in(&state(&r), "sails");
+    let tree = t.dir.canonicalize().unwrap();
     let view = args.sandbox.clone().expect("it ran in L1");
     assert_eq!(
         view.rw,
-        std::slice::from_ref(&folder),
-        "the one writable, kept place"
+        [folder.clone(), tree.clone()],
+        "the two writable, kept places, its own"
+    );
+    let trees = r.f.place.trees().canonicalize().unwrap();
+    assert!(
+        view.rw.iter().all(|w| *w != trees && !trees.starts_with(w)),
+        "no parent of the trees"
+    );
+    assert!(
+        !view.rw.contains(&other.dir.canonicalize().unwrap()),
+        "no other item's tree"
+    );
+    assert_eq!(
+        view.ro_paths
+            .iter()
+            .filter(|p| p.starts_with(&tree))
+            .collect::<Vec<_>>(),
+        [&tree.join(".git")],
+        "the tree's .git file, read-only over the tree"
     );
     assert!(folder.is_dir(), "made for the command");
     // Cargo builds in the folder's `target`, and temporary files go to its `tmp`: both on disk, in
@@ -127,6 +149,7 @@ async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it(
     // Nothing else of the view moved: an ordinary job's, less the call's own egress list.
     let mut rest = view;
     rest.rw.clear();
+    rest.ro_paths.retain(|p| *p != tree.join(".git"));
     let mut ordinary = r.core.tools.sandbox.job_view();
     ordinary.egress.clone_from(&rest.egress);
     // The view's own allocations (the owner, 2026-11-15 17:39:14); every other limit is the job's.
@@ -146,6 +169,50 @@ async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it(
     assert_ne!(folder, t.target);
     assert!(!folder.starts_with(&t.dir) && !folder.starts_with(&t.target));
     assert!(!folder.starts_with(r.f.place.trees().canonicalize().unwrap()));
+    // Nothing the daemon keeps of its own lies under either bind: its state, store, git directory,
+    // reports and gate's build tree are each outside both.
+    let repo_git = r.f.place.repo.join(".git").canonicalize().unwrap();
+    for own in [state(&r), repo_git, t.target.clone(), r.f.place.root()] {
+        for w in &args.sandbox.as_ref().unwrap().rw {
+            assert!(
+                !own.starts_with(w),
+                "{} is under {}",
+                own.display(),
+                w.display()
+            );
+        }
+    }
+}
+
+/// A tree that is not its own resolved path, or whose `.git` is not a plain file, is not bound: the
+/// bind would land wherever the link points.
+#[tokio::test]
+async fn a_linked_tree_or_a_linked_dot_git_is_not_bound() {
+    for linked in ["tree", "dot-git"] {
+        let kept = Arc::new(Kept::default());
+        let r = rig(&kept);
+        let (sid, t) = item(&r, "sails");
+        if linked == "tree" {
+            let away = r.f.place.root().join("away");
+            std::fs::rename(&t.dir, &away).unwrap();
+            std::os::unix::fs::symlink(&away, &t.dir).unwrap();
+        } else {
+            let real = t.dir.join("dot-git-file");
+            std::fs::rename(t.dir.join(".git"), &real).unwrap();
+            std::os::unix::fs::symlink(&real, t.dir.join(".git")).unwrap();
+        }
+        r.turn(&sid, "proc_run", built(&t.dir, true)).await;
+        let view = only(&kept).sandbox.expect("it ran in L1");
+        assert_eq!(
+            view.rw,
+            [builder_dir::dir_in(&state(&r), "sails")],
+            "{linked}: the folder alone"
+        );
+        assert!(
+            view.ro_paths.iter().all(|p| !p.ends_with(".git")),
+            "{linked}"
+        );
+    }
 }
 
 /// No other call gets it: not another principal's, not a self session whose tree is not open. The
@@ -313,4 +380,26 @@ async fn the_folder_is_beside_the_trees_and_on_the_disk_the_capacity_check_reads
     let read = std::fs::metadata(p.root()).unwrap().dev();
     assert_eq!(std::fs::metadata(&folder).unwrap().dev(), read);
     assert!(builder_dir::size(&folder) >= 4096, "its bytes are counted");
+}
+
+/// Pin (d): what a builder's command leaves in its tree, read-write in its view, is not followed when the
+/// daemon closes the tree: a `target` link (the name the gate's link takes) and a link to a directory with a
+/// file outside the tree are removed as links, and what they point at is untouched.
+#[tokio::test]
+async fn closing_a_tree_does_not_follow_the_links_its_builder_left() {
+    let kept = Arc::new(Kept::default());
+    let r = rig(&kept);
+    let (_, t) = item(&r, "sails");
+    let outside = r.f.place.root().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("daemons"), "kept\n").unwrap();
+    std::os::unix::fs::symlink(&outside, t.dir.join("target")).unwrap();
+    std::fs::create_dir_all(t.dir.join("deep")).unwrap();
+    std::os::unix::fs::symlink(&outside, t.dir.join("deep/away")).unwrap();
+    tree::close(&r.f.place, &t).unwrap();
+    assert!(!t.dir.exists(), "the tree is closed");
+    assert_eq!(
+        std::fs::read_to_string(outside.join("daemons")).unwrap(),
+        "kept\n"
+    );
 }

@@ -10,12 +10,18 @@ use theseus_protocol::rsi::SelfMode;
 use super::publish::Answer;
 use super::tests::{git, rig, Rig, PROVED, SONNET};
 use super::tests_publish::{cards, owner_says_yes, publish_stops, seams, watch};
-use super::tests_publish_r6::{another_remote, pass, proved, received, repo_git, review_text, write};
+use super::tests_publish_r6::{
+    another_remote, pass, proved, received, repo_git, review_text, write,
+};
 use crate::Core;
 
 /// The review file the waiting card names.
 fn card_file(core: &Core) -> PathBuf {
-    PathBuf::from(cards(core).pop().expect("a card").input["review_file"].as_str().unwrap())
+    PathBuf::from(
+        cards(core).pop().expect("a card").input["review_file"]
+            .as_str()
+            .unwrap(),
+    )
 }
 
 // ---- ruling 1: the yes is tied to the file he read --------------------------------------------------------------
@@ -36,7 +42,10 @@ async fn a_review_file_changed_while_its_card_waits_asks_a_new_card() {
     assert_eq!(now.len(), 1, "one new card");
     assert_ne!(now[0].correlation_id, first);
     assert_eq!(r.core.publish_answer(&first).unwrap(), Answer::Ended);
-    assert!(review_text(&r.core).starts_with("THESEUS SELF-PUBLISH REVIEW FILE"), "made again from the objects");
+    assert!(
+        review_text(&r.core).starts_with("THESEUS SELF-PUBLISH REVIEW FILE"),
+        "made again from the objects"
+    );
     assert!(w.received().is_empty());
 }
 
@@ -55,7 +64,11 @@ async fn a_review_file_changed_or_removed_after_the_yes_voids_it() {
             "removed" => std::fs::remove_file(&file).unwrap(),
             _ => std::fs::write(&file, "replaced\n").unwrap(),
         }
-        let core = if restart { r.restarted() } else { r.core.clone() };
+        let core = if restart {
+            r.restarted()
+        } else {
+            r.core.clone()
+        };
         let p = core.self_join_pass(&seams(&r)).await.unwrap();
         assert!(p.joined.is_empty(), "{case}, restart {restart}: {p:?}");
         assert!(w.received().is_empty(), "{case}: nothing sent");
@@ -71,9 +84,15 @@ async fn a_yes_to_a_card_whose_file_changed_is_not_taken() {
     pass(&r).await;
     let card = cards(&r.core).pop().unwrap();
     std::fs::write(card_file(&r.core), "changed\n").unwrap();
-    let said = r.core.confirm_action(&card.correlation_id, true, None, "cli").unwrap();
+    let said = r
+        .core
+        .confirm_action(&card.correlation_id, true, None, "cli")
+        .unwrap();
     assert!(!said.approved, "the yes is not taken");
-    assert_eq!(r.core.publish_answer(&card.correlation_id).unwrap(), Answer::Ended);
+    assert_eq!(
+        r.core.publish_answer(&card.correlation_id).unwrap(),
+        Answer::Ended
+    );
 }
 
 // ---- ruling 2: only what can be shown exactly is asked ----------------------------------------------------------
@@ -93,7 +112,9 @@ async fn held_inexact(make: impl FnOnce(&Path)) {
         .collect();
     assert_eq!(held.len(), 1, "{held:?}");
     assert!(
-        r.posts().iter().any(|t| t.contains("text that cannot be shown exactly")),
+        r.posts()
+            .iter()
+            .any(|t| t.contains("text that cannot be shown exactly")),
         "{:?}",
         r.posts()
     );
@@ -154,7 +175,17 @@ async fn a_replacement_ref_does_not_change_what_the_review_file_shows() {
     });
     let innocent = {
         let wt = r.f.upstream.parent().unwrap().join("innocent");
-        repo_git(&r, &["worktree", "add", "-q", "--detach", wt.to_str().unwrap(), &format!("{head}^")]);
+        repo_git(
+            &r,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                wt.to_str().unwrap(),
+                &format!("{head}^"),
+            ],
+        );
         write(&wt, "real.txt", b"nothing to see\n");
         commit_all(&wt, "real");
         let c = git(&wt, &["rev-parse", "HEAD"]);
@@ -173,8 +204,19 @@ async fn a_replacement_ref_does_not_change_what_the_review_file_shows() {
 #[tokio::test]
 async fn a_worktree_gitattributes_textconv_does_not_hide_a_line() {
     let r = rig(SelfMode::Act);
-    repo_git(&r, &["config", "diff.hide.textconv", "sh -c 'echo HIDDEN-BY-TEXTCONV'"]);
-    std::fs::write(r.f.place.repo.join(".gitattributes"), "secret.txt diff=hide\n").unwrap();
+    repo_git(
+        &r,
+        &[
+            "config",
+            "diff.hide.textconv",
+            "sh -c 'echo HIDDEN-BY-TEXTCONV'",
+        ],
+    );
+    std::fs::write(
+        r.f.place.repo.join(".gitattributes"),
+        "secret.txt diff=hide\n",
+    )
+    .unwrap();
     r.seed_by("trim-the-sails", SONNET, |wt| {
         proved(wt);
         write(wt, "secret.txt", b"SECRET-W under a worktree textconv\n");
@@ -182,7 +224,10 @@ async fn a_worktree_gitattributes_textconv_does_not_hide_a_line() {
     });
     pass(&r).await;
     let text = review_text(&r.core);
-    assert!(text.contains("+SECRET-W under a worktree textconv"), "{text}");
+    assert!(
+        text.contains("+SECRET-W under a worktree textconv"),
+        "{text}"
+    );
     assert!(!text.contains("HIDDEN-BY-TEXTCONV"), "{text}");
 }
 
@@ -204,15 +249,31 @@ async fn an_address_rewrite_holds_publication() {
                 repo_git(&r, &["config", &key, &up]);
             }
             _ => {
-                repo_git(&r, &["config", "url.https://example.invalid/.insteadOf", "nowhere:"]);
+                repo_git(
+                    &r,
+                    &[
+                        "config",
+                        "url.https://example.invalid/.insteadOf",
+                        "nowhere:",
+                    ],
+                );
             }
         }
         r.seed("trim-the-sails", PROVED, SONNET);
         let p = pass(&r).await;
         assert!(p.parked.is_empty() && p.joined.is_empty(), "{case}: {p:?}");
         assert!(cards(&r.core).is_empty(), "{case}: no card");
-        assert!(r.posts().iter().any(|t| t.contains("git rewrites addresses here")), "{case}: {:?}", r.posts());
-        assert!(w.received().is_empty() && received(&other_log).is_empty(), "{case}");
+        assert!(
+            r.posts()
+                .iter()
+                .any(|t| t.contains("git rewrites addresses here")),
+            "{case}: {:?}",
+            r.posts()
+        );
+        assert!(
+            w.received().is_empty() && received(&other_log).is_empty(),
+            "{case}"
+        );
     }
 }
 
@@ -236,7 +297,11 @@ async fn a_credential_outside_the_user_part_holds_the_destination() {
 struct Never;
 
 impl super::review::Reviewer for Never {
-    fn review<'a>(&'a self, _core: &'a Arc<Core>, _ask: &'a super::review::Ask) -> super::review::Fut<'a> {
+    fn review<'a>(
+        &'a self,
+        _core: &'a Arc<Core>,
+        _ask: &'a super::review::Ask,
+    ) -> super::review::Fut<'a> {
         Box::pin(async move {
             std::future::pending::<()>().await;
             unreachable!()
@@ -248,7 +313,11 @@ impl super::review::Reviewer for Never {
 struct Stuck;
 
 impl super::review::Reviewer for Stuck {
-    fn review<'a>(&'a self, _core: &'a Arc<Core>, ask: &'a super::review::Ask) -> super::review::Fut<'a> {
+    fn review<'a>(
+        &'a self,
+        _core: &'a Arc<Core>,
+        ask: &'a super::review::Ask,
+    ) -> super::review::Fut<'a> {
         let locked = Path::new(&ask.scratch).join("locked");
         std::fs::create_dir_all(&locked).unwrap();
         std::fs::write(locked.join("f"), "x").unwrap();
@@ -274,10 +343,13 @@ fn reviews(r: &Rig) -> PathBuf {
 }
 
 fn marks(r: &Rig) -> Vec<PathBuf> {
-    (std::fs::read_dir(reviews(r)).into_iter().flatten().flatten())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "before"))
-        .collect()
+    (std::fs::read_dir(reviews(r))
+        .into_iter()
+        .flatten()
+        .flatten())
+    .map(|e| e.path())
+    .filter(|p| p.extension().is_some_and(|x| x == "before"))
+    .collect()
 }
 
 /// A review cancelled between its checkout and its close: its scratch and checkout are closed all the same.
@@ -289,11 +361,15 @@ async fn a_review_cancelled_after_its_checkout_leaves_nothing_open() {
         reviewer: Arc::new(Never),
         ..r.seams()
     };
-    let cut = tokio::time::timeout(std::time::Duration::from_secs(3), r.core.self_join_pass(&s)).await;
+    let cut =
+        tokio::time::timeout(std::time::Duration::from_secs(3), r.core.self_join_pass(&s)).await;
     assert!(cut.is_err(), "the pass was cut while the reviewer ran");
-    let left: Vec<_> = (std::fs::read_dir(reviews(&r)).into_iter().flatten().flatten())
-        .map(|e| e.path())
-        .collect();
+    let left: Vec<_> = (std::fs::read_dir(reviews(&r))
+        .into_iter()
+        .flatten()
+        .flatten())
+    .map(|e| e.path())
+    .collect();
     assert!(left.is_empty(), "nothing open: {left:?}");
     let listed = repo_git(&r, &["worktree", "list", "--porcelain"]);
     assert!(!listed.contains("/review/"), "{listed}");
@@ -315,7 +391,17 @@ async fn a_scratch_that_could_not_be_removed_keeps_its_mark_until_the_next_revie
     let dir = kept[0].with_extension("");
     std::fs::set_permissions(dir.join("locked"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let core = r.restarted();
-    r.seed("reef-the-main", &[("reef.txt", "reefed\n"), ("tests/reef.sh", "test -f reef.txt\n")], SONNET);
+    r.seed(
+        "reef-the-main",
+        &[
+            ("reef.txt", "reefed\n"),
+            ("tests/reef.sh", "test -f reef.txt\n"),
+        ],
+        SONNET,
+    );
     core.self_join_pass(&seams(&r)).await.unwrap();
-    assert!(!kept[0].exists() && !dir.join("locked").exists(), "closed by the next review");
+    assert!(
+        !kept[0].exists() && !dir.join("locked").exists(),
+        "closed by the next review"
+    );
 }

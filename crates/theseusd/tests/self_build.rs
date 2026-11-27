@@ -12,10 +12,11 @@
 //! - a tree whose `Cargo.toml` names a crate the cache lacks fails, saying
 //!   it was refused and not fetched;
 //! - a tiny crate's gate (`cargo test` of a two-file crate) passes;
-//! - a self builder's own command (`Sandbox::builder_view`) keeps one
-//!   directory, its item's build folder, and a second `cargo test` there
-//!   reuses the first's build; nothing else it writes persists, and the
-//!   gate's view neither sees that folder nor builds in it;
+//! - a self builder's own command (`Sandbox::self_view`, as `toolrun::job`
+//!   assembles it) keeps two directories, its item's build folder and its
+//!   own tree, and a second `cargo test` in the folder reuses the first's
+//!   build; nothing else it writes persists, and the gate's view neither sees
+//!   that folder nor builds in it;
 //! - a limit above what the process that starts the job may give (its own hard
 //!   limit, as when the whole suite runs inside a self build's view) is set as
 //!   high as it may be, the job starts, and its record says what it got;
@@ -239,7 +240,8 @@ impl Rig {
     }
 
     /// `argv` as a self builder's own `proc.run` runs it: the builder's view
-    /// over this item's build folder, cargo pointed at it, by the real wrapper.
+    /// over this item's build folder and its own tree (`Sandbox::self_view`),
+    /// cargo pointed at the folder, by the real wrapper.
     /// `id` names the job (one completion each). The job's completion.
     fn run_as_builder(&self, id: &str, argv: &[&str]) -> Value {
         let state = self.place.state.clone();
@@ -261,7 +263,14 @@ impl Rig {
             umask: None,
             redact: vec![],
             output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
-            sandbox: Some(self.sandbox.builder_view(&folder)),
+            sandbox: Some(theseus_core::sandbox::Sandbox::self_view(
+                self.sandbox.job_view(),
+                &theseus_core::sandbox::SelfPlaces {
+                    folder: Some(folder.clone()),
+                    tree: Some(self.tree.dir.clone()),
+                    review: None,
+                },
+            )),
             cgroup: None,
         };
         let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
@@ -769,11 +778,11 @@ fn a_builders_lint_runs_in_its_folder_and_a_warning_fails_it() {
     assert!(said.contains("bool_comparison"), "{said}");
 }
 
-/// What persists is the folder and nothing else: a builder's writes to its tree (a workspace
-/// root, an overlay), HOME and `/tmp` are gone when the command ends, and its build tree for the
-/// gate is not writable from its view at all.
+/// What persists is the folder and the builder's own tree, and nothing else: its writes to HOME and
+/// `/tmp` are gone when the command ends, its build tree for the gate is not writable from its view
+/// at all, and its tree's `.git` file is not writable either.
 #[test]
-fn only_the_builders_folder_persists() {
+fn only_the_builders_folder_and_its_own_tree_persist() {
     if refused_as_root() {
         return;
     }
@@ -781,7 +790,7 @@ fn only_the_builders_folder_persists() {
     let (t, g, f) = (r.tree.dir.clone(), r.tree.target.clone(), r.folder());
     let script = format!(
         "w() {{ if echo x > \"$1\" 2>/dev/null; then echo \"$1 ok\"; else echo \"$1 no\"; fi; }}\n\
-         {{ w {f}/kept; w {t}/lost; w {g}/gates; w $HOME/lost; w /tmp/lost; }} > {f}/results",
+         {{ w {f}/kept; w {t}/kept-in-tree; w {t}/.git; w {g}/gates; w $HOME/lost; w /tmp/lost; }} > {f}/results",
         f = f.display(),
         t = t.display(),
         g = g.display(),
@@ -798,7 +807,21 @@ fn only_the_builders_folder_persists() {
         "the gate's build tree: {results}"
     );
     assert_eq!(r.read("state/self/builder/t/kept"), "x\n");
-    assert!(!t.join("lost").exists(), "the tree is an overlay");
+    assert!(
+        results.contains(&format!("{}/.git no", t.display())),
+        "the tree's .git file: {results}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(t.join("kept-in-tree")).unwrap(),
+        "x\n",
+        "the builder's own tree is bound read-write"
+    );
+    assert!(
+        std::fs::read_to_string(t.join(".git"))
+            .unwrap()
+            .starts_with("gitdir: "),
+        "the .git file is git's"
+    );
     assert!(
         !g.join("gates").exists(),
         "the gate's build tree is not written"

@@ -1,7 +1,8 @@
 //! The view a self builder's `proc.run` runs in: an ordinary L1 job's view
-//! (`Sandbox::job_view`) with one read-write directory added, the item's build
+//! (`Sandbox::job_view`) with a read-write directory added, the item's build
 //! folder (`rsi::builder_dir`), so that what cargo builds there is kept
-//! between commands. Nothing else changes: the same workspace overlays, the
+//! between commands, and one more beside it, the item's own tree, whose `.git`
+//! file stays read-only (`with_own_tree`). Nothing else changes: the same workspace overlays, the
 //! same read-only paths and hidden list (less a mask over a directory that
 //! holds the folder, as in the gate's view), no network beyond the call's own
 //! egress list, the same limits but four ([`BUILDER_OUTPUT_MB`] and the constants beside it), and none of
@@ -9,7 +10,7 @@
 //! (`Sandbox::self_build_view`) never binds this directory, so what a builder
 //! compiled is not there for the gate to read.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use theseus_kernel::job::L1;
 
@@ -70,6 +71,49 @@ impl Sandbox {
         l.scratch_mb = l.scratch_mb.max(BUILDER_SCRATCH_MB);
         l.tmp_mb = l.tmp_mb.max(BUILDER_TMP_MB);
         l.pids = l.pids.max(BUILDER_PIDS);
+        view
+    }
+}
+
+/// What a self session's L1 command is given beyond an L1 job's view, each named by the daemon from
+/// its own record of the session's task (`rsi::own_tree::self_places`), never from a call's input.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SelfPlaces {
+    /// The item's build folder, read-write and kept (`with_builder_folder`).
+    pub folder: Option<PathBuf>,
+    /// The item's own tree, read-write beside the folder, its `.git` file read-only (`with_own_tree`).
+    pub tree: Option<PathBuf>,
+    /// The daemon's checkout of the head a reviewer reads, read-only.
+    pub review: Option<PathBuf>,
+}
+
+impl Sandbox {
+    /// The view a self session's L1 command runs in: `view` with `places` added, as `toolrun::job`
+    /// gives it. The tree is bound only beside a build folder (a builder's).
+    pub fn self_view(view: L1, places: &SelfPlaces) -> L1 {
+        let mut view = match &places.folder {
+            Some(dir) => Self::with_builder_folder(view, dir),
+            None => view,
+        };
+        if let (Some(tree), Some(_)) = (&places.tree, &places.folder) {
+            view = Self::with_own_tree(view, tree);
+        }
+        if let Some(t) = &places.review {
+            view.hidden.retain(|h| !(t != h && t.starts_with(h)));
+            view.ro_paths.push(t.clone());
+        }
+        view
+    }
+
+    /// `view` with `tree` bound read-write and its `.git` file bound read-only over it. The view
+    /// mounts a deeper path after a shallower one (`theseus_sandbox::view`), so the `.git` bind lies
+    /// on the tree's: the file cannot be written, removed, renamed or replaced (a mount point), and
+    /// the tree itself cannot be renamed. The tree's git directory is in the repository, which stays
+    /// an overlay.
+    pub fn with_own_tree(mut view: L1, tree: &Path) -> L1 {
+        view.hidden.retain(|h| !(tree != h && tree.starts_with(h)));
+        view.rw.push(tree.to_path_buf());
+        view.ro_paths.push(tree.join(".git"));
         view
     }
 }

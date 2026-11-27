@@ -426,7 +426,9 @@ impl Dest {
     }
 }
 
-/// `url` without its `user[:password]@` part (a `scheme://` URL; any other form is shown as it is).
+/// `url` without its `user[:password]@` part (a `scheme://` URL; any other form is shown as it is). A credential
+/// anywhere else in a URL (its query, its fragment, a path segment) is not removed here: such a destination is
+/// held before it is shown (`credential_outside_userinfo`).
 pub fn shown_url(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else {
         return url.to_string();
