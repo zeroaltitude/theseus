@@ -432,6 +432,50 @@ async fn the_dry_run_in_a_tree_answers_without_merge_tree() {
     assert_eq!(git(&p.repo, &["worktree", "list"]), trees, "no tree left");
 }
 
+/// The same dry run runs no filter the branch's `.gitattributes` selects: a head whose attributes
+/// select the repo's filter for every path, and whose filter script marks when it runs, merges
+/// clean, and conflicts on one path, and the filter never ran. Every git takes this path when the
+/// call is made directly.
+#[tokio::test]
+async fn the_dry_run_in_a_tree_runs_no_filter_the_branch_selects() {
+    let r = rig(SelfMode::Act);
+    let p = &r.f.place;
+    let mark = p.state.parent().unwrap().join("filter-ran");
+    let script = format!("echo ran >> '{}'\ncat\n", mark.display());
+    let selecting = [
+        (".gitattributes", "* filter=x\n"),
+        ("scripts/f.sh", script.as_str()),
+    ];
+    let (_, clean) = r.seed(
+        "clean",
+        &[&selecting[..], &[("a.txt", "a\n")][..]].concat(),
+        SONNET,
+    );
+    let (_, one) = r.seed("one", &[("same.txt", "one\n")], SONNET);
+    let (_, two) = r.seed(
+        "two",
+        &[&selecting[..], &[("same.txt", "two\n")][..]].concat(),
+        SONNET,
+    );
+    git(&p.repo, &["config", "filter.x.clean", "sh scripts/f.sh"]);
+    let base = git(&p.repo, &["rev-parse", "origin/main"]);
+    let trees = git(&p.repo, &["worktree", "list"]);
+    assert_eq!(
+        super::git::dry_run_in_tree(p, &base, &clean).unwrap(),
+        Ok(())
+    );
+    let why = super::git::dry_run_in_tree(p, &one, &two)
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(why, "it conflicts with main in same.txt");
+    assert!(
+        !mark.exists(),
+        "the filter ran: {:?}",
+        std::fs::read_to_string(&mark)
+    );
+    assert_eq!(git(&p.repo, &["worktree", "list"]), trees, "no tree left");
+}
+
 /// The fix and the test that proves it: fails without `fix.txt`.
 pub(crate) const PROVED: &[(&str, &str)] = &[
     ("fix.txt", "fixed\n"),
