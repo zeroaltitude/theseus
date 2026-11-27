@@ -282,6 +282,28 @@ impl Records {
         Instant::now() + Duration::from_millis(self.skew_ms.load(Ordering::SeqCst))
     }
 
+    /// A new record of sign-in `id` of `kind`, begun now by `user` in `origin`: at its first stage,
+    /// with nothing to agree to, no address and its deadline now; its user sets the rest.
+    pub(crate) fn fresh(
+        &self,
+        kind: &'static str,
+        id: &str,
+        user: u64,
+        origin: DiscordOrigin,
+    ) -> Record {
+        Record {
+            kind,
+            id: id.to_string(),
+            user,
+            target: String::new(),
+            origin,
+            stage: Stage::Begun,
+            needs_agree: false,
+            deadline: self.now(),
+            url: String::new(),
+        }
+    }
+
     /// Move the clock on by `d` (the deadline's tests).
     #[cfg(test)]
     pub(crate) fn advance(&self, d: Duration) {
@@ -385,32 +407,6 @@ impl Records {
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.open().len()
-    }
-}
-
-/// A new record, begun now by `user` in `origin`.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn record(
-    records: &Records,
-    kind: &'static str,
-    id: &str,
-    user: u64,
-    target: &str,
-    origin: DiscordOrigin,
-    needs_agree: bool,
-    lives: Duration,
-    url: &str,
-) -> Record {
-    Record {
-        kind,
-        id: id.to_string(),
-        user,
-        target: target.to_string(),
-        origin,
-        stage: Stage::Begun,
-        needs_agree,
-        deadline: records.now() + lives,
-        url: url.to_string(),
     }
 }
 

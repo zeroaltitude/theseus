@@ -219,17 +219,12 @@ impl Shared {
         else {
             return self.consent_finish(i, WHAT, TOO_LONG, &[]).await;
         };
-        let rec = consent::record(
-            &self.consents,
-            PREFIX,
-            &b.auth_id,
-            user,
-            TARGET,
-            origin,
-            false,
-            Duration::from_secs(b.expires_secs),
-            &b.url,
-        );
+        let rec = consent::Record {
+            target: TARGET.to_string(),
+            deadline: self.consents.now() + Duration::from_secs(b.expires_secs),
+            url: b.url.clone(),
+            ..self.consents.fresh(PREFIX, &b.auth_id, user, origin)
+        };
         self.consents.begin(rec);
         shown.push(address);
         self.consent_pages(i, WHAT, &shown, &consent::paste_button(PREFIX, &b.auth_id))

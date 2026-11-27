@@ -16,17 +16,13 @@ fn dm(user: u64) -> DiscordOrigin {
 }
 
 fn begun(rs: &Records, kind: &'static str, id: &str, needs_agree: bool) {
-    let r = record(
-        rs,
-        kind,
-        id,
-        OWNER,
-        "docs",
-        dm(OWNER),
+    let r = Record {
+        target: "docs".into(),
         needs_agree,
-        Duration::from_secs(600),
-        "https://auth.example.invalid/authorize",
-    );
+        deadline: rs.now() + Duration::from_secs(600),
+        url: "https://auth.example.invalid/authorize".into(),
+        ..rs.fresh(kind, id, OWNER, dm(OWNER))
+    };
     rs.begin(r);
 }
 

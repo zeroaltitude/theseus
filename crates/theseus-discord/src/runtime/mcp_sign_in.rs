@@ -261,17 +261,13 @@ impl Shared {
         };
         let needs_agree = !b.elsewhere.is_empty();
         let lives = Duration::from_secs(b.expires_secs);
-        let rec = consent::record(
-            &self.consents,
-            PREFIX,
-            &b.login_id,
-            user,
-            server,
-            origin,
+        let rec = consent::Record {
+            target: server.to_string(),
             needs_agree,
-            lives,
-            &b.url,
-        );
+            deadline: self.consents.now() + lives,
+            url: b.url.clone(),
+            ..self.consents.fresh(PREFIX, &b.login_id, user, origin)
+        };
         self.consents.begin(rec);
         let controls = if needs_agree {
             row(vec![button(

@@ -120,17 +120,11 @@ impl Shared {
             return;
         };
         let id = format!("{:x}", i.id.get());
-        let rec = consent::record(
-            &self.consents,
-            PREFIX,
-            &id,
-            user,
-            TARGET,
-            origin,
-            false,
-            FORM_FOR,
-            "",
-        );
+        let rec = consent::Record {
+            target: TARGET.to_string(),
+            deadline: self.consents.now() + FORM_FOR,
+            ..self.consents.fresh(PREFIX, &id, user, origin)
+        };
         self.consents.begin(rec);
         self.respond_modal(i, &modal(&id)).await;
     }
