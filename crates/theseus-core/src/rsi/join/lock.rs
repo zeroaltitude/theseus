@@ -27,8 +27,8 @@ pub const ORPHAN: Duration = Duration::from_secs(60);
 /// A held join lock. Released by [`Held::release`]; a drop without one
 /// leaves it held, as a crash would, for the owner to see. A drop after this
 /// daemon's orderly stop has begun (the runtime's end drops a join cut in the
-/// middle) keeps it in [`CUT`] instead, and the stop releases it
-/// ([`release_cut_by_stop`], issue 63).
+/// middle) marks it cut instead, and the stop releases it
+/// ([`release_cut_by_stop_within`], issue 63).
 #[derive(Debug)]
 pub struct Held {
     pub dir: PathBuf,
@@ -36,53 +36,47 @@ pub struct Held {
     pid: u32,
 }
 
-/// The join locks this daemon took and still holds: each one's directory,
-/// holder and pid, from its take to its release or a drop before any stop.
-static CUT: std::sync::Mutex<Vec<(PathBuf, String, u32)>> = std::sync::Mutex::new(Vec::new());
+/// One join lock this daemon took and still holds, from its take until its
+/// release has finished or a drop before any stop: its directory, holder and
+/// pid, and whether its `Held` was dropped once the stop had begun.
+#[derive(Debug, Clone)]
+struct Entry {
+    dir: PathBuf,
+    holder: String,
+    pid: u32,
+    cut: bool,
+}
 
-fn held_list() -> std::sync::MutexGuard<'static, Vec<(PathBuf, String, u32)>> {
-    CUT.lock()
+static HELD: std::sync::Mutex<Vec<Entry>> = std::sync::Mutex::new(Vec::new());
+
+fn held_list() -> std::sync::MutexGuard<'static, Vec<Entry>> {
+    HELD.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl Held {
-    fn key(&self) -> (PathBuf, String, u32) {
-        (self.dir.clone(), self.holder.clone(), self.pid)
+    fn is(&self, e: &Entry) -> bool {
+        e.dir == self.dir && e.holder == self.holder && e.pid == self.pid
     }
 
     fn forget(&self) {
-        let key = self.key();
-        held_list().retain(|k| *k != key);
+        held_list().retain(|e| !self.is(e));
     }
 }
 
 impl Drop for Held {
     fn drop(&mut self) {
-        // Released, or dropped outside a stop: the list forgets it, and a lock
-        // still on disk stays held, as a crash leaves it.
-        if !crate::startup::stop_has_begun() {
+        if crate::startup::stop_has_begun() {
+            // The join was cut by the stop: the stop releases its lock.
+            for e in held_list().iter_mut().filter(|e| self.is(e)) {
+                e.cut = true;
+            }
+        } else {
+            // Released, or dropped outside a stop: the list forgets it, and a
+            // lock still on disk stays held, as a crash leaves it.
             self.forget();
         }
     }
-}
-
-/// At an orderly stop or restart, after the runtime has ended (issue 63): each
-/// join lock this daemon took and still holds is released by the lock's own
-/// release, its holder and pid checked, with a `done:` line saying a stop cut
-/// it, so the next start's join can take it. A lock another holder now owns is
-/// left untouched. How many were released.
-pub fn release_cut_by_stop() -> usize {
-    let cut: Vec<_> = std::mem::take(&mut *held_list());
-    let mut released = 0;
-    for (dir, holder, pid) in cut {
-        let at = dir.display().to_string();
-        match (Held { dir, holder, pid }).release("cut by the daemon's stop") {
-            Ok(()) => released += 1,
-            Err(e) => tracing::warn!(lock = %at, error = %format!("{e:#}"),
-                "stop: a join lock a stop cut could not be released; it stays held"),
-        }
-    }
-    released
 }
 
 /// How long the stop waits for its release of the join locks it cut.
@@ -103,16 +97,106 @@ pub struct StopRelease {
     pub another_holder: usize,
 }
 
-/// The stop's release of the join locks, as [`release_cut_by_stop`] does it, on the calling thread.
-pub fn release_cut_by_stop_within(_bound: Duration) -> Option<StopRelease> {
-    let released = release_cut_by_stop();
-    if released > 0 {
-        tracing::info!(released, "stop: the join lock a stop cut is released");
+/// At an orderly stop or restart, after the runtime has ended (issue 63): each
+/// join lock the stop cut (its `Held` dropped once the stop had begun) is
+/// released by the lock's own release, its holder and pid checked, with a
+/// `done:` line saying a stop cut it, so the next start's join can take it. A
+/// lock whose `Held` is still alive is left held, as a crash leaves it. The
+/// release runs on a thread of its own and is waited for at most `bound`; past
+/// it the stop goes on without it. Each outcome is one warning in fixed words:
+/// no directory and no error text.
+pub fn release_cut_by_stop_within(bound: Duration) -> Option<StopRelease> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let started = std::thread::Builder::new()
+        .name("stop-join-locks".into())
+        .spawn(move || {
+            let _ = tx.send(release_cut());
+        });
+    if started.is_err() {
+        tracing::warn!("stop: the join locks' release could not start; they stay held");
+        return None;
     }
-    Some(StopRelease {
-        released,
-        ..StopRelease::default()
-    })
+    let Ok(r) = rx.recv_timeout(bound) else {
+        say_late(bound);
+        return None;
+    };
+    say(&r);
+    Some(r)
+}
+
+/// The release did not end within its bound, in fixed words.
+fn say_late(bound: Duration) {
+    tracing::warn!(
+        bound_s = bound.as_secs(),
+        "stop: the join locks' release did not end within its bound; the stop goes on, and a lock not yet released stays held"
+    );
+}
+
+/// The stop's release, in fixed words: one line for each outcome there was.
+fn say(r: &StopRelease) {
+    if r.released > 0 {
+        tracing::info!(
+            released = r.released,
+            "stop: the join lock a stop cut is released"
+        );
+    }
+    say_left(r);
+}
+
+/// The locks the stop's release left held, in fixed words: counts and an error's kind, never a directory and
+/// never an error's text.
+fn say_left(r: &StopRelease) {
+    if r.left_held > 0 {
+        tracing::warn!(
+            left = r.left_held,
+            "stop: a join lock whose join had not ended stays held, as a crash leaves it"
+        );
+    }
+    if r.failed > 0 {
+        tracing::warn!(
+            failed = r.failed,
+            kind = ?r.kind,
+            "stop: a join lock the stop cut could not be released; it stays held"
+        );
+    }
+}
+
+/// The release itself, on the calling thread: the cut locks, once the orderly
+/// stop has begun; nothing before it.
+fn release_cut() -> StopRelease {
+    let mut out = StopRelease::default();
+    if !crate::startup::stop_has_begun() {
+        return out;
+    }
+    let cut: Vec<Entry> = {
+        let list = held_list();
+        out.left_held = list.iter().filter(|e| !e.cut).count();
+        list.iter().filter(|e| e.cut).cloned().collect()
+    };
+    for e in cut {
+        let held = Held {
+            dir: e.dir,
+            holder: e.holder,
+            pid: e.pid,
+        };
+        match held.release("cut by the daemon's stop") {
+            Ok(()) => out.released += 1,
+            Err(err) => match err.downcast_ref::<std::io::Error>() {
+                Some(io) => {
+                    out.failed += 1;
+                    out.kind.get_or_insert(io.kind());
+                }
+                None => out.another_holder += 1,
+            },
+        }
+    }
+    out
+}
+
+/// How many cut locks the stop's release released (the round-1 tests' look).
+#[cfg(test)]
+pub fn release_cut_by_stop() -> usize {
+    release_cut().released
 }
 
 /// Why the lock was not taken.
@@ -169,7 +253,12 @@ pub fn try_take(dir: &Path, holder: &str) -> Result<Result<Held, Busy>> {
                     holder: holder.into(),
                     pid: std::process::id(),
                 };
-                held_list().push(held.key());
+                held_list().push(Entry {
+                    dir: held.dir.clone(),
+                    holder: held.holder.clone(),
+                    pid: held.pid,
+                    cut: false,
+                });
                 return Ok(Ok(held));
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -231,7 +320,13 @@ impl Held {
     }
 
     fn release_with(self, done: &str, after_done: impl FnOnce()) -> Result<()> {
+        let r = self.release_on_disk(done, after_done);
+        // The list forgets it once its release has finished, whatever came of it.
         self.forget();
+        r
+    }
+
+    fn release_on_disk(&self, done: &str, after_done: impl FnOnce()) -> Result<()> {
         let _door = DOOR
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
