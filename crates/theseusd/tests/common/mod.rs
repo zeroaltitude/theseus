@@ -339,6 +339,60 @@ impl Served {
     }
 }
 
+/// Every live descendant of `pid`, as `/proc` says: each one's pid and its `comm`. A zombie is not one.
+pub fn descendants(pid: u32) -> Vec<(u32, String)> {
+    let mut all = Vec::new();
+    for e in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+        let Some(p) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{p}/stat")) else {
+            continue;
+        };
+        // `pid (comm) state ppid ...`: the comm can hold spaces and parentheses.
+        let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else {
+            continue;
+        };
+        let comm = stat[open + 1..close].to_string();
+        let mut rest = stat[close + 1..].split_whitespace();
+        let (state, ppid) = (rest.next(), rest.next().and_then(|v| v.parse::<u32>().ok()));
+        if let (Some(state), Some(ppid)) = (state, ppid) {
+            if state != "Z" && state != "X" {
+                all.push((p, ppid, comm));
+            }
+        }
+    }
+    let mut out: Vec<(u32, String)> = Vec::new();
+    let mut parents = vec![pid];
+    while let Some(parent) = parents.pop() {
+        for (p, ppid, comm) in &all {
+            if *ppid == parent && !out.iter().any(|(q, _)| q == p) {
+                out.push((*p, comm.clone()));
+                parents.push(*p);
+            }
+        }
+    }
+    out
+}
+
+/// Whether `pid` is alive and not a zombie.
+pub fn alive(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| {
+        s.rfind(')')
+            .and_then(|i| s[i + 1..].split_whitespace().next())
+            .is_some_and(|st| st != "Z" && st != "X")
+    })
+}
+
+/// Whether process `pid` holds a descriptor open on `path`.
+pub fn holds_open(pid: u32, path: &Path) -> bool {
+    std::fs::read_dir(format!("/proc/{pid}/fd"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| std::fs::read_link(e.path()).is_ok_and(|l| l == path))
+}
+
 pub mod fixture;
 pub use fixture::Fixture;
 pub mod model;

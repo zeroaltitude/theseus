@@ -732,3 +732,69 @@ fn a_stdio_restart_in_place_keeps_every_line_whole() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+
+/// A restart in place ends a self build that would not end by itself (issue 63), as a stop does: a self build's
+/// command started through the gate's own launcher (the debug build's plant, `THESEUS_TEST_SELF_JOB`) runs for an
+/// hour, and the restart onto the vault's changed note comes within seconds of the vault's answer, not an hour.
+/// After it, the same process holds nothing of the cut build: its job's processes are gone and its log is closed.
+/// The next image starts the plant again, and its stop ends that one too. `stop_job.rs` holds the stop.
+#[test]
+fn a_restart_in_place_ends_a_self_build_that_would_not_end_by_itself() {
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipped: L1 refuses a root daemon's jobs (theseus-pv6i); run as an ordinary user");
+        return;
+    }
+    const JOB: (&str, &str) = ("THESEUS_TEST_SELF_JOB", "exec sleep 3600");
+    let r = Rig::new();
+    r.restart_ahead(false);
+    std::fs::write(r.path("hold-read"), "").unwrap();
+    let mut d = Daemon::spawn(
+        r.command().envs([JOB]).stdout(Stdio::null()).stderr(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(r.path("theseusd.log"))
+                .unwrap(),
+        ),
+    );
+    let pid = d.id();
+    let t0 = Instant::now();
+    let job = loop {
+        let sleeps: Vec<u32> = common::descendants(pid)
+            .into_iter()
+            .filter(|(_, c)| c == "sleep")
+            .map(|(p, _)| p)
+            .collect();
+        if !sleeps.is_empty() {
+            break sleeps;
+        }
+        if let Some(status) = d.try_wait() {
+            panic!("theseusd exited ({status}) before the job ran:\n{}", r.log());
+        }
+        assert!(t0.elapsed() < Duration::from_secs(30), "the planted self job never ran:\n{}", r.log());
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let dir = r.path("state").join("planted-self-job");
+    let logs: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "log"))
+        .collect();
+    assert_eq!(logs.len(), 1, "one gate log: {logs:?}");
+    // The vault answers: the daemon restarts onto its note.
+    std::fs::remove_file(r.path("hold-read")).unwrap();
+    let h = r.until(&mut d, "the restart", |h| {
+        !h["config"]["restarted"].is_null()
+    });
+    assert!(!h["config"]["restarted"].is_null());
+    assert_eq!(d.id(), pid, "the restart is in place");
+    for p in &job {
+        assert!(!common::alive(*p), "the cut build's sleep {p} outlived the restart");
+    }
+    assert!(
+        !common::holds_open(pid, &logs[0]),
+        "the restarted daemon still holds the cut build's log open"
+    );
+    r.stop(d);
+}

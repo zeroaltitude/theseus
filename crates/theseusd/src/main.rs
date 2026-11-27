@@ -40,6 +40,7 @@ mod install;
 mod logq;
 mod mcp;
 mod stdio;
+mod stop_wait;
 mod systemd;
 mod web;
 
@@ -791,6 +792,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
 
     // Only the socket daemon binds Discord, never `--stdio`: one gateway
     // connection per state dir, whose bindings file names its places.
+    stop_wait::planted_self_job(&core, &state_dir);
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path), state_dir, mode);
     stdio::planted_hold(&core);
     stdio::planted_thread_hold(&core);
