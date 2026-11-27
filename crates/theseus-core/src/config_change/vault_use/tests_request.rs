@@ -428,7 +428,7 @@ async fn the_value_is_in_no_exit_when_the_answer_echoes_it() {
     } = o;
     let r = r.restart(|_, _| {});
     r.core.tools.look.set_vault(Arc::new(stub(&vault, "ok")));
-    r.core.hold_vault_used();
+    r.core.hold_vault_used().await;
     assert!(
         !r.core
             .secrets

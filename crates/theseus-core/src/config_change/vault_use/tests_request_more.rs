@@ -213,7 +213,7 @@ async fn a_restart_while_out_is_unknown_and_not_sent_again() {
     } = o;
     let r = r.restart(|_, _| {});
     r.core.tools.look.set_vault(Arc::new(stub(&vault, "ok")));
-    r.core.hold_vault_used();
+    r.core.hold_vault_used().await;
     r.run_turn(&sid).await;
     let (status, text, _, external) = node_of(&r, &sid, "p1");
     assert_eq!(status, ResultStatus::Unknown, "{text}");

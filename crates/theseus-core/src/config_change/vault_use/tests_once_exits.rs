@@ -59,7 +59,7 @@ fn rig(body: &str) -> Once {
 
 /// The daemon stopped and started on the same store, its vault the stub in `mode`, and its
 /// start's step for the items the run form gave.
-fn restarted(o: Once, mode: &str) -> Once {
+async fn restarted(o: Once, mode: &str) -> Once {
     let Once {
         r,
         vault,
@@ -70,7 +70,7 @@ fn restarted(o: Once, mode: &str) -> Once {
     let at = work.clone();
     let r = r.restart(move |c, _| settings(c, &at, OutsideMode::default(), &quick));
     r.core.tools.look.set_vault(Arc::new(stub(&vault, mode)));
-    r.core.hold_vault_used();
+    r.core.hold_vault_used().await;
     r.owner_types();
     Once {
         r,
@@ -144,7 +144,7 @@ async fn a_read_of_a_running_job_leaves_masked_before_and_after_a_restart() {
     a_word(&o.r, &sid).await;
     clean(&o.r, &sid, "before a restart");
     ran(&o, 1).await;
-    let o = restarted(o, "ok");
+    let o = restarted(o, "ok").await;
     a_word(&o.r, &sid).await;
     assert!(!o.r.sent().is_empty());
     clean(&o.r, &sid, "after a restart");
@@ -169,7 +169,7 @@ async fn an_earlier_steps_output_leaves_masked_before_and_after_a_restart() {
     assert_eq!(counted(&o), [VALUE.len().to_string()], "the step had it");
     a_word(&o.r, &sid).await;
     clean(&o.r, &sid, "before a restart");
-    let o = restarted(o, "ok");
+    let o = restarted(o, "ok").await;
     a_word(&o.r, &sid).await;
     clean(&o.r, &sid, "after a restart");
 }
@@ -220,7 +220,7 @@ async fn a_capped_outputs_kept_file_leaves_masked_after_a_restart() {
         });
     });
     r.core.tools.look.set_vault(Arc::new(stub(&vault, "ok")));
-    r.core.hold_vault_used();
+    r.core.hold_vault_used().await;
     r.owner_types();
     r.steps(
         &sid,
@@ -250,7 +250,7 @@ async fn a_result_built_after_a_restart_leaves_masked() {
         if done_first {
             ran(&o, 1).await;
         }
-        let o = restarted(o, "ok");
+        let o = restarted(o, "ok").await;
         ran(&o, 1).await;
         a_word(&o.r, &sid).await;
         let read =
@@ -282,7 +282,7 @@ async fn an_item_that_cannot_be_read_at_a_start_is_passed_over() {
     .await;
     // The start's own reads, apart from the run's.
     std::fs::remove_file(o.vault.join("op.argv")).unwrap();
-    let o = restarted(o, "fail-read");
+    let o = restarted(o, "fail-read").await;
     a_word(&o.r, &sid).await;
     assert!(!o.r.sent().is_empty(), "the turn ran");
     assert!(o.r.core.secrets.is_settled(), "nothing is left resolving");
@@ -325,4 +325,88 @@ async fn a_value_too_short_to_mask_is_not_given() {
     assert_eq!(counted(&o), ["0"]);
     let none: Option<Value> = o.r.core.store.get_meta(used::KEY).unwrap();
     assert!(none.is_none(), "nothing remembered: {none:?}");
+}
+
+/// H1: a start whose vault answers slowly holds the remembered item before it serves: an old post
+/// holding the value, sent again by the courier (`Exits::text`) or read by a guarded push (the
+/// board's scrubber), leaves masked at once, with no turn first.
+#[tokio::test]
+async fn the_start_holds_the_items_before_the_courier_or_the_push_send() {
+    let o = rig(super::tests_once::COUNTS);
+    let sid = o.r.session();
+    o.r.steps(
+        &sid,
+        vec![("vault_use", run_call("./call_lantern.sh")), script_run()],
+    )
+    .await;
+    let old = format!("the script said token={VALUE}");
+    let o = restarted(o, "slow").await;
+    let courier = o.r.core.exits.text(&old).0.into_owned();
+    let push = crate::scrub::Scrubber::from_board(o.r.core.secrets.clone())
+        .scrub(&old)
+        .0;
+    assert!(!courier.contains(VALUE), "the courier's copy: {courier}");
+    assert!(!push.contains(VALUE), "the push's copy: {push}");
+}
+
+/// H1: a record of the items that cannot be decoded is not an empty list: the start holds nothing
+/// from it, a later run form is not given, and the record is left as it was.
+#[tokio::test]
+async fn a_record_that_cannot_be_read_holds_nothing_and_is_not_replaced() {
+    let o = rig(super::tests_once::COUNTS);
+    let r = &o.r;
+    r.core
+        .store
+        .put_meta(used::KEY, &json!({"not": "a list"}))
+        .unwrap();
+    let before: Value = r.core.store.get_meta(used::KEY).unwrap().unwrap();
+    r.core.hold_vault_used().await;
+    let used_on_board = r
+        .core
+        .secrets
+        .states()
+        .keys()
+        .any(|k| k.starts_with(used::HANDLE));
+    assert!(!used_on_board, "nothing held from it");
+    let sid = r.session();
+    r.steps(
+        &sid,
+        vec![("vault_use", run_call("./call_lantern.sh")), script_run()],
+    )
+    .await;
+    let (status, text) = r.result_of(&sid, "p1");
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("could not note"), "{text}");
+    assert!(held(r).is_empty());
+    assert_eq!(counted(&o), ["0"]);
+    let after: Value = r.core.store.get_meta(used::KEY).unwrap().unwrap();
+    assert_eq!(after, before, "the record is not replaced");
+}
+
+/// H1: an item whose read fails once at a start is tried again in the background, and held.
+#[tokio::test]
+async fn a_read_that_fails_once_is_held_after_the_retry() {
+    let o = rig(super::tests_once::COUNTS);
+    let sid = o.r.session();
+    o.r.steps(
+        &sid,
+        vec![("vault_use", run_call("./call_lantern.sh")), script_run()],
+    )
+    .await;
+    let o = restarted(o, "fail-read-once").await;
+    let first = format!("{}0", used::HANDLE);
+    for _ in 0..60 {
+        if o.r.core.secrets.get(&first).is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        o.r.core.secrets.get(&first).is_some(),
+        "held after the retry"
+    );
+    assert!(
+        o.vault.join("read-failed-once").exists(),
+        "the first read failed"
+    );
 }

@@ -183,7 +183,9 @@ fn outside_since_owners_message(
 /// a task's report, any other note the harness relays, a later continuation (a job that ended)
 /// and a job's or an agent's submission are not. A session whose history cannot be read is not.
 fn begun_by_owner(tc: &TurnCtx<'_>) -> bool {
-    if !tc.sink.owner {
+    // An identified agent's submission through the command line or the web is not the owner's
+    // typing, though the place rule lets it be his input (`EventSink::agent`).
+    if !tc.sink.owner || tc.sink.agent.is_some() {
         return false;
     }
     let Ok(nodes) = tc.store.session_nodes(tc.session_id) else {
@@ -212,25 +214,30 @@ fn began(nodes: &[(u64, crate::node::Node)]) -> Option<&crate::node::Node> {
     })
 }
 
-/// A turn of `session` ended: its one-run grants end too, except one whose program a run waiting
-/// on the owner's answer names (a `proc.run` the gate asked about), which the continuation his
-/// answer begins may still take.
+/// A turn of `session` ended: its one-run grants end too, except one whose program's file a run
+/// waiting on the owner's answer names (a `proc.run` the gate asked about), as its spawn will
+/// match it, which the continuation his answer begins may still take.
 pub(crate) fn turn_ended(rt: &ToolRuntime, kernel: &theseus_kernel::Kernel, session: &str) {
     if !rt.broker.has_once(session) {
         return;
     }
-    let waiting: Vec<String> = kernel
+    // Each waiting run's file, found as its spawn will find it: `argv[0]` in the call's working
+    // directory (the gate's, joined with the call's own `cwd`), on the job's PATH.
+    let waiting: Vec<PathBuf> = kernel
         .pending_confirms()
         .unwrap_or_default()
         .into_iter()
         .filter(|a| a.session_id == session && a.tool == "proc.run")
         .filter_map(|a| {
-            let first = a.proposal?.args.pointer("/argv/0")?.as_str()?.to_string();
-            let name = std::path::Path::new(&first)
-                .file_name()?
-                .to_str()?
-                .to_string();
-            Some(name)
+            let p = a.proposal?;
+            let first = p.args.pointer("/argv/0")?.as_str()?.to_string();
+            let base = PathBuf::from(p.policy_context["cwd"].as_str()?);
+            let cwd = p
+                .args
+                .get("cwd")
+                .and_then(Value::as_str)
+                .map_or(base.clone(), |c| base.join(c));
+            rt.broker.once_file_of(&first, &cwd, rt.proc_path())
         })
         .collect();
     rt.broker.once_keep_only(session, &waiting);
@@ -408,8 +415,9 @@ pub(super) async fn run(
         ),
         "The grant ends with that run or with the turn, and nothing was written to the settings. \
          Theseus remembers which items it has used this way, by name only, and reads them again at \
-         each start so that it keeps masking their values; the next use reads the vault again. To \
-         stop it being used at all, take the item out of what Theseus's vault account can see.",
+         each start so that it keeps masking their current values (a value an item held before it \
+         was changed in the vault is not known to it); the next use reads the vault again. To stop \
+         it being used at all, take the item out of what Theseus's vault account can see.",
     );
     crate::config_change::hold::tell_owner(tc, &note, USE);
     Ok((

@@ -680,7 +680,7 @@ impl ToolRuntime {
     }
 
     /// The daemon's PATH, as every job gets it unless the call sets its own.
-    fn proc_path(&self) -> Option<&str> {
+    pub(crate) fn proc_path(&self) -> Option<&str> {
         self.proc_env
             .iter()
             .find(|(k, _)| k == "PATH")
