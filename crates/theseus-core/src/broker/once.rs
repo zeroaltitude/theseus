@@ -104,6 +104,12 @@ impl Broker {
         live.push(g);
     }
 
+    /// Hold `value` on the board under `handle`, as a run form's is: from now every exit masks it
+    /// (`http.request`, issue 65).
+    pub fn hold(&self, handle: &str, value: Secret) {
+        self.board.hold(handle, value);
+    }
+
     /// The file a run form's `program` names: a bare name on the daemon's PATH, as a configured
     /// grant's is; a path with a `/` relative to `cwd`. Canonical, and an executable file.
     pub fn resolve_once(&self, program: &str, cwd: &Path) -> Option<PathBuf> {

@@ -140,6 +140,10 @@ pub(crate) fn ask_or_tell(
     input: &Value,
     plan: Plan,
 ) -> Plan {
+    // A request with a key from the vault asks as the run form does, at both settings (issue 65).
+    if name == crate::web::request::REQUEST {
+        return super::vault_use::request::ask_first(tc, input, plan);
+    }
     if !QUIET.contains(&name) {
         return plan;
     }

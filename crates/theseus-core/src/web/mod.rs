@@ -1,4 +1,5 @@
-//! The web tools (DD5, spec §3.24): `http.fetch` and `web.search`.
+//! The web tools (DD5, spec §3.24): `http.fetch` and `web.search`; and `http.request` (issue 65),
+//! a request with a key from the vault, which the harness runs (`request.rs`).
 //!
 //! They wait on the network, so they are async tools on the workspace's
 //! reqwest (`Backend::Async`): a call is a future on the daemon's runtime and
@@ -21,6 +22,7 @@ use crate::scrub::{safe, Cuts, Scrubber};
 pub mod fetch;
 pub mod html;
 pub mod net;
+pub mod request;
 pub mod search;
 
 /// The web tools' names, for the config's check of `[policy.tools]`.

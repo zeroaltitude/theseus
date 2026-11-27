@@ -143,7 +143,7 @@ fn held(r: &Rig) -> Vec<String> {
 /// Every exit the value could reach: each node and ledger row of `sid`, every request the
 /// model was sent, every note and notice to the owner, every question, the board's status and
 /// the broker's.
-fn exits(r: &Rig, sid: &str) -> String {
+pub(super) fn exits(r: &Rig, sid: &str) -> String {
     let requests: Vec<String> = r
         .sent()
         .iter()

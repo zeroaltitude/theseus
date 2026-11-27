@@ -1923,6 +1923,7 @@ impl Config {
         let core_tools = || {
             crate::web::NAMES
                 .into_iter()
+                .chain(crate::web::request::NAMES)
                 .chain(crate::task::NAMES)
                 .chain(crate::task_graph::tools::NAMES)
                 .chain(crate::task_graph::ask::NAMES)

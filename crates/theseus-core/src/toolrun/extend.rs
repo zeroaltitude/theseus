@@ -41,6 +41,17 @@ impl ToolRuntime {
             crate::config_change::vault_keep::KEEP => {
                 crate::config_change::vault_keep::run(self, tc, &call.input, correlation_id).await
             }
+            // A request with a key from the vault: the daemon reads it and sends it (issue 65).
+            crate::web::request::REQUEST => {
+                crate::config_change::vault_use::request::run(
+                    self,
+                    tc,
+                    tool,
+                    &call.input,
+                    correlation_id,
+                )
+                .await
+            }
             _ => crate::extend::propose(self, tc, &call.input, correlation_id).await,
         };
         // A trial a cancel or a stop aborted (18a): the cancel settles the

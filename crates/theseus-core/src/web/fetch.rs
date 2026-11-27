@@ -132,7 +132,7 @@ struct Got {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
+pub(super) enum Kind {
     Html,
     Text,
     /// A PDF, read as `fs.read` reads one (theseus-c9l6).
@@ -142,7 +142,7 @@ enum Kind {
 
 /// How a body is read, from its type: `text/html` as a page, `text/*`, JSON,
 /// and XML as they are. With no type, from its first bytes.
-fn kind(mime: &str, body: &[u8]) -> Kind {
+pub(super) fn kind(mime: &str, body: &[u8]) -> Kind {
     match mime {
         "text/html" | "application/xhtml+xml" => Kind::Html,
         "application/pdf" => Kind::Pdf,

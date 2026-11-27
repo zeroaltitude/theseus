@@ -90,13 +90,24 @@ pub(super) fn plan(input: &Value) -> Result<Plan, String> {
 
 /// The gate's hold on the run form, at both `outside` settings: outside text since the owner's
 /// last message, the session's flag, or a turn the owner's own message did not begin.
-pub(crate) fn ask_first(tc: &TurnCtx<'_>, mut plan: Plan) -> Plan {
-    let (outside, steered) = crate::config_change::outside_text(tc);
+pub(crate) fn ask_first(tc: &TurnCtx<'_>, plan: Plan) -> Plan {
+    ask_first_for(tc, WHAT, &|_| false, plan)
+}
+
+/// [`ask_first`] for the call that asks to do `what`, with the results `skip` names not counted
+/// as outside text (`http.request`'s earlier answers from the same host with the same item).
+pub(crate) fn ask_first_for(
+    tc: &TurnCtx<'_>,
+    what: &str,
+    skip: &dyn Fn(&crate::node::Node) -> bool,
+    mut plan: Plan,
+) -> Plan {
+    let (outside, steered) = crate::config_change::outside_text_but(tc, skip);
     let way = crate::config_change::flag_way(tc);
-    if let Some(said) = crate::config_change::hold_words(WHAT, outside, steered, &way) {
+    if let Some(said) = crate::config_change::hold_words(what, outside, steered, &way) {
         plan.authority = Some(said);
     } else if !begun_by_owner(tc) {
-        plan.authority = Some(format!("{WHAT}: {NOT_BEGUN}"));
+        plan.authority = Some(format!("{what}: {NOT_BEGUN}"));
     }
     plan
 }
@@ -276,7 +287,7 @@ pub(super) async fn run(
 /// reads is read from (in the settings running or as written, or the settings note's), or its
 /// value is one such name holds now. A name only a program's grant or an attached server's
 /// variable reads is not Theseus's own.
-fn runs_on(rt: &ToolRuntime, read: &Read) -> Result<bool, String> {
+pub(super) fn runs_on(rt: &ToolRuntime, read: &Read) -> Result<bool, String> {
     let Some(core) = rt.jobs.core() else {
         return Err(
             "Theseus cannot read its own settings now, so it cannot tell whether \
