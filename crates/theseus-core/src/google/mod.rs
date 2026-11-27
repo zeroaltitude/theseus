@@ -35,6 +35,7 @@ use crate::config::GoogleConfig;
 use crate::secrets::{Secret, SecretBoard, Waited};
 
 pub mod auth;
+pub mod begin;
 pub mod calendar;
 pub mod calendar_cache;
 pub mod call;

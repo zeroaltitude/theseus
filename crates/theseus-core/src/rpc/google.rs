@@ -18,6 +18,7 @@ use theseus_protocol::google::{
 
 use super::server::{Conn, RpcFailure};
 use crate::approval::Surface;
+use crate::google::begin::BeginKind;
 use crate::google::Google;
 
 /// What a press from Discord is told when it is not the owner's own, in a private place: fixed
@@ -132,11 +133,17 @@ impl crate::Core {
             p.author.clone(),
             p.discord.clone(),
         )?;
+        // A Discord press is told the kind alone (issue 62); one warning line, the kind alone.
         let surface = conn.surface;
-        self.google()?
-            .auth_begin(p.manual)
+        let failed = |code, words: String, client: &str| {
+            let kind = BeginKind::of_words(&words, client);
+            tracing::warn!(?kind, "Google's consent could not begin");
+            RpcFailure::new(code, kind.said_to(surface, words))
+        };
+        let g = self.google().map_err(|f| failed(f.code, f.message, ""))?;
+        g.auth_begin(p.manual)
             .await
-            .map_err(|e| RpcFailure::new(error_code::INTERNAL, failure_for(surface, e)))
+            .map_err(|e| failed(error_code::INTERNAL, e, &g.cfg.credentials.client))
     }
 
     pub(super) async fn google_auth_finish(

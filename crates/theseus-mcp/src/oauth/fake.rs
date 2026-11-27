@@ -111,6 +111,8 @@ pub struct AuthConfig {
     /// Its authorization, token, registration and revocation endpoints are
     /// all at this other base (which serves them as the fake does).
     pub endpoints_at: Option<String>,
+    /// Registration answers with this status, and no client.
+    pub register_status: Option<u16>,
 }
 
 impl Default for AuthConfig {
@@ -146,6 +148,7 @@ impl Default for AuthConfig {
             client_id_is_secret: false,
             client_id_alias: None,
             endpoints_at: None,
+            register_status: None,
         }
     }
 }
@@ -508,6 +511,13 @@ impl FakeAuth {
             return (400, vec![], Some(json!({"error": "invalid_redirect_uri"})));
         }
         let cfg = self.config();
+        if let Some(status) = cfg.register_status {
+            return (
+                status,
+                vec![],
+                Some(json!({"error": "invalid_client_metadata"})),
+            );
+        }
         let secret = match &cfg.client_secret_is {
             Some(v) => Some(self.seen_value(v)),
             None => (cfg.client_secret || cfg.client_id_is_secret).then(|| self.mint("cs")),
