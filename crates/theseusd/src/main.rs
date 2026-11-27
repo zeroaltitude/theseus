@@ -40,6 +40,7 @@ mod install;
 mod logq;
 mod mcp;
 mod stdio;
+mod stop_wait;
 mod systemd;
 mod web;
 
@@ -315,7 +316,7 @@ fn run() -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let exit = rt.block_on(daemon(cli, lookup, origin, sd))?;
+    let exit = rt.block_on(daemon(cli, lookup, origin, sd));
     // The clean shutdown path has run, for a stop and a restart in place
     // alike (theseus-jo7f). The runtime's tasks go, and with them the store,
     // which closes (redb's close, logged by the index): each timed
@@ -325,8 +326,12 @@ fn run() -> Result<()> {
     // restart used to shut the runtime down with a 500 ms bound instead: a
     // task that held the core past it kept the store open into the exec,
     // the stop's last checkpoint was lost, and the next image replayed the
-    // run.
-    drop(rt);
+    // run. A run of the daemon's own in L1 on the blocking pool (a self
+    // build's gate) is ended once the tasks are gone, and the pool is waited
+    // for at most `stop_wait::BOUND` (issue 63): the drop waited for it with
+    // no bound.
+    // An error ends the runtime through the same bounded end, then is returned.
+    let exit = stop_wait::end_runtime(rt, exit)?;
     stop_phase("runtime dropped");
     // A thread outside the runtime that upgrades a `Weak` to the core for a
     // unit of work can be mid-unit now, and holds the store until the unit
@@ -794,6 +799,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
 
     // Only the socket daemon binds Discord, never `--stdio`: one gateway
     // connection per state dir, whose bindings file names its places.
+    stop_wait::planted_self_job(&core, &state_dir).await;
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path), state_dir, mode);
     stdio::planted_hold(&core);
     stdio::planted_thread_hold(&core);

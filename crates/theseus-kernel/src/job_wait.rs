@@ -85,28 +85,27 @@ pub(crate) fn pidfd(pid: u32) -> Option<OwnedFd> {
     (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd as i32) })
 }
 
-/// Sleep until `pidfd`'s process has exited, the wake pipe holds a byte, or
-/// `timeout` has passed, then empty the pipe: the caller looks at what woke
-/// it. A signal that interrupts the poll returns too.
+/// Sleep until `pidfd`'s process has exited, the wake pipe holds a byte, the
+/// daemon's stop has asked its own runs to end (`own_runs`), or `timeout` has
+/// passed, then empty the wake pipe: the caller looks at what woke it. A
+/// signal that interrupts the poll returns too.
 pub(crate) fn wait(pidfd: BorrowedFd<'_>, timeout: Duration) {
     let wake = READ.load(Ordering::SeqCst);
+    let poll = |fd: i32| libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // A descriptor below zero is not polled, and its `revents` stay 0.
     let mut fds = [
-        libc::pollfd {
-            fd: pidfd.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        },
-        libc::pollfd {
-            fd: wake,
-            events: libc::POLLIN,
-            revents: 0,
-        },
+        poll(pidfd.as_raw_fd()),
+        poll(wake),
+        poll(crate::own_runs::wake_fd().unwrap_or(-1)),
     ];
-    let n = if wake >= 0 { 2 } else { 1 };
     // Rounded up, so a wait short of a millisecond sleeps instead of spinning.
     let ms = timeout.as_micros().div_ceil(1000).min(i32::MAX as u128) as libc::c_int;
-    // SAFETY: poll over the `n` descriptors above, alive for the call.
-    unsafe { libc::poll(fds.as_mut_ptr(), n, ms) };
+    // SAFETY: poll over the three entries above, each descriptor alive for the call or negative.
+    unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, ms) };
     if wake >= 0 && fds[1].revents != 0 {
         let mut buf = [0u8; 64];
         // SAFETY: reads from the nonblocking pipe until it is empty.

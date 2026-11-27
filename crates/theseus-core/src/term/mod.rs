@@ -595,19 +595,56 @@ impl crate::rpc::Core {
     }
 
     /// At the daemon's stop: every terminal closed, off the runtime's
-    /// workers, each recorded in its own session.
+    /// workers, each recorded in its own session. The wait is bounded
+    /// ([`STOP_CLOSE_BOUND`], issue 63): a close that has not returned by then
+    /// (a program stuck in the kernel, which its reap waits for) is left to
+    /// the runtime's end, said in one warning, and the stop goes on.
     pub async fn close_terminals(&self) {
         let terms = self.tools.terms.clone();
-        if terms.all().is_empty() {
+        let hold = planted_close_hold();
+        if terms.all().is_empty() && hold.is_none() {
             return;
         }
-        let closed = tokio::task::spawn_blocking(move || terms.close_where(BY_DAEMON, |_| true))
-            .await
-            .unwrap_or_default();
+        let open = terms.all().len();
+        let closing = tokio::task::spawn_blocking(move || {
+            if let Some(h) = hold {
+                std::thread::sleep(h);
+            }
+            terms.close_where(BY_DAEMON, |_| true)
+        });
+        let closed = match tokio::time::timeout(STOP_CLOSE_BOUND, closing).await {
+            Ok(closed) => closed.unwrap_or_default(),
+            Err(_) => {
+                tracing::warn!(
+                    terminals = open,
+                    bound_s = STOP_CLOSE_BOUND.as_secs(),
+                    "stop: the terminals' close did not return within its bound; the stop goes on, and they are not recorded as closed"
+                );
+                return;
+            }
+        };
         for c in &closed {
             record_closed(&self.session_rec(&c.session), c);
         }
     }
+}
+
+/// The longest the daemon's stop waits for its terminals' close: the close's
+/// own grace and kill rounds take a few seconds at most.
+pub const STOP_CLOSE_BOUND: Duration = Duration::from_secs(10);
+
+/// A test's plant (a debug build's `THESEUS_TEST_HOLD_TERMINAL_CLOSE_MS`): the
+/// stop's terminal close is held that long first, as a close whose program
+/// will not be reaped holds it. A release build has no plant.
+fn planted_close_hold() -> Option<Duration> {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("THESEUS_TEST_HOLD_TERMINAL_CLOSE_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return Some(Duration::from_millis(ms));
+    }
+    None
 }
 
 /// A close's facts: its `term.closed`, and its `term.left` when it left

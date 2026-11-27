@@ -959,7 +959,7 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
         }));
     }
     let status = match p.jail()? {
-        Some(j) => jailed(j, p, tree, &script, &log, benches).await?,
+        Some(j) => jailed(j, p, tree, &script, &log, benches).await,
         None => {
             run_niced(
                 p,
@@ -969,9 +969,17 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
                 Bound::Silence(GATE_SILENCE),
                 benches,
             )
-            .await?
+            .await
         }
     };
+    // A gate whose run ended while the daemon's stop asked its own runs to end
+    // is no verdict: the item is taken up again, never failed (issue 63).
+    if theseus_kernel::own_runs::stopping() {
+        return Ok(Gated::Stopped(
+            "the daemon's stop ended the gate's run".to_string(),
+        ));
+    }
+    let status = status?;
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     let verdict = if status == Some(0) {
         Verdict::Green
