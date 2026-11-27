@@ -272,7 +272,8 @@ async fn no_registration_and_no_client_id_and_then_a_client_id_begins() {
 
 /// What an issuer wrote in its metadata is in no answer the press is given, no card, no log line,
 /// no row and no request a turn makes; the press learns the kind, and the turn learns nothing of
-/// the sign-in.
+/// the sign-in. And a sentence that carries what an issuer chose (its registration's status): the
+/// CLI prints it, and no answer to the press, exit or log line holds it.
 #[tokio::test]
 async fn what_an_issuer_wrote_is_in_no_exit() {
     let (buf, _guard) = capture();
@@ -315,6 +316,35 @@ async fn what_an_issuer_wrote_is_in_no_exit() {
         sent.iter().all(|s| !s.contains("could not begin")),
         "a turn sees the sign-in"
     );
+    // A failure whose sentence carries what the issuer chose (its status): the CLI prints it, and
+    // the press's answer, the exits and the log hold none of it.
+    let r = owned(
+        AuthConfig {
+            register_status: Some(547),
+            ..AuthConfig::default()
+        },
+        McpOauth::default(),
+        |_| {},
+    )
+    .await;
+    let sid = session(&r.core, None);
+    let chosen = "HTTP 547";
+    let pressed = begin(&r, "docs", Some(presser(OWNER, true))).await;
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    let exits = all_exits(&r, &sid, &log).await;
+    for text in [pressed.to_string(), exits] {
+        assert!(
+            !text.contains(chosen),
+            "what the issuer chose is in an exit"
+        );
+    }
+    assert_eq!(
+        message(&pressed),
+        BeginKind::Registration.marker(),
+        "{pressed}"
+    );
+    let cli = begin(&r, "docs", None).await;
+    assert!(message(&cli).contains(chosen), "the CLI prints it: {cli}");
 }
 
 /// A press by someone else, or the owner's in a shared place, gets the refusal's words and learns
