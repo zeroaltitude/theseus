@@ -75,6 +75,12 @@ pub fn end_runtime(rt: tokio::runtime::Runtime) {
             "stop: the runtime's work did not end within its bound; the stop goes on without it"
         );
     }
+    // A join the runtime's end cut keeps its lock: released now, by the lock's own release, so the next start's
+    // join can take it.
+    let released = theseus_core::rsi::join::lock::release_cut_by_stop();
+    if released > 0 {
+        tracing::info!(released, "stop: the join lock a stop cut is released");
+    }
 }
 
 /// The watch beside a runtime's end, on a thread of its own.

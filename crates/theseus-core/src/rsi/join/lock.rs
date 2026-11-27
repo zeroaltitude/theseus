@@ -25,12 +25,64 @@ static DOOR: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub const ORPHAN: Duration = Duration::from_secs(60);
 
 /// A held join lock. Released by [`Held::release`]; a drop without one
-/// leaves it held, as a crash would, for the owner to see.
+/// leaves it held, as a crash would, for the owner to see. A drop after this
+/// daemon's orderly stop has begun (the runtime's end drops a join cut in the
+/// middle) keeps it in [`CUT`] instead, and the stop releases it
+/// ([`release_cut_by_stop`], issue 63).
 #[derive(Debug)]
 pub struct Held {
     pub dir: PathBuf,
     holder: String,
     pid: u32,
+}
+
+/// The join locks this daemon took and still holds: each one's directory,
+/// holder and pid, from its take to its release or a drop before any stop.
+static CUT: std::sync::Mutex<Vec<(PathBuf, String, u32)>> = std::sync::Mutex::new(Vec::new());
+
+fn held_list() -> std::sync::MutexGuard<'static, Vec<(PathBuf, String, u32)>> {
+    CUT.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl Held {
+    fn key(&self) -> (PathBuf, String, u32) {
+        (self.dir.clone(), self.holder.clone(), self.pid)
+    }
+
+    fn forget(&self) {
+        let key = self.key();
+        held_list().retain(|k| *k != key);
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        // Released, or dropped outside a stop: the list forgets it, and a lock
+        // still on disk stays held, as a crash leaves it.
+        if !crate::startup::stop_has_begun() {
+            self.forget();
+        }
+    }
+}
+
+/// At an orderly stop or restart, after the runtime has ended (issue 63): each
+/// join lock this daemon took and still holds is released by the lock's own
+/// release, its holder and pid checked, with a `done:` line saying a stop cut
+/// it, so the next start's join can take it. A lock another holder now owns is
+/// left untouched. How many were released.
+pub fn release_cut_by_stop() -> usize {
+    let cut: Vec<_> = std::mem::take(&mut *held_list());
+    let mut released = 0;
+    for (dir, holder, pid) in cut {
+        let at = dir.display().to_string();
+        match (Held { dir, holder, pid }).release("cut by the daemon's stop") {
+            Ok(()) => released += 1,
+            Err(e) => tracing::warn!(lock = %at, error = %format!("{e:#}"),
+                "stop: a join lock a stop cut could not be released; it stays held"),
+        }
+    }
+    released
 }
 
 /// Why the lock was not taken.
@@ -82,11 +134,13 @@ pub fn try_take(dir: &Path, holder: &str) -> Result<Result<Held, Busy>> {
                     crate::arrangement::utc(theseus_protocol::now_unix_ms())
                 )?;
                 f.sync_all()?;
-                return Ok(Ok(Held {
+                let held = Held {
                     dir: dir.into(),
                     holder: holder.into(),
                     pid: std::process::id(),
-                }));
+                };
+                held_list().push(held.key());
+                return Ok(Ok(held));
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 if !stale(dir) {
@@ -147,6 +201,7 @@ impl Held {
     }
 
     fn release_with(self, done: &str, after_done: impl FnOnce()) -> Result<()> {
+        self.forget();
         let _door = DOOR
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -244,6 +299,53 @@ mod release_tests {
             );
             b.release("joined").unwrap();
         });
+    }
+
+    /// KEY (issue 63): a join cut by an orderly stop drops its lock unreleased; the stop releases it by the
+    /// lock's own release, with a `done:` line, and the next take gets it.
+    #[test]
+    fn a_lock_a_stop_cut_is_released_by_the_stop() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "theseus self-join a").unwrap().unwrap();
+        crate::startup::stop_began();
+        drop(a);
+        assert!(dir.exists(), "the drop itself releases nothing");
+        assert_eq!(release_cut_by_stop(), 1);
+        assert!(!dir.exists(), "released");
+        let b = try_take(&dir, "b").unwrap().unwrap();
+        b.release("joined").unwrap();
+        assert_eq!(release_cut_by_stop(), 0, "nothing is released twice");
+    }
+
+    /// A lock another holder owns by the time the stop comes is left exactly as it was.
+    #[test]
+    fn a_stop_leaves_a_lock_another_holder_owns() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "theseus self-join a").unwrap().unwrap();
+        let theirs = "the outer loop's join\npid: 1\nstarted: then\n";
+        std::fs::write(owner(&dir), theirs).unwrap();
+        crate::startup::stop_began();
+        drop(a);
+        assert_eq!(release_cut_by_stop(), 0);
+        assert_eq!(std::fs::read_to_string(owner(&dir)).unwrap(), theirs);
+    }
+
+    /// A drop with no stop begun keeps the crash's rule: the lock stays held, and no later stop releases it.
+    #[test]
+    fn a_drop_outside_a_stop_leaves_the_lock_held() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "theseus self-join a").unwrap().unwrap();
+        drop(a);
+        crate::startup::stop_began();
+        assert_eq!(release_cut_by_stop(), 0);
+        assert!(dir.exists(), "still held, for the owner to see");
+        assert_eq!(
+            try_take(&dir, "b").unwrap().unwrap_err(),
+            Busy::Held("theseus self-join a".into())
+        );
     }
 
     #[test]
