@@ -100,9 +100,25 @@ struct Model {
     agent_tools: Mutex<Vec<Vec<String>>>,
     /// Every request the turn's own model was asked, whole, in order.
     requests: Mutex<Vec<ProviderRequest>>,
+    /// The calls the next turn's first answer makes all at once, `p1`, `p2`, ... (`Rig::batch_next`).
+    batch: Mutex<Option<Vec<(String, Value)>>>,
 }
 
 impl Model {
+    /// The calls `Rig::batch_next` set, all at once in one answer, for a turn's first request.
+    fn batch_answer(&self, answers_a_call: bool) -> Option<Scripted> {
+        let calls = (!answers_a_call)
+            .then(|| self.batch.lock().unwrap().take())
+            .flatten()?;
+        let ids: Vec<String> = (1..=calls.len()).map(|i| format!("p{i}")).collect();
+        let each: Vec<(&str, &str, Value)> = ids
+            .iter()
+            .zip(&calls)
+            .map(|(id, (tool, input))| (id.as_str(), tool.as_str(), input.clone()))
+            .collect();
+        Some(Scripted::tools("", &each))
+    }
+
     /// What an agent (a request whose first message holds `AGENT:`) answers: the call it was told to
     /// make before it reports (`Rig::agents_call`), then its report. None for any other request.
     fn agent_answer(&self, req: &ProviderRequest) -> Option<Scripted> {
@@ -213,6 +229,13 @@ impl Provider for Model {
             }
         }
         let answers_a_call = crate::tests_places::answers_a_call(req);
+        if let Some(answer) = self.batch_answer(answers_a_call) {
+            return Box::pin(async move {
+                FakeProvider::scripted(vec![answer])
+                    .stream_message(req, on_delta)
+                    .await
+            });
+        }
         let after = answers_a_call.then(|| self.after_a_step.lock().unwrap().take());
         if let Some(f) = after.flatten() {
             f();
@@ -256,6 +279,9 @@ pub(super) struct Rig {
     /// The owner's turns carry `turn.submit`'s in-person mark (`Rig::in_person`); off, they carry none,
     /// as the rig's turns always did.
     in_person: std::sync::atomic::AtomicBool,
+    /// The owner's turns are judged his own typed input, as `turn.submit` judges the owner's
+    /// (`Rig::owner_types`); off, they are not, as the rig's turns always were.
+    owner: std::sync::atomic::AtomicBool,
 }
 
 pub(super) fn rig() -> Rig {
@@ -300,6 +326,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         agent_call: Mutex::default(),
         agent_tools: Mutex::default(),
         requests: Mutex::default(),
+        batch: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     // The daemon's start step: the context files the tweak named are
@@ -314,6 +341,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         driver: Mutex::default(),
         said: Mutex::default(),
         in_person: Default::default(),
+        owner: Default::default(),
     }
 }
 
@@ -445,6 +473,18 @@ impl Rig {
     pub(super) fn in_person(&self) {
         self.in_person
             .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The owner's turns from now are his own typed input, as `turn.submit` judges it
+    /// (`Core::owner_input`): their sink says so.
+    pub(super) fn owner_types(&self) {
+        self.owner.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The next turn's first answer makes all of `calls` at once, `p1`, `p2`, ...
+    pub(super) fn batch_next(&self, calls: Vec<(&str, Value)>) {
+        *self.model.batch.lock().unwrap() =
+            Some(calls.into_iter().map(|(t, v)| (t.into(), v)).collect());
     }
 
     /// The owner's words the next turns start from (`change a setting` when none are set).
@@ -597,6 +637,7 @@ impl Rig {
             .resolve_target(&live, None, None, None)
             .unwrap();
         let marked = input.is_some() && self.in_person.load(std::sync::atomic::Ordering::SeqCst);
+        let owner = input.is_some() && self.owner.load(std::sync::atomic::Ordering::SeqCst);
         let mark = marked.then(|| crate::view_gate::test_mark(&self.core.runner, sid, true));
         self.core
             .runner
@@ -606,7 +647,9 @@ impl Rig {
                 session: rec,
                 input,
                 target,
-                sink: EventSink::new(self.core.bus.clone(), sid, None).with_arrival(mark),
+                sink: EventSink::new(self.core.bus.clone(), sid, None)
+                    .with_arrival(mark)
+                    .from_owner(owner),
                 author: "test".into(),
                 attachments: vec![],
                 arrived: self.core.runner.tools.chat_acts.heard.test_arrival(sid),

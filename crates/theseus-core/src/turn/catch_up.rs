@@ -62,6 +62,11 @@ impl TurnRunner {
         let occasion =
             view_step::occasion::Occasion::of(opened, &late, resumed.wrote > 0 || reset || raised);
         t.exchange.caught_up(occasion);
+        // Any later occasion (a message, a wake, a report, a job that ended) ends the session's
+        // one-run grants; the continuation an answer to a card began keeps them (issue 64).
+        if occasion != Some(view_step::occasion::Occasion::Answered) {
+            self.tools.broker.once_end(t.tc.session_id);
+        }
         t.record(&fact::turn::CaughtUp {
             t0,
             settled: settled.len(),

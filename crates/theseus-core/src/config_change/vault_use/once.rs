@@ -43,6 +43,20 @@ pub const RUNS_ON: &str = "this item is a key Theseus itself runs on, so it is n
 pub const NOT_BEGUN: &str = "this turn was not begun by your own message (a wake, a task's \
      report or a note began it)";
 
+/// The answer when outside text reached the conversation after the gate judged this call.
+pub const AGAIN: &str = "text from outside reached this conversation after this call was \
+     checked, so nothing was read from the vault: call `vault.use` again, on its own, and the \
+     owner is asked first";
+
+/// The answer for a variable that steers how a program is found or started ([`steers`]).
+pub const STEERS: &str = "`run.variable` may not be PATH, a loader's variable (LD_*, DYLD_*), a \
+     shell's start file (BASH_ENV, ENV) or a name Theseus keeps for itself (OP_*, AWS_*, \
+     ANTHROPIC*, THESEUS*): choose another name for the variable the program reads";
+
+/// The answer for a value too short to be masked.
+pub const SHORT: &str = "the field's value is too short for Theseus to mask wherever it could \
+     be shown (under 8 characters), so it is not given to a program";
+
 /// What the run form asks to do, as the hold says it.
 const WHAT: &str = "give a key from Theseus's vault to a program for one run";
 
@@ -91,25 +105,78 @@ pub(super) fn plan(input: &Value) -> Result<Plan, String> {
 /// The gate's hold on the run form, at both `outside` settings: outside text since the owner's
 /// last message, the session's flag, or a turn the owner's own message did not begin.
 pub(crate) fn ask_first(tc: &TurnCtx<'_>, mut plan: Plan) -> Plan {
-    let (outside, steered) = crate::config_change::outside_text(tc);
-    let way = crate::config_change::flag_way(tc);
-    if let Some(said) = crate::config_change::hold_words(WHAT, outside, steered, &way) {
+    if let Some(said) = hold_reason(tc) {
         plan.authority = Some(said);
-    } else if !begun_by_owner(tc) {
-        plan.authority = Some(format!("{WHAT}: {NOT_BEGUN}"));
     }
     plan
 }
 
-/// Whether the owner's own message began the turn: the latest message of the session that is
-/// not the harness's own words (`content::harness_own`: its clock, its notes) is the owner's.
-/// A wake's, a task's report and any other note the harness relays are not. A session whose
-/// history cannot be read is not.
+/// Why the run form is put to the owner first, or None: outside text since the owner's own last
+/// message ([`outside_since_owners_message`]), the session's flag, or a turn the owner's own
+/// typed input did not begin ([`begun_by_owner`]). Read at the gate, and again when the call
+/// runs (`run`).
+fn hold_reason(tc: &TurnCtx<'_>) -> Option<String> {
+    let outside = match tc.store.session_nodes(tc.session_id) {
+        Ok(nodes) => outside_since_owners_message(&nodes),
+        Err(_) => true,
+    };
+    let (_, steered) = crate::config_change::outside_text(tc);
+    let way = crate::config_change::flag_way(tc);
+    crate::config_change::hold_words(WHAT, outside, steered, &way)
+        .or_else(|| (!begun_by_owner(tc)).then(|| format!("{WHAT}: {NOT_BEGUN}")))
+}
+
+/// Whether any result after the owner's own last message is marked as outside text. The owner's
+/// message is the latest message of his that is not the harness's own words (`content::
+/// harness_own`: its clock, its progress, a helper's fixed note), so such a note does not end the
+/// window; a result whose call the owner approved with "Approve and clear" counts as his message,
+/// as `hold::span` counts it.
+fn outside_since_owners_message(nodes: &[(u64, crate::node::Node)]) -> bool {
+    let at = nodes.iter().rposition(|(_, n)| match &n.body {
+        Body::UserMessage { .. } => {
+            n.origin == Origin::Operator
+                && !crate::content::harness_own(n.origin, n.author.as_deref())
+        }
+        Body::ToolResult { meta, .. } => {
+            meta[crate::config_change::hold::CLEARED].as_bool() == Some(true)
+        }
+        _ => false,
+    });
+    let from = match at {
+        Some(i) if matches!(nodes[i].1.body, Body::UserMessage { .. }) => i + 1,
+        Some(i) => i,
+        None => 0,
+    };
+    nodes[from..]
+        .iter()
+        .any(|(_, n)| crate::external::is_outside(n))
+}
+
+/// Whether the owner's own typed input began this turn: the latest message of the session that
+/// is not the harness's own words is a person's, written by this turn as its opening input, and
+/// this turn's submission was judged the owner's own (`EventSink::owner`, from
+/// `Core::owner_input`: the owner, in a private place, and not a job's or a prompt's). A wake's,
+/// a task's report, any other note the harness relays, a later continuation (a job that ended)
+/// and a job's or an agent's submission are not. A session whose history cannot be read is not.
 fn begun_by_owner(tc: &TurnCtx<'_>) -> bool {
+    if !tc.sink.owner {
+        return false;
+    }
     let Ok(nodes) = tc.store.session_nodes(tc.session_id) else {
         return false;
     };
-    began(&nodes).is_some_and(|n| n.origin == Origin::Operator)
+    let Some(n) = began(&nodes) else {
+        return false;
+    };
+    // The turn's opening input, not a message steered into it.
+    let opening = nodes.iter().map(|(_, m)| m).find(|m| {
+        m.turn_id.as_deref() == Some(tc.turn_id)
+            && matches!(m.body, Body::UserMessage { .. })
+            && !crate::content::harness_own(m.origin, m.author.as_deref())
+    });
+    n.origin == Origin::Operator
+        && n.turn_id.as_deref() == Some(tc.turn_id)
+        && opening.is_some_and(|m| m.id == n.id)
 }
 
 /// The message that began the latest turn of `nodes`: the latest that is not the harness's own
@@ -119,6 +186,30 @@ fn began(nodes: &[(u64, crate::node::Node)]) -> Option<&crate::node::Node> {
         matches!(n.body, Body::UserMessage { .. })
             && !crate::content::harness_own(n.origin, n.author.as_deref())
     })
+}
+
+/// A turn of `session` ended: its one-run grants end too, except one whose program a run waiting
+/// on the owner's answer names (a `proc.run` the gate asked about), which the continuation his
+/// answer begins may still take.
+pub(crate) fn turn_ended(rt: &ToolRuntime, kernel: &theseus_kernel::Kernel, session: &str) {
+    if !rt.broker.has_once(session) {
+        return;
+    }
+    let waiting: Vec<String> = kernel
+        .pending_confirms()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| a.session_id == session && a.tool == "proc.run")
+        .filter_map(|a| {
+            let first = a.proposal?.args.pointer("/argv/0")?.as_str()?.to_string();
+            let name = std::path::Path::new(&first)
+                .file_name()?
+                .to_str()?
+                .to_string();
+            Some(name)
+        })
+        .collect();
+    rt.broker.once_keep_only(session, &waiting);
 }
 
 /// A call of the turn `tc`: the session's one-run grants that another turn left end.
@@ -146,12 +237,34 @@ pub(crate) fn turn_of(tc: &TurnCtx<'_>) -> String {
         .unwrap_or_else(|| tc.turn_id.to_string())
 }
 
+/// Whether the owner approved the call `correlation_id` itself, on its card.
+fn approved(tc: &TurnCtx<'_>, correlation_id: &str) -> bool {
+    tc.kernel
+        .action(correlation_id)
+        .ok()
+        .flatten()
+        .is_some_and(|a| a.confirm.is_some())
+}
+
 /// A variable's name: letters, digits and `_`, not starting with a digit, as the settings take a
 /// program's.
 fn valid_variable(v: &str) -> bool {
     v.len() <= MAX_VARIABLE
         && v.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
         && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Whether a variable steers how a program is found, loaded or started, or is one Theseus keeps
+/// for itself: `PATH` (which a job's call may not set either), a dynamic loader's (`LD_*`,
+/// `DYLD_*`), a shell's start file (`BASH_ENV`, `ENV`, which a script's own first line may run),
+/// and the prefixes a job's call may not set (`OP_*`, `AWS_*`, `ANTHROPIC*`, `THESEUS*`). The
+/// key's own names (`*_TOKEN`, `*_KEY`) are what the form is for, and stay allowed.
+fn steers(v: &str) -> bool {
+    let n = v.to_ascii_uppercase();
+    matches!(n.as_str(), "PATH" | "BASH_ENV" | "ENV")
+        || ["LD_", "DYLD_", "OP_", "AWS_", "ANTHROPIC", "THESEUS"]
+            .iter()
+            .any(|p| n.starts_with(p))
 }
 
 /// The program's file, or why it is not one a variable may be given to.
@@ -203,6 +316,14 @@ pub(super) async fn run(
              starting with a digit, at most {MAX_VARIABLE} (for example `LANTERN_TOKEN`)"
         ));
     }
+    if steers(&variable) {
+        return Err(STEERS.into());
+    }
+    // Outside text that came after the gate judged this call (an earlier call of its response):
+    // asked for, unless the owner approved this very call.
+    if hold_reason(tc).is_some() && !approved(tc, correlation_id) {
+        return Err(AGAIN.into());
+    }
     let file = program_file(rt, tc, i.run.program.trim())?;
     let Some(reader) = rt.look.reader().filter(|r| !r.has_no_vault()) else {
         return Err(
@@ -225,6 +346,12 @@ pub(super) async fn run(
     if runs_on(rt, &read)? {
         return Err(RUNS_ON.into());
     }
+    // A value the scrubber cannot tell from chance is masked at no exit.
+    if !crate::scrub::protectable(read.value.expose()) {
+        return Err(SHORT.into());
+    }
+    // Remembered by name before the value can reach a program, so every start masks it again.
+    super::used::remember(tc.store, &read.checked)?;
     let Read { checked, value, .. } = read;
     let program = file
         .file_name()
@@ -251,13 +378,14 @@ pub(super) async fn run(
         crate::owner_note::Kind::Fyi,
         "A key from the vault, for one run",
         &format!(
-            "In conversation {short}, Theseus gave {program} the vault item \"{}\" (field \"{}\", \
-             in the vault \"{}\") as {variable}, for one run.",
+            "In conversation {short}, Theseus made the vault item \"{}\" (field \"{}\", in the \
+             vault \"{}\") ready for one run of {program}, as {variable}.",
             checked.item, checked.field, checked.vault
         ),
-        "Nothing stays: the grant ends with that run or with the turn, nothing was written to \
-         the settings, and the next use reads the vault again. To stop it being used at all, \
-         take the item out of what Theseus's vault account can see.",
+        "The grant ends with that run or with the turn, and nothing was written to the settings. \
+         Theseus remembers which items it has used this way, by name only, and reads them again at \
+         each start so that it keeps masking their values; the next use reads the vault again. To \
+         stop it being used at all, take the item out of what Theseus's vault account can see.",
     );
     crate::config_change::hold::tell_owner(tc, &note, USE);
     Ok((
@@ -274,8 +402,8 @@ pub(super) async fn run(
 
 /// Whether the item read is a key Theseus itself runs on: its reference is one a name Theseus
 /// reads is read from (in the settings running or as written, or the settings note's), or its
-/// value is one such name holds now. A name only a program's grant or an attached server's
-/// variable reads is not Theseus's own.
+/// value is one the board holds for Theseus now (such a name's, or any value held at run time).
+/// A name only a program's grant or an attached server's variable reads is not Theseus's own.
 fn runs_on(rt: &ToolRuntime, read: &Read) -> Result<bool, String> {
     let Some(core) = rt.jobs.core() else {
         return Err(
@@ -308,10 +436,27 @@ fn runs_on(rt: &ToolRuntime, read: &Read) -> Result<bool, String> {
         .iter()
         .filter_map(|r| SecretRef::parse(r).ok())
         .any(|r| same(&r.vault, &c.vault, &read.vault_id) && same(&r.item, &c.item, &read.item_id));
-    let by_value = names
-        .iter()
-        .filter_map(|n| core.secrets.get(n))
-        .any(|v| v.expose() == read.value.expose());
+    // By value: every value the board holds that Theseus runs on: a configured name Theseus reads,
+    // and every value held at run time (a signed-in server's token, a consent's, a value a call
+    // returned), but not a name only a program's grant reads, and not the run form's own holds.
+    let configured: std::collections::BTreeSet<&String> = std::iter::once(&*core.cfg)
+        .chain(written.as_ref())
+        .flat_map(|c| c.secrets.keys())
+        .collect();
+    let board = core.secrets.states();
+    let by_value = board.iter().any(|(name, state)| {
+        let crate::secrets::SecretState::Ready(v) = state else {
+            return false;
+        };
+        let theirs = match configured.contains(name) {
+            true => names.contains(name),
+            false => {
+                !name.starts_with(crate::broker::ONCE_HANDLE)
+                    && !name.starts_with(super::used::HANDLE)
+            }
+        };
+        theirs && v.expose() == read.value.expose()
+    });
     Ok(by_ref || by_value)
 }
 

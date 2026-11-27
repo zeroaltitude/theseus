@@ -43,6 +43,11 @@ pub(crate) mod once;
 mod tests;
 #[cfg(test)]
 mod tests_once;
+#[cfg(test)]
+mod tests_once_exits;
+#[cfg(test)]
+mod tests_once_owner;
+pub(crate) mod used;
 
 pub use check::Checked;
 

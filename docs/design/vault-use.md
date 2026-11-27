@@ -69,37 +69,48 @@ earlier card showed. `also` may not write `[secrets]`: the tool writes that entr
 ## One run of one program (`run`, issue 64)
 
 "Using a secret should not be an ask" (the owner, 2026-11-27). The run form puts an item to use for **one run of one
-program**, and nothing stays: `vault.use` with `run: {program, variable}` in place of `name` and `also` (which it refuses).
-No card, no second proof, nothing written to the settings, no restart. The model makes two calls: this, then the run.
+program**: `vault.use` with `run: {program, variable}` in place of `name` and `also` (which it refuses). No card, no
+second proof, nothing written to the settings, no restart. The model makes two calls: this, then the run.
 
 1. **The program** is resolved when the form is called: a bare name on the daemon's PATH (absolute directories only), as a
    configured grant's is, or a path with a `/` in the turn's working directory, to its canonical file. A shell, an
    interpreter, a wrapper or a runner of scripts is refused by name (`broker::launcher`). **A script run by its own first
    line (`#!/bin/sh`, `#!/usr/bin/env python3`) is allowed: the interpreter that line names then reads the variable**, as
-   the script itself does.
-2. **The item** is found, its reference built and read once, as for the card (steps 1 to 4 above); the value is kept for
+   the script itself does. The grant is to that path, not to the file's contents: a file put at the same path before the
+   run takes it.
+2. **The variable** may not be one that steers how a program is found, loaded or started, or one Theseus keeps for itself:
+   `PATH`, a loader's (`LD_*`, `DYLD_*`), a shell's start file (`BASH_ENV`, `ENV`), and the prefixes a job's call may not
+   set (`OP_*`, `AWS_*`, `ANTHROPIC*`, `THESEUS*`). A key's own name (`VENDOR_TOKEN`, `API_KEY`) is what the form is for.
+3. **The item** is found, its reference built and read once, as for the card (steps 1 to 4 above); the value is kept for
    the run, not read twice.
-3. **An item Theseus itself runs on is not given** (`once::runs_on`): an item whose reference a `[secrets]` name Theseus
+4. **An item Theseus itself runs on is not given** (`once::runs_on`): an item whose reference a `[secrets]` name Theseus
    reads is read from (the main model, a provider, GitHub, Discord, the web search, the judge, the voice, Theseus's own MCP
    server, Google, an AWS account, any other setting but a program's variable or an attached server's variable), in the
-   settings running or as written, or the settings note's; or whose value such a name holds now. The answer says it goes
-   by the card form (`vault.use` with `name`), which asks the owner as before. The vault session's own token is not
-   compared: it is not an item.
-4. **The value is held on the board** (`vault-use:<call>`) from that moment, so the scrubber and every exit mask it, and
-   the broker gives it to **the next run of that file in this turn** (`broker/once.rs`): run by its own argv, with no
-   variable the call sets (so never with `PATH`), never by a shell, an interpreter or a wrapper around it. A run that does
-   not take it leaves it for the next. It ends at the first run that takes it, or with the turn: the turn one message began
-   (the owner's, with the continuations his answers to cards begin, so a run he approves still takes it); once a later
-   message is in the session (his, a wake's, a task's report), the session's next call ends it. A run in the background is
-   not given it, and its `secret.withheld` row says why. The gate holds the run at no looser a posture than notify, as a
-   configured grant's.
-5. **What the run printed is scrubbed of the value before its result is kept** (`Broker::scrub_once`): the stored result
-   carries the scrubber's marker (`[redacted:<VARIABLE>]`), so nothing holds the value after a restart, when the board no
-   longer does.
-6. **The owner is told** in one FYI note: the item, the field and the vault as the vault listed them, the program's file
-   name, the variable and the conversation's short id, never the model's words; that nothing stays and the next use reads
-   the vault again. It has no Undo: nothing stands. The `secret.granted` row carries `once: true` and the vault, item and
-   field by name.
+   settings running or as written, or the settings note's; or whose value the board holds for Theseus now: such a name's,
+   or any value held at run time (a signed-in server's token, a value a call returned), but not a name only a program's
+   grant reads and not the run form's own holds. The answer says it goes by the card form (`vault.use` with `name`), which
+   asks the owner as before. The vault session's own token is deliberately not compared.
+5. **A value shorter than the scrubber's floor** (8 characters) could be masked at no exit, and is not given.
+6. **The item is remembered, by name**, before the value can reach a program (`used.rs`; the META record `vault.used`: the
+   vault, item, field and the reference the daemon built, never a value; one entry per item). **At every start each
+   remembered item is put on the board as resolving and read again** (`Core::hold_vault_used`, `vault-used:<n>`), and a
+   turn waits for it as it waits for every configured secret, so the exits mask its value in every copy that leaves: the
+   requests the model is sent, the Discord courier's and the push line's text, whatever record holds it (a read of a
+   running job, an earlier step's output, a capped output's kept file, a result taken after a restart). The record keeps
+   what the job wrote, as for every configured secret a program prints. An item that cannot be read at a start is named
+   in one warning, taken off the board, and the start goes on.
+7. **The value is held on the board** (`vault-use:<call>`) from the grant, so the scrubber and every exit mask it, and the
+   broker gives it to **the next run of that file in this turn** (`broker/once.rs`): run by its own argv, with no variable
+   the call sets, never by a shell, an interpreter or a wrapper around it. A run that does not take it leaves it for the
+   next. It ends when a run takes it; when its turn ends, unless a run of that program waits on the owner's answer (the
+   continuation his answer begins may still take it); and when any later occasion begins in that session (a message, a
+   wake, a task's report, a job that ended). A run in the background is not given it, and its `secret.withheld` row says
+   why. The gate holds the run at no looser a posture than notify, as a configured grant's.
+8. **What a completed run printed is also replaced by the scrubber's marker in its stored result** (`Broker::scrub_once`).
+9. **The owner is told** in one FYI note that the item was made ready for one run: the item, the field and the vault as the
+   vault listed them, the program's file name, the variable and the conversation's short id, never the model's words; that
+   nothing was written to the settings, and that Theseus remembers the items it has used, by name, to keep masking them.
+   It has no Undo. The `secret.granted` row carries `once: true` and the vault, item and field by name.
 
 A request the daemon itself makes carrying a key (no program) is not this form; it is not built.
 
@@ -113,9 +124,17 @@ the vault (`vault_use::ask_if_outside`), with Approve and Decline only. The tool
 setting the use itself is then a card: nothing is written before the owner's yes.
 
 **The run form has no card of its own, so it asks first at both settings** (`once::ask_first`), with Approve and Decline
-only and before anything is read: after outside text since the owner's last message, with the `injection` flag, and in a
-turn the owner's own message did not begin (a wake, a task's report or another note the harness relays: the session's
-latest message that is not the harness's own clock or notes is not an `operator` one). Approved, it runs as above.
+only and before anything is read:
+- after outside text since the owner's own last message: a note the harness writes (its clock, its progress, a helper's
+  fixed note) does not end that window;
+- with the `injection` flag;
+- in a turn the owner's own typed input did not begin: the turn's submission must be judged his own (`Core::owner_input`:
+  the owner, in a private place, not a job's or a prompt's) and its opening message the session's latest that is not the
+  harness's own words. A wake, a task's report, a job that ended, a job's or an agent's submission all ask.
+
+The hold is read again when the call runs: outside text an earlier call of the same response read after the gate judged
+this one stops it, unless the owner approved this very call; nothing is read from the vault, and the model is told to call
+it again on its own, which then asks. Approved, it runs as above.
 
 The tool has no field that carries a value, and its description and the family's always-seen summary say that a secret is
 used by its name, that its value is never asked for, and that the vault's program in a shell has no session by design.

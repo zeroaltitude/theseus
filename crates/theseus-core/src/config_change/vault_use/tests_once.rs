@@ -17,31 +17,31 @@ use crate::content::OutsideMode;
 use crate::node::{Body, Origin, ResultStatus};
 use crate::secrets::look::tests::{logged, stub};
 
-const VALUE: &str = "INVENTED-FIELD-VALUE-9";
-const VAR: &str = "LANTERN_TOKEN";
-const SCRIPT: &str = "call_lantern.sh";
+pub(super) const VALUE: &str = "INVENTED-FIELD-VALUE-9";
+pub(super) const VAR: &str = "LANTERN_TOKEN";
+pub(super) const SCRIPT: &str = "call_lantern.sh";
 /// What the script does: one line with the variable's length, in `got.txt` beside it.
-const COUNTS: &str = "printf '%s\\n' \"${#LANTERN_TOKEN}\" >> got.txt\n";
+pub(super) const COUNTS: &str = "printf '%s\\n' \"${#LANTERN_TOKEN}\" >> got.txt\n";
 /// What a script that prints its key does, beside counting it.
-const PRINTS: &str =
+pub(super) const PRINTS: &str =
     "printf '%s\\n' \"${#LANTERN_TOKEN}\" >> got.txt\necho \"token=$LANTERN_TOKEN\"\n";
 /// The fixed words that say an item is a key Theseus itself runs on.
-const RUNS_ON_WORDS: &str = "a key Theseus itself runs on";
+pub(super) const RUNS_ON_WORDS: &str = "a key Theseus itself runs on";
 
 /// A change to the settings a case is played under.
-type Tweak = Box<dyn Fn(&mut crate::Config) + Send>;
+pub(super) type Tweak = Box<dyn Fn(&mut crate::Config) + Send>;
 
-struct Once {
-    r: Rig,
-    vault: PathBuf,
-    work: PathBuf,
-    _d: tempfile::TempDir,
-    _w: tempfile::TempDir,
+pub(super) struct Once {
+    pub(super) r: Rig,
+    pub(super) vault: PathBuf,
+    pub(super) work: PathBuf,
+    pub(super) _d: tempfile::TempDir,
+    pub(super) _w: tempfile::TempDir,
 }
 
 /// The settings the run form is played under: a work folder that `proc.run` runs in, and
 /// `outside`. `tweak` says more.
-fn settings(
+pub(super) fn settings(
     c: &mut crate::Config,
     work: &Path,
     outside: OutsideMode,
@@ -57,7 +57,7 @@ fn settings(
 
 /// A daemon with the stub vault and the script `call_lantern.sh` in its work folder, which
 /// counts its variable (`body`).
-fn rig_once_with(
+pub(super) fn rig_once_with(
     outside: OutsideMode,
     body: &str,
     tweak: impl Fn(&mut crate::Config) + Send + 'static,
@@ -69,6 +69,8 @@ fn rig_once_with(
     let d = tempfile::tempdir().unwrap();
     r.core.tools.look.set_vault(Arc::new(stub(d.path(), "ok")));
     script(&work, SCRIPT, body);
+    // The owner's own typed turns, as `turn.submit` judges them.
+    r.owner_types();
     Once {
         r,
         vault: d.path().to_path_buf(),
@@ -78,12 +80,12 @@ fn rig_once_with(
     }
 }
 
-fn rig_once() -> Once {
+pub(super) fn rig_once() -> Once {
     rig_once_with(OutsideMode::default(), COUNTS, |_| {})
 }
 
 /// An executable shell script `name` in `dir`, run by its own first line.
-fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
+pub(super) fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let p = dir.join(name);
     std::fs::write(&p, format!("#!/bin/sh\n{body}")).unwrap();
@@ -91,22 +93,22 @@ fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     p
 }
 
-fn run_call(program: &str) -> Value {
+pub(super) fn run_call(program: &str) -> Value {
     json!({"vault": "Harbor", "item": "Lantern key", "field": "credential",
            "run": {"program": program, "variable": VAR},
            "reason": "run the lantern script with its key once"})
 }
 
-fn proc(argv: Value) -> Value {
+pub(super) fn proc(argv: Value) -> Value {
     json!({ "argv": argv })
 }
 
-fn script_run() -> (&'static str, Value) {
+pub(super) fn script_run() -> (&'static str, Value) {
     ("proc_run", proc(json!(["./call_lantern.sh"])))
 }
 
 /// What each run of the script counted, in order.
-fn counted(o: &Once) -> Vec<String> {
+pub(super) fn counted(o: &Once) -> Vec<String> {
     std::fs::read_to_string(o.work.join("got.txt"))
         .unwrap_or_default()
         .lines()
@@ -115,7 +117,7 @@ fn counted(o: &Once) -> Vec<String> {
 }
 
 /// The FYI notes the owner was told of a run form.
-fn notes(r: &Rig) -> Vec<String> {
+pub(super) fn notes(r: &Rig) -> Vec<String> {
     r.core
         .outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
@@ -130,7 +132,7 @@ fn notes(r: &Rig) -> Vec<String> {
 }
 
 /// Every board entry a run form held.
-fn held(r: &Rig) -> Vec<String> {
+pub(super) fn held(r: &Rig) -> Vec<String> {
     r.core
         .secrets
         .states()
@@ -143,7 +145,7 @@ fn held(r: &Rig) -> Vec<String> {
 /// Every exit the value could reach: each node and ledger row of `sid`, every request the
 /// model was sent, every note and notice to the owner, every question, the board's status and
 /// the broker's.
-fn exits(r: &Rig, sid: &str) -> String {
+pub(super) fn exits(r: &Rig, sid: &str) -> String {
     let requests: Vec<String> = r
         .sent()
         .iter()
@@ -204,7 +206,9 @@ async fn a_run_use_is_one_step_with_no_card_and_no_code() {
         SCRIPT,
         VAR,
         short.as_str(),
-        "Nothing stays",
+        "ready for one run of",
+        "nothing was written to the settings",
+        "by name only",
         "reads the vault again",
     ] {
         assert!(told[0].contains(part), "{part} in {}", told[0]);
