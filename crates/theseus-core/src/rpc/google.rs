@@ -37,6 +37,36 @@ fn cli_only(conn: &Conn<'_>, method: &str, verb: &str) -> Result<(), RpcFailure>
     Ok(())
 }
 
+/// The fixed categories a Discord press is told when Google's consent fails (issue 59), chosen by
+/// how the daemon's words begin: nothing that was pasted and none of Google's own text leaves the
+/// daemon toward Discord. The binding answers each with its own fixed words.
+pub const DISCORD_FAILURES: [&str; 7] = [
+    "no sign-in is open",
+    "the redirect was taken",
+    "the redirect's state is not this consent's",
+    "the address holds no code",
+    "that sign-in was for a different account than `[google] account`",
+    "Google named no account",
+    "Google granted none",
+];
+
+/// What any other failure is on the Discord surface.
+pub const DISCORD_REFUSED: &str = "Google refused the consent";
+
+/// A failure's message for the surface that asked: the CLI's words exactly as before; for a
+/// Discord press, one of the fixed categories.
+fn failure_for(surface: Surface, message: String) -> String {
+    if surface != Surface::Discord {
+        return message;
+    }
+    DISCORD_FAILURES
+        .iter()
+        .find(|f| message.starts_with(*f))
+        .copied()
+        .unwrap_or(DISCORD_REFUSED)
+        .to_string()
+}
+
 impl crate::Core {
     /// The CLI; or the owner's own press in a private place on Discord; else `cli_only`'s refusal.
     fn google_admitted(
@@ -102,10 +132,11 @@ impl crate::Core {
             p.author.clone(),
             p.discord.clone(),
         )?;
+        let surface = conn.surface;
         self.google()?
             .auth_begin(p.manual)
             .await
-            .map_err(|e| RpcFailure::new(error_code::INTERNAL, e))
+            .map_err(|e| RpcFailure::new(error_code::INTERNAL, failure_for(surface, e)))
     }
 
     pub(super) async fn google_auth_finish(
@@ -121,10 +152,11 @@ impl crate::Core {
             p.discord.clone(),
         )?;
         let g = self.google()?;
+        let surface = conn.surface;
         let r = g
             .auth_finish(&p, self.cfg.op_token_file.as_deref())
             .await
-            .map_err(|e| RpcFailure::new(error_code::INTERNAL, e))?;
+            .map_err(|e| RpcFailure::new(error_code::INTERNAL, failure_for(surface, e)))?;
         if r.state == "done" {
             let scopes: Vec<String> = g.check_now().granted.into_iter().collect();
             self.google_authorized(g.account(), &scopes, &r.store);

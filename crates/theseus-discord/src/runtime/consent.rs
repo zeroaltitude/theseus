@@ -71,6 +71,51 @@ pub(crate) fn sending(method: &'static str) {
     let _ = method;
 }
 
+/// How many steps wait for a slot (tests).
+#[cfg(test)]
+pub(crate) static WAITING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// A test's pause: armed at one point, reached once, held until released.
+#[cfg(test)]
+pub(crate) struct Pause {
+    at: &'static str,
+    pub(crate) reached: tokio::sync::Notify,
+    pub(crate) release: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+static PAUSE: Mutex<Option<std::sync::Arc<Pause>>> = Mutex::new(None);
+
+/// Arm the pause at `at` (tests).
+#[cfg(test)]
+pub(crate) fn pause_at(at: &'static str) -> std::sync::Arc<Pause> {
+    let p = std::sync::Arc::new(Pause {
+        at,
+        reached: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    *PAUSE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(p.clone());
+    p
+}
+
+/// A point a test may hold a step at; nothing outside tests.
+pub(crate) async fn pause_point(at: &'static str) {
+    #[cfg(test)]
+    {
+        let armed = PAUSE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take_if(|p| p.at == at);
+        if let Some(p) = armed {
+            p.reached.notify_one();
+            p.release.notified().await;
+        }
+    }
+    let _ = at;
+}
+
 /// A word a custom id may carry: a server's name, or a sign-in's id.
 pub(crate) fn word_ok(w: &str) -> bool {
     !w.is_empty()
@@ -273,6 +318,10 @@ pub(crate) enum Why {
 pub(crate) struct Records {
     open: Mutex<Vec<Record>>,
     claimed: Mutex<VecDeque<(u64, Instant)>>,
+    /// One per daemon pending slot (MCP's sign-in, Google's consent): a begin, a finish and a
+    /// sign-out of that kind run one at a time, from the record's check to its change, so an old
+    /// form never reaches the daemon after a newer begin has replaced its slot.
+    slots: [tokio::sync::Mutex<()>; 2],
     /// The clock's seam: milliseconds added to now (tests move time with it; nothing sleeps).
     skew_ms: AtomicU64,
 }
@@ -302,6 +351,27 @@ impl Records {
             deadline: self.now(),
             url: String::new(),
         }
+    }
+
+    /// The slot of `kind`, held for a whole begin, finish or sign-out: what is checked under it is
+    /// what the daemon still holds.
+    pub(crate) async fn slot(&self, kind: &str) -> tokio::sync::MutexGuard<'_, ()> {
+        let m = if kind == "gsi" {
+            &self.slots[1]
+        } else {
+            &self.slots[0]
+        };
+        #[cfg(test)]
+        WAITING.fetch_add(1, Ordering::SeqCst);
+        let held = m.lock().await;
+        #[cfg(test)]
+        WAITING.fetch_sub(1, Ordering::SeqCst);
+        held
+    }
+
+    /// Retire every sign-in of `kind`: the daemon's begin has replaced its slot.
+    pub(crate) fn retire_kind(&self, kind: &str) {
+        self.open().retain(|r| r.kind != kind);
     }
 
     /// Move the clock on by `d` (the deadline's tests).

@@ -173,3 +173,93 @@ async fn a_turn_only_offers_the_google_consent() {
     assert!(super::offer::OFFERED.contains("Nothing has started"));
     assert!(r.fake.forms().is_empty());
 }
+
+/// On the Discord surface a failed consent leaves the daemon as one of the fixed categories:
+/// neither what was pasted (a redirect carrying an `error`) nor Google's own error description is
+/// in the RPC error. The CLI's error for the same inputs is the words it always was.
+#[tokio::test]
+async fn a_discord_failure_leaves_the_daemon_in_fixed_words_and_the_clis_are_unchanged() {
+    use theseus_google::fake::Reply;
+    const PASTED_SENTINEL: &str = "SENTINEL-PASTED-7731";
+    const GOOGLE_SENTINEL: &str = "SENTINEL-GOOGLE-8842";
+    let r = owned().await;
+    let fail = |surface: Surface, who: Value| {
+        let core = r.core.clone();
+        async move {
+            let begun = rpc(
+                &core,
+                surface,
+                "google.auth.begin",
+                with(json!({"manual": true}), who.clone()),
+            )
+            .await
+            .unwrap();
+            let state = state_of(begun["url"].as_str().unwrap());
+            let redirect_error =
+                format!("http://127.0.0.1:41999/?state={state}&error={PASTED_SENTINEL}");
+            let first = rpc(
+                &core,
+                surface,
+                "google.auth.finish",
+                with(
+                    json!({"auth_id": begun["auth_id"], "pasted": redirect_error}),
+                    who.clone(),
+                ),
+            )
+            .await
+            .unwrap_err();
+            (first, state, redirect_error)
+        }
+    };
+    // Discord: the redirect's error.
+    let (first, _, _) = fail(Surface::Discord, presser(OWNER, true)).await;
+    assert_eq!(
+        first.message,
+        crate::rpc::google::DISCORD_REFUSED,
+        "{first:?}"
+    );
+    assert!(!first.message.contains(PASTED_SENTINEL));
+    // Discord: Google's own error description at the token endpoint.
+    let begun = rpc(
+        &r.core,
+        Surface::Discord,
+        "google.auth.begin",
+        with(json!({"manual": true}), presser(OWNER, true)),
+    )
+    .await
+    .unwrap();
+    r.fake.fail_next(
+        1,
+        &Reply::json(
+            400,
+            json!({"error": "invalid_request", "error_description": GOOGLE_SENTINEL}),
+        ),
+    );
+    let second = rpc(
+        &r.core,
+        Surface::Discord,
+        "google.auth.finish",
+        with(
+            json!({"auth_id": begun["auth_id"], "pasted": pasted(&state_of(begun["url"].as_str().unwrap()))}),
+            presser(OWNER, true),
+        ),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        crate::rpc::google::DISCORD_FAILURES.contains(&second.message.as_str())
+            || second.message == crate::rpc::google::DISCORD_REFUSED,
+        "{second:?}"
+    );
+    assert!(!second.message.contains(GOOGLE_SENTINEL), "{second:?}");
+    // The CLI: the words the unchanged parser gives, byte for byte.
+    let (cli, state, redirect_error) = fail(Surface::Cli, json!({})).await;
+    let before = theseus_google::oauth::parse_redirect(&redirect_error, &state)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(cli.message, before);
+    assert!(
+        cli.message.contains(PASTED_SENTINEL),
+        "the CLI's words keep it"
+    );
+}

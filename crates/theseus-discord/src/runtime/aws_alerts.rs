@@ -47,6 +47,9 @@ pub(crate) const NOT_THIS: &str = "🔐 That is not a confirmation token. Press 
      again, and paste the long Token=… value from the link in SNS's email, or the whole address.";
 pub(crate) const AWS_NO: &str =
     "🔐 AWS did not confirm it, and nothing was kept. Press **Confirm alerts** to try again.";
+pub(crate) const NOT_VERIFIED: &str =
+    "🔐 The confirmation was sent, but it could not be verified: check the subscription in AWS, \
+     or press **Confirm alerts** again.";
 pub(crate) const PASTE_TOO_LONG: &str =
     "🔐 That is longer than the form takes (4,000 characters), so nothing was sent.";
 
@@ -101,6 +104,11 @@ pub(crate) fn failure(e: &CallError) -> &'static str {
         NOT_HERE
     } else if e.message.starts_with("that is not a confirmation token") {
         NOT_THIS
+    } else if e
+        .message
+        .contains("was confirmed, but reading it back failed")
+    {
+        NOT_VERIFIED
     } else {
         AWS_NO
     }

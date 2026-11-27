@@ -230,6 +230,7 @@ impl Shared {
         user: u64,
         origin: theseus_protocol::DiscordOrigin,
     ) {
+        let _slot = self.consents.slot(PREFIX).await;
         if !self.consent_ack(i, WHAT).await {
             return;
         }
@@ -254,6 +255,8 @@ impl Shared {
                 return self.consent_finish(i, WHAT, words, &[]).await;
             }
         };
+        // The daemon's slot is this sign-in's now, shown or not: every older record goes.
+        self.consents.retire_kind(PREFIX);
         let (Some(address), Some(mut shown)) =
             (address_words(&b.url), consent::pages(&host_lines(&b)))
         else {
@@ -296,6 +299,8 @@ impl Shared {
         let Some(login_id) = consent::submitted(m, PREFIX) else {
             return self.consent_reply(i, WHAT, EXPIRED, vec![]).await;
         };
+        // Checked under the slot: a newer begin has finished, or waits for this one.
+        let _slot = self.consents.slot(PREFIX).await;
         let rec = match self.consents.step(
             PREFIX,
             &login_id,
@@ -350,6 +355,7 @@ impl Shared {
         who: &str,
         origin: theseus_protocol::DiscordOrigin,
     ) {
+        let _slot = self.consents.slot(PREFIX).await;
         if !self.consent_ack(i, WHAT).await {
             return;
         }

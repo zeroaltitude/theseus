@@ -68,7 +68,17 @@ pub(crate) const TOO_LONG: &str =
 pub(crate) const PASTE_TOO_LONG: &str =
     "🔐 That is longer than the form takes (4,000 characters), so nothing was sent. Run \
      `theseus google auth` at the terminal.";
-pub(crate) const REVOKED: &str = "🔐 Google's grant is ended, and forgotten here.";
+pub(crate) const REVOKED: &str = "🔐 Google's grant is ended at Google, and forgotten here.";
+pub(crate) const NOT_AT_GOOGLE: &str =
+    "🔐 Forgotten here, but ending it at Google could not be confirmed: you can remove Theseus's \
+     access in your Google account's settings (Security, third-party access).";
+pub(crate) const NOT_CLEARED: &str =
+    "🔐 Ended at Google, but the kept grant could not be cleared here: run `theseus google revoke` \
+     at the terminal.";
+pub(crate) const NEITHER: &str =
+    "🔐 Ending it at Google could not be confirmed, and the kept grant could not be cleared here: \
+     remove Theseus's access in your Google account's settings, and run `theseus google revoke` \
+     at the terminal.";
 pub(crate) const NO_REVOKE: &str = "🔐 The revoke could not be done.";
 
 /// A press of a control of this module.
@@ -158,6 +168,16 @@ pub(crate) fn done_words(done: &GoogleAuthFinishResult) -> String {
     )
 }
 
+/// What a revoke says, from both of its results, in fixed words: never its note.
+pub(crate) fn revoked_words(out: &GoogleRevokeResult) -> &'static str {
+    match (out.revoked_at_google, out.cleared) {
+        (true, true) => REVOKED,
+        (false, true) => NOT_AT_GOOGLE,
+        (true, false) => NOT_CLEARED,
+        (false, false) => NEITHER,
+    }
+}
+
 fn refused(why: Why) -> &'static str {
     match why {
         Why::NotYours => NOT_YOURS,
@@ -194,6 +214,7 @@ impl Shared {
         user: u64,
         origin: theseus_protocol::DiscordOrigin,
     ) {
+        let _slot = self.consents.slot(PREFIX).await;
         if !self.consent_ack(i, WHAT).await {
             return;
         }
@@ -214,6 +235,9 @@ impl Shared {
             }
             Err(_) => return self.consent_finish(i, WHAT, NO_BEGIN, &[]).await,
         };
+        consent::pause_point("google-begun").await;
+        // The daemon's slot is this consent's now, shown or not: every older record goes.
+        self.consents.retire_kind(PREFIX);
         let (Some(address), Some(mut shown)) =
             (address_words(&b.url), consent::pages(&begun_lines(&b)))
         else {
@@ -245,6 +269,8 @@ impl Shared {
         let Some(auth_id) = consent::submitted(m, PREFIX) else {
             return self.consent_reply(i, WHAT, EXPIRED, vec![]).await;
         };
+        // Checked under the slot: a newer begin has finished, or waits for this one.
+        let _slot = self.consents.slot(PREFIX).await;
         if let Err(why) = self.consents.step(
             PREFIX,
             &auth_id,
@@ -288,6 +314,7 @@ impl Shared {
         who: &str,
         origin: theseus_protocol::DiscordOrigin,
     ) {
+        let _slot = self.consents.slot(PREFIX).await;
         if !self.consent_ack(i, WHAT).await {
             return;
         }
@@ -302,7 +329,7 @@ impl Shared {
             .call::<_, GoogleRevokeResult>(method::GOOGLE_REVOKE, params)
             .await;
         let text = match r {
-            Ok(_) => REVOKED,
+            Ok(out) => revoked_words(&out),
             Err(e) if e.code == error_code::REFUSED => NOT_HERE,
             Err(_) => NO_REVOKE,
         };

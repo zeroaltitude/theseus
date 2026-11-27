@@ -24,7 +24,7 @@ mod confirms;
 #[cfg(test)]
 pub(crate) use confirms::Rides;
 mod context;
-mod google;
+pub(crate) mod google;
 mod inspect;
 mod mcp_card;
 mod views;

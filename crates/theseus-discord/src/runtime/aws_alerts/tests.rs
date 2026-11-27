@@ -34,6 +34,11 @@ fn an_alerts_failure_is_fixed_words_and_holds_nothing_said() {
             NOT_THIS,
         ),
         (-32603, format!("InvalidParameter: Token {token}"), AWS_NO),
+        (
+            -32603,
+            format!("the subscription arn:x was confirmed, but reading it back failed: {token}"),
+            NOT_VERIFIED,
+        ),
     ];
     for (code, message, want) in cases {
         let got = failure(&call_error(code, &message));
