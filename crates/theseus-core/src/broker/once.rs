@@ -62,6 +62,20 @@ impl OnceGrant {
     }
 }
 
+/// A job's facts a one-run grant is matched against, as `for_job_of` takes them: its argv, the
+/// variables the call sets, where it runs and on what PATH, the posture it ran at, whether it
+/// runs in the background, and its correlation id.
+#[derive(Clone, Copy)]
+pub struct OnceRun<'a> {
+    pub argv: &'a [String],
+    pub env: &'a [&'a str],
+    pub cwd: &'a Path,
+    pub job_path: Option<&'a str>,
+    pub ran_at: Posture,
+    pub background: bool,
+    pub correlation_id: &'a str,
+}
+
 /// The broker's one-run grants: the live ones, what each job was given, and each handle's names.
 #[derive(Debug, Default)]
 pub(super) struct Table {
@@ -193,24 +207,19 @@ impl Broker {
             .unwrap_or_default()
     }
 
-    /// Give a job the one-run grants of `turn` its run takes, into `out`; each is taken, given
-    /// or not. A run in the background, or at a looser posture than the grant's, is not given
-    /// it, and the row says why.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the job's facts, as `for_job_of` takes them"
-    )]
-    pub fn once_for_job(
-        &self,
-        turn: (&str, &str),
-        argv: &[String],
-        env: &[&str],
-        cwd: &Path,
-        job_path: Option<&str>,
-        (ran_at, background): (Posture, bool),
-        correlation_id: &str,
-        out: &mut ForJob,
-    ) {
+    /// Give the job `run` the one-run grants of `turn` its run takes, into `out`; each is
+    /// taken, given or not. A run in the background, or at a looser posture than the grant's,
+    /// is not given it, and the row says why.
+    pub fn once_for_job(&self, turn: (&str, &str), run: &OnceRun<'_>, out: &mut ForJob) {
+        let OnceRun {
+            argv,
+            env,
+            cwd,
+            job_path,
+            ran_at,
+            background,
+            correlation_id,
+        } = *run;
         let taken = match self.once_taken((turn.0, Some(turn.1)), argv, env, cwd, job_path) {
             Ok(t) => t,
             Err(note) => {

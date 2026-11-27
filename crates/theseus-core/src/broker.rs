@@ -1358,7 +1358,7 @@ fn resolve(program: &str, path: Option<&str>, cwd: &Path, absolute_only: bool) -
 }
 
 mod once;
-pub use once::{OnceGrant, HANDLE as ONCE_HANDLE};
+pub use once::{OnceGrant, OnceRun, HANDLE as ONCE_HANDLE};
 
 #[cfg(test)]
 mod tests;

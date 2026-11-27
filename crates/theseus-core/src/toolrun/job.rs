@@ -512,16 +512,17 @@ impl ToolRuntime {
         // A one-run grant of this turn (issue 64): never to a run in the background.
         let background = call.input.get("background").and_then(Value::as_bool) == Some(true);
         let turn = crate::config_change::vault_use::once::held_turn(self, tc);
-        self.broker.once_for_job(
-            (tc.session_id, &turn),
-            &spec.argv,
-            &set,
-            &spec.cwd,
-            path.as_deref(),
-            (ran_at, background),
+        let run = crate::broker::OnceRun {
+            argv: &spec.argv,
+            env: &set,
+            cwd: &spec.cwd,
+            job_path: path.as_deref(),
+            ran_at,
+            background,
             correlation_id,
-            &mut brokered,
-        );
+        };
+        self.broker
+            .once_for_job((tc.session_id, &turn), &run, &mut brokered);
         // The view a self builder's command runs in keeps one more directory (`builder_view`).
         let sandbox = match (&build, sandbox) {
             (Some(dir), Some(view)) => {
