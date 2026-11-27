@@ -788,13 +788,22 @@ async fn outside_text_in_the_same_response_stops_it() {
     let sid = o.r.session();
     let p = o.server.port;
     o.r.batch_next(vec![
-        ("http_fetch", json!({"url": format!("http://other.test:{p}/v1/things")})),
-        ("http_request", call(p, "POST", "/v1/things", json!({"json": {"n": 1}}))),
+        (
+            "http_fetch",
+            json!({"url": format!("http://other.test:{p}/v1/things")}),
+        ),
+        (
+            "http_request",
+            call(p, "POST", "/v1/things", json!({"json": {"n": 1}})),
+        ),
     ]);
     o.r.run_turn(&sid).await;
     let (status, text) = last(&o.r, &sid, "p2");
     assert_eq!(status, ResultStatus::Error, "{text}");
     assert!(text.contains(super::request::AGAIN), "{text}");
     assert!(!read_vault(&o), "nothing read");
-    assert!(o.server.seen().iter().all(|h| h.method == "GET"), "nothing posted");
+    assert!(
+        o.server.seen().iter().all(|h| h.method == "GET"),
+        "nothing posted"
+    );
 }
