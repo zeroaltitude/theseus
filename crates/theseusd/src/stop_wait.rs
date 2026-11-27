@@ -77,10 +77,10 @@ pub fn end_runtime<T>(rt: tokio::runtime::Runtime, then: T) -> T {
         );
     }
     // A join the runtime's end cut keeps its lock: released now, by the lock's own release, so the next start's
-    // join can take it.
-    let released = theseus_core::rsi::join::lock::release_cut_by_stop();
-    if released > 0 {
-        tracing::info!(released, "stop: the join lock a stop cut is released");
+    // join can take it; waited for at most its own bound, and said in fixed words.
+    {
+        use theseus_core::rsi::join::lock;
+        lock::release_cut_by_stop_within(lock::STOP_RELEASE_BOUND);
     }
     then
 }

@@ -85,6 +85,36 @@ pub fn release_cut_by_stop() -> usize {
     released
 }
 
+/// How long the stop waits for its release of the join locks it cut.
+pub const STOP_RELEASE_BOUND: Duration = Duration::from_secs(5);
+
+/// What the stop's release of the join locks did.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct StopRelease {
+    /// Locks the stop cut, released.
+    pub released: usize,
+    /// Locks whose `Held` was still alive (a join still running): left held.
+    pub left_held: usize,
+    /// Locks the stop cut whose release failed on the disk: left held.
+    pub failed: usize,
+    /// The kind of the first such failure.
+    pub kind: Option<std::io::ErrorKind>,
+    /// Locks another holder now owns: left untouched (the release says so).
+    pub another_holder: usize,
+}
+
+/// The stop's release of the join locks, as [`release_cut_by_stop`] does it, on the calling thread.
+pub fn release_cut_by_stop_within(_bound: Duration) -> Option<StopRelease> {
+    let released = release_cut_by_stop();
+    if released > 0 {
+        tracing::info!(released, "stop: the join lock a stop cut is released");
+    }
+    Some(StopRelease {
+        released,
+        ..StopRelease::default()
+    })
+}
+
 /// Why the lock was not taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Busy {
@@ -357,5 +387,128 @@ mod release_tests {
         std::fs::write(owner(&dir), &replacement).unwrap();
         assert!(a.release("joined").is_err());
         assert_eq!(std::fs::read_to_string(owner(&dir)).unwrap(), replacement);
+    }
+}
+
+#[cfg(test)]
+mod stop_release_tests {
+    use super::*;
+    use crate::test_support::Log;
+    use std::time::Instant;
+
+    /// KEY (issue 63): the stop's release is bounded. Another thread holds the lock module's own mutex past the
+    /// bound; the release returns to the stop within it, says so in one warning, and the lock stays on disk.
+    #[test]
+    fn a_release_held_past_its_bound_returns_to_the_stop() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "theseus self-join a").unwrap().unwrap();
+        crate::startup::stop_began();
+        drop(a);
+        let held = std::sync::Barrier::new(2);
+        let log = Log::default();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let _door = DOOR.lock().unwrap();
+                held.wait();
+                std::thread::sleep(Duration::from_secs(3));
+            });
+            held.wait();
+            let t0 = Instant::now();
+            let r = log.capture(|| release_cut_by_stop_within(Duration::from_millis(300)));
+            let took = t0.elapsed();
+            assert!(took < Duration::from_secs(2), "the stop waited {took:?}");
+            assert_eq!(r, None);
+            assert!(dir.exists(), "the lock stays on disk");
+        });
+        let text = log.text();
+        assert!(
+            text.contains("the join locks' release did not end within its bound"),
+            "{text}"
+        );
+        assert!(
+            !text.contains(&*d.path().to_string_lossy()),
+            "a path: {text}"
+        );
+    }
+
+    /// A join still running (its `Held` alive) when the stop's release runs keeps its lock, as a crash leaves it,
+    /// and the warning counts it.
+    #[test]
+    fn a_lock_whose_held_is_alive_is_left_held_and_counted() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "theseus self-join a").unwrap().unwrap();
+        crate::startup::stop_began();
+        let log = Log::default();
+        let r = log
+            .capture(|| release_cut_by_stop_within(STOP_RELEASE_BOUND))
+            .expect("the release ended");
+        assert!(dir.exists(), "a live join's lock stays held");
+        assert_eq!((r.released, r.left_held), (0, 1), "{r:?}");
+        let text = log.text();
+        assert!(
+            text.contains("whose join had not ended stays held"),
+            "{text}"
+        );
+        assert!(text.contains("left=1"), "{text}");
+        assert!(
+            !text.contains(&*d.path().to_string_lossy()),
+            "a path: {text}"
+        );
+        drop(a);
+    }
+
+    /// A release that fails on the disk says so in fixed words: the error's kind, never its text and never the
+    /// lock's directory.
+    #[test]
+    fn a_failed_release_names_no_path_and_no_error_text() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "theseus self-join a").unwrap().unwrap();
+        crate::startup::stop_began();
+        drop(a);
+        std::fs::remove_file(owner(&dir)).unwrap();
+        let log = Log::default();
+        let r = log.capture(|| release_cut_by_stop_within(STOP_RELEASE_BOUND));
+        let text = log.text();
+        assert!(
+            !text.contains(&*d.path().to_string_lossy()),
+            "a path: {text}"
+        );
+        assert!(!text.contains("No such file"), "an error's text: {text}");
+        assert!(
+            text.contains("could not be released; it stays held"),
+            "{text}"
+        );
+        assert!(text.contains("NotFound"), "{text}");
+        let r = r.expect("the release ended");
+        assert_eq!((r.released, r.failed), (0, 1), "{r:?}");
+    }
+
+    /// A lock another holder now owns is left untouched, and the stop adds no second warning for it.
+    #[test]
+    fn a_lock_another_holder_owns_gets_no_second_warning() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "theseus self-join a").unwrap().unwrap();
+        let theirs = "the outer loop's join\npid: 1\nstarted: then\n";
+        std::fs::write(owner(&dir), theirs).unwrap();
+        crate::startup::stop_began();
+        drop(a);
+        let log = Log::default();
+        let r = log.capture(|| release_cut_by_stop_within(STOP_RELEASE_BOUND));
+        let text = log.text();
+        assert!(
+            !text.contains("could not be released"),
+            "a second warning: {text}"
+        );
+        assert!(
+            !text.contains(&*d.path().to_string_lossy()),
+            "a path: {text}"
+        );
+        assert_eq!(std::fs::read_to_string(owner(&dir)).unwrap(), theirs);
+        let r = r.expect("the release ended");
+        assert_eq!((r.released, r.another_holder), (0, 1), "{r:?}");
     }
 }
