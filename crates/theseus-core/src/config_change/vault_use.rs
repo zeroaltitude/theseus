@@ -56,6 +56,8 @@ mod tests_request;
 #[cfg(test)]
 mod tests_request_base;
 #[cfg(test)]
+mod tests_request_fix;
+#[cfg(test)]
 mod tests_request_more;
 pub(crate) mod used;
 

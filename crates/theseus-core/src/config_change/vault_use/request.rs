@@ -6,9 +6,10 @@
 //! - **It asks first** at the gate, before anything is read, as the run form does
 //!   ([`once::ask_first_for`]): after outside text since the owner's last message at both
 //!   `outside` settings, in a flagged session, and in a turn the owner's own message did not
-//!   begin. The answer of an earlier `http.request` to the same host with the same item is not
-//!   counted as outside text here ([`same`]): that service already holds the key. A DELETE asks
-//!   every time (the tool's plan).
+//!   begin. The answer of an earlier `http.request` to the same host and port, whose own
+//!   selectors (vault, item, field, section, as the model wrote them) were exactly this call's, is
+//!   not counted as outside text here ([`same`]): that service already holds the key. A DELETE
+//!   asks every time (the tool's plan).
 //! - **The item** is read as the run form reads it (`check::reading`), once. An item Theseus
 //!   itself runs on is not sent ([`once::runs_on`]), nor a value too short to mask.
 //! - **The value** is held on the board under `vault-use:<call>` before anything is sent, so every
@@ -71,25 +72,32 @@ impl theseus_tools::Secrets for One {
     }
 }
 
-/// Whether `n` is the answer of an earlier `http.request` to `host` with the item `item` of the
-/// vault `vault`, by the names the vault listed (any case).
-fn same(n: &Node, host: &str, vault: &str, item: &str) -> bool {
+/// The meta key a result keeps the call's own selectors under.
+const SELECTORS: &str = "selectors";
+
+/// The call's own selectors, as the model wrote them, trimmed (an empty section is none): what
+/// says whether two calls name the same item. Two calls whose selectors differ in any way (a title
+/// against an id, another spelling, another field) may name different items.
+fn selectors(k: &req::Key) -> Value {
+    json!({
+        "vault": k.vault.trim(),
+        "item": k.item.trim(),
+        "field": k.field.trim(),
+        "section": k.section.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+    })
+}
+
+/// Whether `n` is the answer of an earlier `http.request` to `host` (with its port) whose own
+/// selectors were exactly `selectors`.
+fn same(n: &Node, host: &str, selectors: &Value) -> bool {
     let Body::ToolResult { tool, meta, .. } = &n.body else {
         return false;
     };
-    let named = |k: &str, v: &str| {
-        meta["vault"][k]
-            .as_str()
-            .is_some_and(|x| x.eq_ignore_ascii_case(v.trim()))
-    };
-    tool == REQUEST
-        && meta["host"].as_str() == Some(host)
-        && named("vault", vault)
-        && named("item", item)
+    tool == REQUEST && meta["host"].as_str() == Some(host) && meta[SELECTORS] == *selectors
 }
 
 /// The gate's hold on `http.request`: the run form's, but an earlier answer from the same host
-/// with the same item is not outside text for it. A call the wall refuses is left to the wall.
+/// with the same selectors is not outside text for it. A call the wall refuses is left to the wall.
 pub(crate) fn ask_first(tc: &TurnCtx<'_>, input: &Value, plan: Plan) -> Plan {
     if crate::config_change::wall::refusal_for(tc, REQUEST).is_some() {
         return plan;
@@ -98,28 +106,26 @@ pub(crate) fn ask_first(tc: &TurnCtx<'_>, input: &Value, plan: Plan) -> Plan {
     let Ok(c) = req::check(input, true) else {
         return plan;
     };
-    let (host, k) = (c.host(), &c.input.key);
-    once::ask_first_for(tc, WHAT, &|n| same(n, &host, &k.vault, &k.item), plan)
+    let (host, own) = (c.host(), selectors(&c.input.key));
+    once::ask_first_for(tc, WHAT, &|n| same(n, &host, &own), plan)
 }
 
 /// The hold read again when the call runs: outside text an earlier call of the same response
 /// read, unless the owner approved this very call.
 fn held_since(tc: &TurnCtx<'_>, c: &Checked, correlation_id: &str) -> bool {
-    let (host, k) = (c.host(), &c.input.key);
-    let skip = |n: &Node| same(n, &host, &k.vault, &k.item);
+    let (host, own) = (c.host(), selectors(&c.input.key));
+    let skip = |n: &Node| same(n, &host, &own);
     once::hold_reason_for(tc, WHAT, &skip).is_some() && !once::approved(tc, correlation_id)
 }
 
-/// Whether the owner was told of this item and host in this span: an earlier answer in it is
-/// one.
-fn told(tc: &TurnCtx<'_>, host: &str, c: &super::Checked) -> bool {
+/// Whether the owner was told of this item and host in this span: an earlier answer in it with
+/// the same selectors is one.
+fn told(tc: &TurnCtx<'_>, host: &str, own: &Value) -> bool {
     let Ok(nodes) = tc.store.session_nodes(tc.session_id) else {
         return false;
     };
     let (from, _) = crate::config_change::hold::span(&nodes);
-    nodes[from..]
-        .iter()
-        .any(|(_, n)| same(n, host, &c.vault, &c.item))
+    nodes[from..].iter().any(|(_, n)| same(n, host, own))
 }
 
 /// Every string of `v`, masked.
@@ -227,15 +233,16 @@ pub async fn run(
     let mask = Scrubber::with_values(vec![(value.expose().to_string(), handle.clone())]);
     rt.broker.hold(&handle, value.clone());
     let host = c.host();
-    let was_told = told(tc, &host, &checked);
+    let own = selectors(&c.input.key);
+    let was_told = told(tc, &host, &own);
     ctx.secrets = Some(Arc::new(One(Zeroizing::new(value.expose().to_string()))));
     drop(value);
     let got = tool.run_async(input, &ctx).await;
     drop(ctx);
     let method = c.method.as_str().to_string();
     let names = json!({"vault": checked.vault, "item": checked.item, "field": checked.field});
-    let mut meta =
-        json!({"vault": names, "as": c.input.key.place.word(), "host": host, "method": method});
+    let mut meta = json!({"vault": names, SELECTORS: own, "as": c.input.key.place.word(),
+        "host": host, "method": method});
     // Nothing went out: Theseus's own words, masked all the same.
     let text = answered(got, &c, &mut meta).map_err(|e| mask.scrub(&e).0)?;
     tc.record(&crate::fact::tool::SecretGranted {

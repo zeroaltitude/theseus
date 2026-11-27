@@ -133,7 +133,29 @@ impl Web {
     }
 }
 
-fn build(dns: net::Dns) -> Result<reqwest::Client, String> {
+impl Web {
+    /// The client `http.request` sends on (issue 65): the checked resolver, no proxy and no
+    /// redirect, as [`build`]'s, and the client's own retries off, so a request that carries a key
+    /// goes out once and is never sent again (the default retries a request an HTTP/2 peer
+    /// refused). `h2` (tests only) speaks HTTP/2 from the first byte, as a test's plain server
+    /// needs.
+    pub(crate) fn keyed(&self, h2: bool) -> Result<reqwest::Client, String> {
+        let dns = net::Dns {
+            check: true,
+            ..self.dns.clone()
+        };
+        let b = builder(dns).retry(reqwest::retry::never());
+        let b = match h2 {
+            true => b.http2_prior_knowledge(),
+            false => b,
+        };
+        b.build()
+            .map_err(|e| format!("the web client did not start: {e}"))
+    }
+}
+
+/// The web tools' client, before it is built.
+fn builder(dns: net::Dns) -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         // A fetch judges each hop before it follows it, so the client
         // follows none itself.
@@ -146,6 +168,10 @@ fn build(dns: net::Dns) -> Result<reqwest::Client, String> {
             env!("CARGO_PKG_VERSION"),
             " (+https://github.com/zeroaltitude/theseus)"
         ))
+}
+
+fn build(dns: net::Dns) -> Result<reqwest::Client, String> {
+    builder(dns)
         .build()
         .map_err(|e| format!("the web client did not start: {e}"))
 }

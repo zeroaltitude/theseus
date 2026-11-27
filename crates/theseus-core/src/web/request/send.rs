@@ -1,6 +1,6 @@
 //! `http.request`'s send: the files measured, the placeholders filled, the body built (a
 //! multipart form is written by hand, with a boundary the daemon makes), the key put in its one
-//! place, one request sent on the checked client, and the answer shaped.
+//! place, one request sent on the checked client with its retries off, and the answer shaped.
 //!
 //! The answer is the status line, a closed list of headers and the body. A 3xx is returned, not
 //! followed. A 4xx or 5xx is an answer (`meta.failed`). Theseus's own errors carry nothing of the
@@ -202,7 +202,23 @@ pub fn filled(i: &Input, files: &[Measured]) -> Result<Filled, String> {
 /// Read the call's files: each resolved as `fs.read` resolves one, a regular file, together at
 /// most the size a file tool reads.
 async fn measure(files: &[(Option<String>, PathBuf)]) -> Result<Vec<Measured>, String> {
-    let cap = theseus_files::MAX_FILE_BYTES;
+    measure_within(files, theseus_files::MAX_FILE_BYTES).await
+}
+
+/// [`measure`], the files together at most `cap` bytes: by their sizes before they are read, and
+/// by the bytes read, which stop one past what is left (a file may grow, or give more than its
+/// size says).
+pub(crate) async fn measure_within(
+    files: &[(Option<String>, PathBuf)],
+    cap: u64,
+) -> Result<Vec<Measured>, String> {
+    use tokio::io::AsyncReadExt as _;
+    let over = || {
+        format!(
+            "Not sent: the files are over {}, the most a request sends",
+            crate::narrative::bytes(cap)
+        )
+    };
     let mut total = 0u64;
     let mut out = Vec::new();
     for (name, path) in files {
@@ -213,16 +229,22 @@ async fn measure(files: &[(Option<String>, PathBuf)]) -> Result<Vec<Measured>, S
         if !meta.is_file() {
             return Err(format!("Not sent: {shown} is not a file"));
         }
-        total += meta.len();
-        if total > cap {
-            return Err(format!(
-                "Not sent: the files are over {}, the most a request sends",
-                crate::narrative::bytes(cap)
-            ));
+        if total + meta.len() > cap {
+            return Err(over());
         }
-        let bytes = tokio::fs::read(path)
+        let left = cap - total;
+        let mut bytes = Vec::new();
+        tokio::fs::File::open(path)
+            .await
+            .map_err(|e| format!("Not sent: {shown} could not be read ({})", e.kind()))?
+            .take(left + 1)
+            .read_to_end(&mut bytes)
             .await
             .map_err(|e| format!("Not sent: {shown} could not be read ({})", e.kind()))?;
+        if bytes.len() as u64 > left {
+            return Err(over());
+        }
+        total += bytes.len() as u64;
         out.push(Measured::of(name.clone(), bytes));
     }
     Ok(out)
@@ -260,6 +282,10 @@ pub fn form_body(
                 .and_then(|n| n.to_str())
                 .unwrap_or("file")
                 .replace(['"', '\r', '\n'], "_");
+            // The file's own name is refused as a given one is when it holds a `\`.
+            if !super::plain(&own) {
+                return Err(super::filename_words(&p.name));
+            }
             (
                 f.bytes.clone(),
                 "application/octet-stream".into(),
@@ -305,11 +331,17 @@ fn request_body(
             .clone()
             .unwrap_or_else(|| default.to_string())
     };
+    // A `json` or `text` body is measured as it is sent: its placeholders filled.
+    let capped = |data: Vec<u8>| match data.len() > MAX_BODY {
+        true => Err(format!("a body is at most {MAX_BODY} bytes")),
+        false => Ok(data),
+    };
     Ok(if let Some(v) = &filled.json {
-        let data = serde_json::to_vec(v).map_err(|e| e.to_string())?;
+        let data = capped(serde_json::to_vec(v).map_err(|e| e.to_string())?)?;
         Some((data, typed("application/json")))
     } else if let Some(t) = &filled.text {
-        Some((t.clone().into_bytes(), typed("text/plain; charset=utf-8")))
+        let data = capped(t.clone().into_bytes())?;
+        Some((data, typed("text/plain; charset=utf-8")))
     } else if i.form.is_some() {
         let (data, boundary) = form_body(i, filled, files, paths)?;
         Some((data, format!("multipart/form-data; boundary={boundary}")))
@@ -340,16 +372,16 @@ fn unknown(message: String) -> ToolFailure {
     }
 }
 
-/// The request, on the checked client: the model's headers, the key in its one place, and the
-/// body with its type.
+/// The request, on `client` (`Web::keyed`): the model's headers, the key in its one place, and
+/// the body with its type.
 fn build(
-    web: &Web,
+    client: &reqwest::Client,
     c: &Checked,
     key: &str,
     filled: &Filled,
     body: Option<(Vec<u8>, String)>,
 ) -> Result<reqwest::RequestBuilder, ToolFailure> {
-    let mut req = web.client(false)?.request(c.method.clone(), c.url.clone());
+    let mut req = client.request(c.method.clone(), c.url.clone());
     for (k, v) in &filled.headers {
         let name = HeaderName::from_bytes(k.as_bytes())
             .map_err(|_| ToolFailure::new(format!("Not sent: `{k}` is not a header's name")))?;
@@ -438,6 +470,7 @@ async fn receive(
 /// Send the checked call with `key` in its place, and shape the answer.
 pub async fn send(
     web: &Web,
+    client: &reqwest::Client,
     c: &Checked,
     key: &str,
     paths: &[(Option<String>, PathBuf)],
@@ -446,7 +479,7 @@ pub async fn send(
     let files = measure(paths).await.map_err(ToolFailure::new)?;
     let filled = filled(&c.input, &files).map_err(not_sent)?;
     let body = request_body(c, &filled, &files, paths).map_err(not_sent)?;
-    let req = build(web, c, key, &filled, body)?;
+    let req = build(client, c, key, &filled, body)?;
     let secs = match files.is_empty() {
         true => web.cfg.timeout_secs,
         false => web.cfg.timeout_secs.saturating_mul(4),

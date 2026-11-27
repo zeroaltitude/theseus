@@ -223,6 +223,20 @@ fn token(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_|~`".contains(c))
 }
 
+/// A text a quoted parameter of a form's part may carry whole: no `"` and no `\`, which would
+/// end or escape the quote.
+pub(crate) fn plain(s: &str) -> bool {
+    !s.contains(['"', '\\'])
+}
+
+/// The words for a part's `filename` that is not one line, or holds a `"` or a `\`.
+pub(crate) fn filename_words(part: &str) -> String {
+    format!(
+        "the part `{}`'s `filename` is for a file part: one line, with no `\"` or `\\`",
+        clean(part)
+    )
+}
+
 /// A text a header or a form's part may carry: no CR, LF or NUL.
 fn one_line(s: &str) -> bool {
     !s.contains(['\r', '\n', '\0'])
@@ -380,10 +394,10 @@ fn form_parts(parts: &[Part]) -> Result<(), String> {
     }
     let mut names = std::collections::BTreeSet::new();
     for p in parts {
-        let quoted = |s: &str| !s.is_empty() && s.len() <= 100 && one_line(s) && !s.contains('"');
+        let quoted = |s: &str| !s.is_empty() && s.len() <= 100 && one_line(s) && plain(s);
         if !quoted(&p.name) || !names.insert(p.name.as_str()) {
             return Err(
-                "each part has its own `name`: one line of at most 100 characters, with no `\"`"
+                "each part has its own `name`: one line of at most 100 characters, with no `\"` or `\\`"
                     .into(),
             );
         }
@@ -397,10 +411,7 @@ fn form_parts(parts: &[Part]) -> Result<(), String> {
         if p.filename.as_deref().is_some_and(|f| !quoted(f))
             || p.filename.is_some() && p.file.is_none()
         {
-            return Err(format!(
-                "the part `{}`'s `filename` is for a file part: one line, with no `\"`",
-                clean(&p.name)
-            ));
+            return Err(filename_words(&p.name));
         }
         if p.content_type
             .as_deref()
@@ -424,6 +435,10 @@ pub struct Request {
     web: Arc<Web>,
     /// Tests only: an `http` URL is taken, so a test's server on loopback can answer.
     plaintext: bool,
+    /// Tests only: the client speaks HTTP/2 from the first byte ([`Web::keyed`]).
+    h2: bool,
+    /// The client it sends on, built at the first call ([`Web::keyed`]): its retries are off.
+    client: std::sync::OnceLock<Result<reqwest::Client, String>>,
 }
 
 impl Web {
@@ -432,6 +447,8 @@ impl Web {
         Arc::new(Request {
             web: self.clone(),
             plaintext: false,
+            h2: false,
+            client: std::sync::OnceLock::new(),
         })
     }
 
@@ -447,6 +464,19 @@ impl Web {
         Arc::new(Request {
             web: self.clone(),
             plaintext: true,
+            h2: false,
+            client: std::sync::OnceLock::new(),
+        })
+    }
+
+    /// [`Web::request_plaintext`], whose client speaks HTTP/2 from the first byte.
+    #[cfg(test)]
+    pub fn request_h2_plaintext(self: &Arc<Self>) -> Arc<dyn Tool> {
+        Arc::new(Request {
+            web: self.clone(),
+            plaintext: true,
+            h2: true,
+            client: std::sync::OnceLock::new(),
         })
     }
 }
@@ -596,6 +626,7 @@ impl Tool for Request {
 
     fn run_async(&self, input: &Value, ctx: &ToolCtx) -> AsyncRun {
         let web = self.web.clone();
+        let client = self.client.get_or_init(|| self.web.keyed(self.h2)).clone();
         let checked = self.checked(input);
         let key = ctx.secret(KEY);
         let files: Vec<(Option<String>, std::path::PathBuf)> = checked
@@ -610,7 +641,8 @@ impl Tool for Request {
         Box::pin(async move {
             let c = checked.map_err(theseus_tools::ToolFailure::new)?;
             let key = key.map_err(theseus_tools::ToolFailure::new)?;
-            send::send(&web, &c, &key, &files).await
+            let client = client.map_err(theseus_tools::ToolFailure::new)?;
+            send::send(&web, &client, &c, &key, &files).await
         })
     }
 }

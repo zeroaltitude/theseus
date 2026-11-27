@@ -242,8 +242,21 @@ pub(super) fn rig_typed(
     typed: bool,
     tweak: impl FnOnce(&mut crate::Config) + Send + 'static,
 ) -> Req {
+    let request = web.request_plaintext();
+    rig_tool(server, web, request, outside, typed, tweak)
+}
+
+/// [`rig_typed`], with `request` as the `http.request` the daemon offers.
+pub(super) fn rig_tool(
+    server: Server,
+    web: Arc<crate::web::Web>,
+    request: Arc<dyn theseus_tools::Tool>,
+    outside: OutsideMode,
+    typed: bool,
+    tweak: impl FnOnce(&mut crate::Config) + Send + 'static,
+) -> Req {
     let mut tools = web.tools();
-    tools.push(web.request_plaintext());
+    tools.push(request);
     let r = rig_with_tools(tools, move |c, _| {
         c.content_based_security.outside = outside;
         tweak(c);
