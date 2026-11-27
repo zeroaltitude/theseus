@@ -2,6 +2,7 @@
 //! there an hour later). The daemon replaces what is there whole at the next `stage`, and empties it once the helper
 //! has copied or refused it.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -147,7 +148,7 @@ async fn a_second_install_after_a_first_that_rolled_back_goes_through() {
         ],
         crate::rsi::join::tests::SONNET,
     );
-    t.r.core.self_join_pass(&t.r.seams()).await.unwrap();
+    t.r.core.self_join_pass_yes(&t.r.seams()).await.unwrap();
     let second = t.r.upstream_main();
     assert_ne!(first, second, "a second join");
     t.until("the second restart", |t| {

@@ -1340,11 +1340,27 @@ pub fn is_self_branch(branch: &str) -> bool {
 }
 
 /// Push the tree's `branch` to `remote`, at `refs/heads/<branch>` only,
-/// after the scrub; `scrub` counts what must not leave in a text.
+/// after the scrub ([`cleared`]); `scrub` counts what must not leave in a text.
 pub fn push(
     p: &Place,
     tree: &Tree,
     remote: &str,
+    branch: &str,
+    scrub: &dyn Fn(&str) -> u32,
+) -> Result<String, Refused> {
+    let r = cleared(p, tree, branch, scrub)?;
+    let spec = format!("{r}:{r}");
+    p.git_ok(&tree.dir, &["push", "-q", "--no-verify", remote, &spec])
+        .map_err(|e| Refused::Git(format!("{e:#}")))?;
+    Ok(spec)
+}
+
+/// Whether the tree's `branch` may leave this machine: a self branch, no exam's file, nothing
+/// `scrub` counts in its commit messages and added lines, main's `scripts/scrub.sh` passing.
+/// Its ref, `refs/heads/<branch>`.
+pub fn cleared(
+    p: &Place,
+    tree: &Tree,
     branch: &str,
     scrub: &dyn Fn(&str) -> u32,
 ) -> Result<String, Refused> {
@@ -1398,10 +1414,7 @@ pub fn push(
             });
         }
     }
-    let spec = format!("{r}:{r}");
-    p.git_ok(&tree.dir, &["push", "-q", "--no-verify", remote, &spec])
-        .map_err(git)?;
-    Ok(spec)
+    Ok(r)
 }
 
 /// What a push of `branch` would send: every commit message, and every line

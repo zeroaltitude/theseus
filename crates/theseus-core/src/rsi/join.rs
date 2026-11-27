@@ -3,7 +3,10 @@
 //! owner's yes is an independent review on another model with a planted
 //! revert, the join lock, one gate on the merge, a plain signed merge, the
 //! install and a notice that carries the one-click revert. The hard keel
-//! still stops at the owner's card.
+//! still stops at the owner's card. Nothing reaches the remote without the
+//! owner's yes (issue 53): the builder's branch and a fix at review stay on
+//! this machine, and the join is the one push of a self change, after the
+//! owner reads it and answers its card ([`publish`]).
 //!
 //! [`Core::self_join_pass`] runs from the tender ([`tender`], only with
 //! `[self] mode = "act"`), and asks [`super::gate`] before it starts and
@@ -29,6 +32,15 @@
 //!    (`self.join.reopened`, [`joining`]): then the pass runs it as any
 //!    accepted branch, every check from this one on, and a head still in the
 //!    keel is held again with a new card. Nothing is remembered from the hold.
+//!    Then **the owner's yes** ([`publish`], issue 53): the join asks one card
+//!    for the branch's head, naming its commits, files and size and the
+//!    command that prints all of it, and parks (a `self.join.stopped` row,
+//!    phase `publish`, not held) until he answers. While it waits it is this
+//!    pass's join: no later branch joins before it, and the pass goes on
+//!    reviewing. A yes is that head's: the join goes on below. A no holds the
+//!    head (`numbers.held`) and nothing asks again. No answer waits, across
+//!    passes and restarts: nothing answers it by time, setting or retry. A
+//!    new head of the branch is a new card.
 //! 3. **The join**, one a pass, under the lock ([`lock`]): fetch, the dry
 //!    run on the remote's main (`merge-tree`), a plain `--no-ff` merge in a
 //!    tree, main's count folded into it ([`stats`], issue 45; a failed count
@@ -55,8 +67,9 @@
 //!    the new daemon writes `self.installed` and the notice
 //!    ([`Core::self_installed_after_serving`]).
 //!
-//! The branch is `[self] remote`'s (`origin` when unset): its main is the
-//! base, and main is pushed there.
+//! The branch is read from `[self] repo` itself, never from the remote; the
+//! base is `[self] remote`'s main (`origin` when unset), and main is pushed
+//! there after the owner's yes.
 
 mod contains;
 mod dead;
@@ -72,6 +85,7 @@ pub mod lock;
 mod moved;
 pub mod planted;
 mod proof_check;
+pub mod publish;
 pub mod review;
 mod reviewing;
 pub mod root_install;
@@ -103,6 +117,8 @@ mod tests_planted;
 mod tests_planted_real;
 #[cfg(test)]
 mod tests_proof_kind;
+#[cfg(test)]
+pub(crate) mod tests_publish;
 #[cfg(test)]
 mod tests_reap;
 #[cfg(test)]
@@ -208,6 +224,8 @@ pub struct Pass {
     pub joined: Vec<(String, String)>,
     /// `(branch, phase)` for each stop.
     pub stopped: Vec<(String, String)>,
+    /// `(branch, head)` of the join that waits for the owner's answer to its card (`publish`).
+    pub parked: Vec<(String, String)>,
 }
 
 /// A green branch, as its `self.branch.built` row says it.
@@ -421,6 +439,11 @@ pub fn lock_dir(cfg: &crate::Config) -> std::path::PathBuf {
     )
 }
 
+/// Whether this pass parked `b`'s join on the owner's card.
+fn pass_parked(pass: &Pass, b: &Built) -> bool {
+    pass.parked.last() == Some(&(b.branch.clone(), b.head.clone()))
+}
+
 /// Blocking work on the blocking pool.
 pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T> + Send + 'static,
@@ -615,6 +638,11 @@ impl Core {
             }
             joined_one = true;
             if !run.join(&remote_of(&self.cfg)).await? {
+                // Waiting for the owner's yes is no reason to stop reviewing the rest; no later
+                // branch joins before it (one join a pass, oldest first).
+                if pass_parked(run.pass, b) {
+                    continue;
+                }
                 break;
             }
         }

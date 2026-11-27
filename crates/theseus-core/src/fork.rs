@@ -36,7 +36,7 @@ use crate::store::Store;
 
 /// The deepest chain of forks followed: a loop in the records, which a
 /// build never writes, ends here.
-const MAX_DEPTH: usize = 64;
+pub(crate) const MAX_DEPTH: usize = 64;
 
 /// What a session record says of its origin, read without the rest.
 #[derive(Deserialize)]

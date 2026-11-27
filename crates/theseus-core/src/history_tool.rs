@@ -20,7 +20,8 @@
 //! - **Every place, when a call narrows and names none, or names `"*"`**: only a bare look-back stays here. A
 //!   span or words with no place and no label, or the place `"*"` (`page::EVERY`), read every place's timeline
 //!   as one (`page::Walks::EveryPlace`), newest first, each line naming its place (history whose place was
-//!   never recorded says so); a session the self loop opened keeps to its own place.
+//!   never recorded says so); a self-loop session that does not build (a reviewer, an approver, a mint's
+//!   writer) keeps to its own place.
 //! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
 //!   keeps an exchange off a page or out of an open.
 //! - **Retraction corrects; it does not hide**: a retracted statement still appears in history as said, and its
@@ -476,15 +477,16 @@ fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView 
 }
 
 /// The self loop's scope of `session`'s history read (`view_gate::Verified`, as its view reads it): for a
-/// session the self loop opened, its own place at its verified anchor and the run it was handed as a fork
-/// (read fallibly: a run that cannot be read fails the call); none for any other session, which reads every
-/// place. A scope that cannot be read fails the call plainly, as it fails a turn's view: never the widest.
+/// self-loop session that does not build (a reviewer, an approver, a mint's writer, a fork of one), its own
+/// place at its verified anchor and the run it was handed as a fork (read fallibly: a run that cannot be read
+/// fails the call); none for any other session, a builder's and a fixer's among them, which reads every place. A scope
+/// that cannot be read fails the call plainly, as it fails a turn's view: never the widest.
 fn self_scope(runner: &TurnRunner, session: &str) -> Result<Option<page::SelfScope>, String> {
     let v = crate::view_gate::Verified::of_session(runner, session);
     if v.scope_unread() {
         return Err(
-            "context.history reads nothing here: whether the self loop opened this session \
-                    cannot be read"
+            "context.history reads nothing here: whether the self loop opened this session, or for \
+                    which job, cannot be read"
                 .into(),
         );
     }

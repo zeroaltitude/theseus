@@ -3,6 +3,7 @@
 //! stops is held again with a new card, a head already on main is closed as joined by hand, and
 //! none of it is a try. Nothing but his word lifts the hold.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use theseus_protocol::rsi::{
     SelfFileParams, SelfMode, SelfPipelineParams, SelfRetryParams, SelfRetryResult,
 };
@@ -143,7 +144,7 @@ async fn a_held_change_that_is_now_clean_joins_on_the_owners_retry() {
     let (branch, head) = r.seed(&id, &eroding(), SONNET);
     let main = r.upstream_main();
     let seams = r.seams();
-    let one = r.core.self_join_pass(&seams).await.unwrap();
+    let one = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(
         one.stopped,
         [(branch.clone(), "keel".to_string())],
@@ -165,7 +166,7 @@ async fn a_held_change_that_is_now_clean_joins_on_the_owners_retry() {
     // and any restart later.
     std::fs::remove_file(&marker).unwrap();
     for _ in 0..2 {
-        let again = r.core.self_join_pass(&seams).await.unwrap();
+        let again = r.core.self_join_pass_yes(&seams).await.unwrap();
         assert!(
             again.stopped.is_empty() && again.joined.is_empty(),
             "{again:?}"
@@ -178,7 +179,7 @@ async fn a_held_change_that_is_now_clean_joins_on_the_owners_retry() {
     let said = retry(&r, &id, &owner(), None).unwrap();
     assert!(said.rechecked && said.rank == 0, "{said:?}");
     assert_eq!(held(&r).len(), 0, "no longer held");
-    let two = r.core.self_join_pass(&seams).await.unwrap();
+    let two = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(two.joined.len(), 1, "{two:?}");
     assert!(two.reviewed.is_empty(), "no new review: {two:?}");
     assert_eq!(r.rows("self.review.verdict").len(), 1);
@@ -213,7 +214,7 @@ async fn a_held_change_that_still_hits_the_keel_is_held_again_with_a_second_card
     let (branch, _) = r.seed(&id, &files, SONNET);
     let main = r.upstream_main();
     let seams = r.seams();
-    let one = r.core.self_join_pass(&seams).await.unwrap();
+    let one = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(
         one.stopped,
         [(branch.clone(), "keel".to_string())],
@@ -222,7 +223,7 @@ async fn a_held_change_that_still_hits_the_keel_is_held_again_with_a_second_card
     let tries = attempts::tries(&task(&r, &id), 0);
     for card in 2..=3 {
         retry(&r, &id, &owner(), None).unwrap();
-        let again = r.core.self_join_pass(&seams).await.unwrap();
+        let again = r.core.self_join_pass_yes(&seams).await.unwrap();
         assert_eq!(
             again.stopped,
             [(branch.clone(), "keel".to_string())],
@@ -241,7 +242,7 @@ async fn a_held_change_that_still_hits_the_keel_is_held_again_with_a_second_card
         assert_eq!(held(&r).len(), 1, "held again");
     }
     // Held again means it waits: a pass alone does nothing more.
-    let idle = r.core.self_join_pass(&seams).await.unwrap();
+    let idle = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(
         idle.stopped.is_empty() && idle.joined.is_empty(),
         "{idle:?}"
@@ -262,15 +263,15 @@ async fn a_held_change_already_on_main_is_closed_as_joined_by_hand() {
     guard_on_main(&r, &marker);
     let (branch, head) = r.seed(&id, &eroding(), SONNET);
     let seams = r.seams();
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(held(&r).len(), 1);
     let tries = attempts::tries(&task(&r, &id), 0);
     // The owner joins it by hand.
     r.joined_by_hand(&head);
-    let still = r.core.self_join_pass(&seams).await.unwrap();
+    let still = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(still.stopped.is_empty(), "held until he says: {still:?}");
     retry(&r, &id, &owner(), None).unwrap();
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(
         pass.stopped,
         [(branch.clone(), "merge".to_string())],
@@ -301,7 +302,7 @@ async fn a_held_change_already_on_main_is_closed_as_joined_by_hand() {
         .unwrap();
     assert!(list.dropped.is_empty(), "{:?}", list.dropped);
     // And it stays closed.
-    let after = r.core.self_join_pass(&seams).await.unwrap();
+    let after = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(
         after.stopped.is_empty() && after.joined.is_empty(),
         "{after:?}"
@@ -332,7 +333,7 @@ async fn a_head_on_main_with_no_retry_is_not_closed_by_the_loop() {
             cost_usd: 0.5,
         });
     r.joined_by_hand(&head);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "merge".to_string())], "{pass:?}");
     assert_eq!(task(&r, &id).state, TaskState::InProgress);
     assert_eq!(held(&r).len(), 1);
@@ -349,7 +350,7 @@ async fn a_branch_moved_after_its_review_is_not_what_a_retry_joins() {
     guard_on_main(&r, &marker);
     let (branch, head) = r.seed(&id, &eroding(), SONNET);
     let seams = r.seams();
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     // The branch moves on after its review: a commit the review never saw.
     let repo = &r.f.place.repo;
     let wt = r.f.place.state.parent().unwrap().join("mover-wt");
@@ -376,7 +377,7 @@ async fn a_branch_moved_after_its_review_is_not_what_a_retry_joins() {
     // The alarm is over and the owner asks: the reviewed head joins, and what came after does not.
     std::fs::remove_file(&marker).unwrap();
     retry(&r, &id, &owner(), None).unwrap();
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     let on_main = git(
         &r.f.upstream,
@@ -396,7 +397,7 @@ async fn a_retry_by_anyone_but_the_owner_is_refused_as_today() {
     files.push(("scripts/long-files.txt", "crates/x.rs 9999\n"));
     r.seed(&id, &files, SONNET);
     let seams = r.seams();
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     let before = task(&r, &id);
     let job = retry(&r, &id, &owner(), Some("ses_job")).unwrap_err();
     assert!(job.downcast_ref::<Refusal>().is_some(), "{job:#}");
@@ -410,7 +411,7 @@ async fn a_retry_by_anyone_but_the_owner_is_refused_as_today() {
         before.version,
         "the item is untouched"
     );
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(
         pass.stopped.is_empty() && pass.joined.is_empty(),
         "{pass:?}"
@@ -437,7 +438,7 @@ async fn an_item_no_join_holds_is_refused_in_words_that_name_the_held_case() {
     let mut files = PROVED.to_vec();
     files.push(("scripts/long-files.txt", "crates/x.rs 9999\n"));
     r.seed(&id, &files, SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     retry(&r, &id, &owner(), None).unwrap();
     assert!(retry(&r, &id, &owner(), None).is_err());
     assert_eq!(r.rows("self.join.reopened").len(), 1);
@@ -454,7 +455,7 @@ async fn a_head_its_item_was_sent_back_from_is_not_reopened_during_the_rebuild()
     files.push(("scripts/long-files.txt", "crates/x.rs 9999\n"));
     r.seed(&id, &files, SONNET);
     let seams = r.seams();
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(held(&r)[0]
         .why
         .as_deref()
@@ -492,7 +493,7 @@ async fn a_head_its_item_was_sent_back_from_is_not_reopened_during_the_rebuild()
         .and_then(|i| i.why.clone())
         .unwrap_or_default();
     assert!(!why.contains("theseus self retry"), "{why}");
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert!(
         pass.stopped.is_empty() && pass.joined.is_empty(),
         "{pass:?}"

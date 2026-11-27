@@ -637,7 +637,9 @@ under its own text; there is no shadow period and no ladder wait.
 - **It builds the top items** as `self/<date>-<slug>` branches.
   - Each has its own worktree and build directory.
   - Its gate is `main`'s, run through the door, below the sandbox floor.
-  - It pushes only to `self/*`, and only after a scrub of every added line and commit message.
+  - It pushes nothing. The branch stays on this machine. Only the join sends anything to the remote, and only after
+    the owner has read the change and said yes to its card (below). The scrub of every added line and commit message
+    still runs, where the push used to and again before the card.
 - **It reviews and joins them.** Each branch goes through, in order:
   1. a planted revert, run by code: if no test fails with the fix undone, the branch is rejected. A test that
      fails is the proof. A build that only breaks (a test that names what the fix added) is accepted as proof but marked
@@ -651,12 +653,19 @@ under its own text; there is no shadow period and no ladder wait.
      the same stop on the same head three times in a row holds it for the owner, as a review that keeps failing is;
   2. a review on a different model from the builder's;
   3. the keel check;
-  4. a check against the sealed holdout sets, when the change touches behaviour (prompts, tool descriptions,
+  4. **the owner's yes.** The join is the one publication the owner is asked about. It asks one card for the head
+     it would publish: the item's title, the branch, the number of commits and files, each commit's subject, the
+     size of the diff, and the `git log --patch` command that shows every commit message and every text change
+     against the remote's main (a binary file is named, not shown, and a merge commit's own changes are not). The
+     join sends nothing until the owner says yes. A yes is for that commit only. A no holds the branch, and it is
+     not asked about again. No answer waits, across nights and restarts. No time limit, setting, retry or restart
+     answers the card. While it waits, the loop goes on building and reviewing, and no later branch joins before it;
+  5. a check against the sealed holdout sets, when the change touches behaviour (prompts, tool descriptions,
      routing, ranking, context assembly, the turn loop's stop rules);
-  5. the join lock;
-  6. a plain, signed `--no-ff` merge;
-  7. `main`'s gate with the benches;
-  8. the push, never forced.
+  6. the join lock;
+  7. a plain, signed `--no-ff` merge;
+  8. `main`'s gate with the benches;
+  9. the push, never forced.
 
   Before step 1, a branch that no longer merges into `main`'s tip (it moved while the change waited) is not reviewed: it goes
   back to its builder with `main` merged into a working copy of it, to resolve what clashes, and is checked again. That is no
@@ -713,7 +722,8 @@ queue goes on.
   later green gate of that commit lifts it, and so does main moving on. No record means nothing is known.
 - `theseus self set-aside ITEM` stops one item and forbids nothing, where `drop` forbids its cause for good;
   `theseus self bring-back ITEM` puts it back. Both are the owner's.
-- `theseus self revert` undoes a self-join (the gate runs on the revert) and drops its item for good.
+- `theseus self revert` undoes a self-join (the gate runs on the revert) and drops its item for good. A revert's push
+  is not asked: it publishes main with a merge the owner already said yes to undone, and carries no session's text.
 - Everything is visible: `theseus self log`, `self pipeline`, `self backlog` and `self branches`, a morning notice,
   and a weekly digest.
 

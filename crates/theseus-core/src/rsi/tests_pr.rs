@@ -4,8 +4,8 @@
 //! - mode off: no tool; mode act: offered;
 //! - a session whose principal is not `"self"` is refused, writing nothing;
 //! - a green attempt: one `self.branch.built` row, a frozen report ending
-//!   `<!-- REPORT COMPLETE -->`, the branch pushed to `self/*`, the tree
-//!   closed;
+//!   `<!-- REPORT COMPLETE -->`, the branch kept in `[self] repo` and never
+//!   pushed (issue 53), the tree closed;
 //! - a halt between phases stops it, and the row says before which;
 //! - a keel finding stops it at the owner's card, and its later calls are
 //!   refused, never retried around.
@@ -348,19 +348,23 @@ async fn a_halted_switch_does_not_probe_l1() {
 }
 
 #[tokio::test]
-async fn a_green_attempt_reports_pushes_and_closes() {
+async fn a_green_attempt_reports_keeps_its_branch_here_and_closes() {
     let r = rig(SelfMode::Act, Some("origin"));
     let sid = r.session("self");
     let tree = r.open_and_edit(&sid, "sails.txt").await;
     let said = r.turn(&sid, WIRE, propose()).await;
     assert!(said.contains("the gate is green"), "{said}");
+    assert!(said.contains("The branch stays on this machine"), "{said}");
     let rows = r.rows();
     assert_eq!(rows.len(), 1, "{rows:?}");
     let row = &rows[0];
     assert_eq!(row["gate"], "green");
     assert_eq!(row["item"], "trim-the-sails");
     assert!(row["stopped_at"].is_null());
-    assert_eq!(row["numbers"]["pushed"], true);
+    assert_eq!(
+        row["numbers"]["pushed"], false,
+        "issue 53: nothing pushes a branch"
+    );
     let branch = row["branch"].as_str().unwrap().to_string();
     assert!(branch.starts_with("self/") && branch.ends_with("-trim-the-sails"));
     // The frozen report: where S4 says, complete, read-only.
@@ -383,10 +387,20 @@ async fn a_green_attempt_reports_pushes_and_closes() {
         assert!(text.contains(want), "{want}: {text}");
     }
     assert!(std::fs::metadata(&report).unwrap().permissions().readonly());
-    // The commit names the item; the branch reached self/* and main stayed.
+    // The branch stays in the repo and never reaches the remote (issue 53): main is all the remote has.
     assert_eq!(
         upstream_refs(&r.f),
-        format!("refs/heads/main\nrefs/heads/{branch}")
+        "refs/heads/main",
+        "no branch at the remote"
+    );
+    let here = super::tests_tree::git(
+        &r.f.place.repo,
+        &["rev-parse", &format!("refs/heads/{branch}")],
+    );
+    assert_eq!(
+        row["head"],
+        here.as_str(),
+        "the branch is in [self] repo at its head"
     );
     // The tree and its build tree are gone; the branch stays in the repo.
     assert!(!tree.exists());

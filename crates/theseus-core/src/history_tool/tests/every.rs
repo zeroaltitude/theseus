@@ -195,12 +195,12 @@ async fn a_bare_call_still_reads_this_place_only() {
     assert!(!page.contains("every place"), "{page}");
 }
 
-/// A session the self loop opened reads its own place by date, never every place.
+/// A session the self loop opened to judge (a reviewer's) reads its own place by date, never every place.
 #[tokio::test]
 async fn a_self_loop_span_with_no_place_reads_its_own_place_only() {
     use crate::tests_places::{rig, session};
     let r = rig();
-    let me = self_session(&r.core);
+    let me = self_session(&r.core, Some(crate::rsi::roles::Role::Reviewer));
     let mine =
         crate::view_gate::place_name(&r.core.runner, &me).unwrap_or_else(|| "unknown".into());
     let other = session(&r.core, None);
@@ -357,12 +357,13 @@ fn an_every_place_page_resumes_before_the_cursor_it_was_given_with_no_gap_or_rep
     assert_eq!(got, want, "the index's own order, no gap");
 }
 
-/// A session the self loop opened, asking every place, keeps to its own place, as a bare call does.
+/// A session the self loop opened to judge (a reviewer's), asking every place, keeps to its own place, as a bare
+/// call does.
 #[tokio::test]
 async fn a_self_loop_session_asking_every_place_keeps_to_its_own() {
     use crate::tests_places::{rig, session};
     let r = rig();
-    let me = self_session(&r.core);
+    let me = self_session(&r.core, Some(crate::rsi::roles::Role::Reviewer));
     let mine =
         crate::view_gate::place_name(&r.core.runner, &me).unwrap_or_else(|| "unknown".into());
     let other = session(&r.core, None);

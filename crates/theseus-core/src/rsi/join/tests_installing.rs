@@ -3,6 +3,7 @@
 //! state follows the unit (systemd is stood in for here): a unit that ended without its restart
 //! clears it with a row, and a start that finds the unit still running shows it again.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use theseus_protocol::rsi::{SelfMode, SelfPipelineItem, SelfPipelineParams};
@@ -78,7 +79,7 @@ async fn joined_with(unit: bool) -> (Rig, Arc<Peek>, String) {
         installer: peek.clone(),
         ..r.seams()
     };
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     let merge = r.upstream_main();
     (r, peek, merge)
 }

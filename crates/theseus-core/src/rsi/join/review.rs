@@ -190,23 +190,26 @@ pub struct CheckTurn;
 impl Reviewer for CheckTurn {
     fn review<'a>(&'a self, core: &'a Arc<Core>, ask: &'a Ask) -> Fut<'a> {
         Box::pin(async move {
-            let rec = core.open_session_as(
+            // A reviewer's session is offered a reviewer's tools, and builds nothing (`rsi::roles`): its role
+            // rides in the frame that opens it.
+            let reviewer = crate::rsi::roles::Role::Reviewer;
+            let rec = core.open_session_with(
                 SessionOpenParams {
                     label: Some(format!("self review: {}", ask.branch)),
                     ..SessionOpenParams::default()
                 },
-                theseus_kernel::Authority {
-                    principal: crate::rsi::SELF_PRINCIPAL.into(),
-                    ..Default::default()
-                },
-                None,
+                (
+                    theseus_kernel::Authority {
+                        principal: crate::rsi::SELF_PRINCIPAL.into(),
+                        ..Default::default()
+                    },
+                    None,
+                ),
+                &|rec| Ok(vec![reviewer.record(&rec.session_id)?]),
             )?;
             let session = rec.session_id.clone();
             let exec = rec.execution_id.clone();
-            // A reviewer's session is offered a reviewer's tools, and builds nothing (`rsi::roles`).
-            core.tools
-                .self_pr
-                .set_role(&session, crate::rsi::roles::Role::Reviewer)?;
+            core.tools.self_pr.remember_role(&session, reviewer);
             // Its scratch is what it may remove while it runs (`rsi::own_removals`).
             core.tools
                 .self_pr

@@ -4,6 +4,7 @@
 //! undoing is checked, and the join goes on uncounted. These rigs have no jail, so main's stand-in
 //! counter runs at L0, as the stand-in gate does; `theseusd`'s `jail_stop` runs the real counter in L1.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -91,7 +92,7 @@ async fn join(
     }
     let base = r.upstream_main();
     let (_, head) = r.seed("trim-the-sails", files, SONNET);
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     (base, head, r.upstream_main(), joined(r))
 }

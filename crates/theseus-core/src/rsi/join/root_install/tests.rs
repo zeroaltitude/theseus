@@ -1,6 +1,7 @@
 //! The daemon's side of installing a joined change into the root-owned directory (issue 22): against a join in the
 //! loop's own test rig, with a stand-in helper, unit and build. No root, no sudo, no systemd.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -247,7 +248,11 @@ impl Rooted {
     /// A branch joined by the loop's own pass: the merge.
     pub(super) async fn join(&self) -> String {
         self.r.seed("trim-the-sails", PROVED, SONNET);
-        self.r.core.self_join_pass(&self.r.seams()).await.unwrap();
+        self.r
+            .core
+            .self_join_pass_yes(&self.r.seams())
+            .await
+            .unwrap();
         self.r.upstream_main()
     }
 

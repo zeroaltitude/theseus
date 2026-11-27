@@ -131,14 +131,14 @@ pub fn standing_held<'r>(
 }
 
 /// The point of view of one turn, for the view's gate: made here alone, the widest at the turn's own
-/// place ([`widest`]), never from what a caller says of itself; and whether the turn is a session the self
-/// loop opened, which lays its own place only ([`Verified::own_place_only`]).
+/// place ([`widest`]), never from what a caller says of itself; and whether the turn is of a self-loop
+/// session that does not build, which lays its own place only ([`Verified::own_place_only`]).
 #[derive(Clone, Debug)]
 pub struct Verified(PointOfView, Scope);
 
-/// What a turn's view may lay: the widest, or (a session the self loop opened) its own place only; or the
-/// session's execution could not be read, so that cannot be decided, and the view is not assembled
-/// ([`Verified::scope_unread`]).
+/// What a turn's view may lay: the widest, or (a self-loop session that does not build) its own place only;
+/// or the session's execution or its self-loop role could not be read, so that cannot be decided, and the
+/// view is not assembled ([`Verified::scope_unread`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     Wide,
@@ -199,30 +199,35 @@ impl Verified {
         &self.0
     }
 
-    /// Whether the turn is of a session the self loop opened (its execution's principal is `self`: the fixer,
-    /// the reviewer, the approver, the self builder). Such a turn lays ITS OWN PLACE ONLY, as at the base: its
-    /// own session's exchanges there, its opening and what it is handed (for a fork, the run it inherits,
-    /// through the fork's cut); no other session's exchange, no card,
-    /// nothing waiting, elsewhere, past or recalled (`view::permit::Permit::scoped`). This is a SCOPE rule of
-    /// the self loop (the reviewer's and the approver's independence from the fixer's words and everyone
-    /// else's, and the cost of a worker's request), not a withholding rule: it reads no presence, mark, seal
-    /// or move. An ordinary task, one a person's turn started, is read at the widest point of view.
+    /// Whether the turn is of a self-loop session that does NOT BUILD: its execution's principal is `self` and
+    /// its role is not a builder's or a fixer's (`rsi::roles::Role::reads_wide`). That is a reviewer, an
+    /// approver, a mint's writer (opened for no role), any self session whose role is not recorded, and a fork
+    /// of any of them. Such a turn lays ITS OWN PLACE ONLY, as at the base: its own session's exchanges there,
+    /// its opening and what it is handed (for a fork, the run it inherits, through the fork's cut); no other
+    /// session's exchange, no card, nothing waiting, elsewhere, past or recalled
+    /// (`view::permit::Permit::scoped`). This is a SCOPE rule of the self loop (a reviewer's and an approver's
+    /// independence from the builder's words and everyone else's; the instances held back from a mint's
+    /// writer to check its tool), not a withholding rule: it reads no presence, mark, seal or move. A builder
+    /// and a fixer read at the widest, as an ordinary task, one a person's turn started, does.
     pub fn own_place_only(&self) -> bool {
         self.1 == Scope::OwnPlace
     }
 
-    /// Whether the session's execution could not be read, so whether it is the self loop's cannot be
-    /// decided: its view is not assembled (a plain failure), never laid at the widest by default.
+    /// Whether the session's execution, or the self-loop role of a session the self loop opened, could not
+    /// be read, so its scope cannot be decided: its view is not assembled (a plain failure), never laid at
+    /// the widest by default.
     pub fn scope_unread(&self) -> bool {
         self.1 == Scope::Unread
     }
 }
 
-/// The scope of `session`'s turns: its own place only when its execution's principal is `self` (the self
-/// loop opened it); the widest for any other principal, and for a session with no execution yet (a fresh or
-/// legacy one, which a turn gives an operator execution before it runs, `turn.rs`). A session record or an
-/// execution that cannot be read is `Unread`: never the widest by default. Read straight from the kernel,
-/// not through `task_graph::principal_of`, whose `operator` default is for act gates.
+/// The scope of `session`'s turns. For a session whose execution's principal is `self` (the self loop
+/// opened it): the widest only when its role is a builder's or a fixer's (`TurnRunner::role_read`, a fork's
+/// own record or, for an older fork, its source's); its own place for any other role and for no role. The
+/// widest for any other principal, and for a session with no execution yet (a fresh or legacy one, which a
+/// turn gives an operator execution before it runs, `turn.rs`). A session record, an execution or a self
+/// session's role that cannot be read is `Unread`: never the widest by default. Read straight from the
+/// kernel, not through `task_graph::principal_of`, whose `operator` default is for act gates.
 fn scope_of(runner: &TurnRunner, session: &str) -> Scope {
     let Ok(Some(rec)) = runner.store.get_session::<SessionRecord>(session) else {
         return Scope::Unread;
@@ -231,7 +236,13 @@ fn scope_of(runner: &TurnRunner, session: &str) -> Scope {
         return Scope::Wide;
     };
     match runner.kernel.execution(exe) {
-        Ok(Some(e)) if e.authority.principal == crate::rsi::SELF_PRINCIPAL => Scope::OwnPlace,
+        Ok(Some(e)) if e.authority.principal == crate::rsi::SELF_PRINCIPAL => {
+            match runner.role_read(session) {
+                Ok(Some(role)) if role.reads_wide() => Scope::Wide,
+                Ok(_) => Scope::OwnPlace,
+                Err(_) => Scope::Unread,
+            }
+        }
         Ok(Some(_)) => Scope::Wide,
         Ok(None) | Err(_) => Scope::Unread,
     }
@@ -242,8 +253,8 @@ fn scope_of(runner: &TurnRunner, session: &str) -> Scope {
 const OWN_TURNS: usize = 2 * crate::ladder::TASK_WINDOW;
 
 /// The exchanges `session` itself ran at `place` before `turn`, among its newest [`OWN_TURNS`] turns: what a
-/// self-loop turn of it is shown at that place ([`Verified::own_place_only`]). An exchange whose record cannot
-/// be read is not among them.
+/// turn of it is shown at that place when it is a self-loop session that does not build
+/// ([`Verified::own_place_only`]). An exchange whose record cannot be read is not among them.
 pub fn own_turns(store: &Store, session: &str, turn: &str, place: &str) -> Vec<String> {
     let Ok(nodes) = store.transcript(session) else {
         return Vec::new();
@@ -263,9 +274,10 @@ pub fn own_turns(store: &Store, session: &str, turn: &str, place: &str) -> Vec<S
         .collect()
 }
 
-/// Whether `ex` is one `session` itself ran at `place`: the self loop's own-place rule, read by the view's
-/// permit ([`own_turns`]) and by the history tool's lens (`history_tool::page::Lens::in_scope`). Not a place
-/// alone: another session at the same place is not the asker's.
+/// Whether `ex` is one `session` itself ran at `place`: the own-place rule of a self-loop session that does not
+/// build, read by the view's permit ([`own_turns`]) and by the history tool's lens
+/// (`history_tool::page::Lens::in_scope`). Not a place alone: another session at the same place is not the
+/// asker's.
 pub fn own_exchange(ex: &crate::exchange::Exchange, session: &str, place: &str) -> bool {
     ex.session_id == session && ex.place == place
 }

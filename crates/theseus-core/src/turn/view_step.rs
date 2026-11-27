@@ -252,7 +252,8 @@ impl TurnRunner {
         let verified_pov = verified.pov().clone();
         if verified.scope_unread() {
             anyhow::bail!(
-                "this session's execution cannot be read, so whether the self loop opened it cannot be decided"
+                "this session's execution, or the job the self loop opened it for, cannot be read, so its \
+                 scope cannot be decided"
             );
         }
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified)?;

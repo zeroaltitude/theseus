@@ -199,9 +199,29 @@ impl Core {
         Ok((profile, p.budget_usd.map(theseus_kernel::usd_to_micros)))
     }
 
+    /// The role a fork of `source` is given: its source's, when the self loop opened it (`rsi::roles`), so the
+    /// fork is offered what its source is and its view reads what its source's does; none for any other. A role
+    /// that cannot be read refuses the fork.
+    fn fork_role(
+        &self,
+        source: &SessionRecord,
+        authority: &theseus_kernel::Authority,
+    ) -> Result<Option<crate::rsi::roles::Role>, RpcFailure> {
+        if authority.principal != crate::rsi::SELF_PRINCIPAL {
+            return Ok(None);
+        }
+        self.runner.role_read(&source.session_id).map_err(|e| {
+            refused(format!(
+                "the job the self loop opened {} for cannot be read, so it is not forked: {e:#}",
+                source.session_id
+            ))
+        })
+    }
+
     /// The fork's one frame: its execution, its session record, its first
     /// compilation, the reverse entry into the source's session, the fork
-    /// edge, and its row. Returns the execution and the frame's bytes.
+    /// edge, its row, and its source's self-loop role, if it has one. Returns
+    /// the execution and the frame's bytes.
     fn fork_frame(
         &self,
         rec: &mut SessionRecord,
@@ -210,6 +230,7 @@ impl Core {
         base: Option<&Compilation>,
         (authority, limit): (theseus_kernel::Authority, Option<theseus_kernel::Micros>),
     ) -> Result<(theseus_kernel::Execution, u64), RpcFailure> {
+        let role = self.fork_role(source, &authority)?;
         let mut bytes = 0u64;
         let exec = self.kernel.frame(&[], |k| {
             let exec = k.open_execution(&rec.session_id, rec.kind, authority, limit, None)?;
@@ -224,6 +245,9 @@ impl Core {
             ];
             if let Some(from) = base {
                 frame.push(Edge::new(EdgeKind::DerivedFrom, &c.id, &from.id, VIA_FORK).record()?);
+            }
+            if let Some(role) = role {
+                frame.push(role.record(&rec.session_id)?);
             }
             let row = LedgerRow::new(
                 LedgerKind::SessionForked,

@@ -228,7 +228,8 @@ impl crate::turn::TurnRunner {
     /// Shared when the place cannot be read or classified.
     ///
     /// A session the self loop opened for one job (a fixer, an approver, a reviewer:
-    /// `rsi::roles`) has that job's ceiling, whatever its place's.
+    /// `rsi::roles`, a fork of one too) has that job's ceiling, whatever its place's; a builder's role has
+    /// none. A session whose job cannot be read is offered the local reads alone.
     pub fn view_of(&self, session_id: &str) -> PlaceView {
         let place = self
             .outbox
@@ -245,9 +246,17 @@ impl crate::turn::TurnRunner {
                 PlaceClass::Shared.into()
             }
         };
-        match self.role_of(session_id) {
-            Some(role) => PlaceView {
-                ceiling: Some(role.ceiling()),
+        let ceiling = match self.role_of(session_id) {
+            Ok(role) => role.and_then(|r| r.ceiling()),
+            Err(e) => {
+                tracing::warn!(session_id, error = %format!("{e:#}"),
+                    "a session's self-loop job cannot be read: it is offered the local reads alone");
+                Some(crate::rsi::roles::unread_ceiling())
+            }
+        };
+        match ceiling {
+            Some(ceiling) => PlaceView {
+                ceiling: Some(ceiling),
                 ..view
             },
             None => view,
