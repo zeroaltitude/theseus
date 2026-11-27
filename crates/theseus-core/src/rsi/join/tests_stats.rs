@@ -62,8 +62,21 @@ pub(super) fn on_main(r: &Rig, files: &[(&str, &str)]) {
 
 /// The tree a plain merge of `head` into `base` has (what the join made before any count).
 pub(super) fn plain_tree(r: &Rig, base: &str, head: &str) -> String {
-    let out = git(&r.f.place.repo, &["merge-tree", "--write-tree", base, head]);
-    out.lines().next().unwrap().to_string()
+    // A merge without a commit in a throwaway detached tree, its index written: what every git has
+    // (`merge-tree --write-tree` came with 2.38). No hook or file-system monitor runs in it.
+    let repo = &r.f.place.repo;
+    let scratch = tempfile::tempdir().unwrap();
+    let dir = scratch.path().join("plain");
+    let d = dir.to_str().unwrap();
+    let quiet = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor="];
+    let add = ["worktree", "add", "-q", "--detach", d, base];
+    git(repo, &[&quiet[..], &add[..]].concat());
+    let merge = ["merge", "-q", "--no-commit", "--no-ff", head];
+    git(&dir, &[&quiet[..], &merge[..]].concat());
+    let tree = git(&dir, &[&quiet[..], &["write-tree"][..]].concat());
+    let remove = ["worktree", "remove", "--force", d];
+    git(repo, &[&quiet[..], &remove[..]].concat());
+    tree
 }
 
 /// A commit's tree, read in the repo (which holds the join's unsigned merges too).
