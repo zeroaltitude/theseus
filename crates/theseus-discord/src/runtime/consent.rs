@@ -100,20 +100,23 @@ pub(crate) fn pause_at(at: &'static str) -> std::sync::Arc<Pause> {
     p
 }
 
-/// A point a test may hold a step at; nothing outside tests.
+/// A point a test may hold a step at.
+#[cfg(test)]
 pub(crate) async fn pause_point(at: &'static str) {
-    #[cfg(test)]
-    {
-        let armed = PAUSE
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take_if(|p| p.at == at);
-        if let Some(p) = armed {
-            p.reached.notify_one();
-            p.release.notified().await;
-        }
+    let armed = PAUSE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take_if(|p| p.at == at);
+    if let Some(p) = armed {
+        p.reached.notify_one();
+        p.release.notified().await;
     }
-    let _ = at;
+}
+
+/// Outside tests, nothing.
+#[cfg(not(test))]
+pub(crate) fn pause_point(_at: &'static str) -> std::future::Ready<()> {
+    std::future::ready(())
 }
 
 /// A word a custom id may carry: a server's name, or a sign-in's id.
