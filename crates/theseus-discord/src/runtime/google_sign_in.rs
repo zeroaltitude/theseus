@@ -24,6 +24,7 @@
 use std::time::Duration;
 
 use serde_json::Value;
+use theseus_core::google::begin::BeginKind;
 use theseus_protocol::google::{
     GoogleAuthBeginParams, GoogleAuthBeginResult, GoogleAuthFinishParams, GoogleAuthFinishResult,
     GoogleRevokeParams, GoogleRevokeResult,
@@ -61,7 +62,19 @@ pub(crate) const MAY_BE_KEPT: &str =
     "🔐 Google is connected for now, but keeping its grant could not be made sure of: it may or \
      may not be used after Theseus restarts. Check with `theseus google status`, or press \
      **Connect Google** again.";
-pub(crate) const NO_BEGIN: &str = "🔐 The consent could not begin. Nothing was kept.";
+/// A begin that failed, by the kind the daemon told (issue 62).
+pub(crate) const NO_BEGIN: &str = "🔐 The consent could not begin, and nothing was kept. \
+     `theseus google auth` at the terminal says why.";
+pub(crate) const NO_ACCOUNT: &str =
+    "🔐 Theseus's settings name no Google account (`[google] account`). Once one is added, press \
+     **Connect Google** again. Nothing was kept.";
+pub(crate) const NO_CLIENT: &str =
+    "🔐 Google's client secret could not be read, or holds no client: check the `[secrets]` entry \
+     `[google]` names for it, then press **Connect Google** again. `theseus google auth` at the \
+     terminal says why. Nothing was kept.";
+pub(crate) const RESOLVING: &str =
+    "🔐 Google's client secret is still being read. Wait a moment, then press **Connect Google** \
+     again. Nothing was kept.";
 pub(crate) const TOO_LONG: &str =
     "🔐 This consent's address is too long to show whole here, so it is not shown: run \
      `theseus google auth` at the terminal. Nothing was kept.";
@@ -152,6 +165,20 @@ pub(crate) fn failure(e: &CallError) -> &'static str {
     }
 }
 
+/// A begin that failed, in fixed words: the kind the daemon's marker names, and nothing else of
+/// what it said; a refusal keeps its own words.
+pub(crate) fn begin_failure(e: &CallError) -> &'static str {
+    if e.code == error_code::REFUSED {
+        return NOT_HERE;
+    }
+    match BeginKind::of_marker(&e.message) {
+        Some(BeginKind::NoAccount) => NO_ACCOUNT,
+        Some(BeginKind::Client) => NO_CLIENT,
+        Some(BeginKind::Resolving) => RESOLVING,
+        Some(BeginKind::Other) | None => NO_BEGIN,
+    }
+}
+
 /// What a finished consent says: connected and kept, or connected with its keeping uncertain.
 pub(crate) fn done_words(done: &GoogleAuthFinishResult) -> String {
     if done.store == "memory" {
@@ -230,10 +257,7 @@ impl Shared {
             .await;
         let b = match r {
             Ok(b) => b,
-            Err(e) if e.code == error_code::REFUSED => {
-                return self.consent_finish(i, WHAT, NOT_HERE, &[]).await
-            }
-            Err(_) => return self.consent_finish(i, WHAT, NO_BEGIN, &[]).await,
+            Err(e) => return self.consent_finish(i, WHAT, begin_failure(&e), &[]).await,
         };
         consent::pause_point("google-begun").await;
         // The daemon's slot is this consent's now, shown or not: every older record goes.

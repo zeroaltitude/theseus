@@ -97,3 +97,40 @@ fn an_uncertain_keep_says_so() {
     let t = done_words(&done);
     assert!(t.starts_with("✅") && t.contains("Gmail"), "{t}");
 }
+
+/// A begin that failed (issue 62): each kind's marker is that kind's own fixed words, a refusal
+/// keeps its words, and any other message is the one fixed sentence; none holds what the daemon
+/// said.
+#[test]
+fn a_failed_begin_says_its_kind_in_fixed_words() {
+    let words = |k: BeginKind| begin_failure(&call_error(-32603, k.marker()));
+    let mut seen = std::collections::BTreeSet::new();
+    for (kind, want) in [
+        (BeginKind::NoAccount, NO_ACCOUNT),
+        (BeginKind::Client, NO_CLIENT),
+        (BeginKind::Resolving, RESOLVING),
+        (BeginKind::Other, NO_BEGIN),
+    ] {
+        assert_eq!(words(kind), want, "{kind:?}");
+        assert!(seen.insert(want), "{kind:?}: two kinds share words");
+    }
+    assert_eq!(seen.len(), BeginKind::ALL.len());
+    let said = "the client secret `google_client` did not resolve: INVENTED-WORDS-2291";
+    for (code, message, want) in [
+        (
+            theseus_protocol::error_code::REFUSED,
+            said.to_string(),
+            NOT_HERE,
+        ),
+        (-32603, said.to_string(), NO_BEGIN),
+        (
+            -32603,
+            format!("{} INVENTED-WORDS-2291", BeginKind::Client.marker()),
+            NO_BEGIN,
+        ),
+    ] {
+        let got = begin_failure(&call_error(code, &message));
+        assert_eq!(got, want, "{message}");
+        assert!(!got.contains("INVENTED-WORDS"), "{got}");
+    }
+}
