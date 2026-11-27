@@ -37,7 +37,8 @@ thing, so it is a different tool, with its own `[policy.tools]` line. It loads w
 
 - **https, at one public host.** The client follows no redirect and uses no proxy, and every name is resolved by the
   checked resolver, which refuses a name with any non-public answer on the very answer it connects with. One request a
-  call.
+  call: the tool's client has the HTTP client's own retries turned off (a stream an HTTP/2 peer refused is otherwise
+  sent again), so a request that carries a key goes out once. `http.fetch`'s client is not changed.
 - **Never to a private, loopback or LAN address**, nor `localhost`: that is an input error in fixed words, before
   anything is read. It is the one "not sent" that is not an ask, because there is no safe way to do it: such an address
   almost never has a certificate that ties the key to the service, and the key would cross the LAN in clear or to
@@ -57,9 +58,12 @@ thing, so it is a different tool, with its own `[policy.tools]` line. It loads w
   after outside text since the owner's last message, in a flagged session, and in a turn the owner's own message did not
   begin (a wake, a task's report, a job's or an agent's submission: only input `turn.submit` judges the owner's own
   begins one). The hold is read again when the call runs: outside text that an earlier call of the same response read
-  stops it, with nothing read from the vault, unless the owner approved this very call. One difference: **the answer of an earlier `http.request` to the same host with the
-  same vault item is not outside text for this tool** (the owner's ruling, K3). That service already holds the key, so its
-  answer can only steer calls back to itself. A page from elsewhere, a search, another host or another item still asks.
+  stops it, with nothing read from the vault, unless the owner approved this very call. One difference: **the answer of an earlier `http.request` to the same host and port,
+  whose own selectors (vault, item, field and section, as the model wrote them, trimmed) were exactly this call's, is
+  not outside text for this tool** (the owner's ruling, K3). That service already holds the key, so its answer can only
+  steer calls back to itself. Anything else still asks: a page from elsewhere, a search, another host or port, and any
+  other selector, even one that may name the same item (a title against an id, another spelling), since a title can be
+  another item's id. The note's once-per-span rule uses the same identity.
 - **The wall is `vault.use`'s**: the owner's own turn in a private place; never a task, a job, the self loop, an MCP
   session, a shared place, or a routine (`routine::grant::NEVER`).
 - **A key Theseus itself runs on is not sent** this way (the run form's `runs_on`, by reference and by value), in words
