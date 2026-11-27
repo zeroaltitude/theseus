@@ -65,6 +65,7 @@ use tokio::time::Instant;
 use crate::config::{McpConfig, McpServerConfig};
 use crate::fact::mcp::{McpExited, McpFailed, McpReady, McpStarted, McpToolsChanged};
 use crate::fact::Fact;
+pub use sign_in::{BeginFailed, BeginKind};
 pub use tool::McpTool;
 
 /// The META key of a server's stored list.
