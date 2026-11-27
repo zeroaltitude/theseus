@@ -1447,13 +1447,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   builder's transcript), its verdict the reply's last `VERDICT:` line. One `self.review.verdict` row; a reject puts
   the backlog item back to `proposed` with the reasons in its evidence, in the row's frame. An accepted head is
   classified (`join/keel.rs`: `CLASSES`, one test a class, plus main's keel guard, a `MANIFEST_FORMAT` line and a
-  spend key) and a hit posts a `self_join` card to the owner's DM and holds the head (`numbers.held`). **Nothing is
-  published without the owner's yes** (`join/publish.rs`, issue 53): `tree::cleared` on the head (a hit holds it with
-  a card), then one `self.publish.ack` confirm card on its own session (commits, files, size, and the `git log --patch`
-  command that prints all of it; no authenticator code; an agent's yes refused), a `self.join.stopped {phase:
-  "publish", numbers.parked}` row, and the join parks (`Pass::parked`: the pass's one join, reviews go on). The yes is
-  read from the question's binding, for that head only (a new head asks a new card); a no writes the held row; the card
-  never expires (`rpc::confirms::expire_questions`). Then, one a
+  spend key) and a hit posts a `self_join` card to the owner's DM and holds the head (`numbers.held`). **The join is
+  the one publication the owner is asked about** (`join/publish.rs`, issue 53): `tree::cleared` on the head (a hit
+  holds it with a card), then one `self.publish.ack` confirm card on its own session (commits, files, size, and the
+  `git log --patch` command that shows every commit message and text change, not a binary file's bytes nor a merge
+  commit's own changes; no authenticator code; an agent's yes refused), a `self.join.stopped {phase: "publish",
+  numbers.parked}` row, and the join parks (`Pass::parked`: the pass's one join, reviews go on). The yes is read from
+  the question's binding and counts for that head only; a no writes the held row; the card never expires
+  (`rpc::confirms::expire_questions`). The revert's push (below) is not asked. Then, one a
   pass, under the mkdir lock (`join/lock.rs`, `[self] join_lock`, its `owner` file ending `done:`): fetch, the dry
   run (`merge-tree`), a `--no-ff` merge in a detached tree, main's gate through the door with the benches
   (`tree::gate_with_benches`), the signature with `[self] repo`'s `user.signingkey` (none: a card, nothing pushed),

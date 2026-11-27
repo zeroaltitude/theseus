@@ -1,6 +1,7 @@
-//! The owner's yes before the self loop sends anything to the remote (issue 53). A self branch and a fix made at
-//! review stay on this machine; the join and the revert are the only pushes, and each waits for the owner's answer to
-//! one card that names what would leave and the command that shows all of it.
+//! The owner's yes before the self loop publishes a change (issue 53). The join is the one publication the owner is
+//! asked about: it waits for his answer to one card that names the change and the command that shows it. The loop
+//! pushes no self branch and no fix made at review. The revert's push is not asked: it publishes main with a merge
+//! the owner already said yes to undone, and carries no session's text.
 //!
 //! The card is a question planned on its own session, as the install's is (`root_install::offer`): the kernel keeps
 //! it across a restart, `confirm.list` and the DM show it, and the owner answers it with `action.confirm`. It never
@@ -39,23 +40,22 @@ const ASKED: &str = "self.publish.asked.";
 /// Who settles a question that was asked for a head the branch no longer has.
 const SUPERSEDED: &str = "superseded";
 
-/// What would be sent: a join of a branch, or a revert of a joined change.
+/// What would be sent: a join of a branch (the card's and its rows' `kind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Join,
-    Revert,
 }
 
 /// What the card names: the change, and how much of it would leave.
 #[derive(Debug, Clone)]
 pub struct Leaving {
     pub kind: Kind,
-    /// The branch, or for a revert the name its stop rows use.
+    /// The branch.
     pub branch: String,
     pub item: String,
     pub title: String,
-    /// The commit that would be sent (the branch's head, or the signed revert).
+    /// The commit that would be sent (the branch's head).
     pub head: String,
     /// The remote's main the content is read against.
     pub main: String,
@@ -105,8 +105,9 @@ impl Leaving {
         })
     }
 
-    /// The command that prints everything that would leave: every commit message, whole, and the full diff of each
-    /// against the remote's main as it was when the card was asked.
+    /// The command that prints the change: every commit message, whole, and each commit's text change, against the
+    /// remote's main as it was when the card was asked. A binary file is named, not shown, and a merge commit's own
+    /// changes are not shown.
     pub fn command(&self) -> String {
         format!(
             "git -C {} log --reverse --format=fuller --patch --stat {}..{}",
@@ -118,16 +119,10 @@ impl Leaving {
 
     /// The card's words.
     pub fn question(&self) -> String {
-        let first = match self.kind {
-            Kind::Join => format!(
-                "Publish this self change to {}'s main: {}?",
-                self.remote, self.title
-            ),
-            Kind::Revert => format!(
-                "A revert of {} is ready to publish to {}'s main. Publish it?",
-                self.title, self.remote
-            ),
-        };
+        let first = format!(
+            "Merge this self change into main and publish it: {}?",
+            self.title
+        );
         let subjects: String = self
             .commits
             .iter()
@@ -140,18 +135,19 @@ impl Leaving {
         };
         format!(
             "{first}\n\nItem: {item}\nBranch: {branch}\nCommit: {head}\n{n} commit(s), {files} file(s): {size}\n\n\
-             {subjects}\nNothing of it has left this machine. Before you answer, read all of it (every commit message \
-             and the full diff against the remote's main {main8}):\n\n{cmd}\n\n\
-             Yes: Theseus merges it into main, runs main's gate on the merge as it always does, signs it and pushes \
-             main; that merge, and main's count folded into it, are all that is added. No: nothing is sent, the \
-             branch is held and you are not asked again. If the branch changes before the push, this answer no \
-             longer counts and a new card asks for the new content. Nothing answers this card but you.",
+             {subjects}\nIt has not been pushed. To read it first, ask Theseus here to show you this change (commit \
+             {head8} against main {main8}), or run:\n\n{cmd}\n\n\
+             It shows every commit message and every text change; a binary file is named, not shown, and a merge \
+             commit's own changes are not.\n\n\
+             Yes: Theseus merges it into main, runs main's gate on the merge, signs it and pushes main. No: nothing \
+             is sent, the branch is held and you are not asked again. This answer is for this commit only.",
             item = self.item,
             branch = self.branch,
             head = self.head,
             n = self.commits.len(),
             files = self.files,
-            main8 = short(&self.main),
+            head8 = eight(&self.head),
+            main8 = eight(&self.main),
             cmd = self.command(),
         )
     }
@@ -175,6 +171,11 @@ pub enum Answer {
     No,
     /// It ended with no answer of the owner's (its session retired, or it was superseded): ask again.
     Ended,
+}
+
+/// A commit's first eight characters, as the card names it.
+fn eight(c: &str) -> &str {
+    &c[..c.len().min(8)]
 }
 
 /// A commit's first twelve characters.
@@ -394,10 +395,7 @@ pub fn confirm_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Conf
     let text = |k: &str| args[k].as_str().unwrap_or_default().to_string();
     let plain = PlainWords {
         who: "Theseus".into(),
-        what: match args["kind"].as_str() {
-            Some("revert") => format!("publish a revert of {}", text("title")),
-            _ => format!("publish {}", text("title")),
-        },
+        what: format!("publish {}", text("title")),
         why: String::new(),
         held: "it sends a change of Theseus to the remote, so only you may allow it".into(),
         risk: "network".into(),

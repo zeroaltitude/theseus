@@ -653,10 +653,11 @@ under its own text; there is no shadow period and no ladder wait.
      the same stop on the same head three times in a row holds it for the owner, as a review that keeps failing is;
   2. a review on a different model from the builder's;
   3. the keel check;
-  4. **the owner's yes.** The join asks one card for the head it would publish: the item's title, the branch, the
-     number of commits and files, each commit's subject, the size of the diff, and the `git log --patch` command that
-     prints every commit message and the whole diff against the remote's main. Nothing is sent until the owner says
-     yes. A yes is for that head only: if the branch changes, a new card asks again. A no holds the branch, and it is
+  4. **the owner's yes.** The join is the one publication the owner is asked about. It asks one card for the head
+     it would publish: the item's title, the branch, the number of commits and files, each commit's subject, the
+     size of the diff, and the `git log --patch` command that shows every commit message and every text change
+     against the remote's main (a binary file is named, not shown, and a merge commit's own changes are not). The
+     join sends nothing until the owner says yes. A yes is for that commit only. A no holds the branch, and it is
      not asked about again. No answer waits, across nights and restarts. No time limit, setting, retry or restart
      answers the card. While it waits, the loop goes on building and reviewing, and no later branch joins before it;
   5. a check against the sealed holdout sets, when the change touches behaviour (prompts, tool descriptions,
@@ -721,7 +722,8 @@ queue goes on.
   later green gate of that commit lifts it, and so does main moving on. No record means nothing is known.
 - `theseus self set-aside ITEM` stops one item and forbids nothing, where `drop` forbids its cause for good;
   `theseus self bring-back ITEM` puts it back. Both are the owner's.
-- `theseus self revert` undoes a self-join (the gate runs on the revert) and drops its item for good.
+- `theseus self revert` undoes a self-join (the gate runs on the revert) and drops its item for good. A revert's push
+  is not asked: it publishes main with a merge the owner already said yes to undone, and carries no session's text.
 - Everything is visible: `theseus self log`, `self pipeline`, `self backlog` and `self branches`, a morning notice,
   and a weekly digest.
 

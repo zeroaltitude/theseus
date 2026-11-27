@@ -174,7 +174,8 @@ async fn the_join_parks_on_one_card_and_sends_nothing_before_the_yes() {
         head.as_str(),
         "1 commit(s), 2 file(s)",
         &format!("log --reverse --format=fuller --patch --stat {base}..{head}"),
-        "Nothing of it has left this machine",
+        "It has not been pushed. To read it first, ask Theseus here to show you this change",
+        "This answer is for this commit only.",
     ] {
         assert!(card.reason.contains(want), "{want}: {}", card.reason);
     }
