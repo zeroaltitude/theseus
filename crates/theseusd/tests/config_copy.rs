@@ -857,7 +857,7 @@ fn sleeps_below(d: &mut Daemon, r: &Rig, old: &[u32]) -> Vec<u32> {
                 c == "sleep"
                     && !old.contains(p)
                     && std::fs::read(format!("/proc/{p}/cmdline"))
-                        .is_ok_and(|l| l == b"sleep\03600\0")
+                        .is_ok_and(|l| l == b"sleep\x003600\0")
             })
             .map(|(p, _)| p)
             .collect();
