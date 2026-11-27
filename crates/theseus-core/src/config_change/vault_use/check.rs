@@ -11,16 +11,17 @@
 //! finds nothing, two items of one title are not guessed between, and a `/`, a
 //! `?` or a `#` in a name cannot make the reference mean another thing.
 //!
-//! The last step reads the built reference once, as the daemon will at start,
-//! and drops what it read: the one proof that the item and field are there, the
-//! account can read them and the field holds something. A failure is told by
-//! class, never in the program's own words.
+//! The last step reads the built reference once, as the daemon will at start:
+//! the one proof that the item and field are there, the account can read them
+//! and the field holds something. The card form drops what it read; the run form
+//! (issue 64) keeps it, as [`Read`], for the one run it is given to. A failure is
+//! told by class, never in the program's own words.
 
 use crate::secrets::look::{
     class_of, parse_fields, parse_items, parse_vaults, Failed, FieldName, ItemId, ItemName, Vault,
     VaultId, Verb,
 };
-use crate::secrets::{OpReader, SecretRef};
+use crate::secrets::{OpReader, Secret, SecretRef};
 
 /// What was found, in the names the owner would recognise.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +127,15 @@ pub(crate) fn find_item<'a>(
     }
 }
 
+/// What the run form's check found: the names, the value it read, and the vault's ids for the
+/// vault and the item.
+pub(crate) struct Read {
+    pub checked: Checked,
+    pub value: Secret,
+    pub vault_id: String,
+    pub item_id: String,
+}
+
 /// Check what the model named and build the reference, or say why not, in
 /// words for the model and the owner.
 pub async fn check(
@@ -135,6 +145,20 @@ pub async fn check(
     field: &str,
     section: Option<&str>,
 ) -> Result<Checked, String> {
+    // The proof: the daemon reads it as a start will, and keeps nothing.
+    reading(reader, vault, item, field, section)
+        .await
+        .map(|r| r.checked)
+}
+
+/// [`check`], keeping what it read.
+pub(crate) async fn reading(
+    reader: &OpReader,
+    vault: &str,
+    item: &str,
+    field: &str,
+    section: Option<&str>,
+) -> Result<Read, String> {
     let list = |v: Verb| async move { reader.look(&v).await };
     let vaults = parse_vaults(&list(Verb::Vaults).await.map_err(said)?).map_err(said)?;
     let Some(v) = crate::look::vault_named(&vaults, vault) else {
@@ -157,18 +181,22 @@ pub async fn check(
     let field = pick_field(&fields, field, section, &found.title)?;
     let (reference, by_id) = build_reference(&vaults, v, &items, found, &fields, field)?;
     let parsed = SecretRef::parse(&reference).map_err(|_| said(Failed::Unreadable))?;
-    // The proof: the daemon reads it as a start will, and keeps nothing.
-    match reader.read(&parsed).await {
-        Ok(value) => drop(value),
+    let value = match reader.read(&parsed).await {
+        Ok(value) => value,
         Err(e) => return Err(read_failure(&e)),
-    }
-    Ok(Checked {
-        vault: v.name.clone(),
-        item: found.title.clone(),
-        field: field.label.clone(),
-        section: field.section.clone(),
-        reference,
-        by_id,
+    };
+    Ok(Read {
+        checked: Checked {
+            vault: v.name.clone(),
+            item: found.title.clone(),
+            field: field.label.clone(),
+            section: field.section.clone(),
+            reference,
+            by_id,
+        },
+        value,
+        vault_id: v.id.clone(),
+        item_id: found.id.clone(),
     })
 }
 

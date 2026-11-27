@@ -690,7 +690,14 @@ impl ToolRuntime {
     /// The gate's decision with what the broker would give the call
     /// (theseus-dcy): it names the grant, and holds the call to no looser a
     /// posture than each secret's.
-    pub(crate) fn brokered(&self, tool: &str, plan: &Plan, input: &Value, d: Decision) -> Decision {
+    pub(crate) fn brokered(
+        &self,
+        tool: &str,
+        plan: &Plan,
+        input: &Value,
+        session: Option<&str>,
+        d: Decision,
+    ) -> Decision {
         // A terminal's program is given no grant: its keys come from the
         // model, and its screen is the model's to read (theseus-n88g.4).
         if tool.starts_with(crate::term::FAMILY)
@@ -714,9 +721,16 @@ impl ToolRuntime {
             .and_then(Value::as_object)
             .map(|m| m.keys().map(String::as_str).collect())
             .unwrap_or_default();
-        let grants = self
+        let mut grants = self
             .broker
             .at_gate(tool, plan.argv.as_deref(), &env, cwd, path);
+        // A one-run grant of the call's session, whose earlier turns' grants have ended (issue 64).
+        if let Some(session) = session {
+            grants.extend(
+                self.broker
+                    .once_at_gate(session, plan.argv.as_deref(), &env, cwd, path),
+            );
+        }
         let (Some(granted), Some((need, setting))) =
             (crate::broker::got(&grants), self.broker.need(&grants))
         else {
@@ -1266,8 +1280,9 @@ impl ToolRuntime {
         });
         // The settings read, the looks, the profile tools and the vault's two, after outside text
         // or with the flag: asked or told, as `[content_based_security] outside` says (issue 54).
-        let planned =
-            planned.map(|p| crate::config_change::hold::ask_or_tell(self, tc, tool.name(), p));
+        let planned = planned.map(|p| {
+            crate::config_change::hold::ask_or_tell(self, tc, tool.name(), &call.input, p)
+        });
         // Handing work to a profile starts a task, so it asks where starting one asks.
         let task_asks =
             self.posture_now(crate::task::CREATE).posture == crate::policy::Posture::Approve;
@@ -1285,6 +1300,8 @@ impl ToolRuntime {
         let routine_grant = tc
             .task
             .and_then(|t| self.routines.grant_for(tc.kernel, tc.store, t));
+        // A one-run grant ends with its turn: a later turn's call finds none (issue 64).
+        crate::config_change::vault_use::once::end_other_turns(self, tc);
         let at = order::At {
             place: tc.place(),
             labels: &|| crate::content_wait::flags_of(tc.store, tc.session_id),

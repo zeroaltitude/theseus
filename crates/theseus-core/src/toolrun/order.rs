@@ -141,7 +141,7 @@ impl ToolRuntime {
         let decision =
             crate::policy::modes::gate(self, at, tool, plan, input, bound.l1(), decision);
         seen(Layer::Mode, &decision);
-        let decision = self.brokered(tool.name(), plan, input, decision);
+        let decision = self.brokered(tool.name(), plan, input, at.session, decision);
         seen(Layer::Grant, &decision);
         // A call that starts a language server is a run too (L2).
         let decision = crate::lsp::gate(self, tool, plan, decision);

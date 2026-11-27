@@ -499,7 +499,7 @@ impl ToolRuntime {
                 ));
             }
         }
-        let (brokered, sandbox) = sandbox::for_job(
+        let (mut brokered, sandbox) = sandbox::for_job(
             self,
             class,
             spec,
@@ -509,6 +509,19 @@ impl ToolRuntime {
             correlation_id,
         )
         .await;
+        // A one-run grant of this turn (issue 64): never to a run in the background.
+        let background = call.input.get("background").and_then(Value::as_bool) == Some(true);
+        let turn = crate::config_change::vault_use::once::held_turn(self, tc);
+        self.broker.once_for_job(
+            (tc.session_id, &turn),
+            &spec.argv,
+            &set,
+            &spec.cwd,
+            path.as_deref(),
+            (ran_at, background),
+            correlation_id,
+            &mut brokered,
+        );
         // The view a self builder's command runs in keeps one more directory (`builder_view`).
         let sandbox = match (&build, sandbox) {
             (Some(dir), Some(view)) => {
@@ -553,8 +566,8 @@ impl ToolRuntime {
             cwd: Some(spec.cwd.clone()),
             env,
             umask: theseus_kernel::umask::operator(),
-            // Each granted variable and its secret's name: the wrapper
-            // withholds the value from the job's raw output (theseus-l0d).
+            // Each granted variable and its secret's name, for the wrapper; the job's raw
+            // output keeps the value, and the exits mask it (theseus-l0d).
             redact: brokered
                 .granted
                 .iter()
@@ -632,6 +645,7 @@ impl ToolRuntime {
                 grant: g,
                 correlation_id,
                 tool: tool.name(),
+                once: self.broker.once_row(g),
             });
         }
         for (g, why) in &brokered.withheld {
@@ -970,6 +984,8 @@ impl ToolRuntime {
             total,
             unread,
         } = read_result_file(self.raw_output(a).as_deref());
+        // A value a one-run grant gave this job is not kept in its result (issue 64).
+        let out = self.broker.scrub_once(&a.correlation_id, out);
         let exit = detail.get("exit_code").and_then(Value::as_i64);
         let header = match (
             status,

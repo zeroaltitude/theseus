@@ -230,8 +230,8 @@ impl Tool for Propose {
          (`config.show` reads other settings). Theseus checks that the settings still load, then shows the owner one \
          card with each value before and after; only their yes changes anything, and the daemon writes it itself. \
          A setting that governs what Theseus may do (approvals, secrets, the sandbox, folders, who the owner is, \
-         spending) needs a second proof as well. A secret in the vault is used by `vault.use`, never by writing \
-         an `op://` reference here. A fact its maker publishes (a model's exact name, a provider's address and \
+         spending) needs a second proof as well. A secret in the vault is used by `vault.use`, whose run form and \
+         pure use need no second proof, never by writing an `op://` reference here. A fact its maker publishes (a model's exact name, a provider's address and \
          protocol) may be looked up with the web tools rather than asked for: give it with a `source`, never a \
          guess. The owner still confirms, on the card, where a secret is sent. Offered only to the owner, in a \
          private place."

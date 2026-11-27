@@ -210,6 +210,8 @@ pub struct Broker {
     wait: Duration,
     /// Each grant's uses since the daemon started.
     uses: Mutex<BTreeMap<Grant, u64>>,
+    /// `vault.use`'s one-run grants (issue 64).
+    once: once::Table,
 }
 
 /// The job an AWS session is for: its correlation id names the session, and
@@ -263,6 +265,7 @@ impl Broker {
             path,
             wait: crate::turn::SECRET_WAIT,
             uses: Mutex::default(),
+            once: once::Table::default(),
         }
     }
 
@@ -1353,6 +1356,9 @@ fn resolve(program: &str, path: Option<&str>, cwd: &Path, absolute_only: bool) -
         }
     })
 }
+
+mod once;
+pub use once::{OnceGrant, HANDLE as ONCE_HANDLE};
 
 #[cfg(test)]
 mod tests;

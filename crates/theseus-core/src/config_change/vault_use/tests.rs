@@ -1174,3 +1174,26 @@ async fn a_flagged_use_is_told_at_the_default_and_asked_at_ask() {
         }
     }
 }
+
+/// What the model reads of the vault: `vault.use` has a run form that takes no card and no code,
+/// a pure use by the card form takes no code either, and a one-off run is not steered into a
+/// program's settings; `config.propose`'s line about secrets does not claim the code for
+/// `vault.use`.
+#[test]
+fn the_description_says_a_pure_use_needs_no_code() {
+    let d = VaultUse.description();
+    for part in [
+        "`run`",
+        "one run",
+        "no card and no code",
+        "a pure use needs no code",
+    ] {
+        assert!(d.contains(part), "{part} in {d}");
+    }
+    assert!(!d.contains("broker.programs"), "{d}");
+    let p = crate::config_change::Propose.description();
+    assert!(
+        p.contains("`vault.use`, whose run form and pure use need no second proof"),
+        "{p}"
+    );
+}
