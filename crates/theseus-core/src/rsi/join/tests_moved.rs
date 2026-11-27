@@ -2,6 +2,7 @@
 //! under a green branch, and before its review is spent the branch goes back with main merged
 //! into a working copy of it, the builder's resolution joins, and none of it is a failed try.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use theseus_protocol::rsi::SelfMode;
 use theseus_protocol::tasks::{TaskRecord, TaskState};
 use theseus_protocol::SessionKind;
@@ -63,7 +64,7 @@ async fn main_moving_under_a_finished_change_sends_it_back_with_main_in_its_tree
     let (branch, head) = r.seed("tsk_sails", &conflicting(), SONNET);
     main_moves(&r);
     let main = r.upstream_main();
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch.clone(), "merge".to_string())]);
     assert!(pass.reviewed.is_empty(), "no review is spent: {pass:?}");
     assert!(r.rows("self.review.verdict").is_empty());
@@ -99,7 +100,7 @@ async fn main_moving_under_a_finished_change_sends_it_back_with_main_in_its_tree
         "{}",
         posts[0]
     );
-    let again = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let again = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert!(
         again.stopped.is_empty() && again.reviewed.is_empty(),
         "{again:?}"
@@ -116,7 +117,7 @@ async fn the_builder_is_told_main_moved_for_the_start_that_follows() {
     r.seed("tsk_sails", &conflicting(), SONNET);
     main_moves(&r);
     assert!(crate::rsi::backlog::brief::main_moved(&task(&r)).is_none());
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     let mut t = task(&r);
     let told = crate::rsi::backlog::brief::main_moved(&t).expect("told");
     assert!(
@@ -142,7 +143,7 @@ async fn the_resolution_is_reviewed_and_joined_and_none_of_it_was_a_try() {
     item(&r, "tsk_sails", 0);
     r.seed("tsk_sails", &conflicting(), SONNET);
     main_moves(&r);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     let (branch, head) = resolved(&r);
     let parents = git(
         &r.f.place.repo,
@@ -153,7 +154,7 @@ async fn the_resolution_is_reviewed_and_joined_and_none_of_it_was_a_try() {
         3,
         "the commit is the merge: {parents}"
     );
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(
         pass.reviewed,
         [(branch.clone(), "accept".to_string())],
@@ -173,7 +174,7 @@ async fn the_bound_on_repeats_fails_the_item_and_the_row_says_why() {
     item(&r, "tsk_sails", 2);
     r.seed("tsk_sails", &conflicting(), SONNET);
     main_moves(&r);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
+    r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(task(&r).state, TaskState::Failed);
     assert!(
         tree::find(&r.f.place, "tsk_sails").is_none(),
@@ -197,7 +198,7 @@ async fn a_branch_that_still_merges_is_reviewed_as_before() {
     let r = rig(SelfMode::Act);
     item(&r, "tsk_sails", 0);
     let (branch, _) = r.seed("tsk_sails", PROVED, SONNET);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "accept".to_string())], "{pass:?}");
     assert!(tree::find(&r.f.place, "tsk_sails").is_none());
 }

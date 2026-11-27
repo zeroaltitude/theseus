@@ -4,6 +4,7 @@
 //! lint repaired, approved by the other model, reviewed and joined; and each refusal, rejection and
 //! red that ends as a failed try, one try and no more, with a fix's words.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -241,7 +242,7 @@ async fn a_red_lint_is_fixed_approved_by_the_other_model_reviewed_and_joined() {
         lock_wait: std::time::Duration::from_secs(60),
         ..crate::rsi::join::Seams::default()
     };
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     let branch = b["branch"].as_str().unwrap().to_string();
     assert_eq!(pass.reviewed, [(branch, "accept".to_string())], "{pass:?}");
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
@@ -640,15 +641,13 @@ fn offered(q: &crate::provider::ProviderRequest) -> Vec<String> {
         .collect()
 }
 
-/// The first request whose first message begins as `words` do.
+/// The first request whose newest user message says `words`: the first request of the turn that
+/// input opens. Not its first message: a fixer reads at the widest, so its place's earlier
+/// exchanges come first.
 fn request_of(r: &Rig, words: &str) -> crate::provider::ProviderRequest {
     r.requests()
         .into_iter()
-        .find(|q| {
-            q.messages
-                .first()
-                .is_some_and(|m| m.to_string().contains(words))
-        })
+        .find(|q| crate::tests_places::last_user(q).contains(words))
         .unwrap_or_else(|| panic!("no request says {words:?}"))
 }
 
@@ -676,8 +675,8 @@ impl super::Fixer for Proposing {
 
 /// Review round 1, B1: the fixer's own turn calls `self.propose_change` for the item whose tree
 /// it was lent. It is not offered the verb (nor any self verb: only its tree's file and command
-/// tools), its call is refused, and no green branch exists that a session other than the
-/// builder's built.
+/// tools, and the history tool, which acts on nothing), its call is refused, and no green branch
+/// exists that a session other than the builder's built.
 #[tokio::test]
 async fn a_fixer_turn_that_calls_propose_change_builds_no_branch() {
     let r = rig(|_| {});
@@ -696,7 +695,7 @@ async fn a_fixer_turn_that_calls_propose_change_builds_no_branch() {
     for n in &tools {
         let family = n.split('_').next().unwrap_or(n);
         assert!(
-            ["fs", "proc", "git", "job", "tools"].contains(&family),
+            ["fs", "proc", "git", "job", "tools"].contains(&family) || n == "context_history",
             "a fixer is offered {n}: {tools:?}"
         );
     }

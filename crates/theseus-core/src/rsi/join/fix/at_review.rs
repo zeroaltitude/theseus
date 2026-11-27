@@ -1,7 +1,7 @@
 //! The fix a review asked for (issue 36): the review's `VERDICT: fix` row is written, then the
 //! pass reopens the item's tree on the branch at the reviewed head, makes the fix
 //! ([`super::make`]), runs main's gate on it, has the builder's profile read the fix's commit
-//! alone, pushes the branch, and closes the tree. The accepted fix's `self.fix.verdict` row is the
+//! alone, and closes the tree; the fixed branch stays in `[self] repo` (issue 53). The accepted fix's `self.fix.verdict` row is the
 //! branch's new head (`join::seen`), so the next pass runs the planted revert and a fresh,
 //! independent review on it, told a fix was made; a second `fix` there is a reject.
 //!
@@ -67,8 +67,7 @@ impl Run<'_> {
             return Ok(false);
         }
         let failure = reasons.join("\n");
-        let remote = remote_of(&self.core.cfg);
-        let (p, r) = (self.place.clone(), remote.clone());
+        let (p, r) = (self.place.clone(), remote_of(&self.core.cfg));
         let (item, branch, head) = (
             self.b.item.clone(),
             self.b.branch.clone(),
@@ -106,7 +105,7 @@ impl Run<'_> {
             main,
             fixer: self.seams.fixer.clone(),
         };
-        let out = self.fixed_at_review(&job, &remote).await;
+        let out = self.fixed_at_review(&job).await;
         let (p, tr) = (self.place.clone(), t.clone());
         if let Err(e) = blocking(move || tree::close(&p, &tr)).await {
             tracing::warn!(error = %format!("{e:#}"), branch = %t.branch, "self fix: the tree was not closed");
@@ -117,8 +116,8 @@ impl Run<'_> {
         Ok(true)
     }
 
-    /// Make, gate, approve and push: the approver, or the words of why the fix did not hold.
-    async fn fixed_at_review(&self, job: &Job<'_>, remote: &str) -> Result<String, String> {
+    /// Make, gate and approve: the approver, or the words of why the fix did not hold.
+    async fn fixed_at_review(&self, job: &Job<'_>) -> Result<String, String> {
         let made = job.make().await?;
         let (p, t) = (self.place.clone(), job.tree.clone());
         let gated = tree::gate(&p, &t).await.and_then(tree::Gated::ran);
@@ -131,20 +130,7 @@ impl Run<'_> {
         if let Err(e) = self.fix_report(job, &made, &approver) {
             tracing::warn!(error = %format!("{e:#}"), branch = %job.tree.branch, "self fix: its report was not written");
         }
-        if self.core.cfg.self_improve.remote.is_some() {
-            let (p, t, r) = (self.place.clone(), job.tree.clone(), remote.to_string());
-            let b = t.branch.clone();
-            let scrubber = self.core.tools.scrubber.clone();
-            let pushed = blocking(move || {
-                Ok(tree::push(&p, &t, &r, &b, &|s| scrubber.scrub(s).1).map_err(|e| e.to_string()))
-            })
-            .await
-            .map_err(|e| format!("{e:#}"))
-            .and_then(|r| r);
-            if let Err(e) = pushed {
-                tracing::warn!(branch = %job.tree.branch, "self fix: the fixed branch was not pushed: {e}");
-            }
-        }
+        // The fixed branch stays in `[self] repo` (issue 53): the join reads it there.
         Ok(approver)
     }
 

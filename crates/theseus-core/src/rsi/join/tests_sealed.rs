@@ -6,6 +6,7 @@
 //! its answer for main's head is main's score, and any other head is the
 //! candidate's.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -115,7 +116,11 @@ async fn a_family_drop_holds_the_join() {
     let (branch, head) = s.r.seed("tsk_sails", &Sealed::files(true), SONNET);
     // The family loses two; the other gains two: the total is level.
     let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 4, 5));
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(
         pass.stopped,
         [(branch.clone(), "sealed".to_string())],
@@ -169,7 +174,10 @@ async fn a_family_drop_holds_the_join() {
     assert!(!all.contains("Tide question"), "an item's text is in a row");
     // The head is held: a second pass scores nothing more.
     let n = scorer.asked().len();
-    s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    s.r.core
+        .self_join_pass_yes(&s.seams(&scorer))
+        .await
+        .unwrap();
     assert_eq!(scorer.asked().len(), n);
 }
 
@@ -180,7 +188,11 @@ async fn equal_scores_join_and_a_second_branch_reuses_mains_score() {
     let s = rigged(SelfMode::Act, false, 2);
     let (branch, _) = s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
     let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     let checked = &s.r.rows("self.sealed.checked")[0];
     assert_eq!(checked["outcome"], "passed");
@@ -201,7 +213,11 @@ async fn off_and_halted_score_nothing() {
     let s = rigged(SelfMode::Off, false, 2);
     s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
     let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 0, 0));
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(pass.gate, "off");
     assert!(scorer.asked().is_empty());
     assert!(s.r.rows("self.sealed.checked").is_empty());
@@ -214,7 +230,11 @@ async fn a_branch_touching_no_behaviour_path_skips_the_phase() {
     let s = rigged(SelfMode::Act, false, 2);
     s.r.seed("trim-the-sails", &Sealed::files(false), SONNET);
     let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 0, 0));
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     assert!(
         scorer.asked().is_empty(),
@@ -226,7 +246,11 @@ async fn a_branch_touching_no_behaviour_path_skips_the_phase() {
     let s = rigged(SelfMode::Act, true, 2);
     s.r.seed("trim-the-sails", &Sealed::files(false), SONNET);
     let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 0, 0));
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(pass.stopped.len(), 1, "{pass:?}");
     assert_eq!(scorer.asked().len(), 2, "main and the candidate");
 }
@@ -238,7 +262,11 @@ async fn no_sealed_set_skips_the_phase_and_says_so() {
     let s = rigged(SelfMode::Act, false, 0);
     s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
     let scorer = Canned::new(&s.main, vec![], vec![]);
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     assert!(scorer.asked().is_empty());
     let row = &s.r.rows("self.sealed.checked")[0];
@@ -251,7 +279,7 @@ async fn no_sealed_set_skips_the_phase_and_says_so() {
     // No `dir` at all: the same, with its own reason.
     let r = rig_with(SelfMode::Act, |_| {});
     r.seed("trim-the-sails", &Sealed::files(true), SONNET);
-    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&r.seams()).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     let row: Value = r.rows("self.sealed.checked")[0].clone();
     assert!(
@@ -276,7 +304,7 @@ async fn main_is_scored_on_its_own_build_only() {
         on_phase: Some(Arc::new(move |p: &str| seen.lock().unwrap().push(p.into()))),
         ..s.r.seams()
     };
-    let pass = s.r.core.self_join_pass(&seams).await.unwrap();
+    let pass = s.r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(
         pass.stopped,
         [(branch.clone(), "sealed".to_string())],
@@ -308,7 +336,7 @@ async fn main_is_scored_on_its_own_build_only() {
         installed: Arc::new(|| Some("0123456789ab".repeat(3) + "0123")),
         ..s.seams(&scorer)
     };
-    let pass = s.r.core.self_join_pass(&seams).await.unwrap();
+    let pass = s.r.core.self_join_pass_yes(&seams).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "sealed".to_string())], "{pass:?}");
     assert!(scorer.asked().is_empty());
     let stop = &s.r.rows("self.join.stopped")[0];
@@ -328,7 +356,11 @@ async fn the_checked_row_names_mains_commit_and_build() {
     let s = rigged(SelfMode::Act, false, 2);
     s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
     let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
     let checked = &s.r.rows("self.sealed.checked")[0];
     assert_eq!(
@@ -349,7 +381,11 @@ async fn a_view_only_branch_is_scored_and_held() {
     files.push(("crates/theseus-core/src/view/render.rs", "// trimmed\n"));
     let (branch, _head) = s.r.seed("tsk_view", &files, SONNET);
     let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 4, 5));
-    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    let pass =
+        s.r.core
+            .self_join_pass_yes(&s.seams(&scorer))
+            .await
+            .unwrap();
     assert_eq!(pass.stopped, [(branch, "sealed".to_string())], "{pass:?}");
     assert!(
         !scorer.asked().is_empty(),

@@ -1,6 +1,7 @@
 //! The install's build tree is reaped when the install is provably finished with it, and a
 //! join leaves no tree open after any phase (issue 6, the install's reap and its guard).
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::sync::Arc;
 
 use theseus_protocol::rsi::SelfMode;
@@ -23,7 +24,7 @@ async fn the_installs_build_tree_is_reaped_once_it_is_installed() {
         installer: installs.clone(),
         ..r.seams()
     };
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     let merge = r.upstream_main();
     let target = target_of(&r.f.place, &merge);
     assert!(target.join("release").exists(), "the unit still needs it");
@@ -54,7 +55,7 @@ async fn a_leftover_tree_of_an_installed_merge_is_reaped_at_serving() {
         installer: Arc::new(Builds::default()),
         ..r.seams()
     };
-    r.core.self_join_pass(&seams).await.unwrap();
+    r.core.self_join_pass_yes(&seams).await.unwrap();
     let merge = r.upstream_main();
     r.core.self_installed_as(&merge).unwrap();
     // The same tree is left again (as an earlier run left one), and another install's is not

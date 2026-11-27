@@ -2,7 +2,8 @@
 //! night's start (`rsi::backlog::start`), and a reviewer's, opened by `CheckTurn`, are ordinary sessions of
 //! the principal `self` whose inputs carry no owner's mark, so who is present is unknown. A turn always sees
 //! what its own session said at its own place, whoever is present: a second turn after a restart holds the
-//! objective and the first answer; another session at the same place is not shown; nothing is summarised.
+//! objective and the first answer; nothing is summarised. A builder reads at the widest, so another session
+//! at its place is shown to it (issue 53); a reviewer keeps to its own place.
 
 use std::sync::{Arc, Mutex};
 
@@ -146,8 +147,8 @@ fn strategy(c: &Core, session: &str) -> String {
 }
 
 /// The key test: a builder's session as the night opens it; its first turn reads the item's objective;
-/// after a restart its second turn holds that objective and its first answer, and nothing an ordinary
-/// session said in the same tree; no summary is written for it.
+/// after a restart its second turn holds that objective and its first answer, and, read at the widest, what
+/// an ordinary session said in the same tree; no summary is written for it.
 #[tokio::test]
 async fn a_builders_second_turn_after_a_restart_holds_its_objective_and_first_answer() {
     let (cfg, store) = config();
@@ -160,6 +161,11 @@ async fn a_builders_second_turn_after_a_restart_holds_its_objective_and_first_an
     let item = night.started[0].item.clone();
     let rec = crate::task_graph::get(&c.store, &item).unwrap().unwrap();
     let session = rec.session.clone().unwrap();
+    assert_eq!(
+        c.tools.self_pr.role(&session),
+        Some(crate::rsi::roles::Role::Builder),
+        "the night's start records its builder's role"
+    );
     let objective = rec.objective.clone();
     let head: String = objective.chars().take(40).collect();
     self_turn(&c, &session, &objective).await;
@@ -179,8 +185,8 @@ async fn a_builders_second_turn_after_a_restart_holds_its_objective_and_first_an
     assert!(sent.contains(&head), "its objective: {sent}");
     assert!(sent.contains(FIRST), "its first answer: {sent}");
     assert!(
-        !sent.contains("third bollard"),
-        "another session's words: {sent}"
+        sent.contains("third bollard"),
+        "another session's words, at the widest: {sent}"
     );
     assert_eq!(strategy(&c2, &session), "view");
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;

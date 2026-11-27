@@ -96,6 +96,10 @@ impl Core {
                 a, session, ttl,
             ));
         }
+        if a.tool == crate::rsi::join::publish::ACK {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(crate::rsi::join::publish::confirm_request(a, session, ttl));
+        }
         let (tool, input, gate, turn_id) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
@@ -217,6 +221,7 @@ impl Core {
             || q.tool == super::packs::PROMOTE
             || q.tool == crate::config_change::ACK
             || q.tool == crate::rsi::join::root_install::ACK
+            || q.tool == crate::rsi::join::publish::ACK
         {
             return Ok(self.confirm_request(q, &rec, &[]));
         }
@@ -326,6 +331,7 @@ impl Core {
                     && a.tool != super::packs::PROMOTE
                     && a.tool != crate::config_change::ACK
                     && a.tool != crate::rsi::join::root_install::ACK
+                    && a.tool != crate::rsi::join::publish::ACK
             }) {
                 self.store.session_nodes(&rec.session_id)?
             } else {
@@ -549,6 +555,30 @@ impl Core {
             self.admission.notify_waiters();
             return Ok(done);
         }
+        // A self change waiting to be published (issue 53): the answer is kept, and the join reads it when it comes
+        // to that head; nothing is sent from here.
+        if a.tool == crate::rsi::join::publish::ACK {
+            // An agent's process is not the owner at this card: only the owner's own hand publishes a self change.
+            if approve && who.agent.is_some() {
+                let r = Refusal {
+                    who: who.who(),
+                    via: who.via(),
+                    why: crate::rsi::join::publish::AGENT_REFUSAL.to_string(),
+                };
+                self.refused(
+                    Act::Answer {
+                        action: &a,
+                        approve,
+                    },
+                    &who,
+                    &r,
+                )?;
+                return Err(r.into());
+            }
+            let done = self.answer_publish(&a, approve, note, by, &via)?;
+            self.admission.notify_waiters();
+            return Ok(done);
+        }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, the answer's row, and the wake. So no surface
         // sees the execution waiting on a question it no longer has.
@@ -717,8 +747,12 @@ impl Core {
         self.forget_noticed(&pending);
         let mut next = u64::MAX;
         let mut expired = 0;
-        // A budget question holds until it is answered.
-        for a in pending.iter().filter(|a| a.tool != BUDGET_TOOL) {
+        // A budget question holds until it is answered; so does a self change waiting to be
+        // published (issue 53): nothing answers it by time.
+        for a in pending
+            .iter()
+            .filter(|a| a.tool != BUDGET_TOOL && a.tool != crate::rsi::join::publish::ACK)
+        {
             // A routine's run waits its run deadline, not the confirm lifetime
             // (theseus-52tut).
             let ttl = self.ask_ttl_ms(&a.session_id, self.is_task_session(&a.session_id));

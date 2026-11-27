@@ -17,9 +17,10 @@
 //!    code runs nowhere else, theseus-pw1q.21.1: `super::jail`), writes the frozen
 //!    report at `<state>/self/reports/<branch with / as ->.md` (what, why,
 //!    the numbers, the verdict, the cost; it ends `<!-- REPORT COMPLETE -->`
-//!    and is never written again), then pushes a green branch when
-//!    `[self] remote` is set, and closes the tree. A red one keeps its tree
-//!    for another attempt, on a new branch.
+//!    and is never written again), and closes the tree of a green branch.
+//!    The branch stays in `[self] repo`: nothing pushes it (issue 53); the
+//!    join reads it there, and only the join publishes, on the owner's yes.
+//!    A red one keeps its tree for another attempt, on a new branch.
 //!
 //! Every attempt ends with one `self.branch.built` row, red or green, and a
 //! halt between phases ends it there, its row naming the phase it stopped
@@ -116,49 +117,63 @@ impl Board {
         &self.state
     }
 
-    /// Record that the self loop opened `session` for `role` (`super::roles`), in memory and in
-    /// the store, before its first turn.
+    /// Record `role` for `session` (`super::roles`) in the store and in memory, after its session opened: a test's
+    /// way. The loop's own producers write a role in the frame that opens its session.
+    #[cfg(test)]
     pub(crate) fn set_role(&self, session: &str, role: super::roles::Role) -> anyhow::Result<()> {
         if let Some(core) = self.core() {
             core.store.append(&[role.record(session)?])?;
         }
+        self.remember_role(session, role);
+        Ok(())
+    }
+
+    /// Keep `role` as `session`'s in memory, over anything kept: its record is already in the store (written in
+    /// the frame that opened the session, or by [`Self::set_role`]).
+    pub(crate) fn remember_role(&self, session: &str, role: super::roles::Role) {
         self.roles
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(session.to_string(), Some(role));
-        Ok(())
     }
 
-    /// `session`'s role, if the self loop opened it for one: what memory holds, else the store's
-    /// record, kept once read.
+    /// `session`'s role as [`Self::role_in`] reads it, a role that cannot be read as none: for tests.
+    #[cfg(test)]
     pub(crate) fn role(&self, session: &str) -> Option<super::roles::Role> {
+        let core = self.core()?;
+        self.role_in(&core.store, session).ok().flatten()
+    }
+
+    /// `session`'s role, the one reader of it (its scope, its tools, the builder's verb and the review):
+    /// what memory holds, else its own record in `store`, else, for a fork with no record of its own (one
+    /// made before forks were given one), its source's, through every fork between; none when there is
+    /// none, kept once read. An error, kept nowhere, when a record or a fork's origin cannot be read: a
+    /// failed read is never "no role", and a builder's role is never inferred from none.
+    pub(crate) fn role_in(
+        &self,
+        store: &crate::store::Store,
+        session: &str,
+    ) -> anyhow::Result<Option<super::roles::Role>> {
         if let Some(r) = self
             .roles
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(session)
         {
-            return *r;
+            return Ok(*r);
         }
+        let read = super::roles::effective(store, session)?;
+        #[cfg(test)]
+        tests_role_race::between();
         // What is kept stays small: the sessions with no role are forgotten past a bound (each is
         // read again from the store if it asks again).
-        {
-            let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
-            if kept.len() >= ROLES_KEPT {
-                kept.retain(|_, r| r.is_some());
-            }
+        let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.len() >= ROLES_KEPT {
+            kept.retain(|_, r| r.is_some());
         }
-        let read = self.core().and_then(|c| {
-            c.store
-                .get_meta::<super::roles::Role>(&super::roles::key(session))
-                .ok()
-                .flatten()
-        });
-        self.roles
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(session.to_string(), read);
-        read
+        // A role kept while this read was out (`set_role`, `remember_role`) is newer than it: it stays, and is
+        // the answer.
+        Ok(*kept.entry(session.to_string()).or_insert(read))
     }
 
     pub(crate) fn failed_keel_hold(&self, item: &str) -> bool {
@@ -419,8 +434,9 @@ impl Tool for ProposeChange {
         "Change Theseus's own source on a branch of its own. The first call for an item opens a \
          git worktree off origin/main, outside every other tree, and names its directory: edit \
          it there with the file tools, by absolute path. The next call for the item commits what \
-         the tree holds, runs main's gate on it, writes a frozen report, and pushes the branch \
-         to self/* when a remote is set; a red gate keeps the tree for another attempt. The \
+         the tree holds, runs main's gate on it, writes a frozen report, and keeps the branch on \
+         this machine (nothing is pushed before the owner's yes at the join); a red gate keeps \
+         the tree for another attempt. The \
          gate's verdict is the result, never this call's words. A keel finding stops the item \
          until the owner answers. Nothing here merges. Only a self session may call it; the \
          kill switch stops it between phases."
@@ -471,6 +487,31 @@ struct Input {
 #[cfg(test)]
 #[path = "tests_pr/gated.rs"]
 mod tests_gated;
+#[cfg(test)]
+#[path = "tests_pr/legacy_fork.rs"]
+mod tests_legacy_fork;
+
+/// A seam between a role's read and its keeping, for a test that puts a write there.
+#[cfg(test)]
+pub(crate) mod tests_role_race {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static BETWEEN: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    /// Run what was set, once, between the read and the keeping.
+    pub(crate) fn between() {
+        if let Some(f) = BETWEEN.with(|b| b.borrow_mut().take()) {
+            f();
+        }
+    }
+
+    /// What the next read on this thread runs between its read and its keeping.
+    pub(crate) fn set(f: impl FnOnce() + 'static) {
+        BETWEEN.with(|b| *b.borrow_mut() = Some(Box::new(f)));
+    }
+}
 
 #[path = "pr_fix.rs"]
 mod fixing;
@@ -728,27 +769,22 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, PUSH, &why);
     }
-    let mut after = String::new();
-    if let Some(remote) = core.cfg.self_improve.remote.clone() {
+    // The branch is never pushed from here (issue 53): it stays in `[self] repo`, where the join reads it. Main's
+    // scrub of what would leave runs where the push was, so the builder hears of a hit now; the join runs it again
+    // before it asks the owner.
+    let mut after = String::from(
+        "The branch stays on this machine: nothing of it is pushed until the owner reads it and says yes at the \
+         join. ",
+    );
+    if core.cfg.self_improve.remote.is_some() {
         let (p, t, b) = (place.clone(), a.tree.clone(), a.tree.branch.clone());
         let scrubber = core.tools.scrubber.clone();
-        let pushed = blocking(move || {
-            Ok(tree::push(&p, &t, &remote, &b, &|s| scrubber.scrub(s).1)
-                .map(|spec| format!("{remote} {spec}")))
-        })
-        .await?;
-        match pushed {
-            Ok(to) => {
-                after = format!("Pushed to {to}. ");
-                a.pushed = Some(to);
-            }
-            Err(e) => {
-                a.stopped_at = Some(PUSH);
-                after = format!("Not pushed: {e}. ");
-            }
+        let cleared =
+            blocking(move || Ok(tree::cleared(&p, &t, &b, &|s| scrubber.scrub(s).1))).await?;
+        if let Err(e) = cleared {
+            a.stopped_at = Some(PUSH);
+            after = format!("It may not leave this machine: {e}. ");
         }
-    } else {
-        after.push_str("[self] remote is unset, so the branch stays local. ");
     }
     // The item's other sessions are ended before the tree goes; this one is making the call.
     if let Err(e) = core
@@ -974,7 +1010,8 @@ fn told_where_it_reports(
         run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
         run.secs,
         match run.verdict {
-            Verdict::Green => "It is pushed from here.",
+            Verdict::Green =>
+                "It stays on this machine; the join asks the owner before anything is published.",
             Verdict::Keel => "It waits for the owner's word; nothing retries around it.",
             Verdict::Red => "The tree stays open for another attempt.",
         }
@@ -1262,7 +1299,11 @@ fn write_report(
         .collect();
     let remote = core.cfg.self_improve.remote.as_deref().map_or_else(
         || "unset: the branch stays local".to_string(),
-        |r| format!("{r}, pushed after this report when the gate is green"),
+        |r| {
+            format!(
+                "{r}; the branch is not pushed: the join publishes main there on the owner's yes"
+            )
+        },
     );
     let text = format!(
         "# Self branch {branch}\n\n\

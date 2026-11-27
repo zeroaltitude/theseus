@@ -7,6 +7,7 @@
 //! that breaks after HEAD moved; a directory made read-only; a module of the branch's named like
 //! Python's own.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -82,7 +83,7 @@ async fn join(
     on_main(r, &main);
     let base = r.upstream_main();
     let (_, head) = r.seed("trim-the-sails", files, SONNET);
-    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let pass = r.core.self_join_pass_yes(&seams).await.unwrap();
     if pass.joined.len() != 1 {
         // What main's gate said, when it was what stopped the join.
         let said: Vec<String> = std::fs::read_dir(r.f.place.gates())

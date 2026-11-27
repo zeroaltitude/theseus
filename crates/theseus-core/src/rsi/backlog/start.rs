@@ -160,17 +160,23 @@ impl Core {
                     continue;
                 }
             };
-            let rec = self.open_session_as(
+            // The builder's role rides in the frame that opens its session (`rsi::roles`): a builder reads at
+            // the widest, and a self session with no role recorded does not.
+            let builder = crate::rsi::roles::Role::Builder;
+            let rec = self.open_session_with(
                 SessionOpenParams {
                     label: Some(format!("self: {title}")),
                     dir: Some(tree.dir.to_string_lossy().into_owned()),
                     ..SessionOpenParams::default()
                 },
-                theseus_kernel::Authority {
-                    principal: PRINCIPAL.into(),
-                    ..Default::default()
-                },
-                None,
+                (
+                    theseus_kernel::Authority {
+                        principal: PRINCIPAL.into(),
+                        ..Default::default()
+                    },
+                    None,
+                ),
+                &|rec| Ok(vec![builder.record(&rec.session_id)?]),
             )?;
             let session = rec.session_id.clone();
             let Some(t) = w.tasks.get_mut(&id) else {

@@ -11,7 +11,9 @@
 //!   relayed, is not spoken (as an exchange's open does not speak it) and is counted.
 //! - **A task's session and a harness session** are both this harness's sessions: the model's messages and any
 //!   person's, as said. A task's brief is its parent's relayed message: counted, not spoken.
-//! - **The self loop's scope** (`Lens::in_scope_session`): a session it opened opens its own session only.
+//! - **The self loop's scope** (`Lens::in_scope_session`): a self-loop session that does not build (a
+//!   reviewer, an approver, a mint's writer) opens its own session only; a builder and a fixer open any, as any
+//!   session does.
 //! - **Bounded** (D6a round 2): the session is read backwards a store page at a time ([`PAGE`] records, at
 //!   most [`MOST`] a call), each node by its newest record, never whole; a single message larger than the
 //!   allowance is cut in words, never shown past it; the page ends with an honest continuation.

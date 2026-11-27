@@ -171,7 +171,8 @@ impl Core {
             let agent_barred = who.agent.is_some()
                 && (crate::approval::owners_alone(&c.tool)
                     || c.tool == crate::config_change::ACK
-                    || c.tool == crate::rsi::join::root_install::ACK);
+                    || c.tool == crate::rsi::join::root_install::ACK
+                    || c.tool == crate::rsi::join::publish::ACK);
             c.may_answer = Some(may && !agent_barred);
         }
         Ok(theseus_protocol::ConfirmListResult { confirms })

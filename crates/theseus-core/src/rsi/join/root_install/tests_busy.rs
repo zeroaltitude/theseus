@@ -1,6 +1,7 @@
 //! The root helper's install is "the loop is installing" from its build on (issue 41, round 3): the pipeline's view
 //! names it while a stand-in build is held, before any record of its stages exists.
 
+use crate::rsi::join::tests_publish::PassYes as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -43,7 +44,7 @@ async fn the_view_names_the_root_helpers_build_while_it_runs() {
         crate::rsi::join::tests::PROVED,
         crate::rsi::join::tests::SONNET,
     );
-    let pass = tokio::spawn(async move { core.self_join_pass(&seams).await });
+    let pass = tokio::spawn(async move { core.self_join_pass_yes(&seams).await });
     for _ in 0..600 {
         if entered.load(Ordering::SeqCst) {
             break;

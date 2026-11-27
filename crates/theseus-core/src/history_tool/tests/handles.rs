@@ -158,13 +158,14 @@ async fn a_forks_recalled_note_names_no_handle_its_cut_holds() {
     assert!(refused.contains("no exchange"), "{refused}");
 }
 
-/// A session the self loop opened names a handle only within its own place, as its `open` reads: its own
-/// exchange's note names it and opens; another place's names none, and the tool refuses that handle there.
+/// A session the self loop opened to judge (a reviewer's) names a handle only within its own place, as its
+/// `open` reads: its own exchange's note names it and opens; another place's names none, and the tool refuses
+/// that handle there.
 #[tokio::test]
 async fn a_self_loop_sessions_recalled_note_names_no_handle_outside_its_place() {
     use crate::tests_places::{rig, session};
     let r = rig();
-    let me = self_session(&r.core);
+    let me = self_session(&r.core, Some(crate::rsi::roles::Role::Reviewer));
     let mine =
         crate::view_gate::place_name(&r.core.runner, &me).unwrap_or_else(|| "unknown".into());
     let other = session(&r.core, None);

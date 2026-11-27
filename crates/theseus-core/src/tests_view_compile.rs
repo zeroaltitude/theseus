@@ -936,8 +936,13 @@ async fn a_source_removed_during_a_size_repair_is_not_sent() {
 }
 
 /// A session the self loop opens, as its fixer, reviewer or approver turns do (`rsi::join::fix::turns`):
-/// its execution's principal is `self`.
-fn self_session(c: &crate::Core, label: &str) -> String {
+/// its execution's principal is `self`, and its job's `role` is recorded before its first turn (none for a
+/// builder, as the night's start opens one).
+pub(crate) fn self_session(
+    c: &crate::Core,
+    label: &str,
+    role: Option<crate::rsi::roles::Role>,
+) -> String {
     let rec = c
         .open_session_as(
             theseus_protocol::SessionOpenParams {
@@ -951,14 +956,27 @@ fn self_session(c: &crate::Core, label: &str) -> String {
             None,
         )
         .unwrap();
+    if let Some(role) = role {
+        c.tools.self_pr.set_role(&rec.session_id, role).unwrap();
+    }
     rec.session_id
 }
 
-/// Round 3, the self loop's scope (the conductor's rule of 12:33): a fixer's and an approver's request hold
+/// [`asked`], tools or none: an approver's session is offered no tool.
+fn asked_by(r: &Rig, what: &str) -> Vec<ProviderRequest> {
+    let got: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| last_user(q).contains(what))
+        .collect();
+    got.iter().for_each(legal);
+    got
+}
+
+/// Round 3, the self loop's scope (the conductor's rule of 12:33): a reviewer's and an approver's request hold
 /// nothing of another session or another place, and none of slots C, E or F; an ordinary session at the same
 /// place, with no mark either, is laid the other session's words (the widest point of view).
 #[tokio::test]
 async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_widest() {
+    use crate::rsi::roles::Role;
     use crate::tests_view_hand_backs::unmarked;
     // The self loop acting, its budget resumed, so its sessions' turns run (as `rpc::tests_self_view`).
     let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
@@ -970,23 +988,23 @@ async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_wid
     .unwrap();
     let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
     turn_as(c, &dm, "dm: the lighthouse lamp is amber", true).await;
-    let fixer = self_session(c, "self fix: kelp");
-    let approver = self_session(c, "self approve: kelp");
+    let reviewer = self_session(c, "self review: kelp", Some(Role::Reviewer));
+    let approver = self_session(c, "self approve: kelp", Some(Role::Approver));
     let ordinary = crate::tests_places::session(c, None);
     // Every one of them works at the same place as the desk's session.
     let place = |s: &str| crate::view_gate::place_name(&c.runner, s);
     let desk = crate::tests_places::session(c, None);
-    assert_eq!(place(&fixer), place(&desk), "one place");
+    assert_eq!(place(&reviewer), place(&desk), "one place");
     turn_as(c, &desk, "desk: the heron is grey", true).await;
     for (sid, asks) in [
-        (&fixer, "fixer: what is in front of you?"),
+        (&reviewer, "reviewer: what is in front of you?"),
         (&approver, "approver: what is in front of you?"),
         (&ordinary, "ordinary: what is in front of you?"),
     ] {
         unmarked(c, sid, asks).await.unwrap();
     }
-    for asks in ["fixer: what is in front", "approver: what is in front"] {
-        let sent = texts(&asked(&r, asks).pop().expect("its request"));
+    for asks in ["reviewer: what is in front", "approver: what is in front"] {
+        let sent = texts(&asked_by(&r, asks).pop().expect("its request"));
         assert!(
             !sent.contains("the heron is grey"),
             "{asks}: another session's: {sent}"
@@ -1006,12 +1024,13 @@ async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_wid
 
 /// Round 3, the self loop's scope against an ordinary session (the brief's second test), with one
 /// foreign-context fixture: the owner's DM, another session at another place, made recallable. An ordinary
-/// conversation's turn is laid it (the widest point of view); a fixer's and an approver's turn asking the same
-/// are laid nothing of it. An ordinary TASK is not shown here: a task's first compile admits a recall note only
+/// conversation's turn is laid it (the widest point of view); a reviewer's and an approver's turn asking the
+/// same are laid nothing of it. An ordinary TASK is not shown here: a task's first compile admits a recall note only
 /// as its compilation's own section (`compiler::situation`), and the task's execution is complete after that
 /// turn, so this rig gives it no second turn to ask on.
 #[tokio::test]
-async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_session_does() {
+async fn a_reviewer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_session_does() {
+    use crate::rsi::roles::Role;
     use crate::tests_view_hand_backs::unmarked;
     const SECRET: &str = "the kelp vault code is 5519";
     let r = rig_with(|c| {
@@ -1028,33 +1047,34 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_s
     turn_as(c, &dm, SECRET, true).await;
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
     let ordinary = crate::tests_places::session(c, None);
-    let fixer = self_session(c, "self fix: kelp");
-    let approver = self_session(c, "self approve: kelp");
+    let reviewer = self_session(c, "self review: kelp", Some(Role::Reviewer));
+    let approver = self_session(c, "self approve: kelp", Some(Role::Approver));
     for (sid, asks) in [
         (&ordinary, "ordinary: what is the kelp vault code?"),
-        (&fixer, "fixer: what is the kelp vault code?"),
+        (&reviewer, "reviewer: what is the kelp vault code?"),
         (&approver, "approver: what is the kelp vault code?"),
     ] {
         unmarked(c, sid, asks).await.unwrap();
     }
-    let sent = |asks: &str| texts(&asked(&r, asks).pop().expect("its request"));
+    let sent = |asks: &str| texts(&asked_by(&r, asks).pop().expect("its request"));
     let got = sent("ordinary: what is");
     assert!(
         got.contains("5519"),
         "the ordinary session, the widest: {got}"
     );
-    for asks in ["fixer: what is", "approver: what is"] {
+    for asks in ["reviewer: what is", "approver: what is"] {
         let got = sent(asks);
         assert!(!got.contains("5519"), "{asks}: another place's: {got}");
     }
 }
 
-/// Round 3: a fork of a self-loop session keeps the run it was handed. Its turn lays the source's exchanges
-/// through the fork's point (handed material, as a brief is), none the source said after the point, and nothing
-/// of another session at the source's place.
+/// Round 3: a fork of a self-loop session opened to judge (a reviewer's) keeps its source's scope and the run
+/// it was handed. Its turn lays the source's exchanges through the fork's point (handed material, as a brief
+/// is), none the source said after the point, and nothing of another session at the source's place.
 #[tokio::test]
 async fn a_fork_of_a_self_loop_session_lays_its_inherited_run_to_its_point_and_nothing_else_foreign(
 ) {
+    use crate::rsi::roles::Role;
     use crate::tests_view_hand_backs::unmarked;
     let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
     let c = &r.core;
@@ -1065,16 +1085,16 @@ async fn a_fork_of_a_self_loop_session_lays_its_inherited_run_to_its_point_and_n
     .unwrap();
     let desk = crate::tests_places::session(c, None);
     turn_as(c, &desk, "desk: the heron is grey", true).await;
-    let fixer = self_session(c, "self fix: kelp");
+    let reviewer = self_session(c, "self review: kelp", Some(Role::Reviewer));
     for said in [
-        "fixer: FIRST-KELP",
-        "fixer: SECOND-KELP",
-        "fixer: THIRD-KELP",
+        "reviewer: FIRST-KELP",
+        "reviewer: SECOND-KELP",
+        "reviewer: THIRD-KELP",
     ] {
-        unmarked(c, &fixer, said).await.unwrap();
+        unmarked(c, &reviewer, said).await.unwrap();
     }
     // The point: the answer to the second message (the fourth of the source's nodes that are messages).
-    let said: Vec<String> = (c.store.session_nodes(&fixer).unwrap().into_iter())
+    let said: Vec<String> = (c.store.session_nodes(&reviewer).unwrap().into_iter())
         .filter(|(_, n)| {
             matches!(
                 n.body,
@@ -1087,14 +1107,14 @@ async fn a_fork_of_a_self_loop_session_lays_its_inherited_run_to_its_point_and_n
     let f = c
         .session_fork(
             theseus_protocol::SessionForkParams {
-                session: fixer.clone(),
+                session: reviewer.clone(),
                 at: said[3].clone(),
                 ..Default::default()
             },
             crate::approval::Surface::Cli,
         )
         .unwrap();
-    let source = crate::view_gate::Verified::of_session(&c.runner, &fixer);
+    let source = crate::view_gate::Verified::of_session(&c.runner, &reviewer);
     let forked = crate::view_gate::Verified::of_session(&c.runner, &f.session_id);
     assert!(source.own_place_only(), "the source is the self loop's");
     assert!(forked.own_place_only(), "the fork keeps its source's scope");
@@ -1149,16 +1169,34 @@ async fn a_scope_that_cannot_be_read_fails_the_assembly_and_widens_nothing() {
 }
 
 /// Round 3: a self-principal task's census is assembled under the scope its live turn gets
-/// (`Verified::of_task` and `Verified::of_turn` read one discriminator), and an operator task's under none.
+/// (`Verified::of_task` and `Verified::of_turn` read one discriminator): a self task with no role recorded and
+/// a reviewer's, their own place only; a builder's the widest, as an operator task's.
 #[tokio::test]
 async fn a_self_principal_tasks_census_has_its_live_turns_scope() {
     let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
     let c = &r.core;
     let parent = crate::tests_places::session(c, None);
-    let worker = self_session(c, "self fix: census");
+    let worker = self_session(c, "self fix: census", None);
     crate::tests_self_budget::make_task(c, &worker, &parent, crate::rsi::SELF_PRINCIPAL, None);
+    let builder = self_session(
+        c,
+        "self build: census",
+        Some(crate::rsi::roles::Role::Builder),
+    );
+    crate::tests_self_budget::make_task(c, &builder, &parent, crate::rsi::SELF_PRINCIPAL, None);
+    let judge = self_session(
+        c,
+        "self review: census",
+        Some(crate::rsi::roles::Role::Reviewer),
+    );
+    crate::tests_self_budget::make_task(c, &judge, &parent, crate::rsi::SELF_PRINCIPAL, None);
     let (ordinary, _) = crate::tests_self_budget::principal_session(c, &parent, "operator", None);
-    for (sid, scoped) in [(&worker, true), (&ordinary, false)] {
+    for (sid, scoped) in [
+        (&worker, true),
+        (&builder, false),
+        (&judge, true),
+        (&ordinary, false),
+    ] {
         let census = crate::view_gate::Verified::of_task(&c.runner, sid).expect("a task's");
         let live = crate::view_gate::Verified::of_turn(&c.runner, sid, None);
         assert_eq!(census.own_place_only(), scoped, "{sid}: the census");
