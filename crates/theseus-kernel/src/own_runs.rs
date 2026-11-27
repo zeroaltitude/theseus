@@ -55,7 +55,12 @@ fn pipe() -> Option<&'static (OwnedFd, OwnedFd)> {
 /// Ask every run, going now or started later, to end within `grace` of its next look.
 pub fn end_all(grace: Duration) {
     let ms = u64::try_from(grace.as_millis()).unwrap_or(u64::MAX - 1);
-    let _ = ASKED.compare_exchange(0, ms.saturating_add(1).min(u64::MAX - 1), Ordering::SeqCst, Ordering::SeqCst);
+    let _ = ASKED.compare_exchange(
+        0,
+        ms.saturating_add(1).min(u64::MAX - 1),
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
     if let Some((_, w)) = pipe() {
         // SAFETY: one byte written to the pipe's nonblocking write end; a full pipe already wakes every wait.
         let _ = unsafe { libc::write(w.as_raw_fd(), [1u8].as_ptr().cast(), 1) };
@@ -119,7 +124,10 @@ mod tests {
             kind: "self-build".into(),
             pid: 4242
         }));
-        assert_eq!(running().last().map(Run::words).as_deref(), Some("the self-build run (job 4242)"));
+        assert_eq!(
+            running().last().map(Run::words).as_deref(),
+            Some("the self-build run (job 4242)")
+        );
         drop(a);
         assert!(!running().iter().any(|r| r.pid == 4242));
     }

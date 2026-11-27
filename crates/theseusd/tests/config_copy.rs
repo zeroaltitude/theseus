@@ -741,7 +741,9 @@ fn a_stdio_restart_in_place_keeps_every_line_whole() {
 #[test]
 fn a_restart_in_place_ends_a_self_build_that_would_not_end_by_itself() {
     if unsafe { libc::geteuid() } == 0 {
-        eprintln!("skipped: L1 refuses a root daemon's jobs (theseus-pv6i); run as an ordinary user");
+        eprintln!(
+            "skipped: L1 refuses a root daemon's jobs (theseus-pv6i); run as an ordinary user"
+        );
         return;
     }
     const JOB: (&str, &str) = ("THESEUS_TEST_SELF_JOB", "exec sleep 3600");
@@ -769,9 +771,16 @@ fn a_restart_in_place_ends_a_self_build_that_would_not_end_by_itself() {
             break sleeps;
         }
         if let Some(status) = d.try_wait() {
-            panic!("theseusd exited ({status}) before the job ran:\n{}", r.log());
+            panic!(
+                "theseusd exited ({status}) before the job ran:\n{}",
+                r.log()
+            );
         }
-        assert!(t0.elapsed() < Duration::from_secs(30), "the planted self job never ran:\n{}", r.log());
+        assert!(
+            t0.elapsed() < Duration::from_secs(30),
+            "the planted self job never ran:\n{}",
+            r.log()
+        );
         std::thread::sleep(Duration::from_millis(20));
     };
     let dir = r.path("state").join("planted-self-job");
@@ -790,7 +799,10 @@ fn a_restart_in_place_ends_a_self_build_that_would_not_end_by_itself() {
     assert!(!h["config"]["restarted"].is_null());
     assert_eq!(d.id(), pid, "the restart is in place");
     for p in &job {
-        assert!(!common::alive(*p), "the cut build's sleep {p} outlived the restart");
+        assert!(
+            !common::alive(*p),
+            "the cut build's sleep {p} outlived the restart"
+        );
     }
     assert!(
         !common::holds_open(pid, &logs[0]),

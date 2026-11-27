@@ -210,10 +210,16 @@ mod tests {
             |_, _| {},
         );
         std::thread::sleep(Duration::from_millis(50));
-        assert!(!asked.load(Ordering::SeqCst), "asked while tasks were alive");
+        assert!(
+            !asked.load(Ordering::SeqCst),
+            "asked while tasks were alive"
+        );
         alive.store(0, Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(50));
-        assert!(asked.load(Ordering::SeqCst), "not asked once the tasks were gone");
+        assert!(
+            asked.load(Ordering::SeqCst),
+            "not asked once the tasks were gone"
+        );
         w.done();
     }
 
@@ -223,12 +229,22 @@ mod tests {
         let asked = Arc::new(AtomicBool::new(false));
         let b = asked.clone();
         let t0 = Instant::now();
-        let w = Watch::start(FAST, || 1, Vec::new, move || b.store(true, Ordering::SeqCst), |_, _| {});
+        let w = Watch::start(
+            FAST,
+            || 1,
+            Vec::new,
+            move || b.store(true, Ordering::SeqCst),
+            |_, _| {},
+        );
         while !asked.load(Ordering::SeqCst) {
             assert!(t0.elapsed() < Duration::from_secs(5), "never asked");
             std::thread::sleep(Duration::from_millis(5));
         }
-        assert!(t0.elapsed() >= FAST.ask_anyway, "asked early: {:?}", t0.elapsed());
+        assert!(
+            t0.elapsed() >= FAST.ask_anyway,
+            "asked early: {:?}",
+            t0.elapsed()
+        );
         w.done();
     }
 

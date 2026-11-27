@@ -24,7 +24,9 @@ const STOPPED_WITHIN: Duration = Duration::from_secs(20);
 
 fn as_root() -> bool {
     if unsafe { libc::geteuid() } == 0 {
-        eprintln!("skipped: L1 refuses a root daemon's jobs (theseus-pv6i); run as an ordinary user");
+        eprintln!(
+            "skipped: L1 refuses a root daemon's jobs (theseus-pv6i); run as an ordinary user"
+        );
         return true;
     }
     false
@@ -55,7 +57,10 @@ fn job_running(s: &mut Served, comm: &str) -> Vec<u32> {
             return found;
         }
         if let Some(status) = s.daemon.try_wait() {
-            panic!("theseusd exited ({status}) before the job ran:\n{}", s.log());
+            panic!(
+                "theseusd exited ({status}) before the job ran:\n{}",
+                s.log()
+            );
         }
         assert!(
             Instant::now() < deadline,
@@ -119,7 +124,10 @@ fn a_self_build_that_ignores_sigterm_is_killed_at_the_stop() {
     assert!(!shells.is_empty(), "the job's shell");
     let took = stop(&mut s).unwrap_or_else(|e| panic!("{e}"));
     for p in &shells {
-        assert!(!alive(*p), "the job's shell {p}, which ignores SIGTERM, outlived the stop");
+        assert!(
+            !alive(*p),
+            "the job's shell {p}, which ignores SIGTERM, outlived the stop"
+        );
     }
     eprintln!("stopped in {took:?}");
 }
@@ -144,7 +152,10 @@ fn a_stop_never_signals_the_daemons_process_group() {
     let _ = sibling.kill();
     let _ = sibling.wait();
     stopped.unwrap_or_else(|e| panic!("{e}"));
-    assert!(still, "a process in the daemon's group was ended by the stop");
+    assert!(
+        still,
+        "a process in the daemon's group was ended by the stop"
+    );
 }
 
 /// With no self build running, the stop is as quick as it was, and says it waits for nothing.
@@ -152,7 +163,10 @@ fn a_stop_never_signals_the_daemons_process_group() {
 fn a_stop_with_no_self_build_is_quick() {
     let mut s = Served::start(|_| {}, |_| {});
     let took = stop(&mut s).unwrap_or_else(|e| panic!("{e}"));
-    assert!(took < Duration::from_secs(5), "a stop with nothing running took {took:?}");
+    assert!(
+        took < Duration::from_secs(5),
+        "a stop with nothing running took {took:?}"
+    );
     let log = s.log();
     assert!(
         !log.contains("stop: still waiting"),
