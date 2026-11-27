@@ -1,7 +1,8 @@
 //! Why Google's consent could not begin, as the owner can act on it (issue 62). The kind is read
-//! from the daemon's own sentence (`auth.rs`, and `rpc/google.rs` for an account not bound), by
-//! its fixed words; a Discord press is told the kind alone ([`BeginKind::marker`]), the CLI the
-//! sentence.
+//! from the daemon's own sentence (`auth.rs`, and `rpc/google.rs` for an account not bound): the
+//! exact words it builds around the configured name of the client secret, so neither the name nor
+//! a reason after it chooses the kind. A Discord press is told the kind alone
+//! ([`BeginKind::marker`]), the CLI the sentence.
 
 use crate::approval::Surface;
 
@@ -17,11 +18,10 @@ pub enum BeginKind {
     Other,
 }
 
-/// How the daemon's sentence for each kind begins.
+/// How the daemon's sentence with no account begins.
 const NO_ACCOUNT: &str = "no Google account is bound";
-const CLIENT: &str = "the client secret `";
-const RESOLVING: &str = "is still resolving";
-const NOT_AN_ENTRY: &str = "` is not a [secrets] entry";
+/// The whole of what follows a still-resolving secret's name.
+const RESOLVING: &str = "is still resolving: try again";
 
 impl BeginKind {
     pub const ALL: [BeginKind; 4] = [Self::NoAccount, Self::Client, Self::Resolving, Self::Other];
@@ -41,19 +41,20 @@ impl BeginKind {
         Self::ALL.into_iter().find(|k| k.marker() == message)
     }
 
-    /// The kind of the daemon's sentence. A secret's name sits between backquotes: what follows
-    /// the first closing one tells the kind, so a reason after it tells nothing.
-    pub fn of_words(words: &str) -> Self {
+    /// The kind of the daemon's sentence, given `client`, the configured name of the client
+    /// secret. The exact prefix the daemon builds around that name is taken off, and what is left
+    /// is compared whole: a name or a reason holding the words of another kind changes nothing.
+    pub fn of_words(words: &str, client: &str) -> Self {
         if words.starts_with(NO_ACCOUNT) {
             return Self::NoAccount;
         }
-        if let Some(rest) = words.strip_prefix(CLIENT) {
-            return match rest.split_once("` ") {
-                Some((_, tail)) if tail.starts_with(RESOLVING) => Self::Resolving,
-                _ => Self::Client,
+        if let Some(tail) = words.strip_prefix(&format!("the client secret `{client}` ")) {
+            return match tail == RESOLVING {
+                true => Self::Resolving,
+                false => Self::Client,
             };
         }
-        if words.starts_with('`') && words.ends_with(NOT_AN_ENTRY) {
+        if words == format!("`{client}` is not a [secrets] entry") {
             return Self::Client;
         }
         Self::Other

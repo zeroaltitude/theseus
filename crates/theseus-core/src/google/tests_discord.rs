@@ -465,3 +465,88 @@ async fn one_warning_line_names_the_kind_of_a_failed_begin() {
     drop(guard);
     assert!(!log.text()[before..].contains("could not begin"));
 }
+
+/// A board whose client secret is named `name`, failed with `failed` when given, else still
+/// resolving.
+fn board_named(name: &str, failed: Option<String>) -> std::sync::Arc<crate::secrets::SecretBoard> {
+    let b = crate::secrets::SecretBoard::new(
+        [name.to_string(), "google_refresh_token".to_string()],
+        std::time::Instant::now(),
+    );
+    if let Some(why) = failed {
+        b.publish(
+            std::collections::BTreeMap::from([(name.to_string(), Err(why))]),
+            "test",
+        );
+    }
+    b
+}
+
+/// The client secret's name, and whether its read failed with a reason, choose nothing: a name
+/// that holds a backquote and the words of another kind, or a reason that holds them, is told its
+/// own kind. The press gets that kind's marker, the warning line names it, and neither the name
+/// nor the reason is in the answer or a log line; the CLI's sentence is as before.
+#[tokio::test]
+async fn a_secrets_name_or_reason_does_not_choose_the_kind() {
+    use super::begin::BeginKind;
+    let why = format!("op read failed: {MARKER}");
+    let cases = [
+        // A failed read, named so it reads as still resolving.
+        (
+            "client` is still resolving",
+            Some(why.clone()),
+            BeginKind::Client,
+        ),
+        // A read still resolving, named so it reads as another failure.
+        ("client` other", None, BeginKind::Resolving),
+        // A failed read whose reason holds the words of a read still resolving.
+        (
+            "google_client",
+            Some(format!("{MARKER}` is still resolving: try again")),
+            BeginKind::Client,
+        ),
+    ];
+    for (name, failed, kind) in cases {
+        let sentence = match &failed {
+            Some(w) => format!("the client secret `{name}` did not resolve: {w}"),
+            None => format!("the client secret `{name}` is still resolving: try again"),
+        };
+        let (core, _dir) = core_on(board_named(name, failed), |cfg| {
+            cfg.secrets.remove("google_client");
+            cfg.secrets
+                .insert(name.into(), "op://vault/google client/notesPlain".into());
+            cfg.google.credentials.client = name.into();
+            cfg.validate().expect("a setting the owner may make");
+        })
+        .await;
+        let cli = begin_err(&core, None).await;
+        assert_eq!(cli.message, sentence, "{name}: the CLI's sentence");
+        let log = crate::test_support::Log::default();
+        let sub = tracing_subscriber::fmt()
+            .with_writer(log.clone())
+            .with_ansi(false)
+            .finish();
+        let guard = tracing::subscriber::set_default(sub);
+        let pressed = begin_err(&core, Some(presser(OWNER, true))).await;
+        drop(guard);
+        assert_eq!(pressed.message, kind.marker(), "{name}: the press's marker");
+        let text = log.text();
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| l.contains("Google's consent could not begin"))
+            .collect();
+        assert_eq!(lines.len(), 1, "{name}: {text}");
+        assert!(
+            lines[0].contains(&format!("kind={kind:?}")),
+            "{name}: {}",
+            lines[0]
+        );
+        for said in [name, MARKER] {
+            assert!(
+                !format!("{pressed:?}").contains(said),
+                "{name}: in the answer"
+            );
+            assert!(!text.contains(said), "{name}: in a log line");
+        }
+    }
+}

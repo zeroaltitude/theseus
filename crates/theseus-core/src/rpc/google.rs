@@ -135,16 +135,15 @@ impl crate::Core {
         )?;
         // A Discord press is told the kind alone (issue 62); one warning line, the kind alone.
         let surface = conn.surface;
-        let failed = |code, words: String| {
-            let kind = BeginKind::of_words(&words);
+        let failed = |code, words: String, client: &str| {
+            let kind = BeginKind::of_words(&words, client);
             tracing::warn!(?kind, "Google's consent could not begin");
             RpcFailure::new(code, kind.said_to(surface, words))
         };
-        self.google()
-            .map_err(|f| failed(f.code, f.message))?
-            .auth_begin(p.manual)
+        let g = self.google().map_err(|f| failed(f.code, f.message, ""))?;
+        g.auth_begin(p.manual)
             .await
-            .map_err(|e| failed(error_code::INTERNAL, e))
+            .map_err(|e| failed(error_code::INTERNAL, e, &g.cfg.credentials.client))
     }
 
     pub(super) async fn google_auth_finish(
