@@ -101,7 +101,8 @@ No card, no second proof, nothing written to the settings, no restart. The model
    the vault again. It has no Undo: nothing stands. The `secret.granted` row carries `once: true` and the vault, item and
    field by name.
 
-A request the daemon itself makes carrying a key (no program) is not this form; it is not built.
+A request the daemon itself makes carrying a key (no program) is not this form: it is `http.request` (issue 65,
+`key-request.md`), which reads, holds and masks the value as this form does and sends it in one HTTPS request.
 
 ## Who may, and what an injected turn can do
 

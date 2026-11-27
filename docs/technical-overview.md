@@ -200,6 +200,7 @@ Native **toollets**, no shell unless asked for: `fs.read`, `fs.write`, `fs.edit`
 `gix`), and `proc.run` (typed argv; `bash -c` is possible and visible as such). These were M3's eleven. The Daily
 Driver added four:
 - `http.fetch` and `web.search` (whose text is marked `external`, and classified like any item: Part III Item 259);
+  `http.request` (issue 65) sends one HTTPS request with a key from the vault (`docs/design/key-request.md`);
 - `task.create`, a background task with its own budget;
 - `wake.at`, a reminder that starts a later turn.
 
