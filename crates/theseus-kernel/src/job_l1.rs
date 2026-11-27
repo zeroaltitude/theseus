@@ -168,7 +168,8 @@ pub(crate) fn run(
     let limits = l1.limits.lowered_by(&started.lowered);
     let proxy = egress::start(&mut child, l1, &allow, detail);
     // A daemon's own run is listed while it goes, so its stop can end it and say what it waits for.
-    let _listed = matches!(reap, Reap::Command).then(|| own_runs::hold(&args.correlation_id, child.id()));
+    let _listed =
+        matches!(reap, Reap::Command).then(|| own_runs::hold(&args.correlation_id, child.id()));
     let (exit, end) = wait(&mut child, reap, patience);
     // The job has ended, its whole tree with it (a stop included).
     egress::stop(proxy, &allow, detail);
