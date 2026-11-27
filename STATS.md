@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at commit aa60cf15, over every file git tracks:
+Counted at the merge of 847442b7 into 4e0ae7f2, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -19,7 +19,7 @@ Counted at commit aa60cf15, over every file git tracks:
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
 | crates/theseus-aws-catalog | 5,996 | 1,394 | 644 |
 | crates/theseus-aws-guard | 2,861 | 1,522 | 323 |
-| crates/theseus-core | 276,500 | 324,609 | 100,101 |
+| crates/theseus-core | 276,666 | 324,813 | 100,162 |
 | crates/theseus-discord | 35,725 | 48,866 | 11,891 |
 | crates/theseus-exam | 5,403 | 3,237 | 1,247 |
 | crates/theseus-files | 2,377 | 682 | 297 |
@@ -27,7 +27,7 @@ Counted at commit aa60cf15, over every file git tracks:
 | crates/theseus-google | 3,700 | 903 | 342 |
 | crates/theseus-index | 12,447 | 6,578 | 3,027 |
 | crates/theseus-judge | 13,307 | 11,642 | 4,536 |
-| crates/theseus-kernel | 13,220 | 14,248 | 5,653 |
+| crates/theseus-kernel | 13,301 | 14,282 | 5,687 |
 | crates/theseus-lsp | 3,189 | 1,496 | 695 |
 | crates/theseus-mcp | 6,315 | 2,912 | 1,162 |
 | crates/theseus-memory | 722 | 770 | 372 |
@@ -40,10 +40,10 @@ Counted at commit aa60cf15, over every file git tracks:
 | crates/theseus-tools | 4,918 | 3,315 | 1,128 |
 | crates/theseus-tui | 13,127 | 13,001 | 3,125 |
 | crates/theseus-voice | 6,144 | 6,651 | 2,023 |
-| crates/theseusd | 5,349 | 33,462 | 5,748 |
+| crates/theseusd | 5,515 | 33,977 | 5,835 |
 | infra/ | 554 | 1,432 | 193 |
 | scripts/ | 10,150 | 9,198 | 3,682 |
-| **Total** | **630,347** | **618,659** | **210,327** |
+| **Total** | **630,760** | **619,412** | **210,509** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes
