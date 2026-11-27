@@ -36,6 +36,14 @@ impl TurnRunner {
                         .is_some_and(|e| needed > e.budget.available_after_reset())
                 })
         });
+        // A later occasion (a message, a job that ended, a report, a wake) ends the session's
+        // one-run grants before any call this catch-up resumes runs: an answer to this work's own
+        // question alone keeps them (issue 64).
+        if self.tools.broker.has_once(t.tc.session_id)
+            && (has_input || late.iter().any(|l| !l.delivered) || news_waiting(&t.tc))
+        {
+            self.tools.broker.once_end(t.tc.session_id);
+        }
         let resumed = self.tools.resume(&t.tc, has_input).await?;
         // A hold's yes that no call of this turn's resume took is dropped (issue 28).
         self.tools.profile.drop_untaken(t.tc.session_id, t.arrived);
@@ -62,6 +70,11 @@ impl TurnRunner {
         let occasion =
             view_step::occasion::Occasion::of(opened, &late, resumed.wrote > 0 || reset || raised);
         t.exchange.caught_up(occasion);
+        // Any later occasion (a message, a wake, a report, a job that ended) ends the session's
+        // one-run grants; the continuation an answer to a card began keeps them (issue 64).
+        if occasion != Some(view_step::occasion::Occasion::Answered) {
+            self.tools.broker.once_end(t.tc.session_id);
+        }
         t.record(&fact::turn::CaughtUp {
             t0,
             settled: settled.len(),
@@ -253,4 +266,19 @@ impl TurnRunner {
         }
         Ok(awaiting_reply)
     }
+}
+
+/// Whether the session's execution has news this catch-up will take: a report of its tasks, or a
+/// wake that is due.
+fn news_waiting(tc: &crate::toolrun::TurnCtx<'_>) -> bool {
+    let now = tc.kernel.now_ms();
+    tc.kernel
+        .execution(tc.execution_id)
+        .ok()
+        .flatten()
+        .is_some_and(|e| {
+            !e.reports.is_empty()
+                || !e.report_wakes.is_empty()
+                || e.wakes.iter().any(|w| w.due_at_ms <= now)
+        })
 }

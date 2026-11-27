@@ -1356,6 +1356,13 @@ impl TurnRunner {
         let unposted = self.tools.profile.sweep(&failure_sink.session_id);
         self.last_request.turn_ended(&failure_sink.session_id);
         clock_step::turn_ended(&failure_sink.session_id);
+        // A one-run grant its turn did not use ends with it, unless a run of its program waits
+        // on the owner's answer (issue 64).
+        crate::config_change::vault_use::once::turn_ended(
+            &self.tools,
+            &self.kernel,
+            &failure_sink.session_id,
+        );
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
             self.pass.after_turn(res);

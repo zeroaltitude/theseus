@@ -328,6 +328,9 @@ pub struct SecretGranted<'a> {
     pub grant: &'a Grant,
     pub correlation_id: &'a str,
     pub tool: &'a str,
+    /// A one-run grant's keys (`once`, and the vault, item and field it was read from; issue
+    /// 64), added to the row. None for any other grant.
+    pub once: Option<Value>,
 }
 
 impl Fact for SecretGranted<'_> {
@@ -335,8 +338,12 @@ impl Fact for SecretGranted<'_> {
 
     fn row(&self) -> Value {
         let g = self.grant;
-        json!({"program": g.to, "variable": g.variable, "secret": g.secret,
-            "correlation_id": self.correlation_id, "tool": self.tool})
+        let mut row = json!({"program": g.to, "variable": g.variable, "secret": g.secret,
+            "correlation_id": self.correlation_id, "tool": self.tool});
+        if let (Some(Value::Object(once)), Some(r)) = (&self.once, row.as_object_mut()) {
+            r.extend(once.clone());
+        }
+        row
     }
 }
 

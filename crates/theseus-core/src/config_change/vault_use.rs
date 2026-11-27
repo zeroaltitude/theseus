@@ -23,6 +23,9 @@
 //! place, asked first at the gate when the turn has read text from outside since
 //! the owner's last message, never a job, a task, the self loop, an MCP session
 //! or a shared place. The design: `docs/design/vault-use.md`.
+//!
+//! **The run form** (issue 64, `once.rs`) puts the item to use for one run of one program, with
+//! no card and no settings: `run: {program, variable}` in place of `name` and `also`.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -35,8 +38,16 @@ use crate::toolrun::{ToolRuntime, TurnCtx};
 
 pub(crate) mod check;
 pub(crate) mod classify;
+pub(crate) mod once;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_once;
+#[cfg(test)]
+mod tests_once_exits;
+#[cfg(test)]
+mod tests_once_owner;
+pub(crate) mod used;
 
 pub use check::Checked;
 
@@ -371,6 +382,9 @@ pub async fn run(
     if let Some(why) = super::wall::refusal_for(tc, USE) {
         return Err(why);
     }
+    if once::is_run(input) {
+        return once::run(rt, tc, input, correlation_id).await;
+    }
     // Run again after a restart, it answers with what the first run asked.
     if let Ok(done) = super::proposed_by_call(tc, correlation_id) {
         return Ok(done);
@@ -482,13 +496,17 @@ impl Tool for VaultUse {
     }
 
     fn description(&self) -> &str {
-        "Use a secret that is in Theseus's vault, by its name: the vault, the item and the field (`look.vault` with \
-         `fields_of` lists them), a `name` of your choosing for it in the settings, and in `also` the other \
-         settings that should read that name (a provider's `api_key_secret`, a program's \
-         `broker.programs.<p>.env.<VAR>`, a server's `auth_secret`), written as for `config.propose`. The daemon \
-         finds the item and field, checks that its account can read them, builds the reference itself, and shows \
-         the owner ONE card; nothing changes before their yes, and using a secret needs no code. A secret is \
-         used by its name: its value is never asked for, never shown, and never passes through you. Never write an \
+        "Use a secret that is in Theseus's vault: the vault, the item and the field (`look.vault` with `fields_of` \
+         lists them). For one run of a program, give `run`: {program, variable}: the program by its name on \
+         Theseus's PATH or a script by its path (`./call.sh`), and the environment variable it reads. The daemon \
+         reads the item and gives it to the next run of that program in this turn, run by its own argv (never a \
+         shell, an interpreter or `env` around it, not in the background): no card and no code, nothing written to \
+         the settings, and the owner is told. To keep a secret in the settings, give a `name` of your choosing and, \
+         in `also`, the settings that should read that name (a provider's `api_key_secret`, a server's \
+         `auth_secret`), written as for `config.propose`: the daemon checks its account can read the item, builds \
+         the reference itself, and shows the owner ONE card; nothing changes before their yes, and a pure use needs \
+         no code. A secret is used by its name: its value is never asked for, never shown, and never passes \
+         through you. Never write an \
          `op://` reference in `config.propose`, and the vault's program in a shell has no session by design. If the \
          account cannot see a vault, the result says what the owner can do. A fact the provider publishes (its \
          address, its protocol) may be looked up with the web tools rather than asked for: put it in `also` with \
@@ -504,7 +522,17 @@ impl Tool for VaultUse {
                 "item": {"type": "string", "description": "The item's title or id."},
                 "field": {"type": "string", "description": "The field's label, as `look.vault` lists it with `fields_of`."},
                 "section": {"type": "string", "description": "The field's section, only when two fields share the label."},
-                "name": {"type": "string", "description": "The secret's name in the settings: letters, digits and `_`, e.g. `lantern_key`."},
+                "name": {"type": "string", "description": "The secret's name in the settings, for the card: letters, digits and `_`, e.g. `lantern_key`. Not with `run`."},
+                "run": {
+                    "type": "object",
+                    "description": "One run of one program, with no card and no settings: the program (a name on Theseus's PATH, or a script's path such as `./call.sh`) and the environment variable it reads. Not with `name` or `also`.",
+                    "properties": {
+                        "program": {"type": "string"},
+                        "variable": {"type": "string", "description": "e.g. `LANTERN_TOKEN`."}
+                    },
+                    "required": ["program", "variable"],
+                    "additionalProperties": false
+                },
                 "also": {
                     "type": "array",
                     "description": "Other settings to change on the same card, at most 19, each {path, value} as for `config.propose`; the value that reads the secret is its `name`.",
@@ -522,7 +550,7 @@ impl Tool for VaultUse {
                 },
                 "reason": {"type": "string", "description": "One line, in the owner's words: why they want it."}
             },
-            "required": ["vault", "item", "field", "name", "reason"],
+            "required": ["vault", "item", "field", "reason"],
             "additionalProperties": false
         })
     }
@@ -541,6 +569,9 @@ impl Tool for VaultUse {
     }
 
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+        if once::is_run(input) {
+            return once::plan(input);
+        }
         let i: Input = parse(input)?;
         Ok(Plan {
             summary: format!(

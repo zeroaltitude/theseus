@@ -548,7 +548,8 @@ impl InjectionMode {
 /// **`Notify` is the default** (the owner, 2026-11-25: "I want way fewer of these"): the call runs
 /// and the owner is told once, in an FYI note. `Ask` puts the call to him first, as every such
 /// call was before, with a third answer that approves it and clears the hold. The vault's two
-/// tools ask first at both: they read the vault before their own card.
+/// tools are told and asked as the others are, without the third answer; `vault.use`'s run form,
+/// which has no card of its own, asks first at both (issue 64).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutsideMode {

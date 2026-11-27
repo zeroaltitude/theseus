@@ -71,7 +71,10 @@ field, checks its account can read them, builds the reference itself, and puts *
 them, and says what is given the secret (a provider's key, a program's variable, a server's key); the value never goes to
 the model, a card or a record. Where its account cannot see the vault, it says so and says what you can do: grant the
 account that vault, or move the item to one it sees. A vault reference is never written as text by a turn
-(`docs/design/vault-use.md`).
+(`docs/design/vault-use.md`). For ONE run of a program or a script ("run ./call.sh with the key in Lantern key"), there is
+no card and nothing is written to the settings: Theseus reads the item, gives it to that one run in one variable, and tells
+you in a note. Nothing is written to the settings; Theseus remembers which items it used this way, by name only, and reads
+them again at each start so that it keeps masking their values. A key Theseus itself runs on still goes by the card.
 
 To keep a NEW secret in the vault, ask Theseus to keep it: it puts one card that says which item and field, and whether it makes an
 item, adds a field or replaces a value. Then give the value yourself, where only you see it: `theseus vault keep` in your own terminal

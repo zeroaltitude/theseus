@@ -130,11 +130,22 @@ pub(crate) fn span(nodes: &[(u64, Node)]) -> (usize, Option<&str>) {
 
 /// The hold on the nine tools at `[content_based_security] outside`: at `ask`, each tool's own;
 /// at `notify`, none, and the owner is told ([`tell`]), unless `injection = "refuse"` refuses the
-/// call of a flagged session after this, as it refuses every one of the nine there. Any other
-/// tool's plan is returned as it came.
-pub(crate) fn ask_or_tell(rt: &ToolRuntime, tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
+/// call of a flagged session after this, as it refuses every one of the nine there. `vault.use`'s
+/// run form has its own hold at both (`vault_use::once::ask_first`). Any other tool's plan is
+/// returned as it came.
+pub(crate) fn ask_or_tell(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    name: &str,
+    input: &Value,
+    plan: Plan,
+) -> Plan {
     if !QUIET.contains(&name) {
         return plan;
+    }
+    // `vault.use`'s run form takes no card, so it asks first at both settings (issue 64).
+    if name == super::vault_use::USE && super::vault_use::once::is_run(input) {
+        return super::vault_use::once::ask_first(tc, plan);
     }
     match rt.outside_mode() {
         OutsideMode::Ask => {
