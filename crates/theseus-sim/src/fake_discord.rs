@@ -310,6 +310,9 @@ pub struct Reply {
     /// A modal the binding answered with (type 9): its `data`.
     #[serde(default)]
     pub modal: Option<Value>,
+    /// The answer's components, as sent (an edit's too).
+    #[serde(default)]
+    pub components: Value,
 }
 
 impl State {
@@ -2020,6 +2023,7 @@ impl FakeDiscord {
                 })
                 .collect(),
             modal: (kind == "callback" && body["type"].as_u64() == Some(9)).then(|| data.clone()),
+            components: data["components"].clone(),
         };
         {
             let id = interaction.unwrap_or_default();
@@ -2037,11 +2041,11 @@ impl FakeDiscord {
         let content = r.content.clone().unwrap_or_default();
         {
             let mut st = self.state.lock().unwrap();
-            if (kind == "callback" && matches!(r.response_type, Some(4 | 7)) || kind == "original")
+            if kind == "callback"
+                && matches!(r.response_type, Some(4 | 7))
                 && data["components"].is_array()
             {
-                // A message the binding answered with, or edited a deferred answer into: kept to
-                // be pressed.
+                // A message the binding answered with: kept to be pressed.
                 st.next_id += 1;
                 let channel = interaction
                     .and_then(|i| st.pressed.get(i).copied())

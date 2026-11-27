@@ -286,9 +286,28 @@ async fn googles_consent_succeeds_through_the_gateway_and_nothing_pasted_is_in_a
         .find_map(|p| p.strip_prefix("state="))
         .unwrap()
         .to_string();
+    // Her press of the paste button the answer carries.
+    let paste_id = r
+        .fake
+        .replies()
+        .iter()
+        .filter(|x| x.interaction.as_deref() == Some(began.as_str()))
+        .find_map(|x| {
+            let row = x.components.get(0)?;
+            row["components"][0]["custom_id"]
+                .as_str()
+                .map(str::to_string)
+        })
+        .expect("the answer carries Paste the address");
+    assert!(paste_id.starts_with("gsi:paste:"), "{paste_id}");
     let paste = r
         .fake
-        .press_reply(&began, "Paste the address", ANA, "ana")
+        .press_forged(&theseus_sim::fake_discord::Forged {
+            message: &card.id,
+            custom_id: &paste_id,
+            user: (ANA, "ana"),
+            channel: None,
+        })
         .unwrap();
     let form_of = || {
         r.fake
