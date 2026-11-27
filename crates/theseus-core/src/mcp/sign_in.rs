@@ -26,7 +26,7 @@ use theseus_mcp::oauth::discover::{self, Discovered};
 use theseus_mcp::oauth::exchange;
 use theseus_mcp::oauth::register::{self, ClientId};
 use theseus_mcp::oauth::request::{self, Code, Expect, Loopback, Pkce, RedirectError};
-use theseus_mcp::oauth::Reach;
+use theseus_mcp::oauth::{OauthError, Reach};
 use theseus_protocol::mcp::{
     McpLoginBeginResult, McpLoginFinishParams, McpLoginFinishResult, McpLogoutResult,
 };
@@ -34,6 +34,7 @@ use tokio::sync::oneshot;
 
 use super::oauth::{Kept, Signed};
 use super::{McpBoard, Server, State};
+use crate::approval::Surface;
 
 /// How long a sign-in stays open: its listener's bound.
 const OPEN_FOR: Duration = request::LISTEN_FOR;
@@ -41,6 +42,99 @@ const OPEN_FOR: Duration = request::LISTEN_FOR;
 const PASTE_AFTER: Duration = Duration::from_secs(90);
 /// The one deadline over the probe, discovery and registration.
 const DISCOVER_FOR: Duration = Duration::from_secs(60);
+
+/// Why a sign-in could not begin, as the owner can act on it (issue 62). A
+/// Discord press is told the kind alone ([`BeginKind::marker`]): the daemon's
+/// sentence can hold what a server sent, and never reaches Discord. The CLI
+/// is told the sentence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BeginKind {
+    /// No such server attached, no `oauth`, no address, not `https`, or an
+    /// address the sign-in's rule refuses.
+    Settings,
+    /// The server or its authorization server could not be reached, or did
+    /// not answer in time.
+    Unreachable,
+    /// The server answered without a sign-in.
+    NoNeed,
+    /// Discovery found no authorization server, or its checks refused the one
+    /// it found.
+    NoIssuer,
+    /// The authorization server offers no registration, and the settings name
+    /// no `oauth.client_id`.
+    NoClientId,
+    /// The registration failed.
+    Registration,
+    /// What the begin would show holds a value Theseus keeps.
+    Shown,
+    /// Anything else: the HTTP client, the loopback listener, a sign-in that
+    /// is not known.
+    Other,
+}
+
+impl BeginKind {
+    pub const ALL: [BeginKind; 8] = [
+        Self::Settings,
+        Self::Unreachable,
+        Self::NoNeed,
+        Self::NoIssuer,
+        Self::NoClientId,
+        Self::Registration,
+        Self::Shown,
+        Self::Other,
+    ];
+
+    /// The whole message a Discord press's failed begin carries: fixed words.
+    pub fn marker(self) -> &'static str {
+        match self {
+            Self::Settings => "the sign-in could not begin: settings",
+            Self::Unreachable => "the sign-in could not begin: unreachable",
+            Self::NoNeed => "the sign-in could not begin: no sign-in needed",
+            Self::NoIssuer => "the sign-in could not begin: no authorization server",
+            Self::NoClientId => "the sign-in could not begin: no client id",
+            Self::Registration => "the sign-in could not begin: registration failed",
+            Self::Shown => "the sign-in could not begin: a kept value",
+            Self::Other => "the sign-in could not begin",
+        }
+    }
+
+    /// The kind a message is exactly the marker of.
+    pub fn of_marker(message: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.marker() == message)
+    }
+
+    fn with(self, words: impl Into<String>) -> BeginFailed {
+        BeginFailed {
+            kind: self,
+            words: words.into(),
+        }
+    }
+}
+
+/// A begin that failed: its kind, and the daemon's sentence.
+#[derive(Debug)]
+pub struct BeginFailed {
+    pub kind: BeginKind,
+    pub words: String,
+}
+
+impl BeginFailed {
+    /// What the surface that asked is told: the marker of its kind on
+    /// Discord, the sentence everywhere else.
+    pub fn said_to(self, surface: Surface) -> String {
+        match surface {
+            Surface::Discord => self.kind.marker().to_string(),
+            _ => self.words,
+        }
+    }
+}
+
+/// A finish or a logout says the sentence.
+impl From<BeginFailed> for String {
+    fn from(f: BeginFailed) -> String {
+        f.words
+    }
+}
 
 /// A sign-in waiting for its redirect. It owns its listener: dropped (it
 /// ends, or another sign-in replaces it), the listener closes.
@@ -155,53 +249,74 @@ fn place(u: &reqwest::Url) -> String {
 
 impl McpBoard {
     /// The server `name`, which must sign in at an `https` address; its
-    /// address, and its sign-in.
-    fn signing(&self, name: &str) -> Result<(Arc<Server>, reqwest::Url, Arc<Signed>), String> {
+    /// address, and its sign-in. A finish and a logout take its sentence.
+    fn signing(&self, name: &str) -> Result<(Arc<Server>, reqwest::Url, Arc<Signed>), BeginFailed> {
+        let settings = |words: String| BeginKind::Settings.with(words);
         let s = self
             .servers
             .get(name)
             .cloned()
             .or(self.loaded_server(name))
-            .ok_or_else(|| format!("no MCP server named {name} is attached"))?;
+            .ok_or_else(|| settings(format!("no MCP server named {name} is attached")))?;
         if s.cfg.oauth.is_none() {
-            return Err(format!(
+            return Err(settings(format!(
                 "the MCP server {name} does not sign in: its settings have no `oauth`. A server \
                  that wants a sign-in is attached again with one (`oauth`), then signed in"
-            ));
+            )));
         }
         let url = s
             .cfg
             .url
             .as_deref()
             .and_then(|u| reqwest::Url::parse(u).ok())
-            .ok_or_else(|| format!("the MCP server {name} has no address"))?;
+            .ok_or_else(|| settings(format!("the MCP server {name} has no address")))?;
         if !super::oauth::signs_in_at(&url) {
-            return Err(format!(
+            return Err(settings(format!(
                 "the MCP server {name} is not at an https address, and a server that signs in \
                  must be"
-            ));
+            )));
         }
-        let signed = self.signed(&s).ok_or("the server's sign-in is not known")?;
+        let signed = self
+            .signed(&s)
+            .ok_or_else(|| BeginKind::Other.with("the server's sign-in is not known"))?;
         Ok((s, url, signed))
     }
 
     /// Start a sign-in of `name`: discovery, a client, the address, and the
-    /// listener behind it. `wsl`: the paste at once, as with `manual`.
+    /// listener behind it. `wsl`: the paste at once, as with `manual`. One
+    /// warning line for a begin that failed: the name and the kind alone.
     pub async fn login_begin(
         &self,
         name: &str,
         manual: bool,
         wsl: bool,
-    ) -> Result<McpLoginBeginResult, String> {
+    ) -> Result<McpLoginBeginResult, BeginFailed> {
+        let begun = self.begin(name, manual, wsl).await;
+        if let Err(f) = &begun {
+            let kind = f.kind;
+            match self.label(name) {
+                Some(n) => tracing::warn!(server = %n, ?kind, "an MCP sign-in could not begin"),
+                None => tracing::warn!(?kind, "an MCP sign-in could not begin; {LABEL_HIDDEN}"),
+            }
+        }
+        begun
+    }
+
+    async fn begin(
+        &self,
+        name: &str,
+        manual: bool,
+        wsl: bool,
+    ) -> Result<McpLoginBeginResult, BeginFailed> {
         let manual = manual || wsl;
         let (s, url, signed) = self.signing(name)?;
         let reach = signed
             .reach()
             .cloned()
-            .ok_or("the sign-in's HTTP client could not start")?;
+            .ok_or_else(|| BeginKind::Other.with("the sign-in's HTTP client could not start"))?;
         let loopback = Loopback::bind()
             .await
-            .map_err(|_| "the loopback listener could not start".to_string())?;
+            .map_err(|_| BeginKind::Other.with("the loopback listener could not start"))?;
         let redirect = loopback.redirect();
         let settings = s.cfg.oauth.clone().unwrap_or_default();
         let found = tokio::time::timeout(
@@ -210,13 +325,15 @@ impl McpBoard {
         )
         .await
         .map_err(|_| {
-            format!(
+            BeginKind::Unreachable.with(format!(
                 "the sign-in of {name} found no authorization server within {} s: nothing was kept",
                 DISCOVER_FOR.as_secs()
-            )
+            ))
         })??;
         let (found, client) = found;
-        let pkce = self.begin_doors(&url, &found.server, &client)?;
+        let pkce = self
+            .begin_doors(&url, &found.server, &client)
+            .map_err(|e| BeginKind::Shown.with(e))?;
         signed.hold_value("verifier", pkce.verifier());
         let scope = match settings.scopes.is_empty() {
             true => found.scope.clone(),
@@ -254,7 +371,8 @@ impl McpBoard {
         };
         // Every string the begin shows, the server's name included, and the
         // client id it does not: checked before it logs or returns anything.
-        self.shows_no_secret(&result_strings(&result, &client.id))?;
+        self.shows_no_secret(&result_strings(&result, &client.id))
+            .map_err(|e| BeginKind::Shown.with(e))?;
         let (tx, rx) = oneshot::channel();
         let waits = loopback.expect(&pkce, &found.server, &reach);
         let paste = loopback.expect(&pkce, &found.server, &reach);
@@ -605,10 +723,16 @@ async fn discover_and_register(
     url: &reqwest::Url,
     redirect: &str,
     client_id: Option<&str>,
-) -> Result<(Discovered, ClientId), String> {
+) -> Result<(Discovered, ClientId), BeginFailed> {
+    // The server's own call or its authorization server's did not get an
+    // answer; else `kind`.
+    let failed = |kind: BeginKind, e: OauthError| match e {
+        OauthError::Unreachable { .. } => BeginKind::Unreachable.with(e.to_string()),
+        _ => kind.with(e.to_string()),
+    };
     let at = reach
         .endpoint(url.as_str(), "server's address")
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| BeginKind::Settings.with(e.to_string()))?;
     let asked = reach
         .client()
         .post(at.clone())
@@ -619,11 +743,13 @@ async fn discover_and_register(
         .json(&probe_body())
         .send()
         .await
-        .map_err(|_| format!("the MCP server {name} could not be reached"))?;
+        .map_err(|_| {
+            BeginKind::Unreachable.with(format!("the MCP server {name} could not be reached"))
+        })?;
     if asked.status().is_success() {
-        return Err(format!(
+        return Err(BeginKind::NoNeed.with(format!(
             "the MCP server {name} answered without a sign-in: it does not need one"
-        ));
+        )));
     }
     let challenge = asked
         .headers()
@@ -634,18 +760,18 @@ async fn discover_and_register(
     drop(asked);
     let found = discover::discover(reach, &at, challenge.as_ref())
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| failed(BeginKind::NoIssuer, e))?;
     let client = match (client_id, &found.server.registration_endpoint) {
         (Some(id), _) => ClientId::named(id),
         (None, Some(ep)) => register::register(reach, ep, redirect)
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(|e| failed(BeginKind::Registration, e))?,
         (None, None) => {
-            return Err(format!(
+            return Err(BeginKind::NoClientId.with(format!(
                 "the authorization server of {name} offers no registration, and the server's \
                  settings name no `oauth.client_id`: the owner asks the server's maker for a \
                  client id, and it is added to the settings"
-            ))
+            )))
         }
     };
     Ok((found, client))

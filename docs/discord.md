@@ -73,7 +73,12 @@ These the core judges as the owner's, from a private place.
 signs in (`oauth`): the turn can only offer a card, to your direct messages, with **Sign in** and **Sign out**. Your
 own press of **Sign in**, in a private place, shows you alone the host you sign in at and every other place the
 sign-in goes through, whole (over several messages when one cannot hold them), with **I agree** first when there is
-one; then the address to open and **Paste the address**. An address too long to show whole is not shown: you are told
+one; then the address to open and **Paste the address**. A sign-in that cannot begin tells you alone why, in fixed
+words by kind, with what to do next (issue 62): the server is not set up to sign in; it could not be reached; it needs
+no sign-in; it leads to no authorization server Theseus can use; it gives out no client id and its settings name none
+(ask its maker for one, and have it added as `oauth.client_id`); its registration failed; or it would show a value
+Theseus keeps. Anything else says only that it could not begin, and `theseus mcp login` at the terminal says why.
+Nothing a server sent is in that answer. An address too long to show whole is not shown: you are told
 to sign in at the terminal. The form takes the whole address your browser ended on (at most 4,000 characters; a
 longer one is refused) and hands it to the daemon's own finish (`theseus mcp login --manual`'s): it passes through
 Discord to Theseus, and is in no message, log line, row or reply. The answer is fixed words: signed in and the tools
@@ -85,7 +90,9 @@ not again after a restart.
 
 **Connecting Google, the same way** (issue 59). Ask in words to connect Google: the turn can only offer a card, to
 your direct messages, with **Connect Google** and **Revoke Google**. Your own press of **Connect Google**, in a
-private place, shows you alone what the consent asks for, the consent address and **Paste the address**; the form
+private place, shows you alone what the consent asks for, the consent address and **Paste the address** (or, when
+it cannot begin, why, in fixed words: no Google account in the settings, a client secret that could not be read or
+holds no client, or one still being read; anything else, and `theseus google auth` at the terminal says why); the form
 hands the whole address your browser ended on to the daemon's own finish (`theseus google auth`'s), which keeps the
 grant exactly where that keeps it, and says so when keeping it could not be made sure of. **Revoke Google** ends the
 grant.

@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at the merge of ed3ff42a into bbd0803d, over every file git tracks:
+Counted at the merge of 2c4a907c into ae908b29, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -19,8 +19,8 @@ Counted at the merge of ed3ff42a into bbd0803d, over every file git tracks:
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
 | crates/theseus-aws-catalog | 5,996 | 1,394 | 644 |
 | crates/theseus-aws-guard | 2,861 | 1,522 | 323 |
-| crates/theseus-core | 275,423 | 322,589 | 99,656 |
-| crates/theseus-discord | 35,670 | 48,716 | 11,874 |
+| crates/theseus-core | 275,567 | 323,224 | 99,752 |
+| crates/theseus-discord | 35,725 | 48,866 | 11,891 |
 | crates/theseus-exam | 5,403 | 3,237 | 1,247 |
 | crates/theseus-files | 2,377 | 682 | 297 |
 | crates/theseus-follow | 657 | 875 | 283 |
@@ -29,7 +29,7 @@ Counted at the merge of ed3ff42a into bbd0803d, over every file git tracks:
 | crates/theseus-judge | 13,307 | 11,642 | 4,536 |
 | crates/theseus-kernel | 13,220 | 14,248 | 5,653 |
 | crates/theseus-lsp | 3,189 | 1,496 | 695 |
-| crates/theseus-mcp | 6,306 | 2,912 | 1,161 |
+| crates/theseus-mcp | 6,315 | 2,912 | 1,162 |
 | crates/theseus-memory | 722 | 770 | 372 |
 | crates/theseus-ontology | 3,618 | 4,160 | 960 |
 | crates/theseus-protocol | 21,224 | 8,044 | 8,509 |
@@ -43,7 +43,7 @@ Counted at the merge of ed3ff42a into bbd0803d, over every file git tracks:
 | crates/theseusd | 5,348 | 33,462 | 5,746 |
 | infra/ | 554 | 1,432 | 193 |
 | scripts/ | 10,150 | 9,198 | 3,682 |
-| **Total** | **629,205** | **616,489** | **209,862** |
+| **Total** | **629,413** | **617,274** | **209,976** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes
