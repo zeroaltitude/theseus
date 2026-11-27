@@ -83,11 +83,12 @@ impl crate::Core {
         match name {
             method::MCP_LOGIN_BEGIN => {
                 let p: McpLoginBeginParams = parse(params)?;
+                // A Discord press is told the kind alone (issue 62).
                 reply(
                     self.mcp
                         .login_begin(&p.name, p.manual, on_wsl())
                         .await
-                        .map_err(failed)?,
+                        .map_err(|f| failed(f.said_to(conn.surface)))?,
                 )
             }
             method::MCP_LOGIN_FINISH => {

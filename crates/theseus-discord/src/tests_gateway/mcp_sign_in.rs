@@ -17,7 +17,8 @@ use theseus_sim::fake_discord::commands::Sender;
 use theseus_sim::fake_discord::Modal;
 
 use super::{bindings, guild, Rig, ANA, ANA_DM, BEN, LAB};
-use crate::runtime::mcp_sign_in::{EXPIRED, NOTHING_KEPT, NOT_HERE};
+use crate::runtime::google_sign_in;
+use crate::runtime::mcp_sign_in::{EXPIRED, NOTHING_KEPT, NOT_HERE, NOT_SET_UP};
 
 /// Invented: the address a browser ended on, with a code in it. Never in any output.
 const PASTED: &str = "https://mcp.example.invalid/callback?code=INVENTED-CODE-5521&state=abc";
@@ -62,6 +63,25 @@ async fn rig() -> Rig {
                 frozen: None,
                 external: true,
                 enabled: true,
+                start_timeout_secs: 10,
+                call_timeout_secs: 30,
+            },
+        );
+        // Set up with no `oauth`, and never started: its begin fails in the daemon (issue 62).
+        cfg.mcp.servers.insert(
+            "plain".into(),
+            McpServerConfig {
+                command: vec![],
+                env: Default::default(),
+                url: Some("https://plain.example.invalid/mcp".into()),
+                auth_secret: None,
+                oauth: None,
+                read: vec![],
+                sandbox: Default::default(),
+                egress: vec![],
+                frozen: None,
+                external: true,
+                enabled: false,
                 start_timeout_secs: 10,
                 call_timeout_secs: 30,
             },
@@ -199,5 +219,62 @@ fn in_no_exit(r: &Rig, buf: &Arc<Mutex<Vec<u8>>>) {
     ] {
         assert!(!text.contains(CODE), "the code is in {what}");
         assert!(!text.contains("callback?code"), "the address is in {what}");
+    }
+}
+
+/// A begin that fails in the daemon (issue 62) tells the presser its kind's fixed words: Sign in
+/// for a server set up with no `oauth`, and Connect Google with no `[google]` account. Neither the
+/// daemon's sentence nor the server's address is in any reply, post or log line.
+#[tokio::test]
+async fn a_begin_that_fails_says_why_in_fixed_words() {
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let sub = tracing_subscriber::fmt()
+        .with_writer(Sink(buf.clone()))
+        .with_max_level(tracing::Level::TRACE)
+        .finish();
+    let _guard = tracing::subscriber::set_default(sub);
+    let r = rig().await;
+    for body in [
+        json!({"kind": "mcp_sign_in", "server": "plain",
+               "text": theseus_core::mcp::offer::card_text("plain")}),
+        json!({"kind": "google_sign_in", "account": "owner@example.invalid",
+               "text": theseus_core::google::offer::card_text("owner@example.invalid")}),
+    ] {
+        let (post, frame) = r.core.outbox.stage_to_operator(None, body).unwrap();
+        r.core.store.append(&frame).unwrap();
+        r.core.outbox.posted(&post);
+    }
+    let find = |words: &str| {
+        r.posted(ANA_DM)
+            .into_iter()
+            .find(|m| m.versions[0].contains(words))
+    };
+    r.until("both cards in ana's DM", || {
+        find("`plain`").is_some() && find("Google").is_some()
+    })
+    .await;
+    let mcp = r.press(&find("`plain`").unwrap().id, "Sign in", (ANA, "ana"));
+    r.until("the server is not set up", || told(&r, &mcp, NOT_SET_UP))
+        .await;
+    let google = r.press(&find("Google").unwrap().id, "Connect Google", (ANA, "ana"));
+    r.until("no Google account", || {
+        told(&r, &google, google_sign_in::NO_ACCOUNT)
+    })
+    .await;
+    let replies = serde_json::to_string(&r.fake.replies()).unwrap();
+    let posts: String = [ANA_DM, LAB]
+        .iter()
+        .flat_map(|c| r.posted(*c))
+        .map(|m| format!("{m:?}"))
+        .collect();
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    assert!(log.contains("could not begin"), "the log was written to");
+    for (what, text) in [("a reply", &replies), ("a post", &posts), ("the log", &log)] {
+        for said in ["its settings have no `oauth`", "no Google account is bound"] {
+            assert!(!text.contains(said), "{said:?} is in {what}");
+        }
+    }
+    for (what, text) in [("a reply", &replies), ("a post", &posts)] {
+        assert!(!text.contains("plain.example"), "the address is in {what}");
     }
 }

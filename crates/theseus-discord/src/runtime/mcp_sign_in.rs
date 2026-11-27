@@ -23,6 +23,7 @@
 use std::time::Duration;
 
 use serde_json::Value;
+use theseus_core::mcp::BeginKind;
 use theseus_protocol::mcp::{
     McpLoginBeginParams, McpLoginBeginResult, McpLoginFinishParams, McpLoginFinishResult,
     McpLogoutParams, McpLogoutResult,
@@ -61,7 +62,33 @@ pub(crate) const SERVER_NO: &str =
 pub(crate) const MAY_BE_KEPT: &str =
     "🔐 The sign-in may have been kept, but Theseus could not make sure of it, so it is not used \
      now. Check the server's line in `theseus mcp`, or press **Sign in** again.";
-pub(crate) const NO_BEGIN: &str = "🔐 The sign-in could not begin. Nothing was kept.";
+/// A begin that failed, by the kind the daemon told (issue 62).
+pub(crate) const NO_BEGIN: &str = "🔐 The sign-in could not begin, and nothing was kept. \
+     `theseus mcp login` at the terminal says why.";
+pub(crate) const NOT_SET_UP: &str =
+    "🔐 This server is not set up to sign in: it must be attached, at a public `https` address, \
+     with an `oauth` table in its settings. `theseus mcp login` at the terminal says which. \
+     Nothing was kept.";
+pub(crate) const UNREACHABLE: &str =
+    "🔐 The server could not be reached, or it did not answer in time. Check that it is up, then \
+     press **Sign in** again. Nothing was kept.";
+pub(crate) const NO_NEED: &str =
+    "🔐 The server answered without a sign-in: it needs none, so there is nothing to sign in to. \
+     Nothing was kept.";
+pub(crate) const NO_ISSUER: &str =
+    "🔐 The server does not lead to a sign-in Theseus can use: no authorization server was found \
+     for it, or the one found was refused. `theseus mcp login` at the terminal says why. Nothing \
+     was kept.";
+pub(crate) const NO_CLIENT_ID: &str =
+    "🔐 This server gives out no client id by itself, and its settings name none. Ask the \
+     server's maker for a client id, have it added to the server's settings \
+     (`oauth.client_id`), then press **Sign in** again. Nothing was kept.";
+pub(crate) const NO_REGISTRATION: &str =
+    "🔐 The server's authorization server would not register Theseus as a client. Press \
+     **Sign in** to try again; if it fails again, ask the server's maker for a client id and \
+     have it added to the server's settings (`oauth.client_id`). Nothing was kept.";
+pub(crate) const SHOWN: &str =
+    "🔐 The sign-in would show a value Theseus keeps secret, so it was refused. Nothing was kept.";
 pub(crate) const TOO_LONG: &str =
     "🔐 This sign-in's address is too long to show whole here, so it is not shown: sign in at \
      the terminal with `theseus mcp login`. Nothing was kept.";
@@ -166,6 +193,24 @@ pub(crate) fn failure(e: &CallError) -> &'static str {
     }
 }
 
+/// A begin that failed, in fixed words: the kind the daemon's marker names, and nothing else of
+/// what it said; a refusal keeps its own words.
+pub(crate) fn begin_failure(e: &CallError) -> &'static str {
+    if e.code == error_code::REFUSED {
+        return NOT_HERE;
+    }
+    match BeginKind::of_marker(&e.message) {
+        Some(BeginKind::Settings) => NOT_SET_UP,
+        Some(BeginKind::Unreachable) => UNREACHABLE,
+        Some(BeginKind::NoNeed) => NO_NEED,
+        Some(BeginKind::NoIssuer) => NO_ISSUER,
+        Some(BeginKind::NoClientId) => NO_CLIENT_ID,
+        Some(BeginKind::Registration) => NO_REGISTRATION,
+        Some(BeginKind::Shown) => SHOWN,
+        Some(BeginKind::Other) | None => NO_BEGIN,
+    }
+}
+
 /// What a sign-out says: forgotten, still kept on disk, or nothing to forget.
 pub(crate) fn signed_out(out: &McpLogoutResult) -> &'static str {
     if out.kept_remains {
@@ -247,13 +292,7 @@ impl Shared {
             .await;
         let b = match r {
             Ok(b) => b,
-            Err(e) => {
-                let words = match e.code == error_code::REFUSED {
-                    true => NOT_HERE,
-                    false => NO_BEGIN,
-                };
-                return self.consent_finish(i, WHAT, words, &[]).await;
-            }
+            Err(e) => return self.consent_finish(i, WHAT, begin_failure(&e), &[]).await,
         };
         // The daemon's slot is this sign-in's now, shown or not: every older record goes.
         self.consents.retire_kind(PREFIX);

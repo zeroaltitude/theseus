@@ -133,3 +133,53 @@ fn a_sign_out_says_whether_its_kept_file_remains() {
     assert_eq!(signed_out(&out(false, true)), KEPT_REMAINS);
     assert_eq!(signed_out(&out(false, false)), NOTHING_KEPT);
 }
+
+/// A begin that failed (issue 62): each kind's marker is that kind's own fixed words, a refusal
+/// keeps its words, and any other message, a marker with more after it included, is the one
+/// fixed sentence; none holds what the daemon said.
+#[test]
+fn a_failed_begin_says_its_kind_in_fixed_words() {
+    let words = |k: BeginKind| begin_failure(&call_error(-32602, k.marker()));
+    let mut seen = std::collections::BTreeSet::new();
+    for (kind, want) in [
+        (BeginKind::Settings, NOT_SET_UP),
+        (BeginKind::Unreachable, UNREACHABLE),
+        (BeginKind::NoNeed, NO_NEED),
+        (BeginKind::NoIssuer, NO_ISSUER),
+        (BeginKind::NoClientId, NO_CLIENT_ID),
+        (BeginKind::Registration, NO_REGISTRATION),
+        (BeginKind::Shown, SHOWN),
+        (BeginKind::Other, NO_BEGIN),
+    ] {
+        assert_eq!(words(kind), want, "{kind:?}");
+        assert!(seen.insert(want), "{kind:?}: two kinds share words");
+    }
+    assert_eq!(seen.len(), BeginKind::ALL.len());
+    // The owner reads what to do: ask the maker, the setting's name, and press again.
+    for w in [
+        "client id",
+        "server's maker",
+        "`oauth.client_id`",
+        "**Sign in** again",
+    ] {
+        assert!(NO_CLIENT_ID.contains(w), "{w}");
+    }
+    let said = "the authorization server of docs offers no registration: INVENTED-WORDS-1203";
+    for (code, message, want) in [
+        (
+            theseus_protocol::error_code::REFUSED,
+            said.to_string(),
+            NOT_HERE,
+        ),
+        (-32602, said.to_string(), NO_BEGIN),
+        (
+            -32602,
+            format!("{} INVENTED-WORDS-1203", BeginKind::NoClientId.marker()),
+            NO_BEGIN,
+        ),
+    ] {
+        let got = begin_failure(&call_error(code, &message));
+        assert_eq!(got, want, "{message}");
+        assert!(!got.contains("INVENTED-WORDS"), "{got}");
+    }
+}

@@ -1189,6 +1189,7 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
     assert_eq!(text, "[the prompt's assistant message]\nsure");
 }
 
+mod begin_why;
 mod ceilings;
 mod discord_login;
 mod oauth;
