@@ -48,9 +48,14 @@ mod tests;
 #[cfg(test)]
 mod tests_once;
 #[cfg(test)]
+mod tests_once_exits;
+#[cfg(test)]
+mod tests_once_owner;
+#[cfg(test)]
 mod tests_request;
 #[cfg(test)]
 mod tests_request_more;
+pub(crate) mod used;
 
 pub use check::Checked;
 

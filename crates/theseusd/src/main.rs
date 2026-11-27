@@ -694,6 +694,8 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     core.root_install_after_serving(socket_path.clone());
     // The look at the vault's names is the daemon's: its own reader, its own token (issue 26).
     core.tools.look.set_vault(op.clone());
+    // The items `vault.use`'s run form gave, read again and held, so the exits mask them (issue 64).
+    core.hold_vault_used();
     // No L1 job's view shows this daemon's socket (M4 17b).
     core.tools.sandbox.hide(socket_path.clone());
     if let Some((first, began)) = check {

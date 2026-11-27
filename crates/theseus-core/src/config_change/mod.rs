@@ -483,31 +483,10 @@ pub fn restart(
 /// text. A result whose call the owner approved with "Approve and clear" counts
 /// as his message ([`hold::span`]), its own mark included.
 pub(crate) fn outside_since_owner(nodes: &[(u64, crate::node::Node)]) -> bool {
-    outside_since_owner_but(nodes, &|_| false)
-}
-
-/// [`outside_text`], with the results `skip` names not counted as outside text.
-pub(crate) fn outside_text_but(
-    tc: &TurnCtx<'_>,
-    skip: &dyn Fn(&crate::node::Node) -> bool,
-) -> (bool, bool) {
-    let (_, steered) = outside_text(tc);
-    let outside = match tc.store.session_nodes(tc.session_id) {
-        Ok(nodes) => outside_since_owner_but(&nodes, skip),
-        Err(_) => true,
-    };
-    (outside, steered)
-}
-
-/// [`outside_since_owner`], with the results `skip` names not counted.
-pub(crate) fn outside_since_owner_but(
-    nodes: &[(u64, crate::node::Node)],
-    skip: &dyn Fn(&crate::node::Node) -> bool,
-) -> bool {
     let (from, _) = hold::span(nodes);
     nodes[from..]
         .iter()
-        .any(|(_, n)| crate::external::is_outside(n) && !skip(n))
+        .any(|(_, n)| crate::external::is_outside(n))
 }
 
 /// The settings of a change that are sensitive: each path and why. Both what

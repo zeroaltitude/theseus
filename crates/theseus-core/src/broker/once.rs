@@ -126,6 +126,25 @@ impl Broker {
             .any(|o| o.session == session)
     }
 
+    /// End every one-run grant of `session`.
+    pub fn once_end(&self, session: &str) {
+        self.once
+            .live
+            .lock()
+            .unwrap()
+            .retain(|o| o.session != session);
+    }
+
+    /// Keep only the one-run grants of `session` whose program is one of `programs` (by file
+    /// name): the runs that wait on the owner's answer as its turn ends.
+    pub fn once_keep_only(&self, session: &str, programs: &[String]) {
+        self.once
+            .live
+            .lock()
+            .unwrap()
+            .retain(|o| o.session != session || programs.contains(&o.program()));
+    }
+
     /// A turn of `session`, begun by the message `turn`, calls: the grants another turn left end.
     pub fn once_turn(&self, session: &str, turn: &str) {
         self.once

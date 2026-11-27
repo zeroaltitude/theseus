@@ -13,7 +13,10 @@
 //!   itself runs on is not sent ([`once::runs_on`]), nor a value too short to mask.
 //! - **The value** is held on the board under `vault-use:<call>` before anything is sent, so every
 //!   exit masks it, and the answer is masked of it before it is stored: its text and every string
-//!   of its meta.
+//!   of its meta. The item is remembered by name (`used.rs`), so every start reads and masks it
+//!   again.
+//! - **The hold is read again when the call runs**, as the run form's is: outside text an earlier
+//!   call of the same response read stops it, unless the owner approved this call ([`AGAIN`]).
 //! - **The owner is told** once per item and host in a span: the item, the field and the vault
 //!   by the vault's names, the method, the host and the path. None of the model's words.
 //! - **After a restart** a request that was out answers that its outcome is not known
@@ -41,6 +44,11 @@ pub const RUNS_ON: &str = "this item is a key Theseus itself runs on, so it is n
 /// The answer for a value the scrubber cannot mask.
 pub const SHORT: &str = "this item's value is shorter than 8 characters, which Theseus cannot \
      mask in what it keeps, so it is not sent";
+
+/// The answer when outside text reached the conversation after the gate judged this call.
+pub const AGAIN: &str = "text from outside reached this conversation after this call was \
+     checked, so nothing was read from the vault: call `http.request` again, on its own, and the \
+     owner is asked first";
 
 /// What the tool asks to do, as the hold says it.
 const WHAT: &str = "send a key from Theseus's vault in a request";
@@ -94,6 +102,14 @@ pub(crate) fn ask_first(tc: &TurnCtx<'_>, input: &Value, plan: Plan) -> Plan {
     once::ask_first_for(tc, WHAT, &|n| same(n, &host, &k.vault, &k.item), plan)
 }
 
+/// The hold read again when the call runs: outside text an earlier call of the same response
+/// read, unless the owner approved this very call.
+fn held_since(tc: &TurnCtx<'_>, c: &Checked, correlation_id: &str) -> bool {
+    let (host, k) = (c.host(), &c.input.key);
+    let skip = |n: &Node| same(n, &host, &k.vault, &k.item);
+    once::hold_reason_for(tc, WHAT, &skip).is_some() && !once::approved(tc, correlation_id)
+}
+
 /// Whether the owner was told of this item and host in this span: an earlier answer in it is
 /// one.
 fn told(tc: &TurnCtx<'_>, host: &str, c: &super::Checked) -> bool {
@@ -118,12 +134,14 @@ fn masked(v: Value, mask: &Scrubber) -> Value {
     }
 }
 
-/// Check the call by the tool's own rule, then read its item once: an item Theseus runs on, and a
-/// value too short to mask, are not sent. Nothing is read when the call is refused.
+/// Check the call by the tool's own rule and the hold again, then read its item once: an item
+/// Theseus runs on, and a value too short to mask, are not sent. The item is remembered by name
+/// before its value can be sent, so every start masks it again. Nothing is read when the call is
+/// refused.
 async fn read_key(
     rt: &ToolRuntime,
-    tool: &dyn Tool,
-    input: &Value,
+    tc: &TurnCtx<'_>,
+    (tool, input, correlation_id): (&dyn Tool, &Value, &str),
     ctx: &theseus_tools::ToolCtx,
 ) -> Result<(Checked, Read), String> {
     // The tool's own rule on the URL, the headers and the body, before anything is read.
@@ -132,6 +150,9 @@ async fn read_key(
     let c: Checked = req::check(input, true).map_err(|e| format!("Not sent: {e}"))?;
     if crate::config_change::card::reason_line(&c.input.reason).is_empty() {
         return Err("give a reason in the owner's words, one line".into());
+    }
+    if held_since(tc, &c, correlation_id) {
+        return Err(format!("Not sent: {AGAIN}"));
     }
     let Some(reader) = rt.look.reader().filter(|r| !r.has_no_vault()) else {
         return Err(
@@ -159,6 +180,7 @@ async fn read_key(
     if !crate::scrub::protectable(read.value.expose()) {
         return Err(format!("Not sent: {SHORT}"));
     }
+    super::used::remember(tc.store, &read.checked).map_err(|e| format!("Not sent: {e}"))?;
     Ok((c, read))
 }
 
@@ -199,7 +221,7 @@ pub async fn run(
         return Err(why);
     }
     let mut ctx = rt.ctx_in(tc).into_owned();
-    let (c, read) = read_key(rt, tool, input, &ctx).await?;
+    let (c, read) = read_key(rt, tc, (tool, input, correlation_id), &ctx).await?;
     let Read { checked, value, .. } = read;
     let handle = format!("{}{correlation_id}", crate::broker::ONCE_HANDLE);
     let mask = Scrubber::with_values(vec![(value.expose().to_string(), handle.clone())]);
@@ -252,9 +274,10 @@ fn tell(tc: &TurnCtx<'_>, c: &Checked, checked: &super::Checked, mask: &Scrubber
         crate::owner_note::Kind::Fyi,
         "A key from the vault, sent in a request",
         &mask.scrub(&body).0,
-        "Nothing stays: nothing was written to the settings, and the next use reads the vault \
-         again. To stop it being used at all, take the item out of what Theseus's vault account \
-         can see.",
+        "Nothing was written to the settings. Theseus remembers which items it has used this way, \
+         by name only, and reads them again at each start so that it keeps masking their values; \
+         the next use reads the vault again. To stop it being used at all, take the item out of \
+         what Theseus's vault account can see.",
     );
     crate::config_change::hold::tell_owner(tc, &note, REQUEST);
 }

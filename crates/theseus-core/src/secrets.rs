@@ -869,6 +869,23 @@ impl SecretBoard {
         });
     }
 
+    /// A runtime secret that is being read (issue 64): `name` is resolving until it is held or
+    /// forgotten, so a turn waits for it as it waits for the vault's own first round. A name the
+    /// board has is left as it is.
+    pub fn pending(&self, name: &str) {
+        self.tx.send_modify(|m| {
+            m.entry(name.to_string()).or_insert(SecretState::Resolving);
+        });
+    }
+
+    /// Take `name` off the board altogether: a runtime secret that could not be read, which is
+    /// not one Theseus has, and not a failure of the vault's.
+    pub fn forget(&self, name: &str) {
+        self.tx.send_modify(|m| {
+            m.remove(name);
+        });
+    }
+
     /// Take a held value off the board: it is no longer a secret Theseus has
     /// (a revoked token), and says why. The scrubber forgets it with the rest.
     pub fn withdraw(&self, name: &str, why: &str) {

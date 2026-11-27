@@ -55,7 +55,9 @@ thing, so it is a different tool, with its own `[policy.tools]` line. It loads w
   another service.
 - **It asks first**, before the vault is read, at both `[content_based_security] outside` settings, as the run form does:
   after outside text since the owner's last message, in a flagged session, and in a turn the owner's own message did not
-  begin (a wake, a task's report). One difference: **the answer of an earlier `http.request` to the same host with the
+  begin (a wake, a task's report, a job's or an agent's submission: only input `turn.submit` judges the owner's own
+  begins one). The hold is read again when the call runs: outside text that an earlier call of the same response read
+  stops it, with nothing read from the vault, unless the owner approved this very call. One difference: **the answer of an earlier `http.request` to the same host with the
   same vault item is not outside text for this tool** (the owner's ruling, K3). That service already holds the key, so its
   answer can only steer calls back to itself. A page from elsewhere, a search, another host or another item still asks.
 - **The wall is `vault.use`'s**: the owner's own turn in a private place; never a task, a job, the self loop, an MCP
@@ -77,7 +79,8 @@ thing, so it is a different tool, with its own `[policy.tools]` line. It loads w
 - **Theseus's own errors** ("Not sent: …") carry nothing of the server's and are not marked.
 - **Masked before it is stored.** The value is held on the board under `vault-use:<call>` before anything is sent, so
   every exit masks it while the daemon runs, and the answer's text and every string of its meta are scrubbed of it before
-  the node is written, so it holds none after a restart.
+  the node is written, so it holds none after a restart. The item is also remembered by name, as the run form's are
+  (`vault.used`), so every start reads it again and the exits keep masking its value in any copy.
 - **No answer within `[tools.web] timeout_secs`** (four times that when files are sent) is "whether it acted on it is not
   known", status unknown. **A restart while a request is out** answers the same and never sends it again.
 
